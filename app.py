@@ -17,10 +17,10 @@ CHANNEL = "Middle_East_Spectator"
 NANOSECONDS_PER_HOUR = 3_600_000_000_000
 
 ASSETS = {
-    "Brent": {"twelve": "XBR/USD", "yahoo": "BZ=F"},
-    "Silver": {"twelve": "XAG/USD", "yahoo": "SI=F"},
-    "Gold": {"twelve": "XAU/USD", "yahoo": "GC=F"},
-    "DXY": {"twelve": "DXY", "yahoo": "DX-Y.NYB"},
+    "Brent": {"twelve": "XBR/USD", "yahoo": "BZ=F", "exchange": "Commodity"},
+    "Silver": {"twelve": "XAG/USD", "yahoo": "SI=F", "exchange": "Commodity"},
+    "Gold": {"twelve": "XAU/USD", "yahoo": "GC=F", "exchange": "Commodity"},
+    "DXY": {"twelve": "DXY", "yahoo": "DX-Y.NYB", "exchange": None},
 }
 
 KEYWORDS = {
@@ -60,14 +60,26 @@ def valid_nordnet_url(value: str) -> bool:
         return False
 
 
+def safe_api_error(response: requests.Response) -> str:
+    """Return a useful error without ever exposing the API key or full request URL."""
+    try:
+        payload = response.json()
+        message = payload.get("message") or payload.get("status") or str(payload)
+    except ValueError:
+        message = response.text.strip()[:300] or response.reason
+    return f"HTTP {response.status_code}: {message}"
+
+
 @st.cache_data(ttl=300)
 def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
-    url = f"https://t.me/s/{channel.lstrip('@')}"
-    response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.3"})
+    response = requests.get(
+        f"https://t.me/s/{channel.lstrip('@')}",
+        timeout=30,
+        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.4"},
+    )
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     rows = []
-
     for wrap in soup.select(".tgme_widget_message_wrap"):
         post = wrap.select_one(".tgme_widget_message")
         if not post:
@@ -82,8 +94,6 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
         text_node = wrap.select_one(".tgme_widget_message_text")
         views_node = wrap.select_one(".tgme_widget_message_views")
         text = text_node.get_text("\n", strip=True) if text_node else "[Media-only post]"
-        published = pd.to_datetime(time_node["datetime"], utc=True)
-
         lowered = text.lower()
         scores = {
             category: sum(bool(re.search(rf"\b{re.escape(word)}\b", lowered)) for word in words)
@@ -96,44 +106,71 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
             - 0.5 * scores["Diplomacy"]
         )
         rows.append({
-            "published_at": published,
+            "published_at": pd.to_datetime(time_node["datetime"], utc=True),
             "text": text,
             "views": parse_views(views_node.get_text(strip=True) if views_node else None),
             "url": f"https://t.me/{channel_name}/{message_id}",
             "impact": impact,
             **scores,
         })
-
     return pd.DataFrame(rows).sort_values("published_at", ascending=False) if rows else pd.DataFrame()
 
 
 @st.cache_data(ttl=60)
-def fetch_twelve_market(symbol: str, interval: str, outputsize: int, api_key: str) -> pd.DataFrame:
-    response = requests.get(
-        "https://api.twelvedata.com/time_series",
-        params={
-            "symbol": symbol,
-            "interval": interval,
-            "outputsize": min(max(outputsize, 1), 5000),
-            "timezone": "UTC",
-            "order": "asc",
-            "apikey": api_key,
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get("status") == "error":
-        raise RuntimeError(payload.get("message", "Ukjent Twelve Data-feil"))
-    values = payload.get("values", [])
-    if not values:
-        return pd.DataFrame()
-    frame = pd.DataFrame(values)
-    frame["timestamp"] = pd.to_datetime(frame["datetime"], utc=True, errors="coerce")
-    for col in ("open", "high", "low", "close", "volume"):
-        if col in frame:
-            frame[col] = pd.to_numeric(frame[col], errors="coerce")
-    return frame.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
+def fetch_twelve_market(
+    symbol: str,
+    interval: str,
+    outputsize: int,
+    api_key: str,
+    exchange: str | None = None,
+) -> pd.DataFrame:
+    base_params = {
+        "symbol": symbol,
+        "interval": interval,
+        "outputsize": min(max(int(outputsize), 1), 5000),
+        "timezone": "UTC",
+        "order": "asc",
+        "format": "JSON",
+        "apikey": api_key,
+    }
+
+    # Twelve Data resolves commodity pairs more reliably when the exchange is explicit.
+    attempts = []
+    if exchange:
+        attempts.append({**base_params, "exchange": exchange})
+    attempts.append(base_params)
+
+    errors: list[str] = []
+    for params in attempts:
+        response = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params=params,
+            timeout=30,
+            headers={"Accept": "application/json", "User-Agent": "PriceGauger/0.4"},
+        )
+        if response.status_code != 200:
+            errors.append(safe_api_error(response))
+            continue
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            errors.append(f"Ugyldig JSON-svar: {exc}")
+            continue
+        if payload.get("status") == "error" or payload.get("code"):
+            errors.append(str(payload.get("message", "Ukjent Twelve Data-feil")))
+            continue
+        values = payload.get("values", [])
+        if not values:
+            errors.append("Twelve Data returnerte ingen prisbarer")
+            continue
+        frame = pd.DataFrame(values)
+        frame["timestamp"] = pd.to_datetime(frame["datetime"], utc=True, errors="coerce")
+        for col in ("open", "high", "low", "close", "volume"):
+            if col in frame:
+                frame[col] = pd.to_numeric(frame[col], errors="coerce")
+        return frame.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
+
+    raise RuntimeError(" | ".join(dict.fromkeys(errors)) or "Twelve Data ga ikke et gyldig svar")
 
 
 @st.cache_data(ttl=300)
@@ -146,7 +183,10 @@ def fetch_yahoo_market(symbol: str, period: str, interval: str) -> pd.DataFrame:
     frame = frame.reset_index()
     time_col = "Datetime" if "Datetime" in frame.columns else "Date"
     frame[time_col] = pd.to_datetime(frame[time_col], utc=True, errors="coerce")
-    frame = frame.rename(columns={time_col: "timestamp", "Close": "close", "Open": "open", "High": "high", "Low": "low", "Volume": "volume"})
+    frame = frame.rename(columns={
+        time_col: "timestamp", "Close": "close", "Open": "open",
+        "High": "high", "Low": "low", "Volume": "volume",
+    })
     frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
     return frame.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
 
@@ -174,9 +214,7 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
     base = pd.merge_asof(
         events,
         bars.rename(columns={"timestamp": "base_time", "close": "base_close"}),
-        on="join_ns",
-        direction="forward",
-        tolerance=6 * NANOSECONDS_PER_HOUR,
+        on="join_ns", direction="forward", tolerance=6 * NANOSECONDS_PER_HOUR,
     )
     target_lookup = pd.DataFrame({
         "row_id": range(len(base)),
@@ -185,11 +223,11 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
     target = pd.merge_asof(
         target_lookup,
         bars.rename(columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}),
-        on="target_join_ns",
-        direction="forward",
-        tolerance=6 * NANOSECONDS_PER_HOUR,
+        on="target_join_ns", direction="forward", tolerance=6 * NANOSECONDS_PER_HOUR,
     ).sort_values("row_id")
-    base[f"return_{horizon_hours}h_pct"] = (target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1) * 100
+    base[f"return_{horizon_hours}h_pct"] = (
+        target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1
+    ) * 100
     return base
 
 
@@ -203,7 +241,10 @@ def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[s
     else:
         now = pd.Timestamp.now(tz="UTC")
         recent = messages[pd.to_datetime(messages["published_at"], utc=True) >= now - pd.Timedelta("12h")]
-        decay_hours = (now - pd.to_datetime(recent["published_at"], utc=True)).dt.total_seconds() / 3600 if not recent.empty else pd.Series(dtype=float)
+        decay_hours = (
+            (now - pd.to_datetime(recent["published_at"], utc=True)).dt.total_seconds() / 3600
+            if not recent.empty else pd.Series(dtype=float)
+        )
         weights = 1 / (1 + decay_hours / 3) if not recent.empty else pd.Series(dtype=float)
         geo = bounded_score(12 + 14 * float((recent["Escalation"] * weights).sum()) - 8 * float((recent["Diplomacy"] * weights).sum()))
         shipping = bounded_score(8 + 20 * float((recent["Hormuz/shipping"] * weights).sum()))
@@ -216,12 +257,17 @@ def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[s
             change = (closes.iloc[-1] / closes.iloc[-lookback - 1] - 1) * 100
             momentum = bounded_score(50 + change * 12)
     total = bounded_score(0.35 * geo + 0.25 * shipping + 0.20 * energy + 0.20 * momentum)
-    return {"Geopolitisk stress": geo, "Hormuz/shipping": shipping, "Energiinfrastruktur": energy, "Markedsmomentum": momentum, "PriceGauge": total}
+    return {
+        "Geopolitisk stress": geo,
+        "Hormuz/shipping": shipping,
+        "Energiinfrastruktur": energy,
+        "Markedsmomentum": momentum,
+        "PriceGauge": total,
+    }
 
 
 st.title("📡 PriceGauger Alpha")
 st.caption("MES-hendelser koblet mot høyoppløselige markedsdata")
-
 api_key = st.secrets.get("TWELVE_DATA_API_KEY", "")
 
 with st.sidebar:
@@ -245,18 +291,19 @@ except Exception as exc:
     st.error(f"Kunne ikke hente MES: {exc}")
     messages = pd.DataFrame()
 
+asset = ASSETS[asset_name]
 feed_name = "Twelve Data"
 try:
     if not api_key:
         raise RuntimeError("TWELVE_DATA_API_KEY mangler i Streamlit Secrets")
-    market = fetch_twelve_market(ASSETS[asset_name]["twelve"], interval, outputsize, api_key)
+    market = fetch_twelve_market(asset["twelve"], interval, outputsize, api_key, asset.get("exchange"))
 except Exception as twelve_exc:
     feed_name = "Yahoo fallback"
     yahoo_interval = {"1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "1h": "1h"}[interval]
     yahoo_period = "7d" if interval == "1min" else "30d"
     try:
-        market = fetch_yahoo_market(ASSETS[asset_name]["yahoo"], yahoo_period, yahoo_interval)
-        st.warning(f"Twelve Data er ikke aktiv ennå: {twelve_exc}. Bruker Yahoo midlertidig.")
+        market = fetch_yahoo_market(asset["yahoo"], yahoo_period, yahoo_interval)
+        st.warning(f"Twelve Data svarte ikke: {twelve_exc}. Bruker Yahoo midlertidig.")
     except Exception as exc:
         st.error(f"Kunne ikke hente markedsdata: {exc}")
         market = pd.DataFrame()
@@ -289,18 +336,35 @@ with chart_tab:
             relevant = messages[messages["impact"] >= min_impact].copy()
             relevant, chart_bars = prepare_join_data(relevant, market)
             if not relevant.empty and not chart_bars.empty:
-                joined = pd.merge_asof(relevant, chart_bars, on="join_ns", direction="nearest", tolerance=6 * NANOSECONDS_PER_HOUR).dropna(subset=["close"])
+                joined = pd.merge_asof(
+                    relevant, chart_bars, on="join_ns", direction="nearest",
+                    tolerance=6 * NANOSECONDS_PER_HOUR,
+                ).dropna(subset=["close"])
                 if not joined.empty:
-                    hover = joined["published_at"].dt.strftime("%Y-%m-%d %H:%M UTC") + "<br>Impact: " + joined["impact"].round(1).astype(str) + "<br>" + joined["text"].str.slice(0, 220)
-                    fig.add_trace(go.Scatter(x=joined["timestamp"], y=joined["close"], mode="markers", name="MES-hendelse", marker={"size": 11, "symbol": "diamond", "line": {"width": 1}}, text=hover, hovertemplate="%{text}<extra></extra>"))
+                    hover = (
+                        joined["published_at"].dt.strftime("%Y-%m-%d %H:%M UTC")
+                        + "<br>Impact: " + joined["impact"].round(1).astype(str)
+                        + "<br>" + joined["text"].str.slice(0, 220)
+                    )
+                    fig.add_trace(go.Scatter(
+                        x=joined["timestamp"], y=joined["close"], mode="markers",
+                        name="MES-hendelse", marker={"size": 11, "symbol": "diamond", "line": {"width": 1}},
+                        text=hover, hovertemplate="%{text}<extra></extra>",
+                    ))
         fig.update_layout(height=500, margin=dict(l=10, r=10, t=20, b=10), legend_orientation="h", dragmode=False)
-        st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": False, "displayModeBar": True, "doubleClick": "reset", "responsive": True})
+        st.plotly_chart(
+            fig, use_container_width=True,
+            config={"scrollZoom": False, "displayModeBar": True, "doubleClick": "reset", "responsive": True},
+        )
         st.caption("Én finger scroller siden. Bruk verktøylinjen i grafen for zoom/panoreringsmodus.")
 
         if not joined.empty:
             st.subheader("Undersøk én hendelse")
             event_options = joined.sort_values("published_at", ascending=False).reset_index(drop=True)
-            labels = event_options.apply(lambda row: f"{row['published_at'].strftime('%d.%m %H:%M')} · impact {row['impact']:.1f} · {row['text'][:65]}", axis=1)
+            labels = event_options.apply(
+                lambda row: f"{row['published_at'].strftime('%d.%m %H:%M')} · impact {row['impact']:.1f} · {row['text'][:65]}",
+                axis=1,
+            )
             selected_index = st.selectbox("MES-melding", range(len(labels)), format_func=lambda i: labels.iloc[i])
             selected = event_options.iloc[selected_index]
             st.write(selected["text"])
