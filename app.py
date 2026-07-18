@@ -27,6 +27,8 @@ KEYWORDS = {
     "Diplomacy": ["ceasefire", "negotiation", "talks", "deal", "agreement", "truce", "mediation"],
 }
 
+NANOSECONDS_PER_HOUR = 3_600_000_000_000
+
 
 def parse_views(raw: str | None) -> int | None:
     if not raw:
@@ -42,9 +44,10 @@ def parse_views(raw: str | None) -> int | None:
     return int(value)
 
 
-def normalise_join_time(series: pd.Series) -> pd.Series:
-    """Return one consistent timezone-naive UTC dtype for pandas merge_asof."""
-    return pd.to_datetime(series, utc=True, errors="coerce").dt.tz_convert(None)
+def utc_nanoseconds(series: pd.Series) -> pd.Series:
+    """Convert timestamps from any pandas precision to one int64 UTC nanosecond key."""
+    parsed = pd.to_datetime(series, utc=True, errors="coerce")
+    return parsed.map(lambda value: value.value if not pd.isna(value) else pd.NA).astype("Int64")
 
 
 @st.cache_data(ttl=300)
@@ -107,10 +110,16 @@ def fetch_market(symbol: str, period: str = "30d", interval: str = "1h") -> pd.D
 def prepare_join_data(messages: pd.DataFrame, market: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     events = messages.copy()
     bars = market[["timestamp", "close"]].copy()
-    events["published_at"] = normalise_join_time(events["published_at"])
-    bars["timestamp"] = normalise_join_time(bars["timestamp"])
-    events = events.dropna(subset=["published_at"]).sort_values("published_at").reset_index(drop=True)
-    bars = bars.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
+    events["published_at"] = pd.to_datetime(events["published_at"], utc=True, errors="coerce")
+    bars["timestamp"] = pd.to_datetime(bars["timestamp"], utc=True, errors="coerce")
+    events["join_ns"] = utc_nanoseconds(events["published_at"])
+    bars["join_ns"] = utc_nanoseconds(bars["timestamp"])
+    events = events.dropna(subset=["published_at", "join_ns"]).copy()
+    bars = bars.dropna(subset=["timestamp", "join_ns", "close"]).copy()
+    events["join_ns"] = events["join_ns"].astype("int64")
+    bars["join_ns"] = bars["join_ns"].astype("int64")
+    events = events.sort_values("join_ns").reset_index(drop=True)
+    bars = bars.sort_values("join_ns").reset_index(drop=True)
     return events, bars
 
 
@@ -121,25 +130,28 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
     if events.empty or bars.empty:
         return pd.DataFrame()
 
+    base_bars = bars.rename(columns={"timestamp": "base_time", "close": "base_close"})
     base = pd.merge_asof(
         events,
-        bars.rename(columns={"timestamp": "base_time", "close": "base_close"}),
-        left_on="published_at",
-        right_on="base_time",
+        base_bars,
+        on="join_ns",
         direction="forward",
-        tolerance=pd.Timedelta("6h"),
+        tolerance=6 * NANOSECONDS_PER_HOUR,
     )
+
     target_lookup = pd.DataFrame({
         "row_id": range(len(base)),
-        "target_time": base["published_at"] + pd.Timedelta(hours=horizon_hours),
-    }).sort_values("target_time")
+        "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR,
+    }).sort_values("target_join_ns")
+    target_bars = bars.rename(
+        columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}
+    )
     target = pd.merge_asof(
         target_lookup,
-        bars.rename(columns={"timestamp": "target_bar", "close": "target_close"}),
-        left_on="target_time",
-        right_on="target_bar",
+        target_bars,
+        on="target_join_ns",
         direction="forward",
-        tolerance=pd.Timedelta("6h"),
+        tolerance=6 * NANOSECONDS_PER_HOUR,
     ).sort_values("row_id")
     base[f"return_{horizon_hours}h_pct"] = (
         target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1
@@ -193,10 +205,9 @@ with chart_tab:
                 joined = pd.merge_asof(
                     relevant,
                     chart_bars,
-                    left_on="published_at",
-                    right_on="timestamp",
+                    on="join_ns",
                     direction="nearest",
-                    tolerance=pd.Timedelta("6h"),
+                    tolerance=6 * NANOSECONDS_PER_HOUR,
                 ).dropna(subset=["close"])
                 if not joined.empty:
                     fig.add_trace(go.Scatter(
