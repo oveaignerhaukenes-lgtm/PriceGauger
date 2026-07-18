@@ -42,6 +42,11 @@ def parse_views(raw: str | None) -> int | None:
     return int(value)
 
 
+def normalise_join_time(series: pd.Series) -> pd.Series:
+    """Return one consistent timezone-naive UTC dtype for pandas merge_asof."""
+    return pd.to_datetime(series, utc=True, errors="coerce").dt.tz_convert(None)
+
+
 @st.cache_data(ttl=300)
 def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
     url = f"https://t.me/s/{channel.lstrip('@')}"
@@ -93,19 +98,52 @@ def fetch_market(symbol: str, period: str = "30d", interval: str = "1h") -> pd.D
         frame.columns = frame.columns.get_level_values(0)
     frame = frame.reset_index()
     time_col = "Datetime" if "Datetime" in frame.columns else "Date"
-    frame[time_col] = pd.to_datetime(frame[time_col], utc=True)
-    return frame.rename(columns={time_col: "timestamp", "Close": "close"})
+    frame[time_col] = pd.to_datetime(frame[time_col], utc=True, errors="coerce")
+    frame = frame.rename(columns={time_col: "timestamp", "Close": "close"})
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    return frame.dropna(subset=["timestamp", "close"])
+
+
+def prepare_join_data(messages: pd.DataFrame, market: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    events = messages.copy()
+    bars = market[["timestamp", "close"]].copy()
+    events["published_at"] = normalise_join_time(events["published_at"])
+    bars["timestamp"] = normalise_join_time(bars["timestamp"])
+    events = events.dropna(subset=["published_at"]).sort_values("published_at").reset_index(drop=True)
+    bars = bars.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
+    return events, bars
 
 
 def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: int) -> pd.DataFrame:
     if messages.empty or market.empty:
         return pd.DataFrame()
-    events = messages.sort_values("published_at").copy()
-    bars = market[["timestamp", "close"]].dropna().sort_values("timestamp")
-    base = pd.merge_asof(events, bars.rename(columns={"timestamp": "base_time", "close": "base_close"}), left_on="published_at", right_on="base_time", direction="forward", tolerance=pd.Timedelta("6h"))
-    target_lookup = pd.DataFrame({"target_time": base["published_at"] + pd.Timedelta(hours=horizon_hours)})
-    target = pd.merge_asof(target_lookup.sort_values("target_time"), bars.rename(columns={"timestamp": "target_bar", "close": "target_close"}), left_on="target_time", right_on="target_bar", direction="forward", tolerance=pd.Timedelta("6h"))
-    base[f"return_{horizon_hours}h_pct"] = (target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1) * 100
+    events, bars = prepare_join_data(messages, market)
+    if events.empty or bars.empty:
+        return pd.DataFrame()
+
+    base = pd.merge_asof(
+        events,
+        bars.rename(columns={"timestamp": "base_time", "close": "base_close"}),
+        left_on="published_at",
+        right_on="base_time",
+        direction="forward",
+        tolerance=pd.Timedelta("6h"),
+    )
+    target_lookup = pd.DataFrame({
+        "row_id": range(len(base)),
+        "target_time": base["published_at"] + pd.Timedelta(hours=horizon_hours),
+    }).sort_values("target_time")
+    target = pd.merge_asof(
+        target_lookup,
+        bars.rename(columns={"timestamp": "target_bar", "close": "target_close"}),
+        left_on="target_time",
+        right_on="target_bar",
+        direction="forward",
+        tolerance=pd.Timedelta("6h"),
+    ).sort_values("row_id")
+    base[f"return_{horizon_hours}h_pct"] = (
+        target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1
+    ) * 100
     return base
 
 
@@ -149,9 +187,26 @@ with chart_tab:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=market["timestamp"], y=market["close"], mode="lines", name=asset_name))
         if not messages.empty:
-            relevant = messages[messages["impact"] >= min_impact].sort_values("published_at")
-            joined = pd.merge_asof(relevant, market[["timestamp", "close"]].sort_values("timestamp"), left_on="published_at", right_on="timestamp", direction="nearest", tolerance=pd.Timedelta("6h")).dropna(subset=["close"])
-            fig.add_trace(go.Scatter(x=joined["timestamp"], y=joined["close"], mode="markers", name="MES", text=joined["text"].str.slice(0, 180), hovertemplate="%{text}<extra></extra>"))
+            relevant = messages[messages["impact"] >= min_impact].copy()
+            relevant, chart_bars = prepare_join_data(relevant, market)
+            if not relevant.empty and not chart_bars.empty:
+                joined = pd.merge_asof(
+                    relevant,
+                    chart_bars,
+                    left_on="published_at",
+                    right_on="timestamp",
+                    direction="nearest",
+                    tolerance=pd.Timedelta("6h"),
+                ).dropna(subset=["close"])
+                if not joined.empty:
+                    fig.add_trace(go.Scatter(
+                        x=joined["timestamp"],
+                        y=joined["close"],
+                        mode="markers",
+                        name="MES",
+                        text=joined["text"].str.slice(0, 180),
+                        hovertemplate="%{text}<extra></extra>",
+                    ))
         fig.update_layout(height=460, margin=dict(l=10, r=10, t=20, b=10), legend_orientation="h")
         st.plotly_chart(fig, use_container_width=True)
 
@@ -167,9 +222,13 @@ with events_tab:
                 st.link_button("Åpne i Telegram", row["url"])
 
 with test_tab:
-    aligned = align_events(messages, market, horizon)
+    try:
+        aligned = align_events(messages, market, horizon)
+    except Exception as exc:
+        st.error(f"Kunne ikke koble hendelser og prisdata: {exc}")
+        aligned = pd.DataFrame()
     col = f"return_{horizon}h_pct"
-    valid = aligned.dropna(subset=[col]) if not aligned.empty else pd.DataFrame()
+    valid = aligned.dropna(subset=[col]) if not aligned.empty and col in aligned else pd.DataFrame()
     if valid.empty:
         st.info("Ingen tidsmessig overlapp mellom meldingene og prisdataene ennå.")
     else:
