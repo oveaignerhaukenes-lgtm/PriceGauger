@@ -45,7 +45,6 @@ def parse_views(raw: str | None) -> int | None:
 
 
 def utc_nanoseconds(series: pd.Series) -> pd.Series:
-    """Convert timestamps from any pandas precision to one int64 UTC nanosecond key."""
     parsed = pd.to_datetime(series, utc=True, errors="coerce")
     return parsed.map(lambda value: value.value if not pd.isna(value) else pd.NA).astype("Int64")
 
@@ -53,7 +52,7 @@ def utc_nanoseconds(series: pd.Series) -> pd.Series:
 @st.cache_data(ttl=300)
 def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
     url = f"https://t.me/s/{channel.lstrip('@')}"
-    response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.1"})
+    response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.2"})
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     rows = []
@@ -79,7 +78,12 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
         for category, words in KEYWORDS.items():
             scores[category] = sum(bool(re.search(rf"\b{re.escape(word)}\b", lowered)) for word in words)
 
-        impact = 2.0 * scores["Hormuz/shipping"] + 1.5 * scores["Energy"] + scores["Escalation"] - 0.5 * scores["Diplomacy"]
+        impact = (
+            2.0 * scores["Hormuz/shipping"]
+            + 1.5 * scores["Energy"]
+            + scores["Escalation"]
+            - 0.5 * scores["Diplomacy"]
+        )
         rows.append({
             "published_at": published,
             "text": text,
@@ -118,9 +122,10 @@ def prepare_join_data(messages: pd.DataFrame, market: pd.DataFrame) -> tuple[pd.
     bars = bars.dropna(subset=["timestamp", "join_ns", "close"]).copy()
     events["join_ns"] = events["join_ns"].astype("int64")
     bars["join_ns"] = bars["join_ns"].astype("int64")
-    events = events.sort_values("join_ns").reset_index(drop=True)
-    bars = bars.sort_values("join_ns").reset_index(drop=True)
-    return events, bars
+    return (
+        events.sort_values("join_ns").reset_index(drop=True),
+        bars.sort_values("join_ns").reset_index(drop=True),
+    )
 
 
 def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: int) -> pd.DataFrame:
@@ -130,25 +135,20 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
     if events.empty or bars.empty:
         return pd.DataFrame()
 
-    base_bars = bars.rename(columns={"timestamp": "base_time", "close": "base_close"})
     base = pd.merge_asof(
         events,
-        base_bars,
+        bars.rename(columns={"timestamp": "base_time", "close": "base_close"}),
         on="join_ns",
         direction="forward",
         tolerance=6 * NANOSECONDS_PER_HOUR,
     )
-
     target_lookup = pd.DataFrame({
         "row_id": range(len(base)),
         "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR,
     }).sort_values("target_join_ns")
-    target_bars = bars.rename(
-        columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}
-    )
     target = pd.merge_asof(
         target_lookup,
-        target_bars,
+        bars.rename(columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}),
         on="target_join_ns",
         direction="forward",
         tolerance=6 * NANOSECONDS_PER_HOUR,
@@ -157,6 +157,40 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
         target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1
     ) * 100
     return base
+
+
+def bounded_score(value: float) -> int:
+    return int(max(0, min(100, round(value))))
+
+
+def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[str, int]:
+    if messages.empty:
+        geo = shipping = energy = 0
+    else:
+        now = pd.Timestamp.now(tz="UTC")
+        recent = messages[pd.to_datetime(messages["published_at"], utc=True) >= now - pd.Timedelta("12h")]
+        decay_hours = (now - pd.to_datetime(recent["published_at"], utc=True)).dt.total_seconds() / 3600 if not recent.empty else pd.Series(dtype=float)
+        weights = (1 / (1 + decay_hours / 3)) if not recent.empty else pd.Series(dtype=float)
+        geo = bounded_score(12 + 14 * float((recent["Escalation"] * weights).sum()) - 8 * float((recent["Diplomacy"] * weights).sum()))
+        shipping = bounded_score(8 + 20 * float((recent["Hormuz/shipping"] * weights).sum()))
+        energy = bounded_score(8 + 16 * float((recent["Energy"] * weights).sum()))
+
+    momentum = 50
+    if not market.empty and len(market) >= 5:
+        closes = market["close"].dropna()
+        lookback = min(24, len(closes) - 1)
+        if lookback > 0 and closes.iloc[-lookback - 1] != 0:
+            change = (closes.iloc[-1] / closes.iloc[-lookback - 1] - 1) * 100
+            momentum = bounded_score(50 + change * 12)
+
+    total = bounded_score(0.35 * geo + 0.25 * shipping + 0.20 * energy + 0.20 * momentum)
+    return {
+        "Geopolitisk stress": geo,
+        "Hormuz/shipping": shipping,
+        "Energiinfrastruktur": energy,
+        "Markedsmomentum": momentum,
+        "PriceGauge": total,
+    }
 
 
 st.title("📡 PriceGauger Alpha")
@@ -193,11 +227,22 @@ m3.metric("Sist oppdatert", datetime.now(timezone.utc).strftime("%H:%M UTC"))
 chart_tab, events_tab, test_tab, risk_tab = st.tabs(["Dashboard", "Hendelser", "Historisk test", "Risiko"])
 
 with chart_tab:
+    scores = calculate_pricegauge(messages, market)
+    st.subheader("Eksperimentell PriceGauge")
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("TOTAL", scores["PriceGauge"])
+    g2.metric("Geopolitikk", scores["Geopolitisk stress"])
+    g3.metric("Hormuz", scores["Hormuz/shipping"])
+    g4.metric("Momentum", scores["Markedsmomentum"])
+    st.progress(scores["PriceGauge"] / 100)
+    st.caption("Foreløpig heuristisk score for testing — ikke en validert prognose eller handelsanbefaling.")
+
     if market.empty:
         st.info("Ingen markedsdata tilgjengelig.")
     else:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=market["timestamp"], y=market["close"], mode="lines", name=asset_name))
+        joined = pd.DataFrame()
         if not messages.empty:
             relevant = messages[messages["impact"] >= min_impact].copy()
             relevant, chart_bars = prepare_join_data(relevant, market)
@@ -210,16 +255,46 @@ with chart_tab:
                     tolerance=6 * NANOSECONDS_PER_HOUR,
                 ).dropna(subset=["close"])
                 if not joined.empty:
+                    hover = (
+                        joined["published_at"].dt.strftime("%Y-%m-%d %H:%M UTC")
+                        + "<br>Impact: " + joined["impact"].round(1).astype(str)
+                        + "<br>" + joined["text"].str.slice(0, 220)
+                    )
                     fig.add_trace(go.Scatter(
                         x=joined["timestamp"],
                         y=joined["close"],
                         mode="markers",
-                        name="MES",
-                        text=joined["text"].str.slice(0, 180),
+                        name="MES-hendelse",
+                        marker={"size": 11, "symbol": "diamond", "line": {"width": 1}},
+                        text=hover,
                         hovertemplate="%{text}<extra></extra>",
                     ))
-        fig.update_layout(height=460, margin=dict(l=10, r=10, t=20, b=10), legend_orientation="h")
+        fig.update_layout(height=500, margin=dict(l=10, r=10, t=20, b=10), legend_orientation="h")
         st.plotly_chart(fig, use_container_width=True)
+
+        if not joined.empty:
+            st.subheader("Undersøk én hendelse")
+            event_options = joined.sort_values("published_at", ascending=False).reset_index(drop=True)
+            labels = event_options.apply(
+                lambda row: f"{row['published_at'].strftime('%d.%m %H:%M')} · impact {row['impact']:.1f} · {row['text'][:65]}",
+                axis=1,
+            )
+            selected_index = st.selectbox("MES-melding", range(len(labels)), format_func=lambda i: labels.iloc[i])
+            selected = event_options.iloc[selected_index]
+            st.write(selected["text"])
+            st.caption(selected["published_at"].strftime("%Y-%m-%d %H:%M UTC"))
+
+            returns = {}
+            for hours in (1, 4, 24):
+                one_event = messages[messages["url"] == selected["url"]]
+                result = align_events(one_event, market, hours)
+                col = f"return_{hours}h_pct"
+                returns[hours] = result[col].iloc[0] if not result.empty and col in result and pd.notna(result[col].iloc[0]) else None
+            r1, r4, r24 = st.columns(3)
+            r1.metric("Etter 1 t", "–" if returns[1] is None else f"{returns[1]:+.2f} %")
+            r4.metric("Etter 4 t", "–" if returns[4] is None else f"{returns[4]:+.2f} %")
+            r24.metric("Etter 24 t", "–" if returns[24] is None else f"{returns[24]:+.2f} %")
+            st.link_button("Åpne originalen i Telegram", selected["url"])
 
 with events_tab:
     if messages.empty:
@@ -251,7 +326,13 @@ with test_tab:
         for category in KEYWORDS:
             subset = valid[valid[category] > 0]
             if len(subset):
-                rows.append({"Kategori": category, "N": len(subset), "Gj.snitt %": subset[col].mean(), "Median %": subset[col].median(), "Positive %": (subset[col] > 0).mean() * 100})
+                rows.append({
+                    "Kategori": category,
+                    "N": len(subset),
+                    "Gj.snitt %": subset[col].mean(),
+                    "Median %": subset[col].median(),
+                    "Positive %": (subset[col] > 0).mean() * 100,
+                })
         if rows:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         st.caption("Dette er deskriptiv korrelasjon, ikke en validert prognose.")
