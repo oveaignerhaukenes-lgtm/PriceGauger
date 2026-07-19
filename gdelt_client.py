@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,7 +17,7 @@ class GdeltError(RuntimeError):
     def __init__(self, message: str, *, stage: str, status_code: int | None = None) -> None:
         self.stage = stage
         self.status_code = status_code
-        prefix = f"{stage}"
+        prefix = stage
         if status_code is not None:
             prefix += f" · HTTP {status_code}"
         super().__init__(f"{prefix}: {message}")
@@ -26,6 +27,7 @@ class GdeltError(RuntimeError):
 class GdeltPage:
     events: list[MarketEvent]
     next_cursor: str | None
+    warning: str | None = None
 
 
 class GdeltClient:
@@ -87,38 +89,36 @@ class GdeltClient:
             )
         return payload
 
-    def list_events(
-        self,
-        *,
-        date_start: str,
-        date_end: str,
-        search: str = "",
-        country: str = "",
-        category: str = "",
-        domain: str = "",
-        event_family: str = "",
-        confidence_profile: str = "precise",
-        sort: str = "significance",
-        limit: int = 50,
-        cursor: str | None = None,
-    ) -> GdeltPage:
-        payload = self._get(
-            "/events",
-            {
-                "date_start": date_start,
-                "date_end": date_end,
-                "search": search,
-                "country": country,
-                "category": category,
-                "domain": domain,
-                "event_family": event_family,
-                "confidence_profile": confidence_profile,
-                "sort": sort,
-                "limit": max(1, min(limit, 100)),
-                "cursor": cursor,
-            },
+    @staticmethod
+    def _semantic_timeout(exc: GdeltError) -> bool:
+        text = str(exc).lower()
+        return exc.status_code in {500, 502, 503, 504} and (
+            "embedding" in text or "semantic search" in text
         )
 
+    @staticmethod
+    def _lexical_filter(items: list[dict[str, Any]], search: str, limit: int) -> list[dict[str, Any]]:
+        terms = [
+            term
+            for term in re.findall(r"[a-z0-9]+", search.lower())
+            if len(term) >= 3 and term not in {"the", "and", "for", "with", "from", "on", "in", "of", "to"}
+        ]
+        if not terms:
+            return items[:limit]
+
+        ranked: list[tuple[int, dict[str, Any]]] = []
+        for item in items:
+            haystack = " ".join(
+                str(item.get(field) or "")
+                for field in ("title", "summary", "category", "subcategory", "domain")
+            ).lower()
+            score = sum(term in haystack for term in terms)
+            if score:
+                ranked.append((score, item))
+        ranked.sort(key=lambda pair: pair[0], reverse=True)
+        return [item for _, item in ranked[:limit]] if ranked else items[:limit]
+
+    def _parse_page(self, payload: dict[str, Any], *, warning: str | None = None) -> GdeltPage:
         raw_events = payload.get("data", [])
         if raw_events is None:
             raw_events = []
@@ -150,4 +150,60 @@ class GdeltClient:
                 f"Alle {skipped} returnerte poster hadde ugyldig format.",
                 stage="parsing",
             )
-        return GdeltPage(events=events, next_cursor=pagination.get("next_cursor"))
+        return GdeltPage(events=events, next_cursor=pagination.get("next_cursor"), warning=warning)
+
+    def list_events(
+        self,
+        *,
+        date_start: str,
+        date_end: str,
+        search: str = "",
+        country: str = "",
+        category: str = "",
+        domain: str = "",
+        event_family: str = "",
+        confidence_profile: str = "precise",
+        sort: str = "significance",
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> GdeltPage:
+        bounded_limit = max(1, min(limit, 100))
+        params = {
+            "date_start": date_start,
+            "date_end": date_end,
+            "search": search,
+            "country": country,
+            "category": category,
+            "domain": domain,
+            "event_family": event_family,
+            "confidence_profile": confidence_profile,
+            "sort": sort,
+            "limit": bounded_limit,
+            "cursor": cursor,
+        }
+
+        try:
+            payload = self._get("/events", params)
+            return self._parse_page(payload)
+        except GdeltError as exc:
+            if not search.strip() or not self._semantic_timeout(exc):
+                raise
+
+        fallback_params = dict(params)
+        fallback_params.pop("search", None)
+        fallback_params.pop("cursor", None)
+        fallback_params["limit"] = 100
+        payload = self._get("/events", fallback_params)
+        raw_events = payload.get("data")
+        if isinstance(raw_events, list):
+            valid_items = [item for item in raw_events if isinstance(item, dict)]
+            payload = dict(payload)
+            payload["data"] = self._lexical_filter(valid_items, search, bounded_limit)
+            payload["pagination"] = {}
+
+        warning = (
+            "GDELTs semantiske søk fikk tidsavbrudd. PriceGauger hentet derfor hendelser med "
+            "dato-/land-/domenefiltrene og brukte et lokalt nøkkelordfilter. Resultatene er brukbare, "
+            "men mindre presise enn et vellykket semantisk søk."
+        )
+        return self._parse_page(payload, warning=warning)
