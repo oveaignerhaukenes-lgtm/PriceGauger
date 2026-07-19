@@ -232,8 +232,8 @@ m2.metric("Prisbarer", len(market))
 m3.metric("Datakilde", feed_name)
 m4.metric("Sist oppdatert", datetime.now(timezone.utc).strftime("%H:%M UTC"))
 
-chart_tab, events_tab, test_tab, risk_tab, decision_tab, lab_tab = st.tabs(
-    ["Dashboard", "Hendelser", "Historisk test", "Risiko", "Beslutningslab", "Historical Event Lab"]
+chart_tab, events_tab, test_tab, risk_tab, lab_tab, decision_tab = st.tabs(
+    ["Dashboard", "Hendelser", "Historisk test", "Risiko", "Historical Event Lab", "Beslutningslab"]
 )
 
 with chart_tab:
@@ -276,14 +276,8 @@ with chart_tab:
         s1, s2, s3, s4 = st.columns(4)
         s1.metric("Handling", strategy.action)
         s2.metric("Maks gearing", f"{strategy.max_leverage:.1f}×")
-        s3.metric(
-            "Autosalg",
-            f"{strategy.take_profit_pct:.3f} %" if strategy.take_profit_pct is not None else "—",
-        )
-        s4.metric(
-            "Stop i underliggende",
-            f"{strategy.stop_loss_pct:.3f} %" if strategy.stop_loss_pct is not None else "—",
-        )
+        s3.metric("Autosalg", f"{strategy.take_profit_pct:.3f} %" if strategy.take_profit_pct is not None else "—")
+        s4.metric("Stop i underliggende", f"{strategy.stop_loss_pct:.3f} %" if strategy.stop_loss_pct is not None else "—")
         st.write(strategy.methodology)
         st.warning(strategy.warning)
 
@@ -330,6 +324,9 @@ with risk_tab:
     r1.metric("Maks tap", f"{max_loss:,.0f} NOK")
     r2.metric("Produktbeløp", f"{product_amount:,.0f} NOK")
 
+with lab_tab:
+    render_event_lab()
+
 with decision_tab:
     st.subheader("EventDNA og historisk beslutningsgrunnlag")
     events = st.session_state.get("gdelt_events", [])
@@ -347,6 +344,14 @@ with decision_tab:
         dna = build_event_dna(selected_event)
         matches = find_similar_events(selected_event, events, limit=20, minimum_score=0.0)
         profile = build_market_profile(asset=asset_name, similar_events=matches, reactions=reactions)
+        event_assessment = build_market_assessment(
+            asset=asset_name,
+            messages=messages,
+            market=market,
+            intraday_reactions=reactions,
+            market_profile=profile,
+        )
+        event_strategy = build_strategy_suggestion(event_assessment, profit_capture=profit_capture)
 
         d1, d2, d3, d4 = st.columns(4)
         d1.metric("Hendelsestype", dna.event_type)
@@ -384,24 +389,45 @@ with decision_tab:
         p1.metric("Retning", profile.direction)
         p2.metric("Konfidens", f"{profile.confidence_pct:.1f} %")
         p3.metric("Utvalg", profile.sample_size)
-        p4.metric(
-            "Median +4t",
-            f"{profile.median_4h_pct:+.3f} %" if profile.median_4h_pct is not None else "Mangler data",
-        )
+        p4.metric("Median +4t", f"{profile.median_4h_pct:+.3f} %" if profile.median_4h_pct is not None else "Mangler data")
         st.caption(
-            f"Effektivt utvalg {profile.effective_sample_size:.2f} · "
-            f"Andel positive 1t: {profile.positive_share_pct:.1f} %"
+            f"Effektivt utvalg {profile.effective_sample_size:.2f} · Andel positive 1t: {profile.positive_share_pct:.1f} %"
             if profile.positive_share_pct is not None
             else f"Effektivt utvalg {profile.effective_sample_size:.2f} · Ingen 1t-observasjoner"
         )
+
+        st.markdown("### Hendelsesspesifikk beslutning")
+        with st.container(border=True):
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Handling", event_strategy.action)
+            b2.metric("Konfidens", f"{event_assessment.confidence_pct:.1f} %")
+            b3.metric(
+                "Forventet bevegelse",
+                f"{event_assessment.expected_move_pct:+.3f} %"
+                if event_assessment.expected_move_pct is not None
+                else "Mangler historikk",
+            )
+            b4.metric("Evidensgrad", event_assessment.evidence_grade)
+            st.write(f"**Tidshorisont:** {event_assessment.horizon} · **Analogutvalg:** {event_assessment.historical_sample}")
+            for reason in event_assessment.rationale:
+                st.write(f"• {reason}")
+
+        with st.container(border=True):
+            q1, q2, q3, q4 = st.columns(4)
+            q1.metric("Maks gearing", f"{event_strategy.max_leverage:.1f}×")
+            q2.metric("Autosalg", f"{event_strategy.take_profit_pct:.3f} %" if event_strategy.take_profit_pct is not None else "—")
+            q3.metric("Stop", f"{event_strategy.stop_loss_pct:.3f} %" if event_strategy.stop_loss_pct is not None else "—")
+            q4.metric("Maks holdetid", event_strategy.max_holding_time)
+            st.write(event_strategy.methodology)
+            st.warning(event_strategy.warning)
 
         trace = build_decision_trace(
             event=selected_event,
             event_dna=dna,
             similar_events=matches,
             market_profile=profile,
-            assessment=assessment,
-            strategy=strategy,
+            assessment=event_assessment,
+            strategy=event_strategy,
         )
         with st.expander("Decision Trace"):
             st.json(trace.to_record())
@@ -409,6 +435,3 @@ with decision_tab:
             save_decision_trace(trace)
             st.session_state.last_decision_trace_id = trace.trace_id
             st.success(f"Beslutningssporet er lagret: {trace.trace_id}")
-
-with lab_tab:
-    render_event_lab()
