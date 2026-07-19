@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
@@ -76,26 +76,63 @@ def _historical_frame(reactions: Iterable[Any], asset: str) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def _profile_record(profile: Any | None) -> dict[str, Any]:
+    if profile is None:
+        return {}
+    if hasattr(profile, "to_record"):
+        return dict(profile.to_record())
+    if isinstance(profile, Mapping):
+        return dict(profile)
+    return dict(vars(profile))
+
+
 def build_market_assessment(
     *,
     asset: str,
     messages: pd.DataFrame,
     market: pd.DataFrame,
     intraday_reactions: Iterable[Any] | None = None,
+    market_profile: Any | None = None,
 ) -> MarketAssessment:
+    """Build an assessment from live flow, momentum and optional EventDNA analogues.
+
+    When ``market_profile`` is supplied, its similarity-weighted analogue sample is
+    used instead of the unfiltered asset-wide reaction history. The old behaviour
+    remains available for the dashboard and for callers that do not yet provide a
+    profile.
+    """
     now = pd.Timestamp.now(tz="UTC")
     live_score = _recent_message_score(messages, now)
     momentum = _momentum_pct(market)
+    profile = _profile_record(market_profile)
     history = _historical_frame(intraday_reactions or [], asset)
 
     sample = len(history)
+    effective_sample = float(sample)
     median_1h = None
     positive_share = None
     expected_move = None
     median_adverse = None
     median_quality = None
+    profile_confidence = None
+    analogue_mode = bool(profile)
 
-    if not history.empty:
+    if analogue_mode:
+        sample = int(profile.get("sample_size") or 0)
+        effective_sample = float(profile.get("effective_sample_size") or 0.0)
+        median_1h = profile.get("median_1h_pct")
+        positive_share = profile.get("positive_share_pct")
+        expected_move = profile.get("weighted_mean_4h_pct")
+        if expected_move is None:
+            expected_move = profile.get("median_4h_pct")
+        if expected_move is None:
+            expected_move = profile.get("weighted_mean_1h_pct")
+        if expected_move is None:
+            expected_move = median_1h
+        adverse_value = profile.get("median_max_down_24h_pct")
+        median_adverse = abs(float(adverse_value)) if adverse_value is not None else None
+        profile_confidence = float(profile.get("confidence_pct") or 0.0)
+    elif not history.empty:
         one_hour = pd.to_numeric(history.get("return_1h_pct"), errors="coerce").dropna()
         four_hour = pd.to_numeric(history.get("return_4h_pct"), errors="coerce").dropna()
         adverse = pd.to_numeric(history.get("max_down_24h_pct"), errors="coerce").dropna()
@@ -120,21 +157,33 @@ def build_market_assessment(
     }.get(asset, 0.03)
     live_component = live_score * asset_live_weight
     momentum_component = (momentum or 0.0) * 0.35
-    historical_component = (expected_move or 0.0) * min(1.0, sample / 20.0)
+    history_scale = min(1.0, effective_sample / 12.0) if analogue_mode else min(1.0, sample / 20.0)
+    historical_component = (float(expected_move) if expected_move is not None else 0.0) * history_scale
     combined = historical_component + live_component + momentum_component
 
     dead_zone = 0.12
     direction = "LONG" if combined > dead_zone else "SHORT" if combined < -dead_zone else "NEUTRAL"
 
-    sample_score = min(30.0, sample * 1.5)
-    quality_score = 20.0 if median_quality is None else min(25.0, median_quality * 0.25)
-    directional_score = 0.0
-    if positive_share is not None:
-        directional_score = min(25.0, abs(positive_share - 50.0))
-    live_confidence = min(20.0, abs(live_score) * 1.5)
-    confidence = round(min(95.0, 20.0 + sample_score + quality_score + directional_score + live_confidence), 1)
+    if analogue_mode:
+        sample_score = min(30.0, effective_sample * 3.0)
+        directional_score = min(25.0, abs(float(positive_share) - 50.0)) if positive_share is not None else 0.0
+        live_confidence = min(15.0, abs(live_score) * 1.25)
+        momentum_confidence = min(10.0, abs(momentum or 0.0) * 2.0)
+        confidence = 15.0 + sample_score + directional_score + live_confidence + momentum_confidence
+        if profile_confidence is not None:
+            confidence = (confidence * 0.55) + (profile_confidence * 0.45)
+        confidence = round(min(95.0, confidence), 1)
+    else:
+        sample_score = min(30.0, sample * 1.5)
+        quality_score = 20.0 if median_quality is None else min(25.0, median_quality * 0.25)
+        directional_score = 0.0
+        if positive_share is not None:
+            directional_score = min(25.0, abs(positive_share - 50.0))
+        live_confidence = min(20.0, abs(live_score) * 1.5)
+        confidence = round(min(95.0, 20.0 + sample_score + quality_score + directional_score + live_confidence), 1)
 
-    if sample < 8:
+    minimum_sample = 3 if analogue_mode else 8
+    if sample < minimum_sample or (analogue_mode and effective_sample < 1.5):
         grade = "INSUFFICIENT"
     elif confidence >= 80:
         grade = "HIGH"
@@ -144,14 +193,22 @@ def build_market_assessment(
         grade = "LOW"
 
     horizon = "1–4 timer" if expected_move is not None else "ukjent"
-    rationale = [
-        f"Live Telegram-score siste 12 timer: {live_score:.2f}",
-        f"Historisk utvalg for {asset}: {sample} koblinger",
-    ]
+    rationale = [f"Live Telegram-score siste 12 timer: {live_score:.2f}"]
+    if analogue_mode:
+        rationale.append(
+            f"EventDNA-utvalg for {asset}: {sample} reaksjoner, effektivt utvalg {effective_sample:.2f}"
+        )
+        if profile_confidence is not None:
+            rationale.append(f"Market Profile-konfidens: {profile_confidence:.1f} %")
+    else:
+        rationale.append(f"Historisk utvalg for {asset}: {sample} koblinger")
     if median_1h is not None:
-        rationale.append(f"Historisk median etter 1 time: {median_1h:+.3f} %")
+        rationale.append(f"Historisk median etter 1 time: {float(median_1h):+.3f} %")
+    if expected_move is not None:
+        label = "Likhetsvektet forventning etter 4 timer" if analogue_mode else "Historisk forventning etter 4 timer"
+        rationale.append(f"{label}: {float(expected_move):+.3f} %")
     if positive_share is not None:
-        rationale.append(f"Historisk andel positive etter 1 time: {positive_share:.0f} %")
+        rationale.append(f"Historisk andel positive etter 1 time: {float(positive_share):.0f} %")
     if momentum is not None:
         rationale.append(f"Kort markedsmomentum: {momentum:+.3f} %")
     if median_adverse is not None:
@@ -161,11 +218,11 @@ def build_market_assessment(
         asset=asset,
         direction=direction,
         confidence_pct=confidence,
-        expected_move_pct=expected_move,
+        expected_move_pct=float(expected_move) if expected_move is not None else None,
         horizon=horizon,
         historical_sample=sample,
-        historical_positive_share_pct=positive_share,
-        historical_median_pct=median_1h,
+        historical_positive_share_pct=float(positive_share) if positive_share is not None else None,
+        historical_median_pct=float(median_1h) if median_1h is not None else None,
         live_event_score=round(live_score, 3),
         momentum_pct=momentum,
         evidence_grade=grade,
