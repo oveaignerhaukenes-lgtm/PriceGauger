@@ -9,6 +9,7 @@ from event_models import MarketEvent
 
 if TYPE_CHECKING:
     from event_reactions import EventReaction
+    from intraday_reactions import IntradayReaction
 
 DB_PATH = Path("data/pricegauger.db")
 
@@ -69,6 +70,33 @@ def connect() -> sqlite3.Connection:
             return_5d_pct REAL,
             max_up_5d_pct REAL,
             max_down_5d_pct REAL,
+            calculated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (event_id, asset),
+            FOREIGN KEY (event_id) REFERENCES events(event_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event_intraday_reactions (
+            event_id TEXT NOT NULL,
+            asset TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            published_at TEXT NOT NULL,
+            interval TEXT NOT NULL,
+            anchor_time TEXT NOT NULL,
+            anchor_lag_minutes REAL NOT NULL,
+            base_price REAL NOT NULL,
+            return_5m_pct REAL,
+            return_15m_pct REAL,
+            return_30m_pct REAL,
+            return_1h_pct REAL,
+            return_4h_pct REAL,
+            return_24h_pct REAL,
+            max_up_24h_pct REAL,
+            max_down_24h_pct REAL,
+            time_to_max_minutes REAL,
+            time_to_min_minutes REAL,
             calculated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (event_id, asset),
             FOREIGN KEY (event_id) REFERENCES events(event_id)
@@ -172,6 +200,68 @@ def save_reactions(reactions: Iterable[EventReaction]) -> int:
                     row.return_5d_pct,
                     row.max_up_5d_pct,
                     row.max_down_5d_pct,
+                )
+                for row in rows
+            ],
+        )
+        connection.commit()
+        return connection.total_changes - before
+
+
+def save_intraday_reactions(reactions: Iterable[IntradayReaction]) -> int:
+    rows = list(reactions)
+    if not rows:
+        return 0
+    with connect() as connection:
+        before = connection.total_changes
+        connection.executemany(
+            """
+            INSERT INTO event_intraday_reactions (
+                event_id, asset, symbol, published_at, interval, anchor_time,
+                anchor_lag_minutes, base_price, return_5m_pct, return_15m_pct,
+                return_30m_pct, return_1h_pct, return_4h_pct, return_24h_pct,
+                max_up_24h_pct, max_down_24h_pct, time_to_max_minutes,
+                time_to_min_minutes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id, asset) DO UPDATE SET
+                symbol=excluded.symbol,
+                published_at=excluded.published_at,
+                interval=excluded.interval,
+                anchor_time=excluded.anchor_time,
+                anchor_lag_minutes=excluded.anchor_lag_minutes,
+                base_price=excluded.base_price,
+                return_5m_pct=excluded.return_5m_pct,
+                return_15m_pct=excluded.return_15m_pct,
+                return_30m_pct=excluded.return_30m_pct,
+                return_1h_pct=excluded.return_1h_pct,
+                return_4h_pct=excluded.return_4h_pct,
+                return_24h_pct=excluded.return_24h_pct,
+                max_up_24h_pct=excluded.max_up_24h_pct,
+                max_down_24h_pct=excluded.max_down_24h_pct,
+                time_to_max_minutes=excluded.time_to_max_minutes,
+                time_to_min_minutes=excluded.time_to_min_minutes,
+                calculated_at=CURRENT_TIMESTAMP
+            """,
+            [
+                (
+                    row.event_id,
+                    row.asset,
+                    row.symbol,
+                    row.published_at,
+                    row.interval,
+                    row.anchor_time,
+                    row.anchor_lag_minutes,
+                    row.base_price,
+                    row.return_5m_pct,
+                    row.return_15m_pct,
+                    row.return_30m_pct,
+                    row.return_1h_pct,
+                    row.return_4h_pct,
+                    row.return_24h_pct,
+                    row.max_up_24h_pct,
+                    row.max_down_24h_pct,
+                    row.time_to_max_minutes,
+                    row.time_to_min_minutes,
                 )
                 for row in rows
             ],
