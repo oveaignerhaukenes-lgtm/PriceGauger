@@ -9,7 +9,8 @@ from config import gdelt_api_key
 from event_models import market_event_from_gdelt
 from event_reactions import calculate_reactions
 from gdelt_client import GdeltClient, GdeltError
-from storage import save_events, save_reactions
+from intraday_reactions import calculate_intraday_reactions
+from storage import save_events, save_intraday_reactions, save_reactions
 from timestamp_enrichment import enrich_event_timestamps
 
 REACTION_ASSETS = {
@@ -78,6 +79,7 @@ def render_event_lab() -> None:
             )
             st.session_state.gdelt_events = page.events
             st.session_state.pop("gdelt_reactions", None)
+            st.session_state.pop("gdelt_intraday_reactions", None)
         except (GdeltError, ValueError) as exc:
             st.error(f"GDELT-kallet mislyktes: {exc}")
         except Exception:
@@ -120,9 +122,8 @@ def render_event_lab() -> None:
         "country", "location", "actors", "confidence", "market_sensitivity",
         "significance", "url",
     ]
-    display_frame = frame.reindex(columns=visible)
     st.dataframe(
-        display_frame,
+        frame.reindex(columns=visible),
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -150,22 +151,104 @@ def render_event_lab() -> None:
             st.success(f"Hendelsesdatabasen ble oppdatert ({changed} innsettinger/oppdateringer).")
 
     st.divider()
-    st.subheader("Historiske markedsreaksjoner")
+    st.subheader("Intradag: nyhet → pris")
     precise_count = sum(bool(getattr(event, "published_at", None)) for event in events)
     st.caption(
-        f"{precise_count} av {len(events)} hendelser har nå et presist publiseringstidspunkt. "
-        "Denne reaksjonsvisningen bruker fortsatt dagskurser; 5-minuttersmotoren kobles på som neste trinn."
+        f"{precise_count} av {len(events)} hendelser kan kobles til intradagkurser. "
+        "Motoren bruker 5-minuttersbarer når Yahoo har dem, med automatisk fallback til 15 eller 60 minutter."
     )
 
-    selected_assets = st.multiselect(
-        "Markeder", list(REACTION_ASSETS), default=list(REACTION_ASSETS), key="reaction_assets"
+    intraday_assets = st.multiselect(
+        "Markeder for intradaganalyse",
+        list(REACTION_ASSETS),
+        default=list(REACTION_ASSETS),
+        key="intraday_reaction_assets",
     )
-    if st.button("Beregn markedsreaksjoner", use_container_width=True):
+    if st.button("Korreler nyhetstidspunkter med priser", type="primary", use_container_width=True):
+        if not intraday_assets:
+            st.warning("Velg minst ett marked.")
+        elif precise_count == 0:
+            st.warning("Finn publiseringstidspunktene først.")
+        else:
+            try:
+                with st.spinner("Henter intradagkurser og matcher første prisbar etter hver nyhet …"):
+                    assets = {name: REACTION_ASSETS[name] for name in intraday_assets}
+                    intraday = calculate_intraday_reactions(events, assets)
+                st.session_state.gdelt_intraday_reactions = intraday
+                st.success(f"Koblet {len(intraday)} hendelse–marked-par til intradagpriser.")
+            except Exception as exc:
+                st.error(f"Kunne ikke beregne intradagreaksjoner: {exc}")
+
+    intraday = st.session_state.get("gdelt_intraday_reactions", [])
+    if intraday:
+        intraday_frame = pd.DataFrame([reaction.to_record() for reaction in intraday])
+        intraday_cols = [
+            "published_at", "asset", "interval", "anchor_time", "anchor_lag_minutes",
+            "base_price", "return_5m_pct", "return_15m_pct", "return_30m_pct",
+            "return_1h_pct", "return_4h_pct", "return_24h_pct", "max_up_24h_pct",
+            "max_down_24h_pct", "time_to_max_minutes", "time_to_min_minutes",
+        ]
+        st.dataframe(
+            intraday_frame.reindex(columns=intraday_cols),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "published_at": st.column_config.DatetimeColumn("Publisert UTC"),
+                "anchor_time": st.column_config.DatetimeColumn("Første prisbar UTC"),
+                "anchor_lag_minutes": st.column_config.NumberColumn("Ventetid min", format="%.1f"),
+                "base_price": st.column_config.NumberColumn("Startkurs", format="%.4f"),
+                "return_5m_pct": st.column_config.NumberColumn("+5m", format="%+.3f %%"),
+                "return_15m_pct": st.column_config.NumberColumn("+15m", format="%+.3f %%"),
+                "return_30m_pct": st.column_config.NumberColumn("+30m", format="%+.3f %%"),
+                "return_1h_pct": st.column_config.NumberColumn("+1t", format="%+.3f %%"),
+                "return_4h_pct": st.column_config.NumberColumn("+4t", format="%+.3f %%"),
+                "return_24h_pct": st.column_config.NumberColumn("+24t", format="%+.3f %%"),
+                "max_up_24h_pct": st.column_config.NumberColumn("Maks opp 24t", format="%+.3f %%"),
+                "max_down_24h_pct": st.column_config.NumberColumn("Maks ned 24t", format="%+.3f %%"),
+            },
+        )
+
+        intraday_summary = intraday_frame.groupby("asset", as_index=False).agg(
+            koblinger=("event_id", "count"),
+            snitt_15m=("return_15m_pct", "mean"),
+            median_1h=("return_1h_pct", "median"),
+            andel_opp_1h=("return_1h_pct", lambda s: float((s > 0).mean() * 100)),
+            snitt_24h=("return_24h_pct", "mean"),
+            snitt_ventetid_min=("anchor_lag_minutes", "mean"),
+        )
+        st.subheader("Intradagoppsummering per marked")
+        st.dataframe(intraday_summary, use_container_width=True, hide_index=True)
+
+        x, y = st.columns(2)
+        with x:
+            st.download_button(
+                "Last ned intradagreaksjoner som CSV",
+                intraday_frame.to_csv(index=False).encode("utf-8"),
+                "event_intraday_reactions.csv",
+                "text/csv",
+                use_container_width=True,
+            )
+        with y:
+            if st.button("Lagre intradagreaksjoner", use_container_width=True):
+                event_changes = save_events(events)
+                reaction_changes = save_intraday_reactions(intraday)
+                st.success(
+                    f"Lagret hendelser ({event_changes}) og intradagreaksjoner ({reaction_changes})."
+                )
+
+    st.divider()
+    st.subheader("Daglige markedsreaksjoner")
+    st.caption("Fallback og langsiktige vinduer: +1, +3 og +5 handelsdager.")
+
+    selected_assets = st.multiselect(
+        "Markeder for dagsanalyse", list(REACTION_ASSETS), default=list(REACTION_ASSETS), key="reaction_assets"
+    )
+    if st.button("Beregn daglige markedsreaksjoner", use_container_width=True):
         if not selected_assets:
             st.warning("Velg minst ett marked.")
         else:
             try:
-                with st.spinner("Henter historiske priser og kobler dem til hendelsene …"):
+                with st.spinner("Henter historiske dagskurser og kobler dem til hendelsene …"):
                     assets = {name: REACTION_ASSETS[name] for name in selected_assets}
                     reactions = calculate_reactions(events, assets)
                 st.session_state.gdelt_reactions = reactions
@@ -186,14 +269,6 @@ def render_event_lab() -> None:
         reaction_frame.reindex(columns=show_cols),
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "base_close": st.column_config.NumberColumn("Startkurs", format="%.3f"),
-            "return_1d_pct": st.column_config.NumberColumn("+1d", format="%+.2f %%"),
-            "return_3d_pct": st.column_config.NumberColumn("+3d", format="%+.2f %%"),
-            "return_5d_pct": st.column_config.NumberColumn("+5d", format="%+.2f %%"),
-            "max_up_5d_pct": st.column_config.NumberColumn("Maks opp 5d", format="%+.2f %%"),
-            "max_down_5d_pct": st.column_config.NumberColumn("Maks ned 5d", format="%+.2f %%"),
-        },
     )
 
     summary = reaction_frame.groupby("asset", as_index=False).agg(
@@ -203,20 +278,20 @@ def render_event_lab() -> None:
         andel_opp_1d=("return_1d_pct", lambda s: float((s > 0).mean() * 100)),
         snitt_5d=("return_5d_pct", "mean"),
     )
-    st.subheader("Oppsummering per marked")
+    st.subheader("Dagsoppsummering per marked")
     st.dataframe(summary, use_container_width=True, hide_index=True)
 
     c1, c2 = st.columns(2)
     with c1:
         st.download_button(
-            "Last ned reaksjoner som CSV",
+            "Last ned dagsreaksjoner som CSV",
             reaction_frame.to_csv(index=False).encode("utf-8"),
             "event_market_reactions.csv",
             "text/csv",
             use_container_width=True,
         )
     with c2:
-        if st.button("Lagre reaksjoner i lokal database", use_container_width=True):
+        if st.button("Lagre dagsreaksjoner", use_container_width=True):
             event_changes = save_events(events)
             reaction_changes = save_reactions(reactions)
             st.success(f"Lagret hendelser ({event_changes}) og reaksjoner ({reaction_changes}) i databasen.")
