@@ -12,6 +12,8 @@ from bs4 import BeautifulSoup
 
 from config import twelve_data_api_key
 from decision_engine import build_market_assessment, build_strategy_suggestion
+from decision_trace import build_decision_trace, save_decision_trace
+from event_dna import build_event_dna, build_market_profile, find_similar_events
 from event_lab_ui import render_event_lab
 from market_data import MarketRequest, TwelveDataProvider, YahooProvider, fetch_market_data
 
@@ -230,8 +232,8 @@ m2.metric("Prisbarer", len(market))
 m3.metric("Datakilde", feed_name)
 m4.metric("Sist oppdatert", datetime.now(timezone.utc).strftime("%H:%M UTC"))
 
-chart_tab, events_tab, test_tab, risk_tab, lab_tab = st.tabs(
-    ["Dashboard", "Hendelser", "Historisk test", "Risiko", "Historical Event Lab"]
+chart_tab, events_tab, test_tab, risk_tab, decision_tab, lab_tab = st.tabs(
+    ["Dashboard", "Hendelser", "Historisk test", "Risiko", "Beslutningslab", "Historical Event Lab"]
 )
 
 with chart_tab:
@@ -327,6 +329,86 @@ with risk_tab:
     r1, r2 = st.columns(2)
     r1.metric("Maks tap", f"{max_loss:,.0f} NOK")
     r2.metric("Produktbeløp", f"{product_amount:,.0f} NOK")
+
+with decision_tab:
+    st.subheader("EventDNA og historisk beslutningsgrunnlag")
+    events = st.session_state.get("gdelt_events", [])
+    reactions = st.session_state.get("gdelt_intraday_reactions", [])
+
+    if not events:
+        st.info("Hent hendelser i Historical Event Lab først. Deretter blir EventDNA og historiske matcher tilgjengelige her.")
+    else:
+        event_options = {
+            f"{getattr(event, 'event_date', '')} · {getattr(event, 'title', '')[:110]}": index
+            for index, event in enumerate(events)
+        }
+        selected_label = st.selectbox("Velg hendelse", list(event_options), key="decision_event")
+        selected_event = events[event_options[selected_label]]
+        dna = build_event_dna(selected_event)
+        matches = find_similar_events(selected_event, events, limit=20, minimum_score=0.0)
+        profile = build_market_profile(asset=asset_name, similar_events=matches, reactions=reactions)
+
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Hendelsestype", dna.event_type)
+        d2.metric("Mål", dna.target)
+        d3.metric("Alvorlighet", f"{dna.severity:.0%}")
+        d4.metric("Kildekvalitet", f"{dna.source_quality:.0%}")
+
+        with st.expander("Se komplett EventDNA"):
+            st.json(dna.to_record())
+
+        st.markdown("### Lignende historiske hendelser")
+        if not matches:
+            st.info("Ingen andre hendelser finnes i det innlastede datasettet.")
+        else:
+            match_rows = [
+                {
+                    "Likhet": item.score,
+                    "Dato": item.event.event_date,
+                    "Hendelse": item.event.title,
+                    "Land": item.event.country,
+                    "Type": item.dna.event_type,
+                    "Mål": item.dna.target,
+                }
+                for item in matches
+            ]
+            st.dataframe(
+                pd.DataFrame(match_rows),
+                use_container_width=True,
+                hide_index=True,
+                column_config={"Likhet": st.column_config.ProgressColumn("Likhet", min_value=0.0, max_value=1.0)},
+            )
+
+        st.markdown(f"### Market Profile · {asset_name}")
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Retning", profile.direction)
+        p2.metric("Konfidens", f"{profile.confidence_pct:.1f} %")
+        p3.metric("Utvalg", profile.sample_size)
+        p4.metric(
+            "Median +4t",
+            f"{profile.median_4h_pct:+.3f} %" if profile.median_4h_pct is not None else "Mangler data",
+        )
+        st.caption(
+            f"Effektivt utvalg {profile.effective_sample_size:.2f} · "
+            f"Andel positive 1t: {profile.positive_share_pct:.1f} %"
+            if profile.positive_share_pct is not None
+            else f"Effektivt utvalg {profile.effective_sample_size:.2f} · Ingen 1t-observasjoner"
+        )
+
+        trace = build_decision_trace(
+            event=selected_event,
+            event_dna=dna,
+            similar_events=matches,
+            market_profile=profile,
+            assessment=assessment,
+            strategy=strategy,
+        )
+        with st.expander("Decision Trace"):
+            st.json(trace.to_record())
+        if st.button("Lagre Decision Trace", type="primary", use_container_width=True):
+            save_decision_trace(trace)
+            st.session_state.last_decision_trace_id = trace.trace_id
+            st.success(f"Beslutningssporet er lagret: {trace.trace_id}")
 
 with lab_tab:
     render_event_lab()
