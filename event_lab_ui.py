@@ -9,6 +9,7 @@ from config import gdelt_api_key
 from event_reactions import calculate_reactions
 from gdelt_client import GdeltClient, GdeltError
 from storage import save_events, save_reactions
+from timestamp_enrichment import enrich_event_timestamps
 
 REACTION_ASSETS = {
     "Brent": "BZ=F",
@@ -21,7 +22,7 @@ REACTION_ASSETS = {
 def render_event_lab() -> None:
     st.subheader("Historical Event Lab")
     st.caption(
-        "Mekanisk innsamling og filtrering først. Deretter kobles hendelsene til observerte markedsreaksjoner."
+        "Mekanisk innsamling og filtrering først. Deretter berikes hendelsene med publiseringstid og kobles til markedsreaksjoner."
     )
 
     key = gdelt_api_key()
@@ -31,29 +32,14 @@ def render_event_lab() -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        start_date = st.date_input(
-            "Fra dato", value=date.today() - timedelta(days=14), key="gdelt_start"
-        )
-        search = st.text_input(
-            "Søk", value="attacks on energy infrastructure", key="gdelt_search"
-        )
+        start_date = st.date_input("Fra dato", value=date.today() - timedelta(days=14), key="gdelt_start")
+        search = st.text_input("Søk", value="attacks on energy infrastructure", key="gdelt_search")
         country = st.text_input("Land", placeholder="Iran", key="gdelt_country")
     with c2:
         end_date = st.date_input("Til dato", value=date.today(), key="gdelt_end")
         domain = st.selectbox(
             "Domene",
-            [
-                "",
-                "POLITICAL",
-                "ECONOMIC",
-                "CORPORATE",
-                "TECHNOLOGY",
-                "INFRASTRUCTURE",
-                "HEALTH",
-                "INFORMATION",
-                "ENVIRONMENT",
-                "CRIME",
-            ],
+            ["", "POLITICAL", "ECONOMIC", "CORPORATE", "TECHNOLOGY", "INFRASTRUCTURE", "HEALTH", "INFORMATION", "ENVIRONMENT", "CRIME"],
             key="gdelt_domain",
         )
         limit = st.slider("Maks resultater", 5, 100, 50, 5, key="gdelt_limit")
@@ -84,26 +70,33 @@ def render_event_lab() -> None:
         st.info("Velg filtre og trykk «Hent GDELT-hendelser».")
         return
 
+    if st.button("Finn nøyaktige publiseringstidspunkter", use_container_width=True):
+        try:
+            with st.spinner("Leser tidsmetadata fra GDELT og originalartiklene …"):
+                st.session_state.gdelt_events = enrich_event_timestamps(events)
+            events = st.session_state.gdelt_events
+            precise = sum(bool(event.published_at) for event in events)
+            st.success(f"Fant klokkeslett for {precise} av {len(events)} hendelser.")
+        except Exception as exc:
+            st.error(f"Kunne ikke berike tidsstemplene: {exc}")
+
     frame = pd.DataFrame([event.to_record() for event in events])
     frame["actors"] = frame["actors"].apply(lambda values: ", ".join(values))
     visible = [
-        "event_date",
-        "title",
-        "category",
-        "domain",
-        "country",
-        "location",
-        "actors",
-        "confidence",
-        "market_sensitivity",
-        "significance",
-        "url",
+        "event_date", "published_at", "timestamp_source", "timestamp_confidence",
+        "title", "category", "domain", "country", "location", "actors",
+        "confidence", "market_sensitivity", "significance", "url",
     ]
     st.dataframe(
         frame[visible],
         use_container_width=True,
         hide_index=True,
-        column_config={"url": st.column_config.LinkColumn("Kilde")},
+        column_config={
+            "published_at": st.column_config.DatetimeColumn("Publisert (UTC)"),
+            "timestamp_source": "Tidskilde",
+            "timestamp_confidence": st.column_config.NumberColumn("Tidssikkerhet", format="%.2f"),
+            "url": st.column_config.LinkColumn("Kilde"),
+        },
     )
 
     a, b = st.columns(2)
@@ -122,16 +115,14 @@ def render_event_lab() -> None:
 
     st.divider()
     st.subheader("Historiske markedsreaksjoner")
+    precise_count = sum(bool(event.published_at) for event in events)
     st.caption(
-        "Første versjon bruker daglige kurser fordi de normaliserte GDELT-postene foreløpig bare har sikker dato. "
-        "Resultatene er derfor +1, +3 og +5 handelsdager, ikke intradag."
+        f"{precise_count} av {len(events)} hendelser har nå et presist publiseringstidspunkt. "
+        "Denne reaksjonsvisningen bruker fortsatt dagskurser; 5-minuttersmotoren kobles på som neste trinn."
     )
 
     selected_assets = st.multiselect(
-        "Markeder",
-        list(REACTION_ASSETS),
-        default=list(REACTION_ASSETS),
-        key="reaction_assets",
+        "Markeder", list(REACTION_ASSETS), default=list(REACTION_ASSETS), key="reaction_assets"
     )
     if st.button("Beregn markedsreaksjoner", use_container_width=True):
         if not selected_assets:
@@ -152,15 +143,8 @@ def render_event_lab() -> None:
 
     reaction_frame = pd.DataFrame([reaction.to_record() for reaction in reactions])
     show_cols = [
-        "event_date",
-        "asset",
-        "base_date",
-        "base_close",
-        "return_1d_pct",
-        "return_3d_pct",
-        "return_5d_pct",
-        "max_up_5d_pct",
-        "max_down_5d_pct",
+        "event_date", "asset", "base_date", "base_close", "return_1d_pct",
+        "return_3d_pct", "return_5d_pct", "max_up_5d_pct", "max_down_5d_pct",
     ]
     st.dataframe(
         reaction_frame[show_cols],
@@ -176,28 +160,15 @@ def render_event_lab() -> None:
         },
     )
 
-    summary = (
-        reaction_frame.groupby("asset", as_index=False)
-        .agg(
-            hendelser=("event_id", "count"),
-            snitt_1d=("return_1d_pct", "mean"),
-            median_1d=("return_1d_pct", "median"),
-            andel_opp_1d=("return_1d_pct", lambda s: float((s > 0).mean() * 100)),
-            snitt_5d=("return_5d_pct", "mean"),
-        )
+    summary = reaction_frame.groupby("asset", as_index=False).agg(
+        hendelser=("event_id", "count"),
+        snitt_1d=("return_1d_pct", "mean"),
+        median_1d=("return_1d_pct", "median"),
+        andel_opp_1d=("return_1d_pct", lambda s: float((s > 0).mean() * 100)),
+        snitt_5d=("return_5d_pct", "mean"),
     )
     st.subheader("Oppsummering per marked")
-    st.dataframe(
-        summary,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "snitt_1d": st.column_config.NumberColumn("Snitt +1d", format="%+.2f %%"),
-            "median_1d": st.column_config.NumberColumn("Median +1d", format="%+.2f %%"),
-            "andel_opp_1d": st.column_config.NumberColumn("Andel opp +1d", format="%.0f %%"),
-            "snitt_5d": st.column_config.NumberColumn("Snitt +5d", format="%+.2f %%"),
-        },
-    )
+    st.dataframe(summary, use_container_width=True, hide_index=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -212,6 +183,4 @@ def render_event_lab() -> None:
         if st.button("Lagre reaksjoner i lokal database", use_container_width=True):
             event_changes = save_events(events)
             reaction_changes = save_reactions(reactions)
-            st.success(
-                f"Lagret hendelser ({event_changes}) og reaksjoner ({reaction_changes}) i databasen."
-            )
+            st.success(f"Lagret hendelser ({event_changes}) og reaksjoner ({reaction_changes}) i databasen.")
