@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from event_models import MarketEvent
+from event_reactions import EventReaction
 
 DB_PATH = Path("data/pricegauger.db")
 
@@ -33,6 +34,26 @@ def connect() -> sqlite3.Connection:
             url TEXT,
             raw_json TEXT NOT NULL,
             collected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event_market_reactions (
+            event_id TEXT NOT NULL,
+            asset TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            event_date TEXT NOT NULL,
+            base_date TEXT NOT NULL,
+            base_close REAL NOT NULL,
+            return_1d_pct REAL,
+            return_3d_pct REAL,
+            return_5d_pct REAL,
+            max_up_5d_pct REAL,
+            max_down_5d_pct REAL,
+            calculated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (event_id, asset),
+            FOREIGN KEY (event_id) REFERENCES events(event_id)
         )
         """
     )
@@ -70,6 +91,45 @@ def save_events(events: Iterable[MarketEvent]) -> int:
                     event.url, json.dumps(event.raw, ensure_ascii=False),
                 )
                 for event in rows
+            ],
+        )
+        connection.commit()
+        return connection.total_changes - before
+
+
+def save_reactions(reactions: Iterable[EventReaction]) -> int:
+    rows = list(reactions)
+    if not rows:
+        return 0
+    with connect() as connection:
+        before = connection.total_changes
+        connection.executemany(
+            """
+            INSERT INTO event_market_reactions (
+                event_id, asset, symbol, event_date, base_date, base_close,
+                return_1d_pct, return_3d_pct, return_5d_pct,
+                max_up_5d_pct, max_down_5d_pct
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id, asset) DO UPDATE SET
+                symbol=excluded.symbol,
+                event_date=excluded.event_date,
+                base_date=excluded.base_date,
+                base_close=excluded.base_close,
+                return_1d_pct=excluded.return_1d_pct,
+                return_3d_pct=excluded.return_3d_pct,
+                return_5d_pct=excluded.return_5d_pct,
+                max_up_5d_pct=excluded.max_up_5d_pct,
+                max_down_5d_pct=excluded.max_down_5d_pct,
+                calculated_at=CURRENT_TIMESTAMP
+            """,
+            [
+                (
+                    row.event_id, row.asset, row.symbol, row.event_date,
+                    row.base_date, row.base_close, row.return_1d_pct,
+                    row.return_3d_pct, row.return_5d_pct,
+                    row.max_up_5d_pct, row.max_down_5d_pct,
+                )
+                for row in rows
             ],
         )
         connection.commit()
