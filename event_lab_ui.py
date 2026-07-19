@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from config import gdelt_api_key
+from event_models import market_event_from_gdelt
 from event_reactions import calculate_reactions
 from gdelt_client import GdeltClient, GdeltError
 from storage import save_events, save_reactions
@@ -17,6 +18,23 @@ REACTION_ASSETS = {
     "Gold": "GC=F",
     "DXY": "DX-Y.NYB",
 }
+
+
+def _upgrade_legacy_events(events: list) -> list:
+    """Rebuild events kept in Streamlit session state before timestamp fields existed."""
+    upgraded = []
+    changed = False
+    for event in events:
+        if hasattr(event, "published_at"):
+            upgraded.append(event)
+            continue
+        raw = getattr(event, "raw", None)
+        if isinstance(raw, dict):
+            upgraded.append(market_event_from_gdelt(raw))
+            changed = True
+        else:
+            upgraded.append(event)
+    return upgraded if changed else events
 
 
 def render_event_lab() -> None:
@@ -70,25 +88,32 @@ def render_event_lab() -> None:
         st.info("Velg filtre og trykk «Hent GDELT-hendelser».")
         return
 
+    events = _upgrade_legacy_events(events)
+    st.session_state.gdelt_events = events
+
     if st.button("Finn nøyaktige publiseringstidspunkter", use_container_width=True):
         try:
             with st.spinner("Leser tidsmetadata fra GDELT og originalartiklene …"):
                 st.session_state.gdelt_events = enrich_event_timestamps(events)
             events = st.session_state.gdelt_events
-            precise = sum(bool(event.published_at) for event in events)
+            precise = sum(bool(getattr(event, "published_at", None)) for event in events)
             st.success(f"Fant klokkeslett for {precise} av {len(events)} hendelser.")
         except Exception as exc:
             st.error(f"Kunne ikke berike tidsstemplene: {exc}")
 
     frame = pd.DataFrame([event.to_record() for event in events])
-    frame["actors"] = frame["actors"].apply(lambda values: ", ".join(values))
+    if "actors" in frame.columns:
+        frame["actors"] = frame["actors"].apply(
+            lambda values: ", ".join(values) if isinstance(values, list) else str(values or "")
+        )
     visible = [
         "event_date", "published_at", "timestamp_source", "timestamp_confidence",
         "title", "category", "domain", "country", "location", "actors",
         "confidence", "market_sensitivity", "significance", "url",
     ]
+    display_frame = frame.reindex(columns=visible)
     st.dataframe(
-        frame[visible],
+        display_frame,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -103,7 +128,7 @@ def render_event_lab() -> None:
     with a:
         st.download_button(
             "Last ned hendelser som CSV",
-            frame.drop(columns=["raw"]).to_csv(index=False).encode("utf-8"),
+            frame.drop(columns=["raw"], errors="ignore").to_csv(index=False).encode("utf-8"),
             "gdelt_events.csv",
             "text/csv",
             use_container_width=True,
@@ -115,7 +140,7 @@ def render_event_lab() -> None:
 
     st.divider()
     st.subheader("Historiske markedsreaksjoner")
-    precise_count = sum(bool(event.published_at) for event in events)
+    precise_count = sum(bool(getattr(event, "published_at", None)) for event in events)
     st.caption(
         f"{precise_count} av {len(events)} hendelser har nå et presist publiseringstidspunkt. "
         "Denne reaksjonsvisningen bruker fortsatt dagskurser; 5-minuttersmotoren kobles på som neste trinn."
@@ -147,7 +172,7 @@ def render_event_lab() -> None:
         "return_3d_pct", "return_5d_pct", "max_up_5d_pct", "max_down_5d_pct",
     ]
     st.dataframe(
-        reaction_frame[show_cols],
+        reaction_frame.reindex(columns=show_cols),
         use_container_width=True,
         hide_index=True,
         column_config={
