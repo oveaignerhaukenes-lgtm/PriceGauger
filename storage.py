@@ -13,6 +13,18 @@ if TYPE_CHECKING:
 DB_PATH = Path("data/pricegauger.db")
 
 
+def _ensure_event_columns(connection: sqlite3.Connection) -> None:
+    existing = {row[1] for row in connection.execute("PRAGMA table_info(events)")}
+    additions = {
+        "published_at": "TEXT",
+        "timestamp_source": "TEXT",
+        "timestamp_confidence": "REAL",
+    }
+    for name, column_type in additions.items():
+        if name not in existing:
+            connection.execute(f"ALTER TABLE events ADD COLUMN {name} {column_type}")
+
+
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
@@ -22,6 +34,9 @@ def connect() -> sqlite3.Connection:
             event_id TEXT PRIMARY KEY,
             source TEXT NOT NULL,
             event_date TEXT,
+            published_at TEXT,
+            timestamp_source TEXT,
+            timestamp_confidence REAL,
             title TEXT,
             summary TEXT,
             category TEXT,
@@ -39,6 +54,7 @@ def connect() -> sqlite3.Connection:
         )
         """
     )
+    _ensure_event_columns(connection)
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS event_market_reactions (
@@ -72,11 +88,16 @@ def save_events(events: Iterable[MarketEvent]) -> int:
         connection.executemany(
             """
             INSERT INTO events (
-                event_id, source, event_date, title, summary, category,
-                subcategory, domain, country, location, actors_json,
-                confidence, market_sensitivity, significance, url, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                event_id, source, event_date, published_at, timestamp_source,
+                timestamp_confidence, title, summary, category, subcategory,
+                domain, country, location, actors_json, confidence,
+                market_sensitivity, significance, url, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(event_id) DO UPDATE SET
+                event_date=excluded.event_date,
+                published_at=excluded.published_at,
+                timestamp_source=excluded.timestamp_source,
+                timestamp_confidence=excluded.timestamp_confidence,
                 title=excluded.title,
                 summary=excluded.summary,
                 confidence=excluded.confidence,
@@ -89,6 +110,9 @@ def save_events(events: Iterable[MarketEvent]) -> int:
                     event.event_id,
                     event.source,
                     event.event_date,
+                    event.published_at,
+                    event.timestamp_source,
+                    event.timestamp_confidence,
                     event.title,
                     event.summary,
                     event.category,
