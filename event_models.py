@@ -31,7 +31,10 @@ class MarketEvent:
 
 
 def _metric(payload: dict[str, Any], name: str) -> float | None:
-    value = (payload.get("metrics") or {}).get(name)
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        return None
+    value = metrics.get(name)
     try:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
@@ -46,9 +49,39 @@ def _first_value(payload: dict[str, Any], keys: tuple[str, ...]) -> str | None:
     return None
 
 
+def _actors(payload: dict[str, Any]) -> list[str]:
+    raw = payload.get("actors") or []
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+
+    names: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            value = item.get("name") or item.get("label") or item.get("actor")
+        elif isinstance(item, str):
+            value = item
+        else:
+            value = None
+        name = str(value or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _geo(payload: dict[str, Any]) -> dict[str, Any]:
+    geo = payload.get("geo")
+    if isinstance(geo, dict):
+        return geo
+    return {}
+
+
 def market_event_from_gdelt(payload: dict[str, Any]) -> MarketEvent:
-    geo = payload.get("geo") or {}
-    actors = [str(item.get("name", "")).strip() for item in payload.get("actors", []) if item.get("name")]
+    if not isinstance(payload, dict):
+        raise TypeError(f"GDELT event must be a mapping, got {type(payload).__name__}")
+
+    geo = _geo(payload)
     published_at = _first_value(
         payload,
         (
@@ -72,7 +105,7 @@ def market_event_from_gdelt(payload: dict[str, Any]) -> MarketEvent:
         domain=str(payload.get("domain", "")),
         country=str(geo.get("country", "")),
         location=str(geo.get("location", "")),
-        actors=actors,
+        actors=_actors(payload),
         confidence=_metric(payload, "confidence"),
         market_sensitivity=_metric(payload, "market_sensitivity"),
         significance=_metric(payload, "significance"),
