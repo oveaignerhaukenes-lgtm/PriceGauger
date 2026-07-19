@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -10,10 +10,9 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-from config import gdelt_api_key, twelve_data_api_key
-from gdelt_client import GdeltClient, GdeltError
+from config import twelve_data_api_key
+from event_lab_ui import render_event_lab
 from market_data import MarketRequest, TwelveDataProvider, YahooProvider, fetch_market_data
-from storage import save_events
 
 st.set_page_config(page_title="PriceGauger Alpha", page_icon="📡", layout="wide")
 
@@ -67,7 +66,7 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
     response = requests.get(
         f"https://t.me/s/{channel.lstrip('@')}",
         timeout=30,
-        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.7"},
+        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.8"},
     )
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
@@ -89,15 +88,22 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
             category: sum(bool(re.search(rf"\b{re.escape(word)}\b", lowered)) for word in words)
             for category, words in KEYWORDS.items()
         }
-        impact = 2.0 * scores["Hormuz/shipping"] + 1.5 * scores["Energy"] + scores["Escalation"] - 0.5 * scores["Diplomacy"]
-        rows.append({
-            "published_at": pd.to_datetime(time_node["datetime"], utc=True),
-            "text": text,
-            "views": parse_views(views_node.get_text(strip=True) if views_node else None),
-            "url": f"https://t.me/{channel_name}/{message_id}",
-            "impact": impact,
-            **scores,
-        })
+        impact = (
+            2.0 * scores["Hormuz/shipping"]
+            + 1.5 * scores["Energy"]
+            + scores["Escalation"]
+            - 0.5 * scores["Diplomacy"]
+        )
+        rows.append(
+            {
+                "published_at": pd.to_datetime(time_node["datetime"], utc=True),
+                "text": text,
+                "views": parse_views(views_node.get_text(strip=True) if views_node else None),
+                "url": f"https://t.me/{channel_name}/{message_id}",
+                "impact": impact,
+                **scores,
+            }
+        )
     return pd.DataFrame(rows).sort_values("published_at", ascending=False) if rows else pd.DataFrame()
 
 
@@ -128,10 +134,12 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
         direction="forward",
         tolerance=6 * NANOSECONDS_PER_HOUR,
     )
-    lookup = pd.DataFrame({
-        "row_id": range(len(base)),
-        "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR,
-    }).sort_values("target_join_ns")
+    lookup = pd.DataFrame(
+        {
+            "row_id": range(len(base)),
+            "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR,
+        }
+    ).sort_values("target_join_ns")
     target = pd.merge_asof(
         lookup,
         bars.rename(columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}),
@@ -139,7 +147,9 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
         direction="forward",
         tolerance=6 * NANOSECONDS_PER_HOUR,
     ).sort_values("row_id")
-    base[f"return_{horizon_hours}h_pct"] = (target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1) * 100
+    base[f"return_{horizon_hours}h_pct"] = (
+        target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1
+    ) * 100
     return base
 
 
@@ -153,7 +163,11 @@ def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[s
     else:
         now = pd.Timestamp.now(tz="UTC")
         recent = messages[pd.to_datetime(messages["published_at"], utc=True) >= now - pd.Timedelta("12h")]
-        decay = (now - pd.to_datetime(recent["published_at"], utc=True)).dt.total_seconds() / 3600 if not recent.empty else pd.Series(dtype=float)
+        decay = (
+            (now - pd.to_datetime(recent["published_at"], utc=True)).dt.total_seconds() / 3600
+            if not recent.empty
+            else pd.Series(dtype=float)
+        )
         weights = 1 / (1 + decay / 3) if not recent.empty else pd.Series(dtype=float)
         geo = bounded_score(12 + 14 * float((recent["Escalation"] * weights).sum()) - 8 * float((recent["Diplomacy"] * weights).sum()))
         shipping = bounded_score(8 + 20 * float((recent["Hormuz/shipping"] * weights).sum()))
@@ -165,7 +179,13 @@ def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[s
         if lookback > 0 and closes.iloc[-lookback - 1] != 0:
             momentum = bounded_score(50 + ((closes.iloc[-1] / closes.iloc[-lookback - 1] - 1) * 100) * 12)
     total = bounded_score(0.35 * geo + 0.25 * shipping + 0.20 * energy + 0.20 * momentum)
-    return {"Geopolitisk stress": geo, "Hormuz/shipping": shipping, "Energiinfrastruktur": energy, "Markedsmomentum": momentum, "PriceGauge": total}
+    return {
+        "Geopolitisk stress": geo,
+        "Hormuz/shipping": shipping,
+        "Energiinfrastruktur": energy,
+        "Markedsmomentum": momentum,
+        "PriceGauge": total,
+    }
 
 
 st.title("📡 PriceGauger Alpha")
@@ -211,9 +231,9 @@ m2.metric("Prisbarer", len(market))
 m3.metric("Datakilde", feed_name)
 m4.metric("Sist oppdatert", datetime.now(timezone.utc).strftime("%H:%M UTC"))
 
-chart_tab, events_tab, test_tab, risk_tab, lab_tab = st.tabs([
-    "Dashboard", "Hendelser", "Historisk test", "Risiko", "Historical Event Lab"
-])
+chart_tab, events_tab, test_tab, risk_tab, lab_tab = st.tabs(
+    ["Dashboard", "Hendelser", "Historisk test", "Risiko", "Historical Event Lab"]
+)
 
 with chart_tab:
     scores = calculate_pricegauge(messages, market)
@@ -268,48 +288,4 @@ with risk_tab:
     r2.metric("Produktbeløp", f"{product_amount:,.0f} NOK")
 
 with lab_tab:
-    st.subheader("Historical Event Lab")
-    st.caption("Mekanisk innsamling og filtrering først. AI kobles på senere med et avgrenset og etterprøvbart datasett.")
-    key = gdelt_api_key()
-    if not key:
-        st.error("GDELT_CLOUD_API_KEY mangler i Streamlit Secrets.")
-    else:
-        c1, c2 = st.columns(2)
-        with c1:
-            start_date = st.date_input("Fra dato", value=date.today() - timedelta(days=14), key="gdelt_start")
-            search = st.text_input("Søk", value="attacks on energy infrastructure", key="gdelt_search")
-            country = st.text_input("Land", placeholder="Iran", key="gdelt_country")
-        with c2:
-            end_date = st.date_input("Til dato", value=date.today(), key="gdelt_end")
-            domain = st.selectbox("Domene", ["", "POLITICAL", "ECONOMIC", "CORPORATE", "TECHNOLOGY", "INFRASTRUCTURE", "HEALTH", "INFORMATION", "ENVIRONMENT", "CRIME"], key="gdelt_domain")
-            limit = st.slider("Maks resultater", 5, 100, 50, 5, key="gdelt_limit")
-        if st.button("Hent GDELT-hendelser", type="primary", use_container_width=True):
-            try:
-                page = GdeltClient(key).list_events(
-                    date_start=start_date.isoformat(),
-                    date_end=end_date.isoformat(),
-                    search=search.strip(),
-                    country=country.strip(),
-                    domain=domain,
-                    limit=limit,
-                )
-                st.session_state.gdelt_events = page.events
-            except (GdeltError, ValueError) as exc:
-                st.error(f"GDELT-kallet mislyktes: {exc}")
-            except Exception:
-                st.error("Uventet feil under GDELT-kallet. Nøkkel og request-detaljer er skjult.")
-        events = st.session_state.get("gdelt_events", [])
-        if events:
-            frame = pd.DataFrame([event.to_record() for event in events])
-            frame["actors"] = frame["actors"].apply(lambda values: ", ".join(values))
-            visible = ["event_date", "title", "category", "domain", "country", "location", "actors", "confidence", "market_sensitivity", "significance", "url"]
-            st.dataframe(frame[visible], use_container_width=True, hide_index=True, column_config={"url": st.column_config.LinkColumn("Kilde")})
-            a, b = st.columns(2)
-            with a:
-                st.download_button("Last ned CSV", frame.drop(columns=["raw"]).to_csv(index=False).encode("utf-8"), "gdelt_events.csv", "text/csv", use_container_width=True)
-            with b:
-                if st.button("Lagre i lokal database", use_container_width=True):
-                    changed = save_events(events)
-                    st.success(f"Databasen ble oppdatert ({changed} innsettinger/oppdateringer).")
-        else:
-            st.info("Velg filtre og trykk «Hent GDELT-hendelser».")
+    render_event_lab()
