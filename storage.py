@@ -14,16 +14,15 @@ if TYPE_CHECKING:
 DB_PATH = Path("data/pricegauger.db")
 
 
-def _ensure_event_columns(connection: sqlite3.Connection) -> None:
-    existing = {row[1] for row in connection.execute("PRAGMA table_info(events)")}
-    additions = {
-        "published_at": "TEXT",
-        "timestamp_source": "TEXT",
-        "timestamp_confidence": "REAL",
-    }
+def _ensure_columns(
+    connection: sqlite3.Connection,
+    table: str,
+    additions: dict[str, str],
+) -> None:
+    existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
     for name, column_type in additions.items():
         if name not in existing:
-            connection.execute(f"ALTER TABLE events ADD COLUMN {name} {column_type}")
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_type}")
 
 
 def connect() -> sqlite3.Connection:
@@ -55,7 +54,15 @@ def connect() -> sqlite3.Connection:
         )
         """
     )
-    _ensure_event_columns(connection)
+    _ensure_columns(
+        connection,
+        "events",
+        {
+            "published_at": "TEXT",
+            "timestamp_source": "TEXT",
+            "timestamp_confidence": "REAL",
+        },
+    )
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS event_market_reactions (
@@ -80,12 +87,14 @@ def connect() -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS event_intraday_reactions (
             event_id TEXT NOT NULL,
+            event_title TEXT,
             asset TEXT NOT NULL,
             symbol TEXT NOT NULL,
             published_at TEXT NOT NULL,
             interval TEXT NOT NULL,
             anchor_time TEXT NOT NULL,
             anchor_lag_minutes REAL NOT NULL,
+            market_state TEXT,
             base_price REAL NOT NULL,
             return_5m_pct REAL,
             return_15m_pct REAL,
@@ -93,6 +102,15 @@ def connect() -> sqlite3.Connection:
             return_1h_pct REAL,
             return_4h_pct REAL,
             return_24h_pct REAL,
+            bar_time_5m TEXT,
+            bar_time_15m TEXT,
+            bar_time_30m TEXT,
+            bar_time_1h TEXT,
+            bar_time_4h TEXT,
+            bar_time_24h TEXT,
+            distinct_window_bars INTEGER,
+            duplicate_group_size INTEGER,
+            quality_score REAL,
             max_up_24h_pct REAL,
             max_down_24h_pct REAL,
             time_to_max_minutes REAL,
@@ -102,6 +120,23 @@ def connect() -> sqlite3.Connection:
             FOREIGN KEY (event_id) REFERENCES events(event_id)
         )
         """
+    )
+    _ensure_columns(
+        connection,
+        "event_intraday_reactions",
+        {
+            "event_title": "TEXT",
+            "market_state": "TEXT",
+            "bar_time_5m": "TEXT",
+            "bar_time_15m": "TEXT",
+            "bar_time_30m": "TEXT",
+            "bar_time_1h": "TEXT",
+            "bar_time_4h": "TEXT",
+            "bar_time_24h": "TEXT",
+            "distinct_window_bars": "INTEGER",
+            "duplicate_group_size": "INTEGER",
+            "quality_score": "REAL",
+        },
     )
     connection.commit()
     return connection
@@ -217,18 +252,23 @@ def save_intraday_reactions(reactions: Iterable[IntradayReaction]) -> int:
         connection.executemany(
             """
             INSERT INTO event_intraday_reactions (
-                event_id, asset, symbol, published_at, interval, anchor_time,
-                anchor_lag_minutes, base_price, return_5m_pct, return_15m_pct,
-                return_30m_pct, return_1h_pct, return_4h_pct, return_24h_pct,
+                event_id, event_title, asset, symbol, published_at, interval,
+                anchor_time, anchor_lag_minutes, market_state, base_price,
+                return_5m_pct, return_15m_pct, return_30m_pct, return_1h_pct,
+                return_4h_pct, return_24h_pct, bar_time_5m, bar_time_15m,
+                bar_time_30m, bar_time_1h, bar_time_4h, bar_time_24h,
+                distinct_window_bars, duplicate_group_size, quality_score,
                 max_up_24h_pct, max_down_24h_pct, time_to_max_minutes,
                 time_to_min_minutes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(event_id, asset) DO UPDATE SET
+                event_title=excluded.event_title,
                 symbol=excluded.symbol,
                 published_at=excluded.published_at,
                 interval=excluded.interval,
                 anchor_time=excluded.anchor_time,
                 anchor_lag_minutes=excluded.anchor_lag_minutes,
+                market_state=excluded.market_state,
                 base_price=excluded.base_price,
                 return_5m_pct=excluded.return_5m_pct,
                 return_15m_pct=excluded.return_15m_pct,
@@ -236,6 +276,15 @@ def save_intraday_reactions(reactions: Iterable[IntradayReaction]) -> int:
                 return_1h_pct=excluded.return_1h_pct,
                 return_4h_pct=excluded.return_4h_pct,
                 return_24h_pct=excluded.return_24h_pct,
+                bar_time_5m=excluded.bar_time_5m,
+                bar_time_15m=excluded.bar_time_15m,
+                bar_time_30m=excluded.bar_time_30m,
+                bar_time_1h=excluded.bar_time_1h,
+                bar_time_4h=excluded.bar_time_4h,
+                bar_time_24h=excluded.bar_time_24h,
+                distinct_window_bars=excluded.distinct_window_bars,
+                duplicate_group_size=excluded.duplicate_group_size,
+                quality_score=excluded.quality_score,
                 max_up_24h_pct=excluded.max_up_24h_pct,
                 max_down_24h_pct=excluded.max_down_24h_pct,
                 time_to_max_minutes=excluded.time_to_max_minutes,
@@ -245,12 +294,14 @@ def save_intraday_reactions(reactions: Iterable[IntradayReaction]) -> int:
             [
                 (
                     row.event_id,
+                    row.event_title,
                     row.asset,
                     row.symbol,
                     row.published_at,
                     row.interval,
                     row.anchor_time,
                     row.anchor_lag_minutes,
+                    row.market_state,
                     row.base_price,
                     row.return_5m_pct,
                     row.return_15m_pct,
@@ -258,6 +309,15 @@ def save_intraday_reactions(reactions: Iterable[IntradayReaction]) -> int:
                     row.return_1h_pct,
                     row.return_4h_pct,
                     row.return_24h_pct,
+                    row.bar_time_5m,
+                    row.bar_time_15m,
+                    row.bar_time_30m,
+                    row.bar_time_1h,
+                    row.bar_time_4h,
+                    row.bar_time_24h,
+                    row.distinct_window_bars,
+                    row.duplicate_group_size,
+                    row.quality_score,
                     row.max_up_24h_pct,
                     row.max_down_24h_pct,
                     row.time_to_max_minutes,
