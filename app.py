@@ -11,6 +11,7 @@ import streamlit as st
 from bs4 import BeautifulSoup
 
 from config import twelve_data_api_key
+from decision_engine import build_market_assessment, build_strategy_suggestion
 from event_lab_ui import render_event_lab
 from market_data import MarketRequest, TwelveDataProvider, YahooProvider, fetch_market_data
 
@@ -66,7 +67,7 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
     response = requests.get(
         f"https://t.me/s/{channel.lstrip('@')}",
         timeout=30,
-        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.8"},
+        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.9"},
     )
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
@@ -135,10 +136,7 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
         tolerance=6 * NANOSECONDS_PER_HOUR,
     )
     lookup = pd.DataFrame(
-        {
-            "row_id": range(len(base)),
-            "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR,
-        }
+        {"row_id": range(len(base)), "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR}
     ).sort_values("target_join_ns")
     target = pd.merge_asof(
         lookup,
@@ -198,6 +196,7 @@ with st.sidebar:
     outputsize = st.selectbox("Antall prisbarer", [500, 1000, 2000, 5000], index=1)
     provider_choice = st.selectbox("Prisleverandør", ["Automatisk", "Twelve Data", "Yahoo Finance"])
     min_impact = st.slider("Minste impact-score", -2.0, 10.0, 0.0, 0.5)
+    profit_capture = st.slider("Andel av forventet bevegelse til autosalg", 0.50, 1.00, 0.80, 0.05)
     nordnet_url = st.text_input("Nordnet-produkt", placeholder="Lim inn produktlenken")
     if nordnet_url and not valid_nordnet_url(nordnet_url):
         st.warning("Lenken ser ikke ut som en Nordnet-lenke.")
@@ -244,6 +243,48 @@ with chart_tab:
     g3.metric("Hormuz", scores["Hormuz/shipping"])
     g4.metric("Momentum", scores["Markedsmomentum"])
     st.progress(scores["PriceGauge"] / 100)
+
+    historical_intraday = st.session_state.get("gdelt_intraday_reactions", [])
+    assessment = build_market_assessment(
+        asset=asset_name,
+        messages=messages,
+        market=market,
+        intraday_reactions=historical_intraday,
+    )
+    strategy = build_strategy_suggestion(assessment, profit_capture=profit_capture)
+
+    st.subheader("V1 beslutningsoutput")
+    st.caption("Analysegrunnlaget og handlingsregelen vises separat, slik at de kan evalueres uavhengig.")
+    with st.container(border=True):
+        st.markdown("### 1. Analyse")
+        a1, a2, a3, a4 = st.columns(4)
+        a1.metric("Retning", assessment.direction)
+        a2.metric("Konfidens", f"{assessment.confidence_pct:.1f} %")
+        a3.metric(
+            "Forventet bevegelse",
+            f"{assessment.expected_move_pct:+.3f} %" if assessment.expected_move_pct is not None else "Mangler historikk",
+        )
+        a4.metric("Tidshorisont", assessment.horizon)
+        st.write(f"**Evidensgrad:** {assessment.evidence_grade} · **Historisk utvalg:** {assessment.historical_sample}")
+        for reason in assessment.rationale:
+            st.write(f"• {reason}")
+
+    with st.container(border=True):
+        st.markdown("### 2. Metodisk handlingsforslag")
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Handling", strategy.action)
+        s2.metric("Maks gearing", f"{strategy.max_leverage:.1f}×")
+        s3.metric(
+            "Autosalg",
+            f"{strategy.take_profit_pct:.3f} %" if strategy.take_profit_pct is not None else "—",
+        )
+        s4.metric(
+            "Stop i underliggende",
+            f"{strategy.stop_loss_pct:.3f} %" if strategy.stop_loss_pct is not None else "—",
+        )
+        st.write(strategy.methodology)
+        st.warning(strategy.warning)
+
     if market.empty:
         st.info("Ingen markedsdata tilgjengelig.")
     else:
