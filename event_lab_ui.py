@@ -22,7 +22,6 @@ REACTION_ASSETS = {
 
 
 def _upgrade_legacy_events(events: list) -> list:
-    """Rebuild events kept in Streamlit session state before timestamp fields existed."""
     upgraded = []
     changed = False
     for event in events:
@@ -155,7 +154,7 @@ def render_event_lab() -> None:
     precise_count = sum(bool(getattr(event, "published_at", None)) for event in events)
     st.caption(
         f"{precise_count} av {len(events)} hendelser kan kobles til intradagkurser. "
-        "Motoren bruker 5-minuttersbarer når Yahoo har dem, med automatisk fallback til 15 eller 60 minutter."
+        "Vinduene måles fra første omsettelige prisbar, ikke fra publisering mens markedet er stengt."
     )
 
     intraday_assets = st.multiselect(
@@ -171,11 +170,11 @@ def render_event_lab() -> None:
             st.warning("Finn publiseringstidspunktene først.")
         else:
             try:
-                with st.spinner("Henter intradagkurser og matcher første prisbar etter hver nyhet …"):
+                with st.spinner("Henter intradagkurser, fjerner eksakte duplikater og validerer hver prisbar …"):
                     assets = {name: REACTION_ASSETS[name] for name in intraday_assets}
                     intraday = calculate_intraday_reactions(events, assets)
                 st.session_state.gdelt_intraday_reactions = intraday
-                st.success(f"Koblet {len(intraday)} hendelse–marked-par til intradagpriser.")
+                st.success(f"Koblet {len(intraday)} unike hendelse–marked-par til intradagpriser.")
             except Exception as exc:
                 st.error(f"Kunne ikke beregne intradagreaksjoner: {exc}")
 
@@ -183,19 +182,26 @@ def render_event_lab() -> None:
     if intraday:
         intraday_frame = pd.DataFrame([reaction.to_record() for reaction in intraday])
         intraday_cols = [
-            "published_at", "asset", "interval", "anchor_time", "anchor_lag_minutes",
-            "base_price", "return_5m_pct", "return_15m_pct", "return_30m_pct",
-            "return_1h_pct", "return_4h_pct", "return_24h_pct", "max_up_24h_pct",
-            "max_down_24h_pct", "time_to_max_minutes", "time_to_min_minutes",
+            "event_title", "published_at", "asset", "interval", "market_state",
+            "anchor_time", "anchor_lag_minutes", "quality_score", "duplicate_group_size",
+            "distinct_window_bars", "base_price", "return_5m_pct", "bar_time_5m",
+            "return_15m_pct", "bar_time_15m", "return_30m_pct", "bar_time_30m",
+            "return_1h_pct", "bar_time_1h", "return_4h_pct", "bar_time_4h",
+            "return_24h_pct", "bar_time_24h", "max_up_24h_pct", "max_down_24h_pct",
+            "time_to_max_minutes", "time_to_min_minutes",
         ]
         st.dataframe(
             intraday_frame.reindex(columns=intraday_cols),
             use_container_width=True,
             hide_index=True,
             column_config={
+                "event_title": "Hendelse",
                 "published_at": st.column_config.DatetimeColumn("Publisert UTC"),
                 "anchor_time": st.column_config.DatetimeColumn("Første prisbar UTC"),
                 "anchor_lag_minutes": st.column_config.NumberColumn("Ventetid min", format="%.1f"),
+                "quality_score": st.column_config.NumberColumn("Kvalitet", format="%.1f"),
+                "duplicate_group_size": "Artikler i duplikatgruppe",
+                "distinct_window_bars": "Ulike målebarer",
                 "base_price": st.column_config.NumberColumn("Startkurs", format="%.4f"),
                 "return_5m_pct": st.column_config.NumberColumn("+5m", format="%+.3f %%"),
                 "return_15m_pct": st.column_config.NumberColumn("+15m", format="%+.3f %%"),
@@ -203,21 +209,37 @@ def render_event_lab() -> None:
                 "return_1h_pct": st.column_config.NumberColumn("+1t", format="%+.3f %%"),
                 "return_4h_pct": st.column_config.NumberColumn("+4t", format="%+.3f %%"),
                 "return_24h_pct": st.column_config.NumberColumn("+24t", format="%+.3f %%"),
+                "bar_time_5m": st.column_config.DatetimeColumn("Bar +5m"),
+                "bar_time_15m": st.column_config.DatetimeColumn("Bar +15m"),
+                "bar_time_30m": st.column_config.DatetimeColumn("Bar +30m"),
+                "bar_time_1h": st.column_config.DatetimeColumn("Bar +1t"),
+                "bar_time_4h": st.column_config.DatetimeColumn("Bar +4t"),
+                "bar_time_24h": st.column_config.DatetimeColumn("Bar +24t"),
                 "max_up_24h_pct": st.column_config.NumberColumn("Maks opp 24t", format="%+.3f %%"),
                 "max_down_24h_pct": st.column_config.NumberColumn("Maks ned 24t", format="%+.3f %%"),
             },
         )
 
-        intraday_summary = intraday_frame.groupby("asset", as_index=False).agg(
+        quality_summary = intraday_frame.groupby("asset", as_index=False).agg(
             koblinger=("event_id", "count"),
+            snitt_kvalitet=("quality_score", "mean"),
+            marked_apent=("market_state", lambda s: int((s == "open").sum())),
+            duplikatgrupper=("duplicate_group_size", lambda s: int((s > 1).sum())),
             snitt_15m=("return_15m_pct", "mean"),
             median_1h=("return_1h_pct", "median"),
             andel_opp_1h=("return_1h_pct", lambda s: float((s > 0).mean() * 100)),
             snitt_24h=("return_24h_pct", "mean"),
             snitt_ventetid_min=("anchor_lag_minutes", "mean"),
         )
-        st.subheader("Intradagoppsummering per marked")
-        st.dataframe(intraday_summary, use_container_width=True, hide_index=True)
+        st.subheader("Intradagoppsummering og datakvalitet")
+        st.dataframe(quality_summary, use_container_width=True, hide_index=True)
+
+        repeated = intraday_frame[intraday_frame["distinct_window_bars"] < 4]
+        if not repeated.empty:
+            st.warning(
+                f"{len(repeated)} koblinger har færre enn fire ulike prisbarer i målevinduene. "
+                "De er synlige i tabellen og bør filtreres på kvalitet før prediksjon."
+            )
 
         x, y = st.columns(2)
         with x:
@@ -232,9 +254,7 @@ def render_event_lab() -> None:
             if st.button("Lagre intradagreaksjoner", use_container_width=True):
                 event_changes = save_events(events)
                 reaction_changes = save_intraday_reactions(intraday)
-                st.success(
-                    f"Lagret hendelser ({event_changes}) og intradagreaksjoner ({reaction_changes})."
-                )
+                st.success(f"Lagret hendelser ({event_changes}) og intradagreaksjoner ({reaction_changes}).")
 
     st.divider()
     st.subheader("Daglige markedsreaksjoner")
@@ -265,11 +285,7 @@ def render_event_lab() -> None:
         "event_date", "asset", "base_date", "base_close", "return_1d_pct",
         "return_3d_pct", "return_5d_pct", "max_up_5d_pct", "max_down_5d_pct",
     ]
-    st.dataframe(
-        reaction_frame.reindex(columns=show_cols),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(reaction_frame.reindex(columns=show_cols), use_container_width=True, hide_index=True)
 
     summary = reaction_frame.groupby("asset", as_index=False).agg(
         hendelser=("event_id", "count"),
