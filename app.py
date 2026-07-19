@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -10,21 +10,21 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-from config import twelve_data_api_key
+from config import gdelt_api_key, twelve_data_api_key
+from gdelt_client import GdeltClient, GdeltError
 from market_data import MarketRequest, TwelveDataProvider, YahooProvider, fetch_market_data
+from storage import save_events
 
 st.set_page_config(page_title="PriceGauger Alpha", page_icon="📡", layout="wide")
 
 CHANNEL = "Middle_East_Spectator"
 NANOSECONDS_PER_HOUR = 3_600_000_000_000
-
 ASSETS = {
     "Brent": {"yahoo": "BZ=F"},
     "Silver": {"twelve": "XAG/USD", "yahoo": "SI=F"},
     "Gold": {"twelve": "XAU/USD", "yahoo": "GC=F"},
     "DXY": {"yahoo": "DX-Y.NYB"},
 }
-
 KEYWORDS = {
     "Hormuz/shipping": ["hormuz", "tanker", "shipping", "vessel", "strait", "port", "naval", "mine"],
     "Energy": ["oil", "gas", "refinery", "pipeline", "terminal", "aramco", "lng", "production"],
@@ -67,7 +67,7 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
     response = requests.get(
         f"https://t.me/s/{channel.lstrip('@')}",
         timeout=30,
-        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.6"},
+        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.7"},
     )
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
@@ -112,7 +112,7 @@ def prepare_join_data(messages: pd.DataFrame, market: pd.DataFrame) -> tuple[pd.
     bars = bars.dropna(subset=["timestamp", "join_ns", "close"]).copy()
     events["join_ns"] = events["join_ns"].astype("int64")
     bars["join_ns"] = bars["join_ns"].astype("int64")
-    return events.sort_values("join_ns").reset_index(drop=True), bars.sort_values("join_ns").reset_index(drop=True)
+    return events.sort_values("join_ns"), bars.sort_values("join_ns")
 
 
 def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: int) -> pd.DataFrame:
@@ -128,12 +128,12 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
         direction="forward",
         tolerance=6 * NANOSECONDS_PER_HOUR,
     )
-    target_lookup = pd.DataFrame({
+    lookup = pd.DataFrame({
         "row_id": range(len(base)),
         "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR,
     }).sort_values("target_join_ns")
     target = pd.merge_asof(
-        target_lookup,
+        lookup,
         bars.rename(columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}),
         on="target_join_ns",
         direction="forward",
@@ -153,8 +153,8 @@ def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[s
     else:
         now = pd.Timestamp.now(tz="UTC")
         recent = messages[pd.to_datetime(messages["published_at"], utc=True) >= now - pd.Timedelta("12h")]
-        decay_hours = (now - pd.to_datetime(recent["published_at"], utc=True)).dt.total_seconds() / 3600 if not recent.empty else pd.Series(dtype=float)
-        weights = 1 / (1 + decay_hours / 3) if not recent.empty else pd.Series(dtype=float)
+        decay = (now - pd.to_datetime(recent["published_at"], utc=True)).dt.total_seconds() / 3600 if not recent.empty else pd.Series(dtype=float)
+        weights = 1 / (1 + decay / 3) if not recent.empty else pd.Series(dtype=float)
         geo = bounded_score(12 + 14 * float((recent["Escalation"] * weights).sum()) - 8 * float((recent["Diplomacy"] * weights).sum()))
         shipping = bounded_score(8 + 20 * float((recent["Hormuz/shipping"] * weights).sum()))
         energy = bounded_score(8 + 16 * float((recent["Energy"] * weights).sum()))
@@ -195,17 +195,11 @@ except Exception as exc:
 
 request = MarketRequest(asset_name=asset_name, interval=interval, outputsize=outputsize, symbols=ASSETS[asset_name])
 all_providers = [TwelveDataProvider(twelve_data_api_key()), YahooProvider()]
-if provider_choice == "Twelve Data":
-    providers = [all_providers[0]]
-elif provider_choice == "Yahoo Finance":
-    providers = [all_providers[1]]
-else:
-    providers = all_providers
-
+providers = [all_providers[0]] if provider_choice == "Twelve Data" else [all_providers[1]] if provider_choice == "Yahoo Finance" else all_providers
 try:
-    result = fetch_market_data(request, providers)
-    market = result.frame
-    feed_name = result.provider_name
+    market_result = fetch_market_data(request, providers)
+    market = market_result.frame
+    feed_name = market_result.provider_name
 except Exception as exc:
     st.error(f"Kunne ikke hente markedsdata: {exc}")
     market = pd.DataFrame()
@@ -230,43 +224,13 @@ with chart_tab:
     g3.metric("Hormuz", scores["Hormuz/shipping"])
     g4.metric("Momentum", scores["Markedsmomentum"])
     st.progress(scores["PriceGauge"] / 100)
-
     if market.empty:
         st.info("Ingen markedsdata tilgjengelig.")
     else:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=market["timestamp"], y=market["close"], mode="lines", name=asset_name))
-        joined = pd.DataFrame()
-        if not messages.empty:
-            relevant = messages[messages["impact"] >= min_impact].copy()
-            relevant, chart_bars = prepare_join_data(relevant, market)
-            if not relevant.empty and not chart_bars.empty:
-                joined = pd.merge_asof(relevant, chart_bars, on="join_ns", direction="nearest", tolerance=6 * NANOSECONDS_PER_HOUR).dropna(subset=["close"])
-                if not joined.empty:
-                    hover = joined["published_at"].dt.strftime("%Y-%m-%d %H:%M UTC") + "<br>Impact: " + joined["impact"].round(1).astype(str) + "<br>" + joined["text"].str.slice(0, 220)
-                    fig.add_trace(go.Scatter(x=joined["timestamp"], y=joined["close"], mode="markers", name="MES-hendelse", marker={"size": 11, "symbol": "diamond", "line": {"width": 1}}, text=hover, hovertemplate="%{text}<extra></extra>"))
-        fig.update_layout(height=500, margin=dict(l=10, r=10, t=20, b=10), legend_orientation="h", dragmode=False)
-        st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": False, "displayModeBar": True, "doubleClick": "reset", "responsive": True})
-        st.caption("Én finger scroller siden. Bruk verktøylinjen i grafen for zoom/panoreringsmodus.")
-
-        if not joined.empty:
-            st.subheader("Undersøk én hendelse")
-            event_options = joined.sort_values("published_at", ascending=False).reset_index(drop=True)
-            labels = event_options.apply(lambda row: f"{row['published_at'].strftime('%d.%m %H:%M')} · impact {row['impact']:.1f} · {row['text'][:65]}", axis=1)
-            selected_index = st.selectbox("MES-melding", range(len(labels)), format_func=lambda i: labels.iloc[i])
-            selected = event_options.iloc[selected_index]
-            st.write(selected["text"])
-            st.caption(selected["published_at"].strftime("%Y-%m-%d %H:%M UTC"))
-            returns = {}
-            for hours in (1, 4, 24):
-                aligned_one = align_events(messages[messages["url"] == selected["url"]], market, hours)
-                col = f"return_{hours}h_pct"
-                returns[hours] = aligned_one[col].iloc[0] if not aligned_one.empty and col in aligned_one and pd.notna(aligned_one[col].iloc[0]) else None
-            r1, r4, r24 = st.columns(3)
-            r1.metric("Etter 1 t", "–" if returns[1] is None else f"{returns[1]:+.2f} %")
-            r4.metric("Etter 4 t", "–" if returns[4] is None else f"{returns[4]:+.2f} %")
-            r24.metric("Etter 24 t", "–" if returns[24] is None else f"{returns[24]:+.2f} %")
-            st.link_button("Åpne originalen i Telegram", selected["url"])
+        fig.update_layout(height=500, margin=dict(l=10, r=10, t=20, b=10), legend_orientation="h")
+        st.plotly_chart(fig, use_container_width=True)
 
 with events_tab:
     if messages.empty:
@@ -297,18 +261,55 @@ with risk_tab:
     risk_pct = st.slider("Maks risiko per handel (%)", 0.1, 3.0, 0.5, 0.1)
     stop_pct = st.slider("Stop-avstand i underliggende (%)", 0.1, 10.0, 1.5, 0.1)
     leverage = st.slider("Gearing", 1.0, 25.0, 5.0, 0.5)
-    roundtrip_cost_pct = st.number_input("Anslått spread + slippage tur/retur (%)", min_value=0.0, value=0.4, step=0.1)
     max_loss = capital * risk_pct / 100
     product_amount = max_loss / ((stop_pct / 100) * leverage)
-    estimated_cost = product_amount * roundtrip_cost_pct / 100
-    r1, r2, r3 = st.columns(3)
+    r1, r2 = st.columns(2)
     r1.metric("Maks tap", f"{max_loss:,.0f} NOK")
     r2.metric("Produktbeløp", f"{product_amount:,.0f} NOK")
-    r3.metric("Estimert handelskostnad", f"{estimated_cost:,.0f} NOK")
-    st.caption("Neste steg er å lese faktisk Nordnet-produktpris og beregne realisert nettoresultat per signal.")
 
 with lab_tab:
     st.subheader("Historical Event Lab")
-    st.write("Her henter og lagrer vi strukturerte GDELT-hendelser før AI får et begrenset og etterprøvbart datasett å resonnere over.")
-    st.page_link("pages/1_Historical_Event_Lab.py", label="Åpne Historical Event Lab", icon="🧭", use_container_width=True)
-    st.caption("GDELT er hendelsesdatakilden. Prisleverandøren over er separat og kan byttes uavhengig.")
+    st.caption("Mekanisk innsamling og filtrering først. AI kobles på senere med et avgrenset og etterprøvbart datasett.")
+    key = gdelt_api_key()
+    if not key:
+        st.error("GDELT_CLOUD_API_KEY mangler i Streamlit Secrets.")
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            start_date = st.date_input("Fra dato", value=date.today() - timedelta(days=14), key="gdelt_start")
+            search = st.text_input("Søk", value="attacks on energy infrastructure", key="gdelt_search")
+            country = st.text_input("Land", placeholder="Iran", key="gdelt_country")
+        with c2:
+            end_date = st.date_input("Til dato", value=date.today(), key="gdelt_end")
+            domain = st.selectbox("Domene", ["", "POLITICAL", "ECONOMIC", "CORPORATE", "TECHNOLOGY", "INFRASTRUCTURE", "HEALTH", "INFORMATION", "ENVIRONMENT", "CRIME"], key="gdelt_domain")
+            limit = st.slider("Maks resultater", 5, 100, 50, 5, key="gdelt_limit")
+        if st.button("Hent GDELT-hendelser", type="primary", use_container_width=True):
+            try:
+                page = GdeltClient(key).list_events(
+                    date_start=start_date.isoformat(),
+                    date_end=end_date.isoformat(),
+                    search=search.strip(),
+                    country=country.strip(),
+                    domain=domain,
+                    limit=limit,
+                )
+                st.session_state.gdelt_events = page.events
+            except (GdeltError, ValueError) as exc:
+                st.error(f"GDELT-kallet mislyktes: {exc}")
+            except Exception:
+                st.error("Uventet feil under GDELT-kallet. Nøkkel og request-detaljer er skjult.")
+        events = st.session_state.get("gdelt_events", [])
+        if events:
+            frame = pd.DataFrame([event.to_record() for event in events])
+            frame["actors"] = frame["actors"].apply(lambda values: ", ".join(values))
+            visible = ["event_date", "title", "category", "domain", "country", "location", "actors", "confidence", "market_sensitivity", "significance", "url"]
+            st.dataframe(frame[visible], use_container_width=True, hide_index=True, column_config={"url": st.column_config.LinkColumn("Kilde")})
+            a, b = st.columns(2)
+            with a:
+                st.download_button("Last ned CSV", frame.drop(columns=["raw"]).to_csv(index=False).encode("utf-8"), "gdelt_events.csv", "text/csv", use_container_width=True)
+            with b:
+                if st.button("Lagre i lokal database", use_container_width=True):
+                    changed = save_events(events)
+                    st.success(f"Databasen ble oppdatert ({changed} innsettinger/oppdateringer).")
+        else:
+            st.info("Velg filtre og trykk «Hent GDELT-hendelser».")
