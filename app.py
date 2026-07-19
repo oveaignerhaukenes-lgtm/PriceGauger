@@ -8,8 +8,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-import yfinance as yf
 from bs4 import BeautifulSoup
+
+from config import twelve_data_api_key
+from market_data import MarketRequest, TwelveDataProvider, YahooProvider, fetch_market_data
 
 st.set_page_config(page_title="PriceGauger Alpha", page_icon="📡", layout="wide")
 
@@ -17,10 +19,10 @@ CHANNEL = "Middle_East_Spectator"
 NANOSECONDS_PER_HOUR = 3_600_000_000_000
 
 ASSETS = {
-    "Brent": {"provider": "yahoo", "yahoo": "BZ=F"},
-    "Silver": {"provider": "twelve", "twelve": "XAG/USD", "yahoo": "SI=F"},
-    "Gold": {"provider": "twelve", "twelve": "XAU/USD", "yahoo": "GC=F"},
-    "DXY": {"provider": "yahoo", "yahoo": "DX-Y.NYB"},
+    "Brent": {"yahoo": "BZ=F"},
+    "Silver": {"twelve": "XAG/USD", "yahoo": "SI=F"},
+    "Gold": {"twelve": "XAU/USD", "yahoo": "GC=F"},
+    "DXY": {"yahoo": "DX-Y.NYB"},
 }
 
 KEYWORDS = {
@@ -65,7 +67,7 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
     response = requests.get(
         f"https://t.me/s/{channel.lstrip('@')}",
         timeout=30,
-        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.5"},
+        headers={"User-Agent": "Mozilla/5.0 PriceGauger/0.6"},
     )
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
@@ -99,49 +101,6 @@ def fetch_mes(channel: str = CHANNEL) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("published_at", ascending=False) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=60)
-def fetch_twelve_market(symbol: str, interval: str, outputsize: int, api_key: str) -> pd.DataFrame:
-    response = requests.get(
-        "https://api.twelvedata.com/time_series",
-        params={
-            "symbol": symbol,
-            "interval": interval,
-            "outputsize": min(max(outputsize, 1), 5000),
-            "timezone": "UTC",
-            "order": "asc",
-            "apikey": api_key,
-        },
-        timeout=30,
-    )
-    payload = response.json()
-    if response.status_code >= 400 or payload.get("status") == "error":
-        raise RuntimeError(payload.get("message", f"HTTP {response.status_code}"))
-    values = payload.get("values", [])
-    if not values:
-        return pd.DataFrame()
-    frame = pd.DataFrame(values)
-    frame["timestamp"] = pd.to_datetime(frame["datetime"], utc=True, errors="coerce")
-    for col in ("open", "high", "low", "close", "volume"):
-        if col in frame:
-            frame[col] = pd.to_numeric(frame[col], errors="coerce")
-    return frame.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
-
-
-@st.cache_data(ttl=300)
-def fetch_yahoo_market(symbol: str, period: str, interval: str) -> pd.DataFrame:
-    frame = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False, threads=False)
-    if frame.empty:
-        return frame
-    if isinstance(frame.columns, pd.MultiIndex):
-        frame.columns = frame.columns.get_level_values(0)
-    frame = frame.reset_index()
-    time_col = "Datetime" if "Datetime" in frame.columns else "Date"
-    frame[time_col] = pd.to_datetime(frame[time_col], utc=True, errors="coerce")
-    frame = frame.rename(columns={time_col: "timestamp", "Close": "close", "Open": "open", "High": "high", "Low": "low", "Volume": "volume"})
-    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
-    return frame.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
-
-
 def prepare_join_data(messages: pd.DataFrame, market: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     events = messages.copy()
     bars = market[["timestamp", "close"]].copy()
@@ -162,9 +121,24 @@ def align_events(messages: pd.DataFrame, market: pd.DataFrame, horizon_hours: in
     events, bars = prepare_join_data(messages, market)
     if events.empty or bars.empty:
         return pd.DataFrame()
-    base = pd.merge_asof(events, bars.rename(columns={"timestamp": "base_time", "close": "base_close"}), on="join_ns", direction="forward", tolerance=6 * NANOSECONDS_PER_HOUR)
-    target_lookup = pd.DataFrame({"row_id": range(len(base)), "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR}).sort_values("target_join_ns")
-    target = pd.merge_asof(target_lookup, bars.rename(columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}), on="target_join_ns", direction="forward", tolerance=6 * NANOSECONDS_PER_HOUR).sort_values("row_id")
+    base = pd.merge_asof(
+        events,
+        bars.rename(columns={"timestamp": "base_time", "close": "base_close"}),
+        on="join_ns",
+        direction="forward",
+        tolerance=6 * NANOSECONDS_PER_HOUR,
+    )
+    target_lookup = pd.DataFrame({
+        "row_id": range(len(base)),
+        "target_join_ns": base["join_ns"] + horizon_hours * NANOSECONDS_PER_HOUR,
+    }).sort_values("target_join_ns")
+    target = pd.merge_asof(
+        target_lookup,
+        bars.rename(columns={"join_ns": "target_join_ns", "timestamp": "target_bar", "close": "target_close"}),
+        on="target_join_ns",
+        direction="forward",
+        tolerance=6 * NANOSECONDS_PER_HOUR,
+    ).sort_values("row_id")
     base[f"return_{horizon_hours}h_pct"] = (target["target_close"].to_numpy() / base["base_close"].to_numpy() - 1) * 100
     return base
 
@@ -195,15 +169,14 @@ def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[s
 
 
 st.title("📡 PriceGauger Alpha")
-st.caption("MES-hendelser koblet mot gratis markedsdata fra 5 minutter og opp")
-
-api_key = st.secrets.get("TWELVE_DATA_API_KEY", "")
+st.caption("Hendelser, markedsdata og historiske reaksjoner i en modulær analysearkitektur")
 
 with st.sidebar:
     st.header("Innstillinger")
     asset_name = st.selectbox("Marked", list(ASSETS))
     interval = st.selectbox("Intervall", ["5min", "15min", "30min", "1h"], index=0)
     outputsize = st.selectbox("Antall prisbarer", [500, 1000, 2000, 5000], index=1)
+    provider_choice = st.selectbox("Prisleverandør", ["Automatisk", "Twelve Data", "Yahoo Finance"])
     min_impact = st.slider("Minste impact-score", -2.0, 10.0, 0.0, 0.5)
     nordnet_url = st.text_input("Nordnet-produkt", placeholder="Lim inn produktlenken")
     if nordnet_url and not valid_nordnet_url(nordnet_url):
@@ -220,26 +193,23 @@ except Exception as exc:
     st.error(f"Kunne ikke hente MES: {exc}")
     messages = pd.DataFrame()
 
-asset = ASSETS[asset_name]
-feed_name = "Yahoo Finance"
-market = pd.DataFrame()
+request = MarketRequest(asset_name=asset_name, interval=interval, outputsize=outputsize, symbols=ASSETS[asset_name])
+all_providers = [TwelveDataProvider(twelve_data_api_key()), YahooProvider()]
+if provider_choice == "Twelve Data":
+    providers = [all_providers[0]]
+elif provider_choice == "Yahoo Finance":
+    providers = [all_providers[1]]
+else:
+    providers = all_providers
 
-if asset["provider"] == "twelve" and api_key:
-    try:
-        market = fetch_twelve_market(asset["twelve"], interval, outputsize, api_key)
-        feed_name = "Twelve Data (gratis FX-feed)"
-    except Exception:
-        market = pd.DataFrame()
-
-if market.empty:
-    yahoo_interval = {"5min": "5m", "15min": "15m", "30min": "30m", "1h": "1h"}[interval]
-    yahoo_period = "60d" if interval in {"5min", "15min", "30min"} else "730d"
-    try:
-        market = fetch_yahoo_market(asset["yahoo"], yahoo_period, yahoo_interval)
-        feed_name = "Yahoo Finance"
-    except Exception as exc:
-        st.error(f"Kunne ikke hente markedsdata: {exc}")
-        market = pd.DataFrame()
+try:
+    result = fetch_market_data(request, providers)
+    market = result.frame
+    feed_name = result.provider_name
+except Exception as exc:
+    st.error(f"Kunne ikke hente markedsdata: {exc}")
+    market = pd.DataFrame()
+    feed_name = "Ingen"
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("MES-meldinger", len(messages))
@@ -247,7 +217,9 @@ m2.metric("Prisbarer", len(market))
 m3.metric("Datakilde", feed_name)
 m4.metric("Sist oppdatert", datetime.now(timezone.utc).strftime("%H:%M UTC"))
 
-chart_tab, events_tab, test_tab, risk_tab = st.tabs(["Dashboard", "Hendelser", "Historisk test", "Risiko"])
+chart_tab, events_tab, test_tab, risk_tab, lab_tab = st.tabs([
+    "Dashboard", "Hendelser", "Historisk test", "Risiko", "Historical Event Lab"
+])
 
 with chart_tab:
     scores = calculate_pricegauge(messages, market)
@@ -287,9 +259,9 @@ with chart_tab:
             st.caption(selected["published_at"].strftime("%Y-%m-%d %H:%M UTC"))
             returns = {}
             for hours in (1, 4, 24):
-                result = align_events(messages[messages["url"] == selected["url"]], market, hours)
+                aligned_one = align_events(messages[messages["url"] == selected["url"]], market, hours)
                 col = f"return_{hours}h_pct"
-                returns[hours] = result[col].iloc[0] if not result.empty and col in result and pd.notna(result[col].iloc[0]) else None
+                returns[hours] = aligned_one[col].iloc[0] if not aligned_one.empty and col in aligned_one and pd.notna(aligned_one[col].iloc[0]) else None
             r1, r4, r24 = st.columns(3)
             r1.metric("Etter 1 t", "–" if returns[1] is None else f"{returns[1]:+.2f} %")
             r4.metric("Etter 4 t", "–" if returns[4] is None else f"{returns[4]:+.2f} %")
@@ -334,3 +306,9 @@ with risk_tab:
     r2.metric("Produktbeløp", f"{product_amount:,.0f} NOK")
     r3.metric("Estimert handelskostnad", f"{estimated_cost:,.0f} NOK")
     st.caption("Neste steg er å lese faktisk Nordnet-produktpris og beregne realisert nettoresultat per signal.")
+
+with lab_tab:
+    st.subheader("Historical Event Lab")
+    st.write("Her henter og lagrer vi strukturerte GDELT-hendelser før AI får et begrenset og etterprøvbart datasett å resonnere over.")
+    st.page_link("pages/1_Historical_Event_Lab.py", label="Åpne Historical Event Lab", icon="🧭", use_container_width=True)
+    st.caption("GDELT er hendelsesdatakilden. Prisleverandøren over er separat og kan byttes uavhengig.")
