@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from event_models import MarketEvent
-from event_reactions import EventReaction
+
+if TYPE_CHECKING:
+    from event_reactions import EventReaction
 
 DB_PATH = Path("data/pricegauger.db")
 
@@ -84,11 +86,22 @@ def save_events(events: Iterable[MarketEvent]) -> int:
             """,
             [
                 (
-                    event.event_id, event.source, event.event_date, event.title,
-                    event.summary, event.category, event.subcategory, event.domain,
-                    event.country, event.location, json.dumps(event.actors, ensure_ascii=False),
-                    event.confidence, event.market_sensitivity, event.significance,
-                    event.url, json.dumps(event.raw, ensure_ascii=False),
+                    event.event_id,
+                    event.source,
+                    event.event_date,
+                    event.title,
+                    event.summary,
+                    event.category,
+                    event.subcategory,
+                    event.domain,
+                    event.country,
+                    event.location,
+                    json.dumps(event.actors, ensure_ascii=False),
+                    event.confidence,
+                    event.market_sensitivity,
+                    event.significance,
+                    event.url,
+                    json.dumps(event.raw, ensure_ascii=False),
                 )
                 for event in rows
             ],
@@ -124,10 +137,17 @@ def save_reactions(reactions: Iterable[EventReaction]) -> int:
             """,
             [
                 (
-                    row.event_id, row.asset, row.symbol, row.event_date,
-                    row.base_date, row.base_close, row.return_1d_pct,
-                    row.return_3d_pct, row.return_5d_pct,
-                    row.max_up_5d_pct, row.max_down_5d_pct,
+                    row.event_id,
+                    row.asset,
+                    row.symbol,
+                    row.event_date,
+                    row.base_date,
+                    row.base_close,
+                    row.return_1d_pct,
+                    row.return_3d_pct,
+                    row.return_5d_pct,
+                    row.max_up_5d_pct,
+                    row.max_down_5d_pct,
                 )
                 for row in rows
             ],
