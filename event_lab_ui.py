@@ -93,7 +93,7 @@ def render_event_lab() -> None:
 
     if st.button("Finn nøyaktige publiseringstidspunkter", use_container_width=True):
         try:
-            with st.spinner("Leser tidsmetadata fra GDELT og originalartiklene …"):
+            with st.spinner("Leser GDELTs kildeartikler og publiseringsmetadata …"):
                 st.session_state.gdelt_events = enrich_event_timestamps(events)
             events = st.session_state.gdelt_events
             precise = sum(bool(getattr(event, "published_at", None)) for event in events)
@@ -101,15 +101,24 @@ def render_event_lab() -> None:
         except Exception as exc:
             st.error(f"Kunne ikke berike tidsstemplene: {exc}")
 
-    frame = pd.DataFrame([event.to_record() for event in events])
+    records = []
+    for event in events:
+        record = event.to_record()
+        raw = record.get("raw") if isinstance(record.get("raw"), dict) else {}
+        record["timestamp_diagnostic"] = raw.get("_timestamp_diagnostic")
+        record["source_article_url"] = raw.get("_timestamp_article_url")
+        records.append(record)
+
+    frame = pd.DataFrame(records)
     if "actors" in frame.columns:
         frame["actors"] = frame["actors"].apply(
             lambda values: ", ".join(values) if isinstance(values, list) else str(values or "")
         )
     visible = [
         "event_date", "published_at", "timestamp_source", "timestamp_confidence",
-        "title", "category", "domain", "country", "location", "actors",
-        "confidence", "market_sensitivity", "significance", "url",
+        "timestamp_diagnostic", "source_article_url", "title", "category", "domain",
+        "country", "location", "actors", "confidence", "market_sensitivity",
+        "significance", "url",
     ]
     display_frame = frame.reindex(columns=visible)
     st.dataframe(
@@ -120,7 +129,9 @@ def render_event_lab() -> None:
             "published_at": st.column_config.DatetimeColumn("Publisert (UTC)"),
             "timestamp_source": "Tidskilde",
             "timestamp_confidence": st.column_config.NumberColumn("Tidssikkerhet", format="%.2f"),
-            "url": st.column_config.LinkColumn("Kilde"),
+            "timestamp_diagnostic": "Diagnose",
+            "source_article_url": st.column_config.LinkColumn("Kildeartikkel"),
+            "url": st.column_config.LinkColumn("GDELT-side"),
         },
     )
 
