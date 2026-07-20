@@ -86,6 +86,16 @@ def _profile_record(profile: Any | None) -> dict[str, Any]:
     return dict(vars(profile))
 
 
+def _direction_from_value(value: float | None, dead_zone: float) -> str:
+    if value is None:
+        return "NEUTRAL"
+    if value > dead_zone:
+        return "LONG"
+    if value < -dead_zone:
+        return "SHORT"
+    return "NEUTRAL"
+
+
 def build_market_assessment(
     *,
     asset: str,
@@ -97,9 +107,10 @@ def build_market_assessment(
     """Build an assessment from live flow, momentum and optional EventDNA analogues.
 
     When ``market_profile`` is supplied, its similarity-weighted analogue sample is
-    used instead of the unfiltered asset-wide reaction history. The old behaviour
-    remains available for the dashboard and for callers that do not yet provide a
-    profile.
+    used instead of the unfiltered asset-wide reaction history. The historical
+    analogue expectation anchors direction; live flow and current momentum adjust
+    confidence but cannot silently reverse a positive expectation into SHORT, or a
+    negative expectation into LONG.
     """
     now = pd.Timestamp.now(tz="UTC")
     live_score = _recent_message_score(messages, now)
@@ -115,6 +126,7 @@ def build_market_assessment(
     median_adverse = None
     median_quality = None
     profile_confidence = None
+    profile_direction = "NEUTRAL"
     analogue_mode = bool(profile)
 
     if analogue_mode:
@@ -132,6 +144,8 @@ def build_market_assessment(
         adverse_value = profile.get("median_max_down_24h_pct")
         median_adverse = abs(float(adverse_value)) if adverse_value is not None else None
         profile_confidence = float(profile.get("confidence_pct") or 0.0)
+        candidate_direction = str(profile.get("direction") or "NEUTRAL").upper()
+        profile_direction = candidate_direction if candidate_direction in {"LONG", "SHORT", "NEUTRAL"} else "NEUTRAL"
     elif not history.empty:
         one_hour = pd.to_numeric(history.get("return_1h_pct"), errors="coerce").dropna()
         four_hour = pd.to_numeric(history.get("return_4h_pct"), errors="coerce").dropna()
@@ -159,10 +173,28 @@ def build_market_assessment(
     momentum_component = (momentum or 0.0) * 0.35
     history_scale = min(1.0, effective_sample / 12.0) if analogue_mode else min(1.0, sample / 20.0)
     historical_component = (float(expected_move) if expected_move is not None else 0.0) * history_scale
-    combined = historical_component + live_component + momentum_component
+    context_component = live_component + momentum_component
+    combined = historical_component + context_component
 
     dead_zone = 0.12
-    direction = "LONG" if combined > dead_zone else "SHORT" if combined < -dead_zone else "NEUTRAL"
+    historical_direction = _direction_from_value(
+        float(expected_move) if expected_move is not None else None,
+        dead_zone,
+    )
+    context_direction = _direction_from_value(context_component, dead_zone)
+    direction_conflict = False
+
+    if analogue_mode:
+        # Historical analogues are the primary signal. The profile's aggregate
+        # direction is only a fallback when the expected move lies in the dead zone.
+        direction = historical_direction if historical_direction != "NEUTRAL" else profile_direction
+        direction_conflict = (
+            direction in {"LONG", "SHORT"}
+            and context_direction in {"LONG", "SHORT"}
+            and direction != context_direction
+        )
+    else:
+        direction = _direction_from_value(combined, dead_zone)
 
     if analogue_mode:
         sample_score = min(30.0, effective_sample * 3.0)
@@ -172,7 +204,9 @@ def build_market_assessment(
         confidence = 15.0 + sample_score + directional_score + live_confidence + momentum_confidence
         if profile_confidence is not None:
             confidence = (confidence * 0.55) + (profile_confidence * 0.45)
-        confidence = round(min(95.0, confidence), 1)
+        if direction_conflict:
+            confidence -= 12.0
+        confidence = round(max(0.0, min(95.0, confidence)), 1)
     else:
         sample_score = min(30.0, sample * 1.5)
         quality_score = 20.0 if median_quality is None else min(25.0, median_quality * 0.25)
@@ -213,6 +247,17 @@ def build_market_assessment(
         rationale.append(f"Kort markedsmomentum: {momentum:+.3f} %")
     if median_adverse is not None:
         rationale.append(f"Historisk median ugunstig 24t-ekstrem: {median_adverse:.3f} %")
+    if analogue_mode:
+        rationale.append(
+            f"Retningsanker: historiske analoger ({direction}); live/momentum brukes som konfidensjustering."
+        )
+        rationale.append(
+            f"Komponenter: historikk {historical_component:+.3f}, live {live_component:+.3f}, momentum {momentum_component:+.3f}."
+        )
+        if direction_conflict:
+            rationale.append(
+                "Aktuell markedsmomentum/liveflyt peker motsatt av analoghistorikken; retningen beholdes, men konfidensen er redusert."
+            )
 
     return MarketAssessment(
         asset=asset,
