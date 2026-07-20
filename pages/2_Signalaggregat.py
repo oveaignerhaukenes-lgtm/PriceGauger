@@ -5,7 +5,7 @@ import streamlit as st
 
 from build_info import render_build_badge
 from decision_engine import build_strategy_suggestion
-from signal_aggregator import aggregate_event_signals, build_event_signals
+from signal_aggregator import aggregate_event_signals
 from signal_store import SignalStore
 
 
@@ -24,48 +24,19 @@ with st.sidebar:
     st.header("Aggregat")
     asset = st.selectbox("Marked", ASSETS, key="aggregate_asset")
     window_hours = st.selectbox("Tidsvindu", (6, 12, 24), index=2, format_func=lambda value: f"{value} timer")
-    half_life_hours = st.slider(
-        "Halveringstid for nyhetsvekt",
-        min_value=1.0,
-        max_value=12.0,
-        value=6.0,
-        step=0.5,
-        help="Et signal som er én halveringstid gammelt får halv tidsvekt.",
-    )
-    minimum_similarity = st.slider(
-        "Minste analoglikhet",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.20,
-        step=0.05,
-    )
     profit_capture = st.slider("Andel av forventet bevegelse til autosalg", 0.50, 1.00, 0.80, 0.05)
 
 store = SignalStore()
-events = st.session_state.get("gdelt_events", [])
-reactions = st.session_state.get("gdelt_intraday_reactions", [])
-
-# Migration bridge: score current Historical Lab output once, then persist it.
-# The aggregation below never reads events, reactions, EventDNA, or historical matches.
-if events:
-    finished_signals = build_event_signals(
-        events=events,
-        reactions=reactions,
-        asset=asset,
-        window_hours=window_hours,
-        half_life_hours=half_life_hours,
-        minimum_similarity=minimum_similarity,
-    )
-    stored_count = store.add_many(finished_signals)
-    st.caption(f"Signal Store oppdatert med {stored_count} ferdige signaler fra siste analysegrunnlag.")
-
-store.purge_expired()
+purged_count = store.purge_expired()
 active_signals = store.active(asset, window_hours=window_hours)
+
+if purged_count:
+    st.caption(f"Fjernet {purged_count} utløpte signaler fra Signal Store.")
 
 if not active_signals:
     st.info(
         f"Signal Store har ingen aktive {asset}-signaler i det valgte {window_hours}-timersvinduet. "
-        "Kjør Historical Event Lab når en ny hendelse er tilgjengelig."
+        "Historical Event Lab lagrer nye signaler automatisk når analysepipelinen fullføres."
     )
     st.stop()
 
