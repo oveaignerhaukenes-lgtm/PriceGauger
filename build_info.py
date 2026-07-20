@@ -54,42 +54,53 @@ def get_build_info() -> BuildInfo:
 def render_build_badge() -> None:
     build = get_build_info()
     label = f"Build {build.commit} · {build.branch} · {build.commit_time}"
+    compact_label = f"{build.commit} · {build.branch}"
     st.markdown(
         f"""
         <style>
         .pricegauger-build-badge {{
             position: fixed;
-            top: 0.65rem;
-            right: 4.25rem;
+            top: 0.62rem;
+            right: 4.4rem;
             z-index: 999999;
-            padding: 0.18rem 0.48rem;
-            border: 1px solid rgba(128, 128, 128, 0.25);
-            border-radius: 0.45rem;
-            background: rgba(255, 255, 255, 0.82);
+            padding: 0.16rem 0.44rem;
+            border: 1px solid rgba(128, 128, 128, 0.24);
+            border-radius: 0.42rem;
+            background: rgba(255, 255, 255, 0.80);
             backdrop-filter: blur(6px);
-            color: rgba(49, 51, 63, 0.68);
-            font-size: 0.67rem;
+            color: rgba(49, 51, 63, 0.65);
+            font-size: 0.64rem;
             line-height: 1.1;
             white-space: nowrap;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            pointer-events: none;
         }}
+        .pricegauger-build-badge-mobile {{ display: none; }}
         @media (prefers-color-scheme: dark) {{
             .pricegauger-build-badge {{
-                background: rgba(14, 17, 23, 0.82);
-                color: rgba(250, 250, 250, 0.68);
+                background: rgba(14, 17, 23, 0.80);
+                color: rgba(250, 250, 250, 0.66);
             }}
         }}
         @media (max-width: 700px) {{
             .pricegauger-build-badge {{
-                top: 0.72rem;
-                right: 3.6rem;
-                max-width: 52vw;
+                top: 0.43rem;
+                right: 3.65rem;
+                padding: 0.11rem 0.34rem;
+                max-width: 34vw;
+                font-size: 0.56rem;
+                opacity: 0.86;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }}
+            .pricegauger-build-badge-desktop {{ display: none; }}
+            .pricegauger-build-badge-mobile {{ display: inline; }}
         }}
         </style>
-        <div class="pricegauger-build-badge" title="{html.escape(label)}">{html.escape(label)}</div>
+        <div class="pricegauger-build-badge" title="{html.escape(label)}">
+            <span class="pricegauger-build-badge-desktop">{html.escape(label)}</span>
+            <span class="pricegauger-build-badge-mobile">{html.escape(compact_label)}</span>
+        </div>
         """,
         unsafe_allow_html=True,
     )
