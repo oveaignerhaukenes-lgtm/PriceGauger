@@ -11,6 +11,8 @@ from event_models import MarketEvent
 
 INTERVALS = ("5m", "15m", "60m")
 INTERVAL_MINUTES = {"5m": 5, "15m": 15, "60m": 60}
+INTERVAL_HISTORY_DAYS = {"5m": 60, "15m": 60, "60m": 730}
+MAX_INTRADAY_AGE_DAYS = 730
 WINDOWS_MINUTES = {
     "return_5m_pct": 5,
     "return_15m_pct": 15,
@@ -127,15 +129,26 @@ def _bar_at_or_after(
     return float(row["close"]), pd.Timestamp(row["time"])
 
 
+def _allowed_intervals(start: pd.Timestamp) -> tuple[str, ...]:
+    now = pd.Timestamp.now(tz="UTC")
+    age_days = max(0.0, (now - start).total_seconds() / 86400.0)
+    return tuple(
+        interval
+        for interval in INTERVALS
+        if age_days <= INTERVAL_HISTORY_DAYS[interval]
+    )
+
+
 def _best_interval_cache(
     assets: dict[str, str],
     start: pd.Timestamp,
     end: pd.Timestamp,
 ) -> dict[str, tuple[str, pd.DataFrame]]:
     cache: dict[str, tuple[str, pd.DataFrame]] = {}
+    allowed = _allowed_intervals(start)
     for asset, symbol in assets.items():
         selected = ("", _empty_prices())
-        for interval in INTERVALS:
+        for interval in allowed:
             prices = fetch_intraday_prices(symbol, start, end, interval)
             if not prices.empty:
                 selected = (interval, prices)
@@ -208,9 +221,12 @@ def calculate_intraday_reactions(
 ) -> list[IntradayReaction]:
     deduplicated = _deduplicate_events(events)
     valid_events: list[tuple[MarketEvent, int, pd.Timestamp]] = []
+    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=MAX_INTRADAY_AGE_DAYS)
+    future_limit = pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=1)
+
     for event, group_size in deduplicated:
         timestamp = pd.to_datetime(event.published_at, utc=True, errors="coerce")
-        if not pd.isna(timestamp):
+        if not pd.isna(timestamp) and cutoff <= timestamp <= future_limit:
             valid_events.append((event, group_size, timestamp))
     if not valid_events:
         return []
@@ -239,7 +255,6 @@ def calculate_intraday_reactions(
             bar_times: dict[str, str | None] = {}
             used_times: set[pd.Timestamp] = set()
             for return_name, minutes in WINDOWS_MINUTES.items():
-                # Reaction windows start when the market can first trade the news.
                 target = anchor_time + pd.Timedelta(minutes=minutes)
                 value, bar_time = _bar_at_or_after(prices, target)
                 returns[return_name] = _pct(value, base_price)
