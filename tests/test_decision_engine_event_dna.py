@@ -99,3 +99,42 @@ def test_profile_falls_back_to_median_when_weighted_values_are_missing() -> None
     )
 
     assert assessment.expected_move_pct == 0.9
+    assert assessment.direction == "LONG"
+
+
+def test_positive_analogue_expectation_cannot_silently_flip_short() -> None:
+    neutral_context = build_market_assessment(
+        asset="Brent",
+        messages=pd.DataFrame(),
+        market=_market([100.0, 100.0, 100.0]),
+        market_profile=_profile(weighted_mean_4h_pct=0.5),
+    )
+    conflicting_context = build_market_assessment(
+        asset="Brent",
+        messages=pd.DataFrame(),
+        market=_market([120.0, 105.0, 90.0]),
+        market_profile=_profile(weighted_mean_4h_pct=0.5),
+    )
+
+    assert conflicting_context.expected_move_pct == 0.5
+    assert conflicting_context.direction == "LONG"
+    assert conflicting_context.confidence_pct < neutral_context.confidence_pct
+    assert any("peker motsatt" in reason for reason in conflicting_context.rationale)
+    assert any("Komponenter:" in reason for reason in conflicting_context.rationale)
+
+
+def test_negative_analogue_expectation_cannot_silently_flip_long() -> None:
+    assessment = build_market_assessment(
+        asset="Brent",
+        messages=pd.DataFrame(),
+        market=_market([90.0, 105.0, 120.0]),
+        market_profile=_profile(
+            weighted_mean_4h_pct=-0.6,
+            positive_share_pct=20.0,
+            direction="SHORT",
+        ),
+    )
+
+    assert assessment.expected_move_pct == -0.6
+    assert assessment.direction == "SHORT"
+    assert any("peker motsatt" in reason for reason in assessment.rationale)
