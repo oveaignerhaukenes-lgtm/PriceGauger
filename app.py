@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -190,6 +191,109 @@ def calculate_pricegauge(messages: pd.DataFrame, market: pd.DataFrame) -> dict[s
     }
 
 
+def _record(value) -> dict:
+    if hasattr(value, "to_record"):
+        return dict(value.to_record())
+    if isinstance(value, dict):
+        return dict(value)
+    return dict(vars(value))
+
+
+def render_similar_event_results(matches) -> None:
+    rows = [
+        {
+            "score": item.score,
+            "date": str(item.event.event_date or ""),
+            "title": str(item.event.title or ""),
+            "country": str(item.event.country or "Ukjent"),
+            "event_type": str(item.dna.event_type or "ukjent"),
+            "target": str(item.dna.target or "ukjent"),
+        }
+        for item in matches
+    ]
+    table_rows = "".join(
+        f"""
+        <tr>
+          <td><div class="pg-score"><span style="width:{row['score'] * 100:.1f}%"></span></div>{row['score'] * 100:.1f}%</td>
+          <td>{html.escape(row['date'])}</td>
+          <td>{html.escape(row['title'])}</td>
+          <td>{html.escape(row['country'])}</td>
+          <td>{html.escape(row['event_type'])}</td>
+          <td>{html.escape(row['target'])}</td>
+        </tr>
+        """
+        for row in rows
+    )
+    cards = "".join(
+        f"""
+        <article class="pg-match-card">
+          <div class="pg-match-card-top"><strong>{row['score'] * 100:.1f}% likhet</strong><span>{html.escape(row['date'])}</span></div>
+          <div class="pg-score"><span style="width:{row['score'] * 100:.1f}%"></span></div>
+          <div class="pg-match-title">{html.escape(row['title'])}</div>
+          <div class="pg-match-meta">{html.escape(row['event_type'])} · {html.escape(row['target'])} · {html.escape(row['country'])}</div>
+        </article>
+        """
+        for row in rows
+    )
+    st.markdown(
+        f"""
+        <style>
+        .pg-match-mobile {{ display:none; }}
+        .pg-match-table {{ width:100%; border-collapse:collapse; font-size:.88rem; }}
+        .pg-match-table th,.pg-match-table td {{ padding:.55rem .6rem; border-bottom:1px solid rgba(128,128,128,.22); text-align:left; vertical-align:top; }}
+        .pg-match-table th {{ color:rgba(128,128,128,.92); font-weight:600; }}
+        .pg-score {{ display:inline-block; width:5.2rem; height:.38rem; margin-right:.5rem; overflow:hidden; border-radius:999px; background:rgba(128,128,128,.22); vertical-align:middle; }}
+        .pg-score span {{ display:block; height:100%; border-radius:999px; background:#ff4b4b; }}
+        .pg-match-card {{ padding:.85rem; margin-bottom:.65rem; border:1px solid rgba(128,128,128,.25); border-radius:.7rem; background:rgba(128,128,128,.035); }}
+        .pg-match-card-top {{ display:flex; justify-content:space-between; gap:.7rem; margin-bottom:.5rem; font-size:.82rem; }}
+        .pg-match-title {{ margin-top:.55rem; line-height:1.35; font-weight:600; }}
+        .pg-match-meta {{ margin-top:.35rem; color:rgba(128,128,128,.95); font-size:.78rem; }}
+        @media(max-width:700px) {{
+          .pg-match-desktop {{ display:none; }}
+          .pg-match-mobile {{ display:block; }}
+          .pg-score {{ width:6rem; }}
+        }}
+        </style>
+        <div class="pg-match-desktop">
+          <table class="pg-match-table">
+            <thead><tr><th>Likhet</th><th>Dato</th><th>Hendelse</th><th>Land</th><th>Type</th><th>Mål</th></tr></thead>
+            <tbody>{table_rows}</tbody>
+          </table>
+        </div>
+        <div class="pg-match-mobile">{cards}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def decision_evidence(profile, matches, reactions, asset: str, dna, action: str) -> list[str]:
+    match_ids = {item.event_id for item in matches}
+    usable = []
+    for reaction in reactions:
+        record = _record(reaction)
+        if str(record.get("event_id") or "") not in match_ids or record.get("asset") != asset:
+            continue
+        value = pd.to_numeric(record.get("return_1h_pct"), errors="coerce")
+        if not pd.isna(value):
+            usable.append(float(value))
+
+    lines: list[str] = []
+    if usable:
+        positive = sum(value > 0 for value in usable)
+        negative = sum(value < 0 for value in usable)
+        direction_count = positive if action == "LONG" else negative if action == "SHORT" else max(positive, negative)
+        direction_word = "positive" if action == "LONG" else "negative" if action == "SHORT" else "samme retning"
+        lines.append(f"{direction_count} av {len(usable)} målbare analoger var {direction_word} etter 1 time.")
+    if profile.median_4h_pct is not None:
+        lines.append(f"Medianbevegelsen etter 4 timer var {profile.median_4h_pct:+.3f} %.")
+    if profile.weighted_mean_4h_pct is not None:
+        lines.append(f"Likhetsvektet forventning etter 4 timer var {profile.weighted_mean_4h_pct:+.3f} %.")
+    lines.append(f"EventDNA klassifiserer hendelsen som {dna.event_type} mot {dna.target}, med kildekvalitet {dna.source_quality:.0%}.")
+    if matches:
+        lines.append(f"De {len(matches)} nærmeste analogene hadde gjennomsnittlig likhet {sum(item.score for item in matches) / len(matches):.1%}.")
+    return lines
+
+
 st.title("📡 PriceGauger Alpha")
 st.caption("Hendelser, markedsdata og historiske reaksjoner i en modulær analysearkitektur")
 
@@ -368,23 +472,7 @@ with decision_tab:
         if not matches:
             st.info("Ingen andre hendelser finnes i det innlastede datasettet.")
         else:
-            match_rows = [
-                {
-                    "Likhet": item.score,
-                    "Dato": item.event.event_date,
-                    "Hendelse": item.event.title,
-                    "Land": item.event.country,
-                    "Type": item.dna.event_type,
-                    "Mål": item.dna.target,
-                }
-                for item in matches
-            ]
-            st.dataframe(
-                pd.DataFrame(match_rows),
-                use_container_width=True,
-                hide_index=True,
-                column_config={"Likhet": st.column_config.ProgressColumn("Likhet", min_value=0.0, max_value=1.0)},
-            )
+            render_similar_event_results(matches)
 
         st.markdown(f"### Market Profile · {asset_name}")
         p1, p2, p3, p4 = st.columns(4)
@@ -413,6 +501,10 @@ with decision_tab:
             st.write(f"**Tidshorisont:** {event_assessment.horizon} · **Analogutvalg:** {event_assessment.historical_sample}")
             for reason in event_assessment.rationale:
                 st.write(f"• {reason}")
+
+            st.markdown(f"#### Hvorfor {event_strategy.action}?")
+            for evidence in decision_evidence(profile, matches, reactions, asset_name, dna, event_strategy.action):
+                st.write(f"• {evidence}")
 
         with st.container(border=True):
             q1, q2, q3, q4 = st.columns(4)
