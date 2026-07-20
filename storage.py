@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
 from event_models import MarketEvent
+from signal_persistence import persist_finished_signals
 
 if TYPE_CHECKING:
     from event_reactions import EventReaction
@@ -327,4 +328,7 @@ def save_intraday_reactions(reactions: Iterable[IntradayReaction]) -> int:
             ],
         )
         connection.commit()
-        return connection.total_changes - before
+        changes = connection.total_changes - before
+
+    persist_finished_signals(database_path=DB_PATH, reactions=rows)
+    return changes
