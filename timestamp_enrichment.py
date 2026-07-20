@@ -12,6 +12,9 @@ from bs4 import BeautifulSoup
 from event_models import MarketEvent
 
 USER_AGENT = "PriceGauger/0.8 (+timestamp enrichment)"
+MAX_TIMESTAMP_AGE_DAYS = 730
+EVENT_DATE_LOOKBACK_DAYS = 7
+EVENT_DATE_LOOKAHEAD_DAYS = 1
 META_KEYS = (
     "article:published_time",
     "article:published",
@@ -47,10 +50,32 @@ def _normalise_timestamp(value: Any) -> str | None:
     text = str(value).strip()
     if len(text) == 14 and text.isdigit():
         text = f"{text[:4]}-{text[4:6]}-{text[6:8]}T{text[8:10]}:{text[10:12]}:{text[12:14]}Z"
-    parsed = pd.to_datetime(text, utc=True, errors="coerce")
+    parsed = pd.to_datetime(text, utc=True, errors="coerce", dayfirst=False)
     if pd.isna(parsed):
         return None
     return parsed.to_pydatetime().astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _timestamp_is_relevant(event: MarketEvent, timestamp: str) -> bool:
+    published = pd.to_datetime(timestamp, utc=True, errors="coerce")
+    if pd.isna(published):
+        return False
+
+    now = pd.Timestamp.now(tz="UTC")
+    if published < now - pd.Timedelta(days=MAX_TIMESTAMP_AGE_DAYS):
+        return False
+    if published > now + pd.Timedelta(days=1):
+        return False
+
+    event_date = pd.to_datetime(getattr(event, "event_date", None), utc=True, errors="coerce")
+    if pd.isna(event_date):
+        return True
+    event_date = event_date.normalize()
+    return (
+        event_date - pd.Timedelta(days=EVENT_DATE_LOOKBACK_DAYS)
+        <= published
+        <= event_date + pd.Timedelta(days=EVENT_DATE_LOOKAHEAD_DAYS + 1)
+    )
 
 
 def _walk_json(value: Any) -> Iterable[tuple[str, Any]]:
@@ -169,18 +194,27 @@ def timestamp_from_article(url: str, timeout: int = 12) -> tuple[str, str, float
 
 
 def enrich_event_timestamp(event: MarketEvent) -> MarketEvent:
+    if not isinstance(event.raw, dict):
+        event.raw = {}
     event.raw.pop("_timestamp_diagnostic", None)
     event.raw.pop("_timestamp_article_url", None)
+    event.published_at = None
+    event.timestamp_source = None
+    event.timestamp_confidence = None
 
+    rejected_sources: list[str] = []
     result = timestamp_from_raw(event.raw)
     if result:
-        event.published_at, event.timestamp_source, event.timestamp_confidence = result
-        event.raw["_timestamp_diagnostic"] = "found_in_gdelt_payload"
-        return event
+        timestamp, source, confidence = result
+        if _timestamp_is_relevant(event, timestamp):
+            event.published_at, event.timestamp_source, event.timestamp_confidence = result
+            event.raw["_timestamp_diagnostic"] = "found_in_gdelt_payload"
+            return event
+        rejected_sources.append(f"irrelevant:{source}")
 
     urls = article_urls_from_event(event)
     if not urls:
-        event.raw["_timestamp_diagnostic"] = "no_source_article_url"
+        event.raw["_timestamp_diagnostic"] = ", ".join(rejected_sources) or "no_source_article_url"
         return event
 
     failures: list[str] = []
@@ -199,13 +233,18 @@ def enrich_event_timestamp(event: MarketEvent) -> MarketEvent:
             continue
 
         if result:
-            event.published_at, event.timestamp_source, event.timestamp_confidence = result
-            event.raw["_timestamp_article_url"] = url
-            event.raw["_timestamp_diagnostic"] = "found_in_source_article"
-            return event
+            timestamp, source, confidence = result
+            if _timestamp_is_relevant(event, timestamp):
+                event.published_at, event.timestamp_source, event.timestamp_confidence = result
+                event.raw["_timestamp_article_url"] = url
+                event.raw["_timestamp_diagnostic"] = "found_in_source_article"
+                return event
+            failures.append(f"irrelevant:{source}")
+            continue
         failures.append("no_time_metadata")
 
-    event.raw["_timestamp_diagnostic"] = ", ".join(dict.fromkeys(failures)) or "not_found"
+    diagnostic = rejected_sources + failures
+    event.raw["_timestamp_diagnostic"] = ", ".join(dict.fromkeys(diagnostic)) or "not_found"
     event.raw["_timestamp_article_url"] = urls[0]
     return event
 
