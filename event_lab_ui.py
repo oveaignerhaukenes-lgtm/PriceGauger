@@ -11,6 +11,7 @@ from event_reactions import calculate_reactions
 from gdelt_client import GdeltClient, GdeltError
 from intraday_reactions import calculate_intraday_reactions
 from storage import save_events, save_intraday_reactions, save_reactions
+from telegram_query_builder import TelegramSearchPlan, fetch_latest_search_plan
 from timestamp_enrichment import enrich_event_timestamps
 
 REACTION_ASSETS = {
@@ -35,6 +36,35 @@ def _upgrade_legacy_events(events: list) -> list:
         else:
             upgraded.append(event)
     return upgraded if changed else events
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _latest_telegram_plan() -> TelegramSearchPlan | None:
+    return fetch_latest_search_plan()
+
+
+def _sync_telegram_plan() -> TelegramSearchPlan | None:
+    try:
+        plan = _latest_telegram_plan()
+    except Exception as exc:
+        st.session_state.telegram_query_error = str(exc)
+        return None
+
+    if plan is None:
+        return None
+
+    st.session_state.telegram_query_error = None
+    if st.session_state.get("telegram_query_message_url") == plan.message_url:
+        return plan
+
+    st.session_state.telegram_query_message_url = plan.message_url
+    st.session_state.telegram_search_plan = plan.to_record()
+    st.session_state.gdelt_search = plan.search
+    st.session_state.gdelt_country = plan.country
+    if plan.domain:
+        st.session_state.gdelt_domain = plan.domain
+    st.session_state.pop("gdelt_pipeline_signature", None)
+    return plan
 
 
 def _pipeline_signature(
@@ -89,6 +119,13 @@ def _run_pipeline(
             if not events:
                 st.session_state.gdelt_intraday_reactions = []
                 st.session_state.gdelt_reactions = []
+                st.session_state.gdelt_pipeline_summary = {
+                    "events": 0,
+                    "precise": 0,
+                    "intraday": 0,
+                    "daily": 0,
+                    "saved": 0,
+                }
                 status.update(label="Ingen hendelser for valgte filtre", state="complete", expanded=False)
                 return
 
@@ -99,10 +136,7 @@ def _run_pipeline(
             st.write(f"Fant klokkeslett for {precise_count} av {len(events)} hendelser.")
 
             st.write("3/5 Kobler hendelser til intradagpriser …")
-            if precise_count and assets:
-                intraday = calculate_intraday_reactions(events, assets)
-            else:
-                intraday = []
+            intraday = calculate_intraday_reactions(events, assets) if precise_count and assets else []
             st.session_state.gdelt_intraday_reactions = intraday
             st.write(f"Bygget {len(intraday)} intradagkoblinger.")
 
@@ -135,13 +169,30 @@ def _run_pipeline(
 def render_event_lab() -> None:
     st.subheader("Historical Event Lab")
     st.caption(
-        "Velg datointervall, søk og markeder. Henting, tidsberikelse, priskobling og lagring skjer automatisk når et filter endres."
+        "En ny relevant melding fra Middle East Spectator bygger automatisk søket. "
+        "GDELT-henting, tidsberikelse, priskobling og lagring kjører deretter uten knapper."
     )
 
     key = gdelt_api_key()
     if not key:
         st.error("GDELT_CLOUD_API_KEY mangler i Streamlit Secrets.")
         return
+
+    telegram_plan = _sync_telegram_plan()
+    telegram_error = st.session_state.get("telegram_query_error")
+    if telegram_error:
+        st.warning(f"Telegram kunne ikke oppdatere søket akkurat nå: {telegram_error}")
+    if telegram_plan:
+        with st.container(border=True):
+            st.markdown("**Telegram → Query Builder**")
+            q1, q2, q3, q4 = st.columns(4)
+            q1.metric("Hendelsestype", telegram_plan.event_type)
+            q2.metric("Mål", telegram_plan.target)
+            q3.metric("Land", telegram_plan.country or "Ukjent")
+            q4.metric("Domene", telegram_plan.domain or "Automatisk")
+            st.write(f"**Generert GDELT-søk:** `{telegram_plan.search}`")
+            st.caption(telegram_plan.message_text[:500])
+            st.link_button("Åpne Telegram-meldingen", telegram_plan.message_url)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -168,7 +219,7 @@ def render_event_lab() -> None:
         st.error("Fra-dato må være før eller lik til-dato.")
         return
     if not search.strip():
-        st.info("Skriv inn et søkeord for å starte den automatiske pipelinen.")
+        st.info("Venter på en relevant Telegram-melding eller et manuelt søkeord.")
         return
     if not selected_assets:
         st.info("Velg minst ett marked for å starte den automatiske pipelinen.")
