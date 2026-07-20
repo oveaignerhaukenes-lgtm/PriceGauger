@@ -10,6 +10,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
+from build_info import render_build_badge
 from config import twelve_data_api_key
 from decision_engine import build_market_assessment, build_strategy_suggestion
 from decision_trace import build_decision_trace, save_decision_trace
@@ -18,6 +19,7 @@ from event_lab_ui import render_event_lab
 from market_data import MarketRequest, TwelveDataProvider, YahooProvider, fetch_market_data
 
 st.set_page_config(page_title="PriceGauger Alpha", page_icon="📡", layout="wide")
+render_build_badge()
 
 CHANNEL = "Middle_East_Spectator"
 NANOSECONDS_PER_HOUR = 3_600_000_000_000
