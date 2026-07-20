@@ -37,10 +37,105 @@ def _upgrade_legacy_events(events: list) -> list:
     return upgraded if changed else events
 
 
+def _pipeline_signature(
+    *,
+    start_date: date,
+    end_date: date,
+    search: str,
+    country: str,
+    domain: str,
+    limit: int,
+    assets: list[str],
+) -> tuple:
+    return (
+        start_date.isoformat(),
+        end_date.isoformat(),
+        search.strip(),
+        country.strip(),
+        domain,
+        int(limit),
+        tuple(sorted(assets)),
+    )
+
+
+def _run_pipeline(
+    *,
+    key: str,
+    start_date: date,
+    end_date: date,
+    search: str,
+    country: str,
+    domain: str,
+    limit: int,
+    selected_assets: list[str],
+) -> None:
+    assets = {name: REACTION_ASSETS[name] for name in selected_assets}
+
+    with st.status("Kjører automatisk analysepipeline …", expanded=True) as status:
+        try:
+            st.write("1/5 Henter GDELT-hendelser …")
+            page = GdeltClient(key).list_events(
+                date_start=start_date.isoformat(),
+                date_end=end_date.isoformat(),
+                search=search.strip(),
+                country=country.strip(),
+                domain=domain,
+                limit=limit,
+            )
+            events = page.events
+            st.session_state.gdelt_events = events
+            st.write(f"Fant {len(events)} hendelser.")
+
+            if not events:
+                st.session_state.gdelt_intraday_reactions = []
+                st.session_state.gdelt_reactions = []
+                status.update(label="Ingen hendelser for valgte filtre", state="complete", expanded=False)
+                return
+
+            st.write("2/5 Finner nøyaktige publiseringstidspunkter …")
+            events = enrich_event_timestamps(events)
+            st.session_state.gdelt_events = events
+            precise_count = sum(bool(getattr(event, "published_at", None)) for event in events)
+            st.write(f"Fant klokkeslett for {precise_count} av {len(events)} hendelser.")
+
+            st.write("3/5 Kobler hendelser til intradagpriser …")
+            if precise_count and assets:
+                intraday = calculate_intraday_reactions(events, assets)
+            else:
+                intraday = []
+            st.session_state.gdelt_intraday_reactions = intraday
+            st.write(f"Bygget {len(intraday)} intradagkoblinger.")
+
+            st.write("4/5 Beregner daglige markedsreaksjoner …")
+            reactions = calculate_reactions(events, assets) if assets else []
+            st.session_state.gdelt_reactions = reactions
+            st.write(f"Bygget {len(reactions)} dagskoblinger.")
+
+            st.write("5/5 Lagrer analysegrunnlaget …")
+            event_changes = save_events(events)
+            intraday_changes = save_intraday_reactions(intraday) if intraday else 0
+            reaction_changes = save_reactions(reactions) if reactions else 0
+            st.session_state.gdelt_pipeline_summary = {
+                "events": len(events),
+                "precise": precise_count,
+                "intraday": len(intraday),
+                "daily": len(reactions),
+                "saved": event_changes + intraday_changes + reaction_changes,
+            }
+            st.session_state.gdelt_pipeline_error = None
+            status.update(label="Automatisk analysepipeline ferdig", state="complete", expanded=False)
+        except (GdeltError, ValueError) as exc:
+            st.session_state.gdelt_pipeline_error = f"GDELT-kallet mislyktes: {exc}"
+            status.update(label="Pipelinen stoppet under GDELT-henting", state="error", expanded=True)
+        except Exception as exc:
+            st.session_state.gdelt_pipeline_error = f"Pipelinen mislyktes: {exc}"
+            status.update(label="Den automatiske pipelinen mislyktes", state="error", expanded=True)
+
+
 def render_event_lab() -> None:
     st.subheader("Historical Event Lab")
     st.caption(
-        "Mekanisk innsamling og filtrering først. Deretter berikes hendelsene med publiseringstid og kobles til markedsreaksjoner."
+        "Velg datointervall, søk og markeder. Henting, tidsberikelse, priskobling og lagring skjer automatisk når et filter endres."
     )
 
     key = gdelt_api_key()
@@ -62,45 +157,63 @@ def render_event_lab() -> None:
         )
         limit = st.slider("Maks resultater", 5, 100, 50, 5, key="gdelt_limit")
 
+    selected_assets = st.multiselect(
+        "Markeder som skal analyseres automatisk",
+        list(REACTION_ASSETS),
+        default=list(REACTION_ASSETS),
+        key="gdelt_pipeline_assets",
+    )
+
     if start_date > end_date:
         st.error("Fra-dato må være før eller lik til-dato.")
         return
-
-    if st.button("Hent GDELT-hendelser", type="primary", use_container_width=True):
-        try:
-            page = GdeltClient(key).list_events(
-                date_start=start_date.isoformat(),
-                date_end=end_date.isoformat(),
-                search=search.strip(),
-                country=country.strip(),
-                domain=domain,
-                limit=limit,
-            )
-            st.session_state.gdelt_events = page.events
-            st.session_state.pop("gdelt_reactions", None)
-            st.session_state.pop("gdelt_intraday_reactions", None)
-        except (GdeltError, ValueError) as exc:
-            st.error(f"GDELT-kallet mislyktes: {exc}")
-        except Exception:
-            st.error("Uventet feil under GDELT-kallet. Nøkkel og request-detaljer er skjult.")
-
-    events = st.session_state.get("gdelt_events", [])
-    if not events:
-        st.info("Velg filtre og trykk «Hent GDELT-hendelser».")
+    if not search.strip():
+        st.info("Skriv inn et søkeord for å starte den automatiske pipelinen.")
+        return
+    if not selected_assets:
+        st.info("Velg minst ett marked for å starte den automatiske pipelinen.")
         return
 
-    events = _upgrade_legacy_events(events)
-    st.session_state.gdelt_events = events
+    signature = _pipeline_signature(
+        start_date=start_date,
+        end_date=end_date,
+        search=search,
+        country=country,
+        domain=domain,
+        limit=limit,
+        assets=selected_assets,
+    )
+    if st.session_state.get("gdelt_pipeline_signature") != signature:
+        st.session_state.gdelt_pipeline_signature = signature
+        st.session_state.pop("gdelt_pipeline_error", None)
+        _run_pipeline(
+            key=key,
+            start_date=start_date,
+            end_date=end_date,
+            search=search,
+            country=country,
+            domain=domain,
+            limit=limit,
+            selected_assets=selected_assets,
+        )
 
-    if st.button("Finn nøyaktige publiseringstidspunkter", use_container_width=True):
-        try:
-            with st.spinner("Leser GDELTs kildeartikler og publiseringsmetadata …"):
-                st.session_state.gdelt_events = enrich_event_timestamps(events)
-            events = st.session_state.gdelt_events
-            precise = sum(bool(getattr(event, "published_at", None)) for event in events)
-            st.success(f"Fant klokkeslett for {precise} av {len(events)} hendelser.")
-        except Exception as exc:
-            st.error(f"Kunne ikke berike tidsstemplene: {exc}")
+    pipeline_error = st.session_state.get("gdelt_pipeline_error")
+    if pipeline_error:
+        st.error(pipeline_error)
+
+    summary = st.session_state.get("gdelt_pipeline_summary")
+    if summary and not pipeline_error:
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Hendelser", summary["events"])
+        p2.metric("Med klokkeslett", summary["precise"])
+        p3.metric("Intradagkoblinger", summary["intraday"])
+        p4.metric("Dagskoblinger", summary["daily"])
+
+    events = _upgrade_legacy_events(st.session_state.get("gdelt_events", []))
+    st.session_state.gdelt_events = events
+    if not events:
+        st.info("Ingen hendelser funnet for de valgte filtrene.")
+        return
 
     records = []
     for event in events:
@@ -134,51 +247,23 @@ def render_event_lab() -> None:
             "url": st.column_config.LinkColumn("GDELT-side"),
         },
     )
-
-    a, b = st.columns(2)
-    with a:
-        st.download_button(
-            "Last ned hendelser som CSV",
-            frame.drop(columns=["raw"], errors="ignore").to_csv(index=False).encode("utf-8"),
-            "gdelt_events.csv",
-            "text/csv",
-            use_container_width=True,
-        )
-    with b:
-        if st.button("Lagre hendelser i lokal database", use_container_width=True):
-            changed = save_events(events)
-            st.success(f"Hendelsesdatabasen ble oppdatert ({changed} innsettinger/oppdateringer).")
+    st.download_button(
+        "Last ned hendelser som CSV",
+        frame.drop(columns=["raw"], errors="ignore").to_csv(index=False).encode("utf-8"),
+        "gdelt_events.csv",
+        "text/csv",
+        use_container_width=True,
+    )
 
     st.divider()
     st.subheader("Intradag: nyhet → pris")
+    intraday = st.session_state.get("gdelt_intraday_reactions", [])
     precise_count = sum(bool(getattr(event, "published_at", None)) for event in events)
     st.caption(
-        f"{precise_count} av {len(events)} hendelser kan kobles til intradagkurser. "
-        "Vinduene måles fra første omsettelige prisbar, ikke fra publisering mens markedet er stengt."
+        f"{precise_count} av {len(events)} hendelser kunne kobles til intradagkurser. "
+        "Vinduene måles fra første omsettelige prisbar."
     )
 
-    intraday_assets = st.multiselect(
-        "Markeder for intradaganalyse",
-        list(REACTION_ASSETS),
-        default=list(REACTION_ASSETS),
-        key="intraday_reaction_assets",
-    )
-    if st.button("Korreler nyhetstidspunkter med priser", type="primary", use_container_width=True):
-        if not intraday_assets:
-            st.warning("Velg minst ett marked.")
-        elif precise_count == 0:
-            st.warning("Finn publiseringstidspunktene først.")
-        else:
-            try:
-                with st.spinner("Henter intradagkurser, fjerner eksakte duplikater og validerer hver prisbar …"):
-                    assets = {name: REACTION_ASSETS[name] for name in intraday_assets}
-                    intraday = calculate_intraday_reactions(events, assets)
-                st.session_state.gdelt_intraday_reactions = intraday
-                st.success(f"Koblet {len(intraday)} unike hendelse–marked-par til intradagpriser.")
-            except Exception as exc:
-                st.error(f"Kunne ikke beregne intradagreaksjoner: {exc}")
-
-    intraday = st.session_state.get("gdelt_intraday_reactions", [])
     if intraday:
         intraday_frame = pd.DataFrame([reaction.to_record() for reaction in intraday])
         intraday_cols = [
@@ -200,8 +285,6 @@ def render_event_lab() -> None:
                 "anchor_time": st.column_config.DatetimeColumn("Første prisbar UTC"),
                 "anchor_lag_minutes": st.column_config.NumberColumn("Ventetid min", format="%.1f"),
                 "quality_score": st.column_config.NumberColumn("Kvalitet", format="%.1f"),
-                "duplicate_group_size": "Artikler i duplikatgruppe",
-                "distinct_window_bars": "Ulike målebarer",
                 "base_price": st.column_config.NumberColumn("Startkurs", format="%.4f"),
                 "return_5m_pct": st.column_config.NumberColumn("+5m", format="%+.3f %%"),
                 "return_15m_pct": st.column_config.NumberColumn("+15m", format="%+.3f %%"),
@@ -209,12 +292,6 @@ def render_event_lab() -> None:
                 "return_1h_pct": st.column_config.NumberColumn("+1t", format="%+.3f %%"),
                 "return_4h_pct": st.column_config.NumberColumn("+4t", format="%+.3f %%"),
                 "return_24h_pct": st.column_config.NumberColumn("+24t", format="%+.3f %%"),
-                "bar_time_5m": st.column_config.DatetimeColumn("Bar +5m"),
-                "bar_time_15m": st.column_config.DatetimeColumn("Bar +15m"),
-                "bar_time_30m": st.column_config.DatetimeColumn("Bar +30m"),
-                "bar_time_1h": st.column_config.DatetimeColumn("Bar +1t"),
-                "bar_time_4h": st.column_config.DatetimeColumn("Bar +4t"),
-                "bar_time_24h": st.column_config.DatetimeColumn("Bar +24t"),
                 "max_up_24h_pct": st.column_config.NumberColumn("Maks opp 24t", format="%+.3f %%"),
                 "max_down_24h_pct": st.column_config.NumberColumn("Maks ned 24t", format="%+.3f %%"),
             },
@@ -233,51 +310,21 @@ def render_event_lab() -> None:
         )
         st.subheader("Intradagoppsummering og datakvalitet")
         st.dataframe(quality_summary, use_container_width=True, hide_index=True)
-
-        repeated = intraday_frame[intraday_frame["distinct_window_bars"] < 4]
-        if not repeated.empty:
-            st.warning(
-                f"{len(repeated)} koblinger har færre enn fire ulike prisbarer i målevinduene. "
-                "De er synlige i tabellen og bør filtreres på kvalitet før prediksjon."
-            )
-
-        x, y = st.columns(2)
-        with x:
-            st.download_button(
-                "Last ned intradagreaksjoner som CSV",
-                intraday_frame.to_csv(index=False).encode("utf-8"),
-                "event_intraday_reactions.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-        with y:
-            if st.button("Lagre intradagreaksjoner", use_container_width=True):
-                event_changes = save_events(events)
-                reaction_changes = save_intraday_reactions(intraday)
-                st.success(f"Lagret hendelser ({event_changes}) og intradagreaksjoner ({reaction_changes}).")
+        st.download_button(
+            "Last ned intradagreaksjoner som CSV",
+            intraday_frame.to_csv(index=False).encode("utf-8"),
+            "event_intraday_reactions.csv",
+            "text/csv",
+            use_container_width=True,
+        )
+    else:
+        st.info("Ingen intradagkoblinger kunne beregnes for dette utvalget.")
 
     st.divider()
     st.subheader("Daglige markedsreaksjoner")
-    st.caption("Fallback og langsiktige vinduer: +1, +3 og +5 handelsdager.")
-
-    selected_assets = st.multiselect(
-        "Markeder for dagsanalyse", list(REACTION_ASSETS), default=list(REACTION_ASSETS), key="reaction_assets"
-    )
-    if st.button("Beregn daglige markedsreaksjoner", use_container_width=True):
-        if not selected_assets:
-            st.warning("Velg minst ett marked.")
-        else:
-            try:
-                with st.spinner("Henter historiske dagskurser og kobler dem til hendelsene …"):
-                    assets = {name: REACTION_ASSETS[name] for name in selected_assets}
-                    reactions = calculate_reactions(events, assets)
-                st.session_state.gdelt_reactions = reactions
-                st.success(f"Beregnet {len(reactions)} hendelse–marked-koblinger.")
-            except Exception as exc:
-                st.error(f"Kunne ikke beregne markedsreaksjoner: {exc}")
-
     reactions = st.session_state.get("gdelt_reactions", [])
     if not reactions:
+        st.info("Ingen daglige markedsreaksjoner kunne beregnes for dette utvalget.")
         return
 
     reaction_frame = pd.DataFrame([reaction.to_record() for reaction in reactions])
@@ -287,7 +334,7 @@ def render_event_lab() -> None:
     ]
     st.dataframe(reaction_frame.reindex(columns=show_cols), use_container_width=True, hide_index=True)
 
-    summary = reaction_frame.groupby("asset", as_index=False).agg(
+    daily_summary = reaction_frame.groupby("asset", as_index=False).agg(
         hendelser=("event_id", "count"),
         snitt_1d=("return_1d_pct", "mean"),
         median_1d=("return_1d_pct", "median"),
@@ -295,19 +342,11 @@ def render_event_lab() -> None:
         snitt_5d=("return_5d_pct", "mean"),
     )
     st.subheader("Dagsoppsummering per marked")
-    st.dataframe(summary, use_container_width=True, hide_index=True)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.download_button(
-            "Last ned dagsreaksjoner som CSV",
-            reaction_frame.to_csv(index=False).encode("utf-8"),
-            "event_market_reactions.csv",
-            "text/csv",
-            use_container_width=True,
-        )
-    with c2:
-        if st.button("Lagre dagsreaksjoner", use_container_width=True):
-            event_changes = save_events(events)
-            reaction_changes = save_reactions(reactions)
-            st.success(f"Lagret hendelser ({event_changes}) og reaksjoner ({reaction_changes}) i databasen.")
+    st.dataframe(daily_summary, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Last ned dagsreaksjoner som CSV",
+        reaction_frame.to_csv(index=False).encode("utf-8"),
+        "event_market_reactions.csv",
+        "text/csv",
+        use_container_width=True,
+    )
