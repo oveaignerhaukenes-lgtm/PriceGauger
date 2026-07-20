@@ -54,53 +54,84 @@ def get_build_info() -> BuildInfo:
 def render_build_badge() -> None:
     build = get_build_info()
     label = f"Build {build.commit} · {build.branch} · {build.commit_time}"
-    compact_label = f"{build.commit} · {build.branch}"
+    compact = f"{build.commit} · {build.branch}"
+
     st.markdown(
         f"""
         <style>
         .pricegauger-build-badge {{
             position: fixed;
-            top: 0.62rem;
-            right: 4.4rem;
+            top: 0.55rem;
+            right: 4.35rem;
             z-index: 999999;
-            padding: 0.16rem 0.44rem;
-            border: 1px solid rgba(128, 128, 128, 0.24);
-            border-radius: 0.42rem;
-            background: rgba(255, 255, 255, 0.80);
+            padding: 0.16rem 0.42rem;
+            border: 1px solid rgba(128, 128, 128, 0.25);
+            border-radius: 0.45rem;
+            background: rgba(255, 255, 255, 0.82);
             backdrop-filter: blur(6px);
-            color: rgba(49, 51, 63, 0.65);
+            color: rgba(49, 51, 63, 0.68);
             font-size: 0.64rem;
             line-height: 1.1;
             white-space: nowrap;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            pointer-events: none;
         }}
-        .pricegauger-build-badge-mobile {{ display: none; }}
+        .pricegauger-aggregate-link {{
+            position: fixed;
+            top: 2.55rem;
+            right: 4.35rem;
+            z-index: 999998;
+            padding: 0.24rem 0.52rem;
+            border: 1px solid rgba(255, 75, 75, 0.45);
+            border-radius: 0.55rem;
+            background: rgba(255, 75, 75, 0.10);
+            color: inherit !important;
+            text-decoration: none !important;
+            font-size: 0.72rem;
+            line-height: 1.1;
+            white-space: nowrap;
+            backdrop-filter: blur(6px);
+        }}
+        .pricegauger-aggregate-link:hover {{
+            background: rgba(255, 75, 75, 0.20);
+            border-color: rgba(255, 75, 75, 0.75);
+        }}
         @media (prefers-color-scheme: dark) {{
             .pricegauger-build-badge {{
-                background: rgba(14, 17, 23, 0.80);
-                color: rgba(250, 250, 250, 0.66);
+                background: rgba(14, 17, 23, 0.82);
+                color: rgba(250, 250, 250, 0.68);
+            }}
+            .pricegauger-aggregate-link {{
+                background: rgba(255, 75, 75, 0.12);
+                color: rgba(250, 250, 250, 0.88) !important;
             }}
         }}
         @media (max-width: 700px) {{
             .pricegauger-build-badge {{
-                top: 0.43rem;
-                right: 3.65rem;
-                padding: 0.11rem 0.34rem;
-                max-width: 34vw;
-                font-size: 0.56rem;
-                opacity: 0.86;
+                top: 0.48rem;
+                right: 4.2rem;
+                max-width: 36vw;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                font-size: 0.58rem;
             }}
-            .pricegauger-build-badge-desktop {{ display: none; }}
-            .pricegauger-build-badge-mobile {{ display: inline; }}
+            .pricegauger-aggregate-link {{
+                top: 2.25rem;
+                right: 4.2rem;
+                font-size: 0.66rem;
+                padding: 0.22rem 0.45rem;
+            }}
         }}
         </style>
-        <div class="pricegauger-build-badge" title="{html.escape(label)}">
-            <span class="pricegauger-build-badge-desktop">{html.escape(label)}</span>
-            <span class="pricegauger-build-badge-mobile">{html.escape(compact_label)}</span>
-        </div>
+        <div class="pricegauger-build-badge" title="{html.escape(label)}">{html.escape(compact)}</div>
+        <a class="pricegauger-aggregate-link" href="/Signalaggregat" target="_self" title="Åpne Signalaggregat">∑ Signalaggregat</a>
         """,
         unsafe_allow_html=True,
     )
+
+    # Also expose the page through Streamlit's native sidebar navigation.
+    try:
+        with st.sidebar:
+            st.page_link("pages/2_Signalaggregat.py", label="∑ Signalaggregat")
+    except Exception:
+        # Older Streamlit versions or standalone test contexts may not support page_link.
+        pass
