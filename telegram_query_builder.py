@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import re
-from typing import Any, Iterable
+from typing import Any
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z'-]{2,}")
 
 _EVENT_TERMS: dict[str, tuple[str, ...]] = {
-    "attack": ("attack", "attacked", "strike", "struck", "airstrike", "missile", "drone", "bomb", "explosion", "shelling"),
+    "attack": ("attack", "attacked", "strike", "struck", "airstrike", "missile", "drone", "bomb", "bombed", "explosion", "shelling"),
     "blockade": ("blockade", "closure", "closed", "halted", "disrupted", "seized"),
     "sanctions": ("sanction", "sanctions", "embargo", "export ban", "restriction"),
     "diplomacy": ("ceasefire", "negotiation", "talks", "agreement", "deal", "truce"),
@@ -18,14 +18,16 @@ _EVENT_TERMS: dict[str, tuple[str, ...]] = {
 }
 
 _TARGET_TERMS: dict[str, tuple[str, ...]] = {
+    "diplomatic facility": ("embassy", "consulate", "diplomatic mission", "ambassador residence"),
     "energy infrastructure": ("refinery", "pipeline", "oilfield", "oil field", "gas field", "terminal", "lng", "power plant", "energy infrastructure"),
     "shipping": ("tanker", "vessel", "ship", "port", "strait", "shipping", "maritime"),
     "military": ("airbase", "military base", "base", "troops", "navy", "army", "irgc"),
-    "government": ("ministry", "parliament", "embassy", "government", "presidential palace"),
+    "government": ("ministry", "parliament", "government", "presidential palace"),
     "civilian": ("hospital", "school", "residential", "civilian"),
 }
 
 _COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
+    "Bahrain": ("bahrain", "bahraini", "manama"),
     "Iran": ("iran", "iranian", "tehran", "isfahan", "south pars", "kharg"),
     "Israel": ("israel", "israeli", "tel aviv", "haifa", "jerusalem"),
     "Iraq": ("iraq", "iraqi", "baghdad", "basra", "kirkuk"),
@@ -39,6 +41,7 @@ _COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 _DOMAIN_BY_TARGET = {
+    "diplomatic facility": "POLITICAL",
     "energy infrastructure": "INFRASTRUCTURE",
     "shipping": "INFRASTRUCTURE",
     "military": "POLITICAL",
@@ -63,6 +66,9 @@ class TelegramSearchPlan:
     domain: str
     search: str
     signal_score: int
+    published_at: str = ""
+    regime_id: str = "GEOPOLITICAL_CONFLICT"
+    taxonomy_version: str = "geopolitical-conflict-v1"
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
@@ -95,7 +101,7 @@ def _distinct_keywords(text: str, *, limit: int = 4) -> list[str]:
     return found
 
 
-def build_search_plan(*, message_id: str, message_url: str, text: str) -> TelegramSearchPlan:
+def build_search_plan(*, message_id: str, message_url: str, text: str, published_at: str = "") -> TelegramSearchPlan:
     lowered = _normalise(text)
     event_type = _first_match(lowered, _EVENT_TERMS, "event")
     target = _first_match(lowered, _TARGET_TERMS, "")
@@ -124,6 +130,7 @@ def build_search_plan(*, message_id: str, message_url: str, text: str) -> Telegr
         domain=domain,
         search=search,
         signal_score=signal_score,
+        published_at=published_at,
     )
 
 
@@ -133,6 +140,7 @@ def plans_from_telegram_html(html: str, *, minimum_signal: int = 2) -> list[Tele
     for wrap in soup.select(".tgme_widget_message_wrap"):
         post = wrap.select_one(".tgme_widget_message")
         text_node = wrap.select_one(".tgme_widget_message_text")
+        time_node = wrap.select_one("time")
         if post is None or text_node is None:
             continue
         data_post = str(post.get("data-post") or "")
@@ -146,6 +154,7 @@ def plans_from_telegram_html(html: str, *, minimum_signal: int = 2) -> list[Tele
             message_id=message_id,
             message_url=f"https://t.me/{channel_name}/{message_id}",
             text=text,
+            published_at=str(time_node.get("datetime") or "") if time_node else "",
         )
         if plan.signal_score >= minimum_signal and plan.search:
             plans.append(plan)
@@ -161,7 +170,7 @@ def fetch_latest_search_plan(
     response = requests.get(
         f"https://t.me/s/{channel.lstrip('@')}",
         timeout=timeout,
-        headers={"User-Agent": "Mozilla/5.0 PriceGauger/1.0"},
+        headers={"User-Agent": "Mozilla/5.0 PriceGauger/1.1"},
     )
     response.raise_for_status()
     plans = plans_from_telegram_html(response.text, minimum_signal=minimum_signal)
