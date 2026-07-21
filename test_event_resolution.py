@@ -74,8 +74,8 @@ def test_exact_repeat_is_duplicate() -> None:
 
 
 def test_higher_death_toll_is_escalation_in_same_cluster() -> None:
-    previous = canonical_event_from_plan(_plan("100", "One soldier was killed in the drone attack at Erbil base"))
-    current = canonical_event_from_plan(_plan("101", "Four soldiers were killed in the drone attack at Erbil base"))
+    previous = canonical_event_from_plan(_plan("100", "1 soldier was killed in the drone attack at Erbil base"))
+    current = canonical_event_from_plan(_plan("101", "4 soldiers were killed in the drone attack at Erbil base"))
 
     result = resolve_observation(current, previous)
 
