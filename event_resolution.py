@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 import hashlib
 import re
@@ -12,11 +12,29 @@ from telegram_query_builder import TelegramSearchPlan
 
 REGIME_ID = "GEOPOLITICAL_CONFLICT"
 TAXONOMY_VERSION = "geopolitical-conflict-v1"
-MODEL_VERSION = "event-resolution-v1"
+MODEL_VERSION = "event-resolution-v2"
 
 _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9'-]+", re.IGNORECASE)
 _FATALITY_RE = re.compile(r"\b(?:death toll|fatalities|killed|dead|deaths?)\D{0,18}(\d+)\b|\b(\d+)\s+(?:people|soldiers?|civilians?)?\s*(?:were\s+)?(?:killed|dead)\b", re.IGNORECASE)
 _INJURY_RE = re.compile(r"\b(?:injured|wounded|injuries)\D{0,18}(\d+)\b|\b(\d+)\s+(?:people|soldiers?|civilians?)?\s*(?:were\s+)?(?:injured|wounded)\b", re.IGNORECASE)
+
+_ATTACK_TERMS = (
+    "attack", "attacked", "strike", "strikes", "struck", "bomb", "bombed",
+    "bombing", "missile", "drone", "shelling", "airstrike", "explosion",
+)
+_ATTACK_WARNING_TERMS = ("air raid siren", "air-raid siren", "sirens sound", "incoming missile", "incoming drone")
+_DIPLOMACY_TERMS = (
+    "meeting", "meets", "met with", "talks", "telephone", "phone call", "discuss",
+    "condemns", "statement", "tribute", "mourn", "half-mast", "sympathy", "condolence",
+)
+_TARGET_TERMS: dict[str, tuple[str, ...]] = {
+    "diplomatic facility": ("embassy", "consulate", "diplomatic mission"),
+    "energy_infrastructure": ("refinery", "pipeline", "oilfield", "oil field", "terminal", "lng", "gas field"),
+    "shipping": ("ship", "ships", "vessel", "vessels", "tanker", "tankers", "port", "strait", "shipping", "maritime"),
+    "military": ("airbase", "military base", "army base", "troops", "military", "navy", "army", "irgc"),
+    "civilian": ("civilian", "residential", "hospital", "school"),
+    "government": ("government", "ministry", "president", "parliament", "palace"),
+}
 
 
 class UpdateType(StrEnum):
@@ -160,6 +178,38 @@ def _jaccard(left: set[str], right: set[str]) -> float:
     return len(left & right) / len(union) if union else 0.0
 
 
+def _contains_term(text: str, term: str) -> bool:
+    words = r"\s+".join(re.escape(part) for part in term.lower().split())
+    return re.search(rf"(?<![a-z0-9]){words}(?![a-z0-9])", text.lower()) is not None
+
+
+def _contains_any(text: str, terms: Iterable[str]) -> bool:
+    return any(_contains_term(text, term) for term in terms)
+
+
+def _candidate_text(event: MarketEvent) -> str:
+    return " ".join((event.title or "", event.summary or "", event.category or "", event.subcategory or ""))
+
+
+def _conflict_event_type(event: MarketEvent) -> str:
+    text = _candidate_text(event)
+    if _contains_any(text, _ATTACK_TERMS):
+        return "attack"
+    if _contains_any(text, _ATTACK_WARNING_TERMS):
+        return "attack_warning"
+    if _contains_any(text, _DIPLOMACY_TERMS):
+        return "diplomacy"
+    return "other"
+
+
+def _conflict_target(event: MarketEvent) -> str:
+    text = _candidate_text(event)
+    for target, terms in _TARGET_TERMS.items():
+        if _contains_any(text, terms):
+            return target
+    return "unspecified"
+
+
 def resolve_observation(current: CanonicalEvent, previous: CanonicalEvent | None) -> ResolutionResult:
     if previous is None:
         return ResolutionResult(UpdateType.NEW_EVENT, current.cluster_id, 0.0, 1.0, 0.0, 0.0)
@@ -200,6 +250,73 @@ def resolve_observation(current: CanonicalEvent, previous: CanonicalEvent | None
     return ResolutionResult(update_type, cluster_id, similarity, novelty, round(severity_delta, 4), round(confidence_delta, 4), fact_changes)
 
 
-def rank_gdelt_analogues(canonical: CanonicalEvent, events: Iterable[MarketEvent], *, limit: int = 20, minimum_score: float = 0.2) -> list[SimilarEvent]:
-    """Rank GDELT candidates against the Telegram event without changing its identity."""
-    return find_similar_events(canonical.to_market_event(), events, limit=limit, minimum_score=minimum_score)
+def rank_gdelt_analogues(
+    canonical: CanonicalEvent,
+    events: Iterable[MarketEvent],
+    *,
+    limit: int = 20,
+    minimum_score: float = 0.2,
+) -> list[SimilarEvent]:
+    """Rank analogues by causal event semantics before generic metadata similarity."""
+    candidates = list(events)
+    generic = find_similar_events(
+        canonical.to_market_event(),
+        candidates,
+        limit=max(100, len(candidates)),
+        minimum_score=0.0,
+    )
+    query_tokens = _tokens(canonical.title)
+    ranked: list[SimilarEvent] = []
+
+    for item in generic:
+        event_type = _conflict_event_type(item.event)
+        target = _conflict_target(item.event)
+        country_match = bool(canonical.country) and canonical.country.lower() == str(item.event.country or "").lower()
+        lexical = _jaccard(query_tokens, _tokens(_candidate_text(item.event)))
+
+        if canonical.event_type == "attack":
+            action_score = 1.0 if event_type == "attack" else 0.72 if event_type == "attack_warning" else 0.0
+        else:
+            action_score = 1.0 if event_type == canonical.event_type else 0.0
+
+        if canonical.target == target:
+            target_score = 1.0
+        elif target == "unspecified":
+            target_score = 0.25
+        elif canonical.target == "diplomatic facility" and target == "government":
+            target_score = 0.45
+        else:
+            target_score = 0.0
+
+        quality = (item.dna.source_quality + item.dna.severity) / 2.0
+        score = (
+            0.48 * action_score
+            + 0.20 * target_score
+            + 0.12 * float(country_match)
+            + 0.15 * lexical
+            + 0.05 * quality
+        )
+
+        # Non-violent context must never outrank a causally similar conflict event.
+        if canonical.event_type == "attack" and event_type not in {"attack", "attack_warning"}:
+            score = min(score, 0.18)
+        elif canonical.event_type == "attack" and event_type == "attack_warning":
+            score = min(score, 0.72)
+
+        corrected_dna = replace(item.dna, event_type=event_type, target=target)
+        components = dict(item.components)
+        components.update(
+            {
+                "conflict_action": round(action_score, 6),
+                "conflict_target": round(target_score, 6),
+                "country_gate": float(country_match),
+                "lexical_overlap": round(lexical, 6),
+                "generic_score": item.score,
+            }
+        )
+        score = round(max(0.0, min(1.0, score)), 6)
+        if score >= minimum_score:
+            ranked.append(SimilarEvent(item.event_id, score, components, item.event, corrected_dna))
+
+    ranked.sort(key=lambda match: (match.score, match.dna.source_quality, match.dna.severity), reverse=True)
+    return ranked[: max(0, limit)]
