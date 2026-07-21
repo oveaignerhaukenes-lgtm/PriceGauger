@@ -12,13 +12,13 @@ def _plan(message_id: str, text: str):
     )
 
 
-def _gdelt(event_id: str, title: str, country: str = "") -> MarketEvent:
+def _gdelt(event_id: str, title: str, country: str = "", summary: str | None = None) -> MarketEvent:
     return MarketEvent(
         event_id=event_id,
         source="gdelt_cloud_v2",
         event_date="2026-07-10",
         title=title,
-        summary=title,
+        summary=summary or title,
         category="attack" if "attack" in title.lower() or "bomb" in title.lower() else "statement",
         subcategory="",
         domain="POLITICAL",
@@ -60,6 +60,41 @@ def test_irrelevant_un_statement_cannot_replace_primary_event() -> None:
     assert matches[0].event_id == "attack"
     assert canonical.title != matches[0].event.title
     assert canonical.to_market_event().event_id.startswith("telegram:")
+
+
+def test_air_raid_warning_outranks_diplomatic_phone_call() -> None:
+    canonical = canonical_event_from_plan(_plan("100", "The Israeli Embassy in Bahrain was bombed"))
+    candidates = [
+        _gdelt(
+            "call",
+            "Bahrain's King meets Syria's President to discuss regional and international developments",
+            "Bahrain",
+            "The leaders discussed bilateral relationship and regional cooperation.",
+        ),
+        _gdelt("sirens", "Air-raid sirens sound in Bahrain and Kuwait", "Bahrain"),
+        _gdelt("attack", "Iranian attack targets sites in Bahrain", "Bahrain"),
+    ]
+
+    matches = rank_gdelt_analogues(canonical, candidates, minimum_score=0.0)
+    ids = [match.event_id for match in matches]
+
+    assert ids.index("attack") < ids.index("call")
+    assert ids.index("sirens") < ids.index("call")
+    assert next(match for match in matches if match.event_id == "call").dna.target != "shipping"
+
+
+def test_relationship_does_not_trigger_ship_target() -> None:
+    canonical = canonical_event_from_plan(_plan("100", "The Israeli Embassy in Bahrain was bombed"))
+    candidate = _gdelt(
+        "relationship",
+        "Bahrain and Syria discuss bilateral relationship",
+        "Bahrain",
+    )
+
+    match = rank_gdelt_analogues(canonical, [candidate], minimum_score=0.0)[0]
+
+    assert match.dna.target == "unspecified"
+    assert match.dna.event_type == "diplomacy"
 
 
 def test_exact_repeat_is_duplicate() -> None:
