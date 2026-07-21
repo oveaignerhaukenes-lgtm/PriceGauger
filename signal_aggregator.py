@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from math import exp, log
 from typing import Any, Iterable, Mapping
 
@@ -34,6 +34,9 @@ class EventSignal:
     freshness_weight: float
     signal_weight: float
     contribution: float
+    asset: str = ""
+    half_life_hours: float = 6.0
+    max_age_hours: float = 24.0
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
@@ -106,7 +109,6 @@ def _historical_candidates(query: MarketEvent, events: Iterable[MarketEvent]) ->
         if event.event_id == query.event_id:
             continue
         event_time = _event_timestamp(event)
-        # Avoid future leakage when the event collection spans several dates.
         if query_time is not None and event_time is not None and event_time >= query_time:
             continue
         candidates.append(event)
@@ -124,11 +126,10 @@ def build_event_signals(
     minimum_similarity: float = 0.20,
     analogue_limit: int = 20,
 ) -> list[EventSignal]:
-    """Score each recent event independently before any cross-event aggregation.
+    """Produce one finished analytical signal per recent event.
 
-    Historical analogues are found per event. The events are only combined after each
-    event has its own Market Profile and MarketAssessment, preventing combinatorial
-    analogue sparsity from a composite EventDNA query.
+    This function is the boundary of the event-analysis layer. Its results can be
+    persisted and aggregated later without rerunning EventDNA or historical matching.
     """
     current = now or pd.Timestamp.now(tz="UTC")
     if current.tzinfo is None:
@@ -198,11 +199,43 @@ def build_event_signals(
                 freshness_weight=round(freshness, 6),
                 signal_weight=round(signal_weight, 6),
                 contribution=round(contribution, 6),
+                asset=asset,
+                half_life_hours=half_life,
+                max_age_hours=float(window_hours),
             )
         )
 
     results.sort(key=lambda item: (item.signal_weight, -item.age_hours), reverse=True)
     return results
+
+
+def refresh_event_signal(signal: EventSignal, *, now: pd.Timestamp | None = None) -> EventSignal:
+    """Recalculate only the time-dependent fields of a finished signal."""
+    current = now or pd.Timestamp.now(tz="UTC")
+    if current.tzinfo is None:
+        current = current.tz_localize("UTC")
+    else:
+        current = current.tz_convert("UTC")
+    timestamp = pd.to_datetime(signal.published_at, utc=True, errors="coerce")
+    if pd.isna(timestamp):
+        return replace(signal, age_hours=float("inf"), freshness_weight=0.0, signal_weight=0.0, contribution=0.0)
+
+    age_hours = max(0.0, (current - timestamp).total_seconds() / 3600.0)
+    half_life = max(0.25, float(signal.half_life_hours))
+    freshness = exp(-(log(2.0) / half_life) * age_hours)
+    previous_freshness = max(float(signal.freshness_weight), 1e-12)
+    analytical_weight = float(signal.signal_weight) / previous_freshness
+    signal_weight = analytical_weight * freshness
+    previous_weight = max(float(signal.signal_weight), 1e-12)
+    analytical_contribution = float(signal.contribution) / previous_weight
+    contribution = analytical_contribution * signal_weight
+    return replace(
+        signal,
+        age_hours=round(age_hours, 3),
+        freshness_weight=round(freshness, 6),
+        signal_weight=round(signal_weight, 6),
+        contribution=round(contribution, 6),
+    )
 
 
 def aggregate_event_signals(
@@ -211,8 +244,10 @@ def aggregate_event_signals(
     signals: Iterable[EventSignal],
     window_hours: int = 24,
     dead_zone: float = 0.12,
+    now: pd.Timestamp | None = None,
 ) -> AggregateSignal:
-    items = list(signals)
+    items = [refresh_event_signal(item, now=now) for item in signals]
+    items = [item for item in items if item.age_hours <= min(float(window_hours), float(item.max_age_hours))]
     usable = [
         item
         for item in items
@@ -261,10 +296,10 @@ def aggregate_event_signals(
         direction = "NEUTRAL"
 
     rationale = (
-        f"{len(usable)} av {len(items)} hendelser hadde brukbart historisk signal.",
+        f"{len(usable)} av {len(items)} lagrede hendelsessignaler var brukbare.",
         f"Retningsenighet: {agreement:.1f} %, effektivt hendelsesutvalg: {effective_n:.2f}.",
         f"Netto tidsvektet signal: {net_score:+.3f} innenfor et {window_hours}-timers vindu.",
-        "Hver hendelse er først matchet mot egne historiske analoger; bare de ferdige hendelsessignalene summeres.",
+        "Summatoren har kun lest ferdige EventSignal-objekter og beregnet tidsforfall og netto bidrag.",
     )
 
     return AggregateSignal(
@@ -298,6 +333,7 @@ def build_aggregate_signal(
     minimum_similarity: float = 0.20,
     analogue_limit: int = 20,
 ) -> AggregateSignal:
+    """Compatibility wrapper for callers not yet migrated to SignalStore."""
     signals = build_event_signals(
         events=events,
         reactions=reactions,
@@ -308,4 +344,4 @@ def build_aggregate_signal(
         minimum_similarity=minimum_similarity,
         analogue_limit=analogue_limit,
     )
-    return aggregate_event_signals(asset=asset, signals=signals, window_hours=window_hours)
+    return aggregate_event_signals(asset=asset, signals=signals, window_hours=window_hours, now=now)

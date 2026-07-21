@@ -6,3 +6,7 @@ __pycache__/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
+data/*.sqlite3
+data/*.sqlite3-shm
+data/*.sqlite3-wal

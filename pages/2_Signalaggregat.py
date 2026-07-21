@@ -5,7 +5,8 @@ import streamlit as st
 
 from build_info import render_build_badge
 from decision_engine import build_strategy_suggestion
-from signal_aggregator import build_aggregate_signal
+from signal_aggregator import aggregate_event_signals
+from signal_store import SignalStore
 
 
 st.set_page_config(page_title="PriceGauger Signalaggregat", page_icon="∑", layout="wide")
@@ -15,49 +16,34 @@ ASSETS = ("Brent", "Silver", "Gold", "DXY")
 
 st.title("∑ Signalaggregat")
 st.caption(
-    "Hver hendelse analyseres separat mot egne historiske analoger. "
-    "Først etterpå summeres hendelsessignalene til ett beslutningsgrunnlag."
+    "Diagnose- og kalibreringsside for det rullerende korttidsminnet. "
+    "Summatoren leser kun ferdige EventSignal-objekter fra Signal Store."
 )
 
 with st.sidebar:
     st.header("Aggregat")
     asset = st.selectbox("Marked", ASSETS, key="aggregate_asset")
     window_hours = st.selectbox("Tidsvindu", (6, 12, 24), index=2, format_func=lambda value: f"{value} timer")
-    half_life_hours = st.slider(
-        "Halveringstid for nyhetsvekt",
-        min_value=1.0,
-        max_value=12.0,
-        value=6.0,
-        step=0.5,
-        help="Et signal som er én halveringstid gammelt får halv tidsvekt.",
-    )
-    minimum_similarity = st.slider(
-        "Minste analoglikhet",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.20,
-        step=0.05,
-    )
     profit_capture = st.slider("Andel av forventet bevegelse til autosalg", 0.50, 1.00, 0.80, 0.05)
 
+store = SignalStore()
+purged_count = store.purge_expired()
+active_signals = store.active(asset, window_hours=window_hours)
 
-events = st.session_state.get("gdelt_events", [])
-reactions = st.session_state.get("gdelt_intraday_reactions", [])
+if purged_count:
+    st.caption(f"Fjernet {purged_count} utløpte signaler fra Signal Store.")
 
-if not events:
+if not active_signals:
     st.info(
-        "Ingen hendelser er lastet i denne økten. Kjør Historical Event Lab først, "
-        "og åpne deretter Signalaggregat."
+        f"Signal Store har ingen aktive {asset}-signaler i det valgte {window_hours}-timersvinduet. "
+        "Historical Event Lab lagrer nye signaler automatisk når analysepipelinen fullføres."
     )
     st.stop()
 
-aggregate = build_aggregate_signal(
-    events=events,
-    reactions=reactions,
+aggregate = aggregate_event_signals(
     asset=asset,
+    signals=active_signals,
     window_hours=window_hours,
-    half_life_hours=half_life_hours,
-    minimum_similarity=minimum_similarity,
 )
 st.session_state["aggregate_signal"] = aggregate
 st.session_state["aggregate_market_assessment"] = aggregate.to_market_assessment()
@@ -95,9 +81,10 @@ with st.container(border=True):
     st.write(strategy.methodology)
     st.warning(strategy.warning)
 
-st.markdown("### Bidrag fra enkelthendelser")
+st.markdown("### Signal Store · aktive bidrag")
 rows = []
 for signal in aggregate.event_signals:
+    remaining = max(0.0, signal.max_age_hours - signal.age_hours)
     rows.append(
         {
             "Publisert": signal.published_at,
@@ -110,6 +97,7 @@ for signal in aggregate.event_signals:
             "Analogutvalg": signal.analogue_sample,
             "Effektivt analogutvalg": signal.effective_analogue_sample,
             "Alder timer": signal.age_hours,
+            "Gjenstår timer": remaining,
             "Tidsvekt": signal.freshness_weight,
             "Signalvekt": signal.signal_weight,
             "Bidrag": signal.contribution,
@@ -118,29 +106,28 @@ for signal in aggregate.event_signals:
     )
 
 frame = pd.DataFrame(rows)
-if frame.empty:
-    st.info(f"Ingen hendelser falt innenfor de siste {window_hours} timene.")
-else:
-    st.dataframe(
-        frame,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "Publisert": st.column_config.DatetimeColumn("Publisert UTC"),
-            "Konfidens %": st.column_config.NumberColumn("Konfidens", format="%.1f %%"),
-            "Forventet %": st.column_config.NumberColumn("Forventet", format="%+.3f %%"),
-            "Tidsvekt": st.column_config.NumberColumn("Tidsvekt", format="%.3f"),
-            "Signalvekt": st.column_config.NumberColumn("Signalvekt", format="%.3f"),
-            "Bidrag": st.column_config.NumberColumn("Netto bidrag", format="%+.3f"),
-        },
-    )
-    st.download_button(
-        "Last ned hendelsessignaler som CSV",
-        frame.to_csv(index=False).encode("utf-8"),
-        "event_signal_aggregate.csv",
-        "text/csv",
-        width="stretch",
-    )
+st.dataframe(
+    frame,
+    width="stretch",
+    hide_index=True,
+    column_config={
+        "Publisert": st.column_config.DatetimeColumn("Publisert UTC"),
+        "Konfidens %": st.column_config.NumberColumn("Konfidens", format="%.1f %%"),
+        "Forventet %": st.column_config.NumberColumn("Forventet", format="%+.3f %%"),
+        "Alder timer": st.column_config.NumberColumn("Alder", format="%.2f t"),
+        "Gjenstår timer": st.column_config.NumberColumn("Gjenstår", format="%.2f t"),
+        "Tidsvekt": st.column_config.NumberColumn("Tidsvekt", format="%.3f"),
+        "Signalvekt": st.column_config.NumberColumn("Signalvekt", format="%.3f"),
+        "Bidrag": st.column_config.NumberColumn("Netto bidrag", format="%+.3f"),
+    },
+)
+st.download_button(
+    "Last ned aktive signaler som CSV",
+    frame.to_csv(index=False).encode("utf-8"),
+    "active_event_signals.csv",
+    "text/csv",
+    width="stretch",
+)
 
 with st.expander("Se komplett aggregatobjekt"):
     st.json(aggregate.to_record())
