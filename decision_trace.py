@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
@@ -68,7 +69,7 @@ def build_decision_trace(
 
 
 def _ensure_table() -> None:
-    with connect() as connection:
+    with closing(connect()) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS decision_traces (
@@ -95,7 +96,7 @@ def _ensure_table() -> None:
 
 def save_decision_trace(trace: DecisionTrace) -> None:
     _ensure_table()
-    with connect() as connection:
+    with closing(connect()) as connection:
         connection.execute(
             """
             INSERT INTO decision_traces (
@@ -135,7 +136,7 @@ def save_decision_trace(trace: DecisionTrace) -> None:
 
 def update_decision_outcome(trace_id: str, outcome: Mapping[str, Any]) -> bool:
     _ensure_table()
-    with connect() as connection:
+    with closing(connect()) as connection:
         cursor = connection.execute(
             """
             UPDATE decision_traces
@@ -150,7 +151,7 @@ def update_decision_outcome(trace_id: str, outcome: Mapping[str, Any]) -> bool:
 
 def load_decision_trace(trace_id: str) -> DecisionTrace | None:
     _ensure_table()
-    with connect() as connection:
+    with closing(connect()) as connection:
         connection.row_factory = __import__("sqlite3").Row
         row = connection.execute(
             "SELECT * FROM decision_traces WHERE trace_id = ?",
