@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import requests
 
 from event_models import MarketEvent
-from gdelt_client import GdeltError, GdeltPage
+from gdelt_types import GdeltError, GdeltPage
 
 DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
@@ -24,7 +24,7 @@ def _gdelt_datetime(value: str, *, end_of_day: bool = False) -> str:
 def _article_event(article: dict[str, Any]) -> MarketEvent:
     url = str(article.get("url") or "")
     title = str(article.get("title") or "")
-    seen = str(article.get("seendate") or article.get("socialimage") or "")
+    seen = str(article.get("seendate") or "")
     published_at = None
     event_date = ""
     if len(seen) >= 14 and seen[:14].isdigit():
