@@ -15,8 +15,8 @@ TAXONOMY_VERSION = "geopolitical-conflict-v1"
 MODEL_VERSION = "event-resolution-v2"
 
 _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9'-]+", re.IGNORECASE)
-_FATALITY_RE = re.compile(r"\b(?:death toll|fatalities|killed|dead|deaths?)\D{0,18}(\d+)\b|\b(\d+)\s+(?:people|soldiers?|civilians?)?\s*(?:were\s+)?(?:killed|dead)\b", re.IGNORECASE)
-_INJURY_RE = re.compile(r"\b(?:injured|wounded|injuries)\D{0,18}(\d+)\b|\b(\d+)\s+(?:people|soldiers?|civilians?)?\s*(?:were\s+)?(?:injured|wounded)\b", re.IGNORECASE)
+_FATALITY_RE = re.compile(r"\b(?:death toll|fatalities|killed|dead|deaths?)\D{0,18}(\d+)\b|\b(\d+)\s+(?:people|soldiers?|civilians?)?\s*(?:(?:was|were)\s+)?(?:killed|dead)\b", re.IGNORECASE)
+_INJURY_RE = re.compile(r"\b(?:injured|wounded|injuries)\D{0,18}(\d+)\b|\b(\d+)\s+(?:people|soldiers?|civilians?)?\s*(?:(?:was|were)\s+)?(?:injured|wounded)\b", re.IGNORECASE)
 
 _ATTACK_TERMS = (
     "attack", "attacked", "strike", "strikes", "struck", "bomb", "bombed",

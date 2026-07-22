@@ -256,15 +256,15 @@ def build_market_profile(
     weights = pd.to_numeric(frame["weight"], errors="coerce").fillna(0.0)
     returns: dict[str, pd.Series] = {}
     for horizon in ("1h", "4h", "24h"):
-        returns[horizon] = pd.to_numeric(frame.get(f"return_{horizon}_pct"), errors="coerce")
+        returns[horizon] = pd.to_numeric(frame.get(f"return_{horizon}_pct", pd.Series(index=frame.index, dtype=float)), errors="coerce")
 
     one_hour = returns["1h"].dropna()
     positive_share = float((one_hour > 0).mean() * 100.0) if not one_hour.empty else None
     medians = {key: (float(series.dropna().median()) if not series.dropna().empty else None) for key, series in returns.items()}
     means = {key: _weighted_mean(series, weights) for key, series in returns.items()}
 
-    max_up = pd.to_numeric(frame.get("max_up_24h_pct"), errors="coerce").dropna()
-    max_down = pd.to_numeric(frame.get("max_down_24h_pct"), errors="coerce").dropna()
+    max_up = pd.to_numeric(frame.get("max_up_24h_pct", pd.Series(index=frame.index, dtype=float)), errors="coerce").dropna()
+    max_down = pd.to_numeric(frame.get("max_down_24h_pct", pd.Series(index=frame.index, dtype=float)), errors="coerce").dropna()
     effective_n = (float(weights.sum()) ** 2 / float((weights ** 2).sum())) if float((weights ** 2).sum()) > 0 else 0.0
     directional = means["4h"] if means["4h"] is not None else means["1h"]
     direction = "LONG" if directional is not None and directional > 0.05 else "SHORT" if directional is not None and directional < -0.05 else "NEUTRAL"

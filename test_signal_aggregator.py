@@ -1,3 +1,5 @@
+import pandas as pd
+
 from signal_aggregator import EventSignal, aggregate_event_signals
 
 
@@ -48,7 +50,12 @@ def test_aggregate_combines_individual_signals_after_scoring() -> None:
         _signal("diplomacy", "SHORT", -0.20, 0.25, -0.10),
     ]
 
-    result = aggregate_event_signals(asset="Brent", signals=signals, window_hours=12)
+    result = aggregate_event_signals(
+        asset="Brent",
+        signals=signals,
+        window_hours=12,
+        now=pd.Timestamp("2026-07-20T13:00:00Z"),
+    )
 
     assert result.direction == "LONG"
     assert result.events_used == 3
@@ -67,7 +74,11 @@ def test_insufficient_and_neutral_events_do_not_drive_direction() -> None:
         _signal("neutral", "NEUTRAL", 0.0, 10.0, 0.0),
     ]
 
-    result = aggregate_event_signals(asset="Gold", signals=signals)
+    result = aggregate_event_signals(
+        asset="Gold",
+        signals=signals,
+        now=pd.Timestamp("2026-07-20T13:00:00Z"),
+    )
 
     assert result.events_used == 2
     assert result.neutral_events == 2
