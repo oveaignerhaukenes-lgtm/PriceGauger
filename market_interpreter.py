@@ -6,7 +6,7 @@ from typing import Any, Mapping, Protocol
 from event_resolution import CanonicalEvent
 from market_interpretation import MarketInterpretation, STATE_NAMES
 
-PROMPT_VERSION = "interpreter-v1"
+PROMPT_VERSION = "interpreter-v2"
 
 
 class JsonModelProvider(Protocol):
@@ -17,11 +17,13 @@ class JsonModelProvider(Protocol):
 
 def build_interpreter_prompt() -> str:
     return (
-        "Interpret one geopolitical market observation. Return JSON only. "
-        "Estimate incremental changes, not absolute market levels. "
+        "Interpret exactly one geopolitical market observation. Return structured JSON only. "
+        "Estimate incremental changes caused by this observation, not absolute market levels. "
         "Use exactly these state keys: " + ", ".join(STATE_NAMES) + ". "
-        "Every delta must be between -1 and 1. Base evidence only on supplied text. "
-        "Do not recommend a trade."
+        "Every delta must be between -1 and 1. Use zero when the supplied text does not support "
+        "a directional change. Base every claim only on the supplied observation. Do not invent "
+        "damage, confirmation, actors, motives or consequences. Evidence must be short fragments "
+        "grounded in the supplied text. List material uncertainties. Do not recommend a trade."
     )
 
 
@@ -41,6 +43,7 @@ class StructuredMarketInterpreter:
                 "target": event.target,
                 "country": event.country,
                 "update_type": update_type,
+                "source_relevance_score": event.relevance_score,
             },
         )
         merged = dict(payload)
