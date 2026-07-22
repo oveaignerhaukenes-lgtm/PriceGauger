@@ -11,26 +11,9 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Publiser på Streamlit Community Cloud
-
-1. Logg inn på Streamlit Community Cloud.
-2. Velg **Create app**.
-3. Velg repository `oveaignerhaukenes-lgtm/PriceGauger`.
-4. Velg branch `main`.
-5. Sett main file path til `app.py`.
-6. Trykk **Deploy**.
-
-## Første test
-
-- Åpne appen på telefonen.
-- Velg Brent eller Silver.
-- Start med intervall `1h`, historikk `30d` og reaksjonsvindu `4` timer.
-- Sjekk at både MES-meldinger og prisbarer lastes.
-- Sammenlign hendelsesmarkørene med prisgrafen.
-
 ## Market State MVP
 
-På grenen `feature/market-state-mvp` finnes en egen Streamlit-side, **Market State**, som tester den nye kjeden:
+På grenen `feature/market-state-mvp` finnes en egen Streamlit-side, **Market State**:
 
 ```text
 Telegram-observasjon
@@ -39,25 +22,35 @@ Telegram-observasjon
 → transparent mapping til Brent, Gold, Silver og DXY
 → LONG / SHORT / NEUTRAL
 → SQLite-logg
+→ pris ved signal, 1t/4t-resultat og MFE/MAE
 ```
 
-Uten modellnøkkel brukes en deterministisk mock-interpreter. Med OpenAI konfigurert brukes Responses API med strict JSON Schema; modellen leverer bare state-deltaer, evidens og usikkerhet. Handelsretningen beregnes fortsatt av vanlig kode. Når modellen byttes fra mock til OpenAI, tolkes den lagrede siste hendelsen automatisk på nytt én gang.
+Uten modellnøkkel brukes en deterministisk mock-interpreter. Med OpenAI konfigurert brukes Responses API med strict JSON Schema; modellen leverer bare state-deltaer, evidens og usikkerhet. Handelsretningen beregnes fortsatt av vanlig kode.
+
+En egen **Signal History**-side viser anbefalingene mot senere markedsrespons. Uferdige prisresultater fylles når appen åpnes igjen.
 
 ### Secrets / miljøvariabler
 
 ```toml
 OPENAI_API_KEY = "..."
-OPENAI_MARKET_MODEL = "gpt-5-mini"  # valgfri
+OPENAI_MARKET_MODEL = "gpt-5-mini"
+GDELT_PROVIDER = "direct"
 ```
 
-De samme navnene kan settes som miljøvariabler ved lokal Linux-kjøring. Nøkkelen skal aldri legges i repositoryet.
+`GDELT_PROVIDER` kan være:
+
+- `direct` – gratis offisiell GDELT DOC 2.0, standard og uten nøkkel
+- `cloud` – eksisterende betalt GDELT Cloud-provider; krever `GDELT_CLOUD_API_KEY`
+- `auto` – bruker cloud når nøkkel finnes, ellers direct
+
+GDELT behandles som sekundær evidens om sirkulasjon, repetisjon og historisk markedsrespons, ikke som autoritativ sannhetskilde.
 
 ## Begrensninger i Alpha
 
 - Telegram-data hentes fra den offentlige forhåndsvisningssiden og dekker ikke full historikk.
 - Yahoo-data er ikke børsgradert sanntidsdata.
+- Streamlit fyller prisresultater ved sidekjøring; kontinuerlig bakgrunnsinnsamling kommer senere.
+- GDELT DOC er artikkel-/narrativsøk og ikke en komplett, autoritativ hendelsesdatabase.
 - Canonical event-klassifiseringen er fortsatt delvis regelbasert.
 - Statistikken viser korrelasjon, ikke kausalitet eller validert prediksjon.
 - Market State-anbefalingene er et testinstrument, ikke validerte handelsråd.
-
-Neste steg er kontinuerlig Telegram-innsamling, full smoketest på Linux og logging av priser etter anbefalingene.
