@@ -4,3 +4,4 @@ plotly>=5.22
 yfinance>=0.2.40
 requests>=2.32
 beautifulsoup4>=4.12
+psycopg[binary]>=3.2
