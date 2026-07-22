@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from hashlib import sha1
 from pathlib import Path
 from typing import Iterable
@@ -153,12 +153,18 @@ def refresh_signal_outcomes(
         created = pd.Timestamp(item.created_at)
         if created.tzinfo is None:
             created = created.tz_localize("UTC")
-        needs_data = item.price_at_signal is None or (current >= created + pd.Timedelta(hours=1) and item.price_1h is None) or (current >= created + pd.Timedelta(hours=4) and item.price_4h is None)
+        needs_data = (
+            item.price_at_signal is None
+            or (current >= created + pd.Timedelta(hours=1) and item.price_1h is None)
+            or (current >= created + pd.Timedelta(hours=4) and item.price_4h is None)
+        )
         if not needs_data:
             updated.append(item)
             continue
         try:
-            frame, provider = by_asset.setdefault(item.asset, _market_frame(item.asset))
+            if item.asset not in by_asset:
+                by_asset[item.asset] = _market_frame(item.asset)
+            frame, provider = by_asset[item.asset]
         except Exception:
             updated.append(item)
             continue
