@@ -60,6 +60,7 @@ def test_structured_interpreter_uses_canonical_metadata():
     assert item.event_id == "telegram:test:1"
     assert item.cluster_id == "cluster:test"
     assert item.model_version == "fake-model-v1"
+    assert item.prompt_version == "interpreter-v2"
     assert item.state_deltas["energy_supply_risk"] == 0.5
 
 
