@@ -41,7 +41,7 @@ Telegram-observasjon
 → SQLite-logg
 ```
 
-Uten modellnøkkel brukes en deterministisk mock-interpreter. Med OpenAI konfigurert brukes Responses API med strict JSON Schema; modellen leverer bare state-deltaer, evidens og usikkerhet. Handelsretningen beregnes fortsatt av vanlig kode.
+Uten modellnøkkel brukes en deterministisk mock-interpreter. Med OpenAI konfigurert brukes Responses API med strict JSON Schema; modellen leverer bare state-deltaer, evidens og usikkerhet. Handelsretningen beregnes fortsatt av vanlig kode. Når modellen byttes fra mock til OpenAI, tolkes den lagrede siste hendelsen automatisk på nytt én gang.
 
 ### Secrets / miljøvariabler
 
