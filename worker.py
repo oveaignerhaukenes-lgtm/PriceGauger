@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sqlite3
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from config import openai_api_key, openai_market_model
+from database import connect, using_postgres
 from event_resolution import CanonicalEvent, canonical_event_from_plan
 from market_interpreter import MockMarketInterpreter, StructuredMarketInterpreter
 from market_state_service import process_market_event
@@ -54,10 +54,8 @@ class WorkerStateStore:
                 """
             )
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self):
+        return connect(self.path)
 
     def is_initialized(self) -> bool:
         with self._connect() as db:
@@ -69,13 +67,16 @@ class WorkerStateStore:
     def mark_initialized(self) -> None:
         with self._connect() as db:
             db.execute(
-                "INSERT OR REPLACE INTO worker_metadata(key, value) VALUES ('telegram_initialized', '1')"
+                """
+                INSERT INTO worker_metadata(key, value) VALUES ('telegram_initialized', '1')
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """
             )
 
     def seen(self, message_id: str) -> bool:
         with self._connect() as db:
             row = db.execute(
-                "SELECT 1 FROM worker_messages WHERE message_id=?", (str(message_id),)
+                "SELECT 1 AS present FROM worker_messages WHERE message_id=?", (str(message_id),)
             ).fetchone()
         return row is not None
 
@@ -84,8 +85,11 @@ class WorkerStateStore:
         with self._connect() as db:
             db.execute(
                 """
-                INSERT OR REPLACE INTO worker_messages(message_id, status, recorded_at)
+                INSERT INTO worker_messages(message_id, status, recorded_at)
                 VALUES (?, ?, ?)
+                ON CONFLICT(message_id) DO UPDATE SET
+                    status=excluded.status,
+                    recorded_at=excluded.recorded_at
                 """,
                 (str(message_id), status, now),
             )
@@ -204,10 +208,11 @@ def run_forever(
     if interval_seconds < 30:
         raise ValueError("interval must be at least 30 seconds")
 
+    backend = "postgresql" if using_postgres() else f"sqlite:{db_path}"
     LOGGER.info(
-        "worker started interval=%ss db=%s channel=%s protocol=%s",
+        "worker started interval=%ss storage=%s channel=%s protocol=%s",
         interval_seconds,
-        db_path,
+        backend,
         channel,
         PAPER_TEST_PROTOCOL.version,
     )
@@ -237,7 +242,7 @@ def _parser() -> argparse.ArgumentParser:
         default=DEFAULT_INTERVAL_SECONDS,
         help="continuous polling interval in seconds (default: 300)",
     )
-    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite database path")
+    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite fallback database path")
     parser.add_argument("--channel", default="Middle_East_Spectator")
     parser.add_argument("--minimum-signal", type=int, default=2)
     parser.add_argument("--log-level", default="INFO")
