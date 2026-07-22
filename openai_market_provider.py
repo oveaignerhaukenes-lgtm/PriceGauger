@@ -110,7 +110,10 @@ class OpenAIJsonProvider:
         except requests.HTTPError as exc:
             detail = response.text[:500].replace(self.api_key, "[redacted]")
             raise RuntimeError(f"OpenAI request failed ({response.status_code}): {detail}") from exc
-        raw = response.json()
+        try:
+            raw = response.json()
+        except ValueError as exc:
+            raise ValueError("OpenAI returned a non-JSON response") from exc
         try:
             parsed = json.loads(_response_output_text(raw))
         except (TypeError, json.JSONDecodeError) as exc:
