@@ -19,6 +19,11 @@ def render_market_state_panel(plan) -> None:
         st.error(f"Market State kunne ikke beregnes: {exc}")
         return
 
+    if result.created:
+        st.success("Ny Telegram-observasjon tolket og lagret.")
+    else:
+        st.info("Observasjonen var allerede lagret; state og anbefalinger er beregnet på nytt.")
+
     recommendations = list(result.recommendations)
     columns = st.columns(len(recommendations))
     for column, recommendation in zip(columns, recommendations):
