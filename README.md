@@ -28,11 +28,27 @@ streamlit run app.py
 - Sjekk at både MES-meldinger og prisbarer lastes.
 - Sammenlign hendelsesmarkørene med prisgrafen.
 
+## Market State MVP
+
+På grenen `feature/market-state-mvp` finnes en egen Streamlit-side, **Market State**, som tester den nye kjeden:
+
+```text
+Telegram-observasjon
+→ strukturert state-delta
+→ tidsvektet Market State
+→ transparent mapping til Brent, Gold, Silver og DXY
+→ LONG / SHORT / NEUTRAL
+→ SQLite-logg
+```
+
+Før en modellnøkkel er konfigurert brukes en deterministisk mock-interpreter. Den er laget for å teste dataflyt, lagring, state-matematikk og UI; anbefalingene er ikke ment som validerte markedssignaler.
+
 ## Begrensninger i Alpha
 
 - Telegram-data hentes fra den offentlige forhåndsvisningssiden og dekker ikke full historikk.
 - Yahoo-data er ikke børsgradert sanntidsdata.
 - Hendelsesklassifiseringen er foreløpig nøkkelordbasert.
 - Statistikken viser korrelasjon, ikke kausalitet eller validert prediksjon.
+- Market State-siden bruker foreløpig en mock-interpreter, ikke en ekstern AI-modell.
 
-Neste steg er database, kontinuerlig Telegram-innsamling, duplikatklynger og separat reaksjons-/persistensmodell.
+Neste steg er å koble en strukturert modellprovider til interpreter-grensesnittet, kjøre kontinuerlig Telegram-innsamling og logge priser etter anbefalingene.
