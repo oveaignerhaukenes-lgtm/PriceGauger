@@ -8,6 +8,7 @@ from event_resolution import canonical_event_from_plan
 from market_interpreter import MockMarketInterpreter, StructuredMarketInterpreter
 from market_state_service import process_market_event
 from openai_market_provider import OpenAIJsonProvider
+from signal_outcomes import register_recommendations, refresh_signal_outcomes
 
 
 def _interpreter_choice():
@@ -30,13 +31,9 @@ def render_market_state_panel(plan) -> None:
     st.markdown("### Market State")
     interpreter, model_name = _interpreter_choice()
     if model_name.startswith("mock"):
-        st.caption(
-            "Testmodus: deterministisk mock-tolk. Flyt og logging er reell, men dette er ikke en AI-vurdering."
-        )
+        st.caption("Testmodus: deterministisk mock-tolk. Flyt og logging er reell, men dette er ikke en AI-vurdering.")
     else:
-        st.caption(
-            f"Strukturert AI-tolkning med {model_name}. Modellen leverer state-deltaer, ikke handelsbeslutningen."
-        )
+        st.caption(f"Strukturert AI-tolkning med {model_name}. Modellen leverer state-deltaer, ikke handelsbeslutningen.")
 
     force = st.button("Tolk siste hendelse på nytt", help="Overskriver lagret tolkning for denne Telegram-hendelsen.")
     try:
@@ -45,6 +42,8 @@ def render_market_state_panel(plan) -> None:
             interpreter=interpreter,
             force_reinterpret=force,
         )
+        outcomes = register_recommendations(result.interpretation, result.recommendations)
+        refresh_signal_outcomes()
     except Exception as exc:
         st.error(f"Market State kunne ikke beregnes: {exc}")
         return
@@ -60,10 +59,11 @@ def render_market_state_panel(plan) -> None:
             )
             st.caption(f"Score {recommendation.score:+.3f} · {recommendation.horizon_hours} t")
 
+    captured = sum(item.price_at_signal is not None for item in outcomes)
     st.caption(
         f"Lagret modell: {result.interpretation.model_version} · prompt: "
         f"{result.interpretation.prompt_version} · schema: {result.interpretation.schema_version} · "
-        f"type: {result.interpretation.update_type}"
+        f"type: {result.interpretation.update_type} · prislogg: {captured}/{len(outcomes)}"
     )
     state_rows = [
         {
