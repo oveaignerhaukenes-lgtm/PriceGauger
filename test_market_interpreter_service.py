@@ -31,6 +31,12 @@ def test_mock_interpreter_is_deterministic():
     assert first.state_deltas["energy_supply_risk"] > 0
 
 
+def test_duplicate_produces_zero_deltas():
+    interpretation = MockMarketInterpreter().interpret(_event(), update_type="DUPLICATE")
+    assert interpretation.novelty == 0.0
+    assert all(value == 0.0 for value in interpretation.state_deltas.values())
+
+
 def test_service_persists_once_and_builds_recommendations(tmp_path):
     store = MarketStateStore(tmp_path / "state.db")
     now = datetime(2026, 7, 22, 0, 15, tzinfo=timezone.utc)
