@@ -28,12 +28,19 @@ def get_secret(name: str) -> str:
     return str(value).strip() if value else ""
 
 
-def gdelt_api_key() -> str:
-    return get_secret("GDELT_CLOUD_API_KEY")
-
-
 def gdelt_provider() -> str:
-    return get_secret("GDELT_PROVIDER") or "direct"
+    return (get_secret("GDELT_PROVIDER") or "direct").lower()
+
+
+def gdelt_api_key() -> str:
+    provider = gdelt_provider()
+    if provider == "direct":
+        return "__DIRECT__"
+    if provider == "auto":
+        return get_secret("GDELT_CLOUD_API_KEY") or "__DIRECT__"
+    if provider == "cloud":
+        return get_secret("GDELT_CLOUD_API_KEY")
+    return "__DIRECT__"
 
 
 def twelve_data_api_key() -> str:
