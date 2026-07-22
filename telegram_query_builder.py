@@ -161,17 +161,26 @@ def plans_from_telegram_html(html: str, *, minimum_signal: int = 2) -> list[Tele
     return plans
 
 
+def fetch_search_plans(
+    channel: str = "Middle_East_Spectator",
+    *,
+    minimum_signal: int = 2,
+    timeout: int = 30,
+) -> list[TelegramSearchPlan]:
+    response = requests.get(
+        f"https://t.me/s/{channel.lstrip('@')}",
+        timeout=timeout,
+        headers={"User-Agent": "Mozilla/5.0 PriceGauger/1.2"},
+    )
+    response.raise_for_status()
+    return plans_from_telegram_html(response.text, minimum_signal=minimum_signal)
+
+
 def fetch_latest_search_plan(
     channel: str = "Middle_East_Spectator",
     *,
     minimum_signal: int = 2,
     timeout: int = 30,
 ) -> TelegramSearchPlan | None:
-    response = requests.get(
-        f"https://t.me/s/{channel.lstrip('@')}",
-        timeout=timeout,
-        headers={"User-Agent": "Mozilla/5.0 PriceGauger/1.1"},
-    )
-    response.raise_for_status()
-    plans = plans_from_telegram_html(response.text, minimum_signal=minimum_signal)
+    plans = fetch_search_plans(channel, minimum_signal=minimum_signal, timeout=timeout)
     return plans[-1] if plans else None
