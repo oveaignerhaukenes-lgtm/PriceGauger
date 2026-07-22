@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Iterable
 
 from asset_state_mapping import AssetRecommendation
+from database import connect
 from market_interpretation import MarketInterpretation
 from market_state import MarketState
 
@@ -15,10 +15,8 @@ class MarketStateStore:
         self.path = str(path)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self):
+        return connect(self.path)
 
     def _init_schema(self) -> None:
         with self._connect() as db:
@@ -89,14 +87,19 @@ class MarketStateStore:
     ) -> None:
         with self._connect() as db:
             db.execute(
-                "INSERT OR REPLACE INTO market_state_snapshots(as_of, payload_json) VALUES (?, ?)",
+                """
+                INSERT INTO market_state_snapshots(as_of, payload_json)
+                VALUES (?, ?)
+                ON CONFLICT(as_of) DO UPDATE SET payload_json=excluded.payload_json
+                """,
                 (state.as_of, json.dumps(state.to_record(), sort_keys=True)),
             )
             for recommendation in recommendations:
                 db.execute(
                     """
-                    INSERT OR REPLACE INTO asset_recommendations(as_of, asset, payload_json)
+                    INSERT INTO asset_recommendations(as_of, asset, payload_json)
                     VALUES (?, ?, ?)
+                    ON CONFLICT(as_of, asset) DO UPDATE SET payload_json=excluded.payload_json
                     """,
                     (
                         state.as_of,
