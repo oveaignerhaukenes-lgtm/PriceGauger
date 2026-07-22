@@ -28,6 +28,7 @@ class FakeProvider:
 
     def complete_json(self, *, system_prompt, user_payload):
         assert "Do not recommend a trade" in system_prompt
+        assert "Do not invent" in system_prompt
         assert user_payload["event_id"] == "telegram:test:1"
         return {
             "summary": "Reported strike on an oil terminal",
