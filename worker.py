@@ -4,13 +4,13 @@ import argparse
 import logging
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 
 from config import openai_api_key, openai_market_model
-from event_resolution import canonical_event_from_plan
+from event_resolution import CanonicalEvent, canonical_event_from_plan
 from market_interpreter import MockMarketInterpreter, StructuredMarketInterpreter
 from market_state_service import process_market_event
 from market_state_store import MarketStateStore
@@ -113,6 +113,18 @@ def _pending_plans(
     return [unseen[-1]], unseen[:-1]
 
 
+def _ensure_event_timestamp(event: CanonicalEvent) -> CanonicalEvent:
+    if event.published_at:
+        return event
+    fallback = datetime.now(timezone.utc).isoformat()
+    LOGGER.warning(
+        "telegram event=%s has no publication timestamp; using ingestion time=%s",
+        event.event_id,
+        fallback,
+    )
+    return replace(event, published_at=fallback)
+
+
 def run_once(
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
@@ -135,7 +147,7 @@ def run_once(
     processed = 0
 
     for plan in pending:
-        event = canonical_event_from_plan(plan)
+        event = _ensure_event_timestamp(canonical_event_from_plan(plan))
         result = process_market_event(
             event,
             interpreter=chosen_interpreter,
