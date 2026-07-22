@@ -26,13 +26,24 @@ def process_market_event(
     store: MarketStateStore | None = None,
     update_type: str = "NEW_EVENT",
     as_of: datetime | None = None,
+    force_reinterpret: bool = False,
+    refresh_if_model_changed: bool = True,
 ) -> MarketStateResult:
     interpreter = interpreter or MockMarketInterpreter()
     store = store or MarketStateStore()
     existing = {item.event_id: item for item in store.load_interpretations()}
     created = event.event_id not in existing
     interpretation = existing.get(event.event_id)
-    if interpretation is None:
+    provider_model = getattr(interpreter, "model_version", None)
+    if provider_model is None and hasattr(interpreter, "provider"):
+        provider_model = getattr(interpreter.provider, "model_version", None)
+    model_changed = bool(
+        refresh_if_model_changed
+        and interpretation is not None
+        and provider_model
+        and interpretation.model_version != provider_model
+    )
+    if interpretation is None or force_reinterpret or model_changed:
         interpretation = interpreter.interpret(event, update_type=update_type)
         store.save_interpretation(interpretation)
 
