@@ -41,14 +41,23 @@ Telegram-observasjon
 → SQLite-logg
 ```
 
-Før en modellnøkkel er konfigurert brukes en deterministisk mock-interpreter. Den er laget for å teste dataflyt, lagring, state-matematikk og UI; anbefalingene er ikke ment som validerte markedssignaler.
+Uten modellnøkkel brukes en deterministisk mock-interpreter. Med OpenAI konfigurert brukes Responses API med strict JSON Schema; modellen leverer bare state-deltaer, evidens og usikkerhet. Handelsretningen beregnes fortsatt av vanlig kode.
+
+### Secrets / miljøvariabler
+
+```toml
+OPENAI_API_KEY = "..."
+OPENAI_MARKET_MODEL = "gpt-5-mini"  # valgfri
+```
+
+De samme navnene kan settes som miljøvariabler ved lokal Linux-kjøring. Nøkkelen skal aldri legges i repositoryet.
 
 ## Begrensninger i Alpha
 
 - Telegram-data hentes fra den offentlige forhåndsvisningssiden og dekker ikke full historikk.
 - Yahoo-data er ikke børsgradert sanntidsdata.
-- Hendelsesklassifiseringen er foreløpig nøkkelordbasert.
+- Canonical event-klassifiseringen er fortsatt delvis regelbasert.
 - Statistikken viser korrelasjon, ikke kausalitet eller validert prediksjon.
-- Market State-siden bruker foreløpig en mock-interpreter, ikke en ekstern AI-modell.
+- Market State-anbefalingene er et testinstrument, ikke validerte handelsråd.
 
-Neste steg er å koble en strukturert modellprovider til interpreter-grensesnittet, kjøre kontinuerlig Telegram-innsamling og logge priser etter anbefalingene.
+Neste steg er kontinuerlig Telegram-innsamling, full smoketest på Linux og logging av priser etter anbefalingene.
