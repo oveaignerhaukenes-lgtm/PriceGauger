@@ -62,7 +62,8 @@ def render_market_state_panel(plan) -> None:
 
     st.caption(
         f"Lagret modell: {result.interpretation.model_version} · prompt: "
-        f"{result.interpretation.prompt_version} · type: {result.interpretation.update_type}"
+        f"{result.interpretation.prompt_version} · schema: {result.interpretation.schema_version} · "
+        f"type: {result.interpretation.update_type}"
     )
     state_rows = [
         {
