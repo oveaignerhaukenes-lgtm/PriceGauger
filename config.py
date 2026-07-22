@@ -32,6 +32,10 @@ def gdelt_api_key() -> str:
     return get_secret("GDELT_CLOUD_API_KEY")
 
 
+def gdelt_provider() -> str:
+    return get_secret("GDELT_PROVIDER") or "direct"
+
+
 def twelve_data_api_key() -> str:
     return get_secret("TWELVE_DATA_API_KEY")
 
