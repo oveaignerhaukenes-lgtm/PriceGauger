@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
@@ -11,6 +10,7 @@ from typing import Iterable
 import pandas as pd
 
 from asset_state_mapping import AssetRecommendation
+from database import connect
 from market_data import MarketRequest, YahooProvider, fetch_market_data
 from market_interpretation import MarketInterpretation
 
@@ -62,10 +62,8 @@ class SignalOutcomeStore:
                 """
             )
 
-    def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path)
-        db.row_factory = sqlite3.Row
-        return db
+    def _connect(self):
+        return connect(self.path)
 
     def save(self, item: SignalOutcome) -> None:
         with self._connect() as db:
