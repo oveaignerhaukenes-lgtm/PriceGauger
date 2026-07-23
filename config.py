@@ -24,7 +24,11 @@ def get_secret(name: str) -> str:
     environment_value = os.getenv(name, "").strip()
     if environment_value:
         return environment_value
-    value = st.secrets.get(name, "")
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        # Local development may not have a .streamlit/secrets.toml file.
+        return ""
     return str(value).strip() if value else ""
 
 

@@ -8,8 +8,17 @@ from typing import Any, Iterable
 
 
 def database_url() -> str:
-    """Return DATABASE_URL when configured; otherwise use SQLite."""
-    return os.getenv("DATABASE_URL", "").strip()
+    """Return DATABASE_URL from the environment or Streamlit secrets."""
+    configured = os.getenv("DATABASE_URL", "").strip()
+    if configured:
+        return configured
+    try:
+        import streamlit as st
+
+        value = st.secrets.get("DATABASE_URL", "")
+        return str(value).strip() if value else ""
+    except Exception:
+        return ""
 
 
 def using_postgres() -> bool:
