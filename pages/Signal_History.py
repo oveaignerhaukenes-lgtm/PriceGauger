@@ -23,13 +23,17 @@ if not outcomes:
 
 rows = []
 for item in outcomes:
-    directional_return_1h = item.return_1h_pct
-    directional_return_4h = item.return_4h_pct
-    if item.direction == "SHORT":
-        if directional_return_1h is not None:
-            directional_return_1h = -directional_return_1h
-        if directional_return_4h is not None:
-            directional_return_4h = -directional_return_4h
+    directional_return_1h = None
+    directional_return_4h = None
+    if item.direction == "LONG":
+        directional_return_1h = item.return_1h_pct
+        directional_return_4h = item.return_4h_pct
+    elif item.direction == "SHORT":
+        if item.return_1h_pct is not None:
+            directional_return_1h = -item.return_1h_pct
+        if item.return_4h_pct is not None:
+            directional_return_4h = -item.return_4h_pct
+
     rows.append(
         {
             "tid": item.created_at,
@@ -53,17 +57,19 @@ for item in outcomes:
     )
 
 frame = pd.DataFrame(rows)
-completed_1h = frame[frame["retningsresultat_1t_%"].notna()]
-completed_4h = frame[frame["retningsresultat_4t_%"].notna()]
+completed_1h = frame[frame["avkastning_1t_%"].notna()]
+completed_4h = frame[frame["avkastning_4t_%"].notna()]
+directional_4h = frame[frame["retningsresultat_4t_%"].notna()]
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Totale signaler", len(frame))
 c2.metric("Ferdige 1t", len(completed_1h))
 c3.metric("Ferdige 4t", len(completed_4h))
-if not completed_4h.empty:
-    c4.metric("Retningstreff 4t", f"{(completed_4h['retningsresultat_4t_%'] > 0).mean() * 100:.1f} %")
+if not directional_4h.empty:
+    hit_rate = (directional_4h["retningsresultat_4t_%"] > 0).mean() * 100
+    c4.metric("Retningstreff 4t", f"{hit_rate:.1f} %", help=f"Kun LONG/SHORT, n={len(directional_4h)}")
 else:
-    c4.metric("Retningstreff 4t", "–")
+    c4.metric("Retningstreff 4t", "–", help="Ingen ferdige LONG/SHORT-signaler ennå")
 
 st.dataframe(
     frame,
