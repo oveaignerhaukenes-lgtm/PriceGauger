@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import pandas as pd
 import requests
@@ -22,10 +23,22 @@ class MarketResult:
     provider_name: str
     attempted_providers: tuple[str, ...] = ()
     fallback_reasons: tuple[str, ...] = ()
+    market_timestamp: pd.Timestamp | None = None
+    received_at: pd.Timestamp | None = None
+    observed_delay_minutes: float | None = None
+    declared_delay_minutes: float | None = None
+    feed_type: str = "CHART"
+    feed_quality: str = "UNKNOWN"
+    provider_environment: str = "UNKNOWN"
 
     @property
     def used_fallback(self) -> bool:
         return bool(self.fallback_reasons)
+
+    def source_label(self) -> str:
+        if self.observed_delay_minutes is None:
+            return f"{self.provider_name} · forsinkelse ukjent"
+        return f"{self.provider_name} · observert forsinkelse {self.observed_delay_minutes:.1f} min"
 
 
 class MarketProvider(ABC):
@@ -42,6 +55,10 @@ class MarketProvider(ABC):
     def unsupported_reason(self, request: MarketRequest) -> str | None:
         """Return a safe diagnostic when supports() is false."""
         return None
+
+    def result_metadata(self, request: MarketRequest, frame: pd.DataFrame) -> dict[str, object]:
+        """Optional non-price metadata attached to a successful provider result."""
+        return {}
 
 
 class TwelveDataProvider(MarketProvider):
@@ -130,6 +147,26 @@ class YahooProvider(MarketProvider):
         return frame.dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
 
 
+def _result_timing(frame: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp, float | None]:
+    received_at = pd.Timestamp(datetime.now(timezone.utc))
+    if "timestamp" not in frame or frame.empty:
+        return None, received_at, None
+    timestamps = pd.to_datetime(frame["timestamp"], utc=True, errors="coerce").dropna()
+    if timestamps.empty:
+        return None, received_at, None
+    market_timestamp = timestamps.max()
+    observed_delay = max((received_at - market_timestamp).total_seconds() / 60.0, 0.0)
+    return market_timestamp, received_at, observed_delay
+
+
+def _default_feed_quality(provider_name: str, observed_delay_minutes: float | None) -> str:
+    if observed_delay_minutes is None:
+        return "DELAY_UNKNOWN"
+    if provider_name.lower().startswith("saxo"):
+        return "SAXO_CHART_AVAILABLE"
+    return "CHART_AVAILABLE"
+
+
 def fetch_market_data(
     request: MarketRequest,
     providers: list[MarketProvider],
@@ -152,11 +189,21 @@ def fetch_market_data(
         if frame.empty:
             diagnostics.append(f"{provider.name}: tom respons")
             continue
+
+        market_timestamp, received_at, observed_delay = _result_timing(frame)
+        metadata = provider.result_metadata(request, frame)
         return MarketResult(
             frame=frame,
             provider_name=provider.name,
             attempted_providers=tuple(attempted),
             fallback_reasons=tuple(diagnostics),
+            market_timestamp=market_timestamp,
+            received_at=received_at,
+            observed_delay_minutes=observed_delay,
+            declared_delay_minutes=metadata.get("declared_delay_minutes"),
+            feed_type=str(metadata.get("feed_type") or "CHART"),
+            feed_quality=str(metadata.get("feed_quality") or _default_feed_quality(provider.name, observed_delay)),
+            provider_environment=str(metadata.get("provider_environment") or "UNKNOWN"),
         )
 
     detail = "; ".join(diagnostics) if diagnostics else "Ingen konfigurert leverandør støtter dette markedet."
