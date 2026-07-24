@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
+
+import pandas as pd
+import requests
+
+from market_data import MarketProvider, MarketRequest
+
+
+SIM_BASE_URL = "https://gateway.saxobank.com/sim/openapi"
+LIVE_BASE_URL = "https://gateway.saxobank.com/openapi"
+
+
+@dataclass(frozen=True, slots=True)
+class SaxoInstrument:
+    asset: str
+    uic: int
+    asset_type: str
+    symbol: str = ""
+    description: str = ""
+    expiry: str | None = None
+
+    @classmethod
+    def from_mapping(cls, asset: str, value: dict[str, Any]) -> "SaxoInstrument":
+        return cls(
+            asset=asset,
+            uic=int(value["uic"]),
+            asset_type=str(value["asset_type"]),
+            symbol=str(value.get("symbol", "")),
+            description=str(value.get("description", "")),
+            expiry=str(value["expiry"]) if value.get("expiry") else None,
+        )
+
+
+class SaxoClient:
+    def __init__(
+        self,
+        access_token: str,
+        *,
+        base_url: str = SIM_BASE_URL,
+        timeout: float = 20.0,
+        session: requests.Session | None = None,
+    ) -> None:
+        token = access_token.strip()
+        if not token:
+            raise ValueError("Saxo access token mangler")
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.session = session or requests.Session()
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            }
+        )
+
+    def _get(self, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = self.session.get(
+            f"{self.base_url}/{path.lstrip('/')}",
+            params=params,
+            timeout=self.timeout,
+        )
+        if not response.ok:
+            detail = response.text[:500]
+            raise RuntimeError(f"Saxo HTTP {response.status_code}: {detail}")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Uventet Saxo-respons")
+        return payload
+
+    def search_instruments(
+        self,
+        keywords: str,
+        *,
+        asset_types: str = "ContractFutures,CfdOnFutures,CfdOnIndex,StockIndex",
+    ) -> list[SaxoInstrument]:
+        payload = self._get(
+            "ref/v1/instruments",
+            params={"Keywords": keywords, "AssetTypes": asset_types},
+        )
+        instruments: list[SaxoInstrument] = []
+        for item in payload.get("Data", []):
+            identifier = item.get("Identifier")
+            asset_type = item.get("AssetType")
+            if identifier is None or not asset_type:
+                continue
+            instruments.append(
+                SaxoInstrument(
+                    asset=keywords,
+                    uic=int(identifier),
+                    asset_type=str(asset_type),
+                    symbol=str(item.get("Symbol", "")),
+                    description=str(item.get("Description", "")),
+                    expiry=str(item.get("ExpiryDate")) if item.get("ExpiryDate") else None,
+                )
+            )
+        return instruments
+
+    def chart(
+        self,
+        instrument: SaxoInstrument,
+        *,
+        horizon_minutes: int = 1,
+        count: int = 1200,
+    ) -> pd.DataFrame:
+        payload = self._get(
+            "chart/v3/charts",
+            params={
+                "Uic": instrument.uic,
+                "AssetType": instrument.asset_type,
+                "Horizon": horizon_minutes,
+                "Count": min(max(int(count), 1), 1200),
+                "FieldGroups": "Data",
+            },
+        )
+        rows = payload.get("Data", [])
+        if not rows:
+            return pd.DataFrame()
+        frame = pd.DataFrame(rows)
+        frame["timestamp"] = pd.to_datetime(frame.get("Time"), utc=True, errors="coerce")
+        column_candidates = {
+            "open": ("OpenBid", "OpenAsk", "Open"),
+            "high": ("HighBid", "HighAsk", "High"),
+            "low": ("LowBid", "LowAsk", "Low"),
+            "close": ("CloseBid", "CloseAsk", "Close"),
+            "volume": ("Volume",),
+        }
+        for target, candidates in column_candidates.items():
+            source = next((name for name in candidates if name in frame.columns), None)
+            if source is not None:
+                frame[target] = pd.to_numeric(frame[source], errors="coerce")
+        if "close" not in frame:
+            raise RuntimeError("Saxo chart-respons mangler close-pris")
+        wanted = [column for column in ("timestamp", "open", "high", "low", "close", "volume") if column in frame]
+        return frame[wanted].dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
+
+
+def _secret(name: str) -> str:
+    environment = os.getenv(name, "").strip()
+    if environment:
+        return environment
+    try:
+        import streamlit as st
+
+        try:
+            value = st.secrets.get(name, "")
+        except Exception:
+            return ""
+        return str(value).strip() if value else ""
+    except ImportError:
+        return ""
+
+
+def configured_instruments() -> dict[str, SaxoInstrument]:
+    raw = _secret("SAXO_INSTRUMENTS_JSON")
+    if not raw:
+        return {}
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("SAXO_INSTRUMENTS_JSON må være et JSON-objekt")
+    return {asset: SaxoInstrument.from_mapping(asset, value) for asset, value in payload.items()}
+
+
+def configured_client() -> SaxoClient | None:
+    token = _secret("SAXO_ACCESS_TOKEN")
+    if not token:
+        return None
+    environment = (_secret("SAXO_ENVIRONMENT") or "sim").lower()
+    base_url = _secret("SAXO_BASE_URL") or (LIVE_BASE_URL if environment == "live" else SIM_BASE_URL)
+    return SaxoClient(token, base_url=base_url)
+
+
+class SaxoPriceProvider(MarketProvider):
+    name = "Saxo OpenAPI"
+
+    def __init__(
+        self,
+        client: SaxoClient | None = None,
+        instruments: dict[str, SaxoInstrument] | None = None,
+    ) -> None:
+        self.client = client or configured_client()
+        self.instruments = instruments if instruments is not None else configured_instruments()
+
+    def supports(self, request: MarketRequest) -> bool:
+        return self.client is not None and request.asset_name in self.instruments
+
+    def fetch(self, request: MarketRequest) -> pd.DataFrame:
+        if self.client is None:
+            raise RuntimeError("Saxo er ikke konfigurert")
+        instrument = self.instruments[request.asset_name]
+        horizon = {"1min": 1, "5min": 5, "15min": 15, "30min": 30, "1h": 60}.get(request.interval)
+        if horizon is None:
+            raise ValueError(f"Ustøttet Saxo-intervall: {request.interval}")
+        return self.client.chart(instrument, horizon_minutes=horizon, count=request.outputsize)
+
+
+def instrument_candidates() -> dict[str, tuple[str, str]]:
+    return {
+        "Brent": ("Brent", "ContractFutures,CfdOnFutures"),
+        "Gold": ("Gold", "ContractFutures,CfdOnFutures"),
+        "Silver": ("Silver", "ContractFutures,CfdOnFutures"),
+        "DXY": ("US Dollar Index", "ContractFutures,CfdOnFutures,CfdOnIndex,StockIndex"),
+    }
+
+
+def discover_instruments(client: SaxoClient) -> dict[str, list[SaxoInstrument]]:
+    return {
+        asset: client.search_instruments(keywords, asset_types=asset_types)
+        for asset, (keywords, asset_types) in instrument_candidates().items()
+    }
+
+
+def instrument_is_unexpired(instrument: SaxoInstrument, now: datetime | None = None) -> bool:
+    if not instrument.expiry:
+        return True
+    expiry = pd.Timestamp(instrument.expiry)
+    if expiry.tzinfo is None:
+        expiry = expiry.tz_localize("UTC")
+    current = pd.Timestamp(now or datetime.now(timezone.utc))
+    return expiry >= current
