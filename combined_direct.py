@@ -122,13 +122,15 @@ def build_combined_direct_assessment(
             * (recommendation.signal_strength / 100.0),
         ),
     )
+    effective_direct_weight = direct_weight * event_confidence
     effective_technical_weight = technical_weight * technical_quality_weight
-    effective_direct_weight = direct_weight
     denominator = effective_direct_weight + effective_technical_weight
-    combined_score = (
-        event_score * event_confidence * effective_direct_weight
-        + technical_score * technical_quality_weight * effective_technical_weight
-    ) / denominator
+    combined_score = 0.0
+    if denominator:
+        combined_score = (
+            event_score * effective_direct_weight
+            + technical_score * effective_technical_weight
+        ) / denominator
 
     alignment = _alignment(event_score, technical_score, technical_quality_weight)
     agreement_factor = {
@@ -138,11 +140,11 @@ def build_combined_direct_assessment(
         "TECHNICAL INSUFFICIENT": 0.75,
         "CONFLICT": 0.50,
     }[alignment]
-    evidence_weight = (
-        event_confidence * effective_direct_weight
-        + technical_quality_weight * effective_technical_weight
-    ) / denominator
-    combined_confidence = max(0.0, min(1.0, evidence_weight * agreement_factor))
+    raw_confidence = (
+        direct_weight * event_confidence
+        + technical_weight * technical_quality_weight
+    ) / (direct_weight + technical_weight)
+    combined_confidence = max(0.0, min(1.0, raw_confidence * agreement_factor))
     sources, data_quality = _source_status(technical_sources)
 
     reasons = [
