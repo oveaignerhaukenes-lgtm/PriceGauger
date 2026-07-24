@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import html
 
 import pandas as pd
@@ -8,6 +9,7 @@ import streamlit as st
 from build_info import render_build_badge
 from config import twelve_data_api_key
 from market_data import MarketRequest, MarketResult, TwelveDataProvider, YahooProvider, fetch_market_data
+from market_sync import SynchronizedMarketSnapshot, synchronize_market_frames
 from saxo_provider import SaxoPriceProvider
 from technical_analysis import TechnicalSnapshot, build_multi_timeframe_snapshot
 from technical_regime import TechnicalRegime, build_technical_regime
@@ -131,13 +133,33 @@ def render_regime(regime: TechnicalRegime) -> None:
             st.write(f"• {reason}")
 
 
-def render_feed_status(results: dict[str, MarketResult]) -> None:
-    st.markdown("### Datagrunnlag og forsinkelse")
+def render_sync_status(sync: SynchronizedMarketSnapshot) -> None:
+    st.markdown("### Synkronisert analyseøyeblikk")
+    render_metric_grid(
+        [
+            ("Modus", sync.mode),
+            ("Simulert beslutningstid", sync.cutoff.isoformat()),
+            ("Kjøretid", sync.received_at.isoformat()),
+            ("Samlet forsinkelse", f"{sync.lag_minutes:.1f} min"),
+        ]
+    )
+    st.info(
+        "Alle nødvendige prisstrømmer er avkortet til siste felles ferdige bar. "
+        "Analysen behandler dermed signalene som om de var tilgjengelige samtidig ved beslutningstidspunktet."
+    )
+
+
+def render_feed_status(results: dict[str, MarketResult], sync: SynchronizedMarketSnapshot) -> None:
+    st.markdown("### Datagrunnlag og relativ tidsforskyvning")
     rows = []
     for timeframe in TIMEFRAMES:
         result = results.get(timeframe)
         if result is None:
             continue
+        source_end = sync.source_end_times.get(timeframe)
+        relative_offset = None
+        if source_end is not None:
+            relative_offset = max((source_end - sync.cutoff).total_seconds() / 60.0, 0.0)
         rows.append(
             {
                 "Tidsramme": timeframe,
@@ -148,29 +170,18 @@ def render_feed_status(results: dict[str, MarketResult]) -> None:
                     if result.observed_delay_minutes is not None
                     else "Ukjent"
                 ),
-                "Siste markedsstempel": (
-                    result.market_timestamp.isoformat() if result.market_timestamp is not None else "—"
-                ),
+                "Tilgjengelig til": source_end.isoformat() if source_end is not None else "—",
+                "Holdt tilbake": f"{relative_offset:.1f} min" if relative_offset is not None else "—",
                 "Fallback": "Ja" if result.used_fallback else "Nei",
             }
         )
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    delays = [
-        result.observed_delay_minutes
-        for result in results.values()
-        if result.observed_delay_minutes is not None
-    ]
-    if delays:
-        st.info(
-            "Forsinkelsen beregnes ved hver innhenting som mottakstid minus siste tilgjengelige bar. "
-            f"Den er derfor dynamisk; største observerte forsinkelse i denne analysen er {max(delays):.1f} minutter."
-        )
 
 
 st.title("Direct – Technical")
 st.caption(
-    "Deterministisk flertidsrammeanalyse fra OHLCV. Oppdateringsintervallet er en "
-    "overvåkingsanbefaling, ikke en prognose for når markedet snur."
+    "Deterministisk flertidsrammeanalyse fra OHLCV. I SIM-modus synkroniseres alle prisstrømmer "
+    "til siste felles analyseøyeblikk før indikatorene beregnes."
 )
 
 with st.sidebar:
@@ -182,14 +193,16 @@ with st.sidebar:
 state_key = f"direct_technical_{asset}_{outputsize}"
 if run_analysis:
     try:
-        with st.spinner("Henter markedsdata og beregner indikatorer …"):
+        with st.spinner("Henter, synkroniserer og analyserer markedsdata …"):
             frames, market_results = fetch_frames(asset, outputsize)
-            snapshots = build_multi_timeframe_snapshot(frames, asset=asset)
+            sync = synchronize_market_frames(frames, received_at=datetime.now(timezone.utc))
+            snapshots = build_multi_timeframe_snapshot(sync.frames, asset=asset)
             regime = build_technical_regime(snapshots)
             st.session_state[state_key] = {
                 "snapshots": snapshots,
                 "regime": regime,
                 "market_results": market_results,
+                "sync": sync,
                 "sources": {timeframe: result.provider_name for timeframe, result in market_results.items()},
             }
     except Exception as exc:
@@ -202,12 +215,15 @@ else:
     snapshots: dict[str, TechnicalSnapshot] = result["snapshots"]
     regime: TechnicalRegime = result["regime"]
     market_results: dict[str, MarketResult] = result.get("market_results", {})
+    sync: SynchronizedMarketSnapshot | None = result.get("sync")
     sources: dict[str, str] = result.get("sources", {})
 
     render_regime(regime)
     st.caption(" · ".join(f"{timeframe}: {sources.get(timeframe, 'ukjent')}" for timeframe in TIMEFRAMES))
-    if market_results:
-        render_feed_status(market_results)
+    if sync is not None:
+        render_sync_status(sync)
+    if market_results and sync is not None:
+        render_feed_status(market_results, sync)
 
     st.markdown("### Indikatorgrunnlag")
     columns = st.columns(3)
