@@ -5,6 +5,11 @@ import json
 from saxo_provider import configured_client, discover_instruments, instrument_is_unexpired
 
 
+DEFAULT_PRICE_MULTIPLIERS = {
+    "Silver": 0.01,
+}
+
+
 def main() -> None:
     client = configured_client()
     if client is None:
@@ -29,6 +34,7 @@ def main() -> None:
                 "symbol": first.symbol,
                 "description": first.description,
                 "expiry": first.expiry,
+                "price_multiplier": DEFAULT_PRICE_MULTIPLIERS.get(asset, 1.0),
             }
 
     print("\nFørste gyldige kandidat per marked (kontroller før bruk):")
