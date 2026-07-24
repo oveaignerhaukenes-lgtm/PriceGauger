@@ -42,6 +42,11 @@ st.markdown(
         font-size: .84rem; font-weight: 600; line-height: 1.15;
         white-space: nowrap; overflow-wrap: normal; word-break: keep-all;
     }
+    .pg-assessment {
+        border-top: 1px solid rgba(49, 51, 63, .18);
+        margin-top: .9rem;
+        padding-top: .8rem;
+    }
     @media (max-width: 900px) {
         .pg-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
@@ -101,6 +106,78 @@ def render_metric_grid(items: list[tuple[str, str]], *, snapshot: bool = False) 
     st.markdown(f'<div class="pg-metric-grid{extra_class}">{cards}</div>', unsafe_allow_html=True)
 
 
+def _reading_texts(snapshot: TechnicalSnapshot, bias: str) -> list[str]:
+    return [reading.interpretation for reading in snapshot.readings if reading.bias == bias]
+
+
+def _snapshot_assessment(snapshot: TechnicalSnapshot) -> dict[str, object]:
+    bullish = _reading_texts(snapshot, "bullish")
+    bearish = _reading_texts(snapshot, "bearish")
+    neutral = _reading_texts(snapshot, "neutral")
+    net_bias = len(bullish) - len(bearish)
+
+    trend_bullish = snapshot.ema_20 is not None and snapshot.ema_50 is not None and snapshot.ema_20 > snapshot.ema_50
+    trend_bearish = snapshot.ema_20 is not None and snapshot.ema_50 is not None and snapshot.ema_20 < snapshot.ema_50
+    momentum_bullish = snapshot.macd_histogram is not None and snapshot.macd_histogram > 0
+    momentum_bearish = snapshot.macd_histogram is not None and snapshot.macd_histogram < 0
+    overbought = snapshot.rsi_14 is not None and snapshot.rsi_14 >= 70
+    oversold = snapshot.rsi_14 is not None and snapshot.rsi_14 <= 30
+
+    if net_bias >= 2:
+        if overbought:
+            assessment = "Bullish bilde, men en rekyl eller konsolidering er mer attraktiv enn å jage prisen."
+        elif trend_bullish and momentum_bullish:
+            assessment = "Long eller long på rekyl er foretrukket i denne tidsrammen."
+        else:
+            assessment = "Bullish retning er foretrukket, men signalbildet er ikke fullt bekreftet."
+        supporting = bullish[:4]
+        opposing = bearish[:3] or neutral[:2]
+        invalidation = []
+        if snapshot.support is not None:
+            invalidation.append(f"prisen bryter under lokal støtte ved {snapshot.support:,.3f}")
+        invalidation.append("MACD går negativt samtidig som markedsstrukturen svekkes")
+    elif net_bias <= -2:
+        if oversold:
+            assessment = "Bearish bilde, men en rekyl opp er mulig før eventuell videre nedgang."
+        elif trend_bearish and momentum_bearish:
+            assessment = "Short eller short på rekyl er foretrukket i denne tidsrammen."
+        else:
+            assessment = "Bearish retning er foretrukket, men signalbildet er ikke fullt bekreftet."
+        supporting = bearish[:4]
+        opposing = bullish[:3] or neutral[:2]
+        invalidation = []
+        if snapshot.resistance is not None:
+            invalidation.append(f"prisen bryter over lokal motstand ved {snapshot.resistance:,.3f}")
+        invalidation.append("MACD går positivt samtidig som markedsstrukturen styrkes")
+    else:
+        assessment = "Blandet eller nøytralt signalbilde; ingen tydelig retning er foretrukket."
+        supporting = (bullish + neutral)[:4]
+        opposing = bearish[:3]
+        invalidation = []
+        if snapshot.resistance is not None:
+            invalidation.append(f"et bekreftet brudd over {snapshot.resistance:,.3f} styrker bullish scenario")
+        if snapshot.support is not None:
+            invalidation.append(f"et bekreftet brudd under {snapshot.support:,.3f} styrker bearish scenario")
+
+    limitations = ["ingen fersk nyhets-, lager- eller makrokatalysator er inkludert"]
+    if snapshot.volume_ratio_20 is None:
+        limitations.append("volumdata mangler eller kan ikke sammenlignes pålitelig")
+
+    return {
+        "assessment": assessment,
+        "supporting": supporting or ["ingen sterke støttende signaler"],
+        "opposing": opposing or ["ingen tydelige motargumenter i indikatorgrunnlaget"],
+        "invalidation": invalidation or ["signalbildet endres dersom trend og momentum skifter retning"],
+        "limitations": limitations,
+    }
+
+
+def _render_list(title: str, items: list[str]) -> None:
+    st.markdown(f"**{title}:**")
+    for item in items:
+        st.write(f"– {item}")
+
+
 def render_snapshot(snapshot: TechnicalSnapshot) -> None:
     with st.container(border=True):
         st.markdown(f"### {snapshot.timeframe}")
@@ -115,6 +192,15 @@ def render_snapshot(snapshot: TechnicalSnapshot) -> None:
         )
         for reading in snapshot.readings:
             st.write(f"• {reading.display}")
+
+        assessment = _snapshot_assessment(snapshot)
+        st.markdown('<div class="pg-assessment"></div>', unsafe_allow_html=True)
+        st.markdown("**Vurdering:**")
+        st.write(assessment["assessment"])
+        _render_list("Taler for", assessment["supporting"])
+        _render_list("Taler imot", assessment["opposing"])
+        _render_list("Ugyldiggjøres eller endres dersom", assessment["invalidation"])
+        _render_list("Databegrensning", assessment["limitations"])
 
 
 def render_regime(regime: TechnicalRegime) -> None:
