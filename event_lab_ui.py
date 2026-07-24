@@ -65,6 +65,42 @@ def _pipeline_signature(*, plan: TelegramSearchPlan, start_date: date, end_date:
     )
 
 
+def _publish_canonical_event(plan: TelegramSearchPlan):
+    """Publish Decision Lab input before any optional historical lookup runs."""
+    canonical = canonical_event_from_plan(plan)
+    canonical_market_event = canonical.to_market_event()
+    st.session_state.canonical_telegram_event = canonical.to_record()
+    st.session_state.canonical_market_event = canonical_market_event
+
+    existing = st.session_state.get("gdelt_events", [])
+    historical = [
+        event
+        for event in existing
+        if getattr(event, "event_id", None) != canonical_market_event.event_id
+    ]
+    st.session_state.gdelt_events = [canonical_market_event, *historical]
+    return canonical, canonical_market_event
+
+
+def _clear_historical_evidence(*, status: str, warning: str | None = None) -> None:
+    canonical = st.session_state.get("canonical_market_event")
+    st.session_state.gdelt_events = [canonical] if canonical is not None else []
+    st.session_state.gdelt_analogue_matches = []
+    st.session_state.gdelt_intraday_reactions = []
+    st.session_state.gdelt_reactions = []
+    st.session_state.gdelt_historical_status = status
+    st.session_state.gdelt_pipeline_summary = {
+        "status": status,
+        "analogues": 0,
+        "precise": 0,
+        "intraday": 0,
+        "daily": 0,
+        "signals": 0,
+        "saved": 0,
+    }
+    st.session_state.gdelt_pipeline_error = warning
+
+
 def _persist_canonical_signals(canonical, matches, intraday, assets: list[str]) -> int:
     store = SignalStore()
     dna = build_event_dna(canonical.to_market_event())
@@ -114,8 +150,8 @@ def _persist_canonical_signals(canonical, matches, intraday, assets: list[str]) 
 
 def _run_pipeline(*, key: str, plan: TelegramSearchPlan, start_date: date, end_date: date, limit: int, selected_assets: list[str]) -> None:
     assets = {name: REACTION_ASSETS[name] for name in selected_assets}
-    canonical = canonical_event_from_plan(plan)
-    canonical_market_event = canonical.to_market_event()
+    canonical, canonical_market_event = _publish_canonical_event(plan)
+    st.session_state.gdelt_historical_status = "PENDING"
 
     with st.status("Kjører event-sentrisk analysepipeline …", expanded=True) as status:
         try:
@@ -134,17 +170,12 @@ def _run_pipeline(*, key: str, plan: TelegramSearchPlan, start_date: date, end_d
             st.write("2/6 Rangerer kandidater mot Telegram-hendelsen …")
             matches = rank_gdelt_analogues(canonical, candidates, limit=limit, minimum_score=0.20)
             analogue_events = [item.event for item in matches]
-            st.session_state.canonical_telegram_event = canonical.to_record()
             st.session_state.gdelt_analogue_matches = [item.to_record() for item in matches]
-            # Decision Lab expects one query event followed by historical candidates.
-            # The first item is now always the canonical Telegram event, never a GDELT spin-off.
             st.session_state.gdelt_events = [canonical_market_event, *analogue_events]
             st.write(f"Beholdt {len(analogue_events)} rangerte analoger.")
 
             if not analogue_events:
-                st.session_state.gdelt_intraday_reactions = []
-                st.session_state.gdelt_reactions = []
-                st.session_state.gdelt_pipeline_summary = {"analogues": 0, "precise": 0, "intraday": 0, "daily": 0, "signals": 0}
+                _clear_historical_evidence(status="AVAILABLE_NO_MATCHES", warning=page.warning)
                 status.update(label="Ingen tilstrekkelig like GDELT-analoger", state="complete", expanded=False)
                 return
 
@@ -166,7 +197,9 @@ def _run_pipeline(*, key: str, plan: TelegramSearchPlan, start_date: date, end_d
 
             st.write("6/6 Produserer kanoniske EventSignal-objekter …")
             signal_count = _persist_canonical_signals(canonical, matches, intraday, selected_assets)
+            st.session_state.gdelt_historical_status = "AVAILABLE"
             st.session_state.gdelt_pipeline_summary = {
+                "status": "AVAILABLE",
                 "analogues": len(analogue_events),
                 "precise": precise_count,
                 "intraday": len(intraday),
@@ -174,24 +207,21 @@ def _run_pipeline(*, key: str, plan: TelegramSearchPlan, start_date: date, end_d
                 "signals": signal_count,
                 "saved": event_changes + intraday_changes + daily_changes,
             }
-            st.session_state.gdelt_pipeline_error = None
+            st.session_state.gdelt_pipeline_error = page.warning
             status.update(label="Event-sentrisk analysepipeline ferdig", state="complete", expanded=False)
         except (GdeltError, ValueError) as exc:
-            st.session_state.gdelt_pipeline_error = f"GDELT-kallet mislyktes: {exc}"
-            status.update(label="Pipelinen stoppet under GDELT-henting", state="error", expanded=True)
+            warning = f"Historisk GDELT-evidens er utilgjengelig: {exc}"
+            _clear_historical_evidence(status="UNAVAILABLE", warning=warning)
+            status.update(label="GDELT utilgjengelig – Direct/Decision fortsetter", state="complete", expanded=False)
         except Exception as exc:
-            st.session_state.gdelt_pipeline_error = f"Pipelinen mislyktes: {exc}"
-            status.update(label="Den event-sentriske pipelinen mislyktes", state="error", expanded=True)
+            warning = f"Historikkberikelsen mislyktes: {exc}"
+            _clear_historical_evidence(status="DEGRADED", warning=warning)
+            status.update(label="Historikkberikelse degradert – Direct/Decision fortsetter", state="complete", expanded=False)
 
 
 def render_event_lab() -> None:
     st.subheader("Historical Event Lab")
     st.caption("Telegram er primærhendelsen. GDELT brukes kun som rangert historisk evidens for markedsprofil og score.")
-
-    key = gdelt_api_key()
-    if not key:
-        st.error("GDELT_CLOUD_API_KEY mangler i Streamlit Secrets.")
-        return
 
     plan = _sync_telegram_plan()
     error = st.session_state.get("telegram_query_error")
@@ -200,6 +230,14 @@ def render_event_lab() -> None:
     if plan is None:
         st.info("Venter på en relevant Telegram-melding.")
         return
+
+    _publish_canonical_event(plan)
+    key = gdelt_api_key()
+    if not key:
+        _clear_historical_evidence(
+            status="UNAVAILABLE",
+            warning="GDELT er ikke konfigurert. Den kanoniske Telegram-hendelsen er fortsatt tilgjengelig i Decision Lab.",
+        )
 
     with st.container(border=True):
         st.markdown("**Kanonisk Telegram-hendelse**")
@@ -228,15 +266,16 @@ def render_event_lab() -> None:
         return
 
     signature = _pipeline_signature(plan=plan, start_date=start_date, end_date=end_date, limit=limit, assets=selected_assets)
-    if st.session_state.get("gdelt_pipeline_signature") != signature:
+    if key and st.session_state.get("gdelt_pipeline_signature") != signature:
         st.session_state.gdelt_pipeline_signature = signature
         st.session_state.pop("gdelt_pipeline_error", None)
         _run_pipeline(key=key, plan=plan, start_date=start_date, end_date=end_date, limit=limit, selected_assets=selected_assets)
 
+    historical_status = st.session_state.get("gdelt_historical_status", "NOT_ANALYSED")
     pipeline_error = st.session_state.get("gdelt_pipeline_error")
     if pipeline_error:
-        st.error(pipeline_error)
-        return
+        st.warning(pipeline_error)
+    st.caption(f"Historisk evidensstatus: {historical_status} · Decision Lab beholder den kanoniske hendelsen uansett GDELT-status.")
 
     summary = st.session_state.get("gdelt_pipeline_summary")
     if summary:
@@ -250,7 +289,12 @@ def render_event_lab() -> None:
     matches = st.session_state.get("gdelt_analogue_matches", [])
     st.markdown("### Rangerte GDELT-analoger")
     if not matches:
-        st.info("Ingen analoger passerte likhetsterskelen.")
+        if historical_status == "UNAVAILABLE":
+            st.info("Historiske analoger ble ikke undersøkt fordi GDELT var utilgjengelig.")
+        elif historical_status == "DEGRADED":
+            st.info("Historikkberikelsen ble bare delvis gjennomført.")
+        else:
+            st.info("Ingen analoger passerte likhetsterskelen.")
     else:
         frame = pd.DataFrame([
             {
