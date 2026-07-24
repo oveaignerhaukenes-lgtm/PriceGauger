@@ -24,9 +24,13 @@ class SaxoInstrument:
     symbol: str = ""
     description: str = ""
     expiry: str | None = None
+    price_multiplier: float = 1.0
 
     @classmethod
     def from_mapping(cls, asset: str, value: dict[str, Any]) -> "SaxoInstrument":
+        multiplier = float(value.get("price_multiplier", 1.0))
+        if multiplier <= 0:
+            raise ValueError(f"price_multiplier for {asset} må være større enn 0")
         return cls(
             asset=asset,
             uic=int(value["uic"]),
@@ -34,6 +38,7 @@ class SaxoInstrument:
             symbol=str(value.get("symbol", "")),
             description=str(value.get("description", "")),
             expiry=str(value["expiry"]) if value.get("expiry") else None,
+            price_multiplier=multiplier,
         )
 
 
@@ -101,6 +106,12 @@ class SaxoClient:
             )
         return instruments
 
+    def instrument_details(self, instrument: SaxoInstrument) -> dict[str, Any]:
+        return self._get(
+            f"ref/v1/instruments/details/{instrument.uic}/{instrument.asset_type}",
+            params={"FieldGroups": "MarketData"},
+        )
+
     def chart(
         self,
         instrument: SaxoInstrument,
@@ -130,12 +141,17 @@ class SaxoClient:
             "close": ("CloseBid", "CloseAsk", "Close"),
             "volume": ("Volume",),
         }
+        price_columns: list[str] = []
         for target, candidates in column_candidates.items():
             source = next((name for name in candidates if name in frame.columns), None)
             if source is not None:
                 frame[target] = pd.to_numeric(frame[source], errors="coerce")
+                if target != "volume":
+                    price_columns.append(target)
         if "close" not in frame:
             raise RuntimeError("Saxo chart-respons mangler close-pris")
+        if instrument.price_multiplier != 1.0:
+            frame[price_columns] = frame[price_columns] * instrument.price_multiplier
         wanted = [column for column in ("timestamp", "open", "high", "low", "close", "volume") if column in frame]
         return frame[wanted].dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
 
