@@ -53,6 +53,43 @@ def test_chart_normalizes_bid_ohlc():
     assert session.calls[0][1]["Horizon"] == 5
 
 
+def test_chart_applies_price_multiplier_to_ohlc_not_volume():
+    session = FakeSession(
+        {
+            "Data": [
+                {
+                    "Time": "2026-07-24T00:20:00Z",
+                    "OpenBid": 5776.0,
+                    "HighBid": 5779.5,
+                    "LowBid": 5776.0,
+                    "CloseBid": 5779.5,
+                    "Volume": 4,
+                }
+            ]
+        }
+    )
+    client = SaxoClient("token", session=session)
+    instrument = SaxoInstrument("Silver", 45184335, "ContractFutures", price_multiplier=0.01)
+
+    frame = client.chart(instrument, horizon_minutes=5, count=20)
+
+    assert frame.iloc[0]["open"] == 57.76
+    assert frame.iloc[0]["close"] == 57.795
+    assert frame.iloc[0]["volume"] == 4
+
+
+def test_instrument_details_uses_expected_endpoint():
+    session = FakeSession({"Uic": 45184335, "Format": {"Decimals": 1}})
+    client = SaxoClient("token", session=session)
+    instrument = SaxoInstrument("Silver", 45184335, "ContractFutures")
+
+    payload = client.instrument_details(instrument)
+
+    assert payload["Uic"] == 45184335
+    assert session.calls[0][0].endswith("/ref/v1/instruments/details/45184335/ContractFutures")
+    assert session.calls[0][1] == {"FieldGroups": "MarketData"}
+
+
 def test_provider_requires_configured_asset():
     client = SaxoClient("token", session=FakeSession({"Data": []}))
     provider = SaxoPriceProvider(
