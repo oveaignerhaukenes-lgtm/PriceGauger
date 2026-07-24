@@ -4,12 +4,22 @@ from market_data import MarketProvider, MarketRequest, fetch_market_data
 
 
 class StubProvider(MarketProvider):
-    def __init__(self, name: str, *, frame=None, error: Exception | None = None, supported: bool = True, reason: str | None = None):
+    def __init__(
+        self,
+        name: str,
+        *,
+        frame=None,
+        error: Exception | None = None,
+        supported: bool = True,
+        reason: str | None = None,
+        metadata: dict | None = None,
+    ):
         self.name = name
         self._frame = frame if frame is not None else pd.DataFrame()
         self._error = error
         self._supported = supported
         self._reason = reason
+        self._metadata = metadata or {}
 
     def supports(self, request: MarketRequest) -> bool:
         return self._supported
@@ -21,6 +31,9 @@ class StubProvider(MarketProvider):
         if self._error is not None:
             raise self._error
         return self._frame
+
+    def result_metadata(self, request: MarketRequest, frame: pd.DataFrame) -> dict[str, object]:
+        return self._metadata
 
 
 def request() -> MarketRequest:
@@ -79,3 +92,39 @@ def test_empty_primary_response_is_visible():
 
     assert result.provider_name == "Yahoo Finance"
     assert result.fallback_reasons == ("Saxo OpenAPI: tom respons",)
+
+
+def test_successful_result_records_market_timestamp_and_dynamic_observed_delay():
+    result = fetch_market_data(request(), [StubProvider("Saxo OpenAPI", frame=valid_frame())])
+
+    assert result.market_timestamp == pd.Timestamp("2026-07-24T10:00:00Z")
+    assert result.received_at is not None
+    assert result.observed_delay_minutes is not None
+    assert result.observed_delay_minutes >= 0
+    assert result.declared_delay_minutes is None
+    assert result.feed_type == "CHART"
+    assert result.feed_quality == "SAXO_CHART_AVAILABLE"
+    assert "observert forsinkelse" in result.source_label()
+
+
+def test_provider_can_attach_declared_delay_and_environment_without_overwriting_observed_delay():
+    result = fetch_market_data(
+        request(),
+        [
+            StubProvider(
+                "Saxo OpenAPI",
+                frame=valid_frame(),
+                metadata={
+                    "declared_delay_minutes": 15.0,
+                    "feed_type": "CHART",
+                    "feed_quality": "DELAYED_CHART",
+                    "provider_environment": "SIM",
+                },
+            )
+        ],
+    )
+
+    assert result.declared_delay_minutes == 15.0
+    assert result.observed_delay_minutes is not None
+    assert result.feed_quality == "DELAYED_CHART"
+    assert result.provider_environment == "SIM"
