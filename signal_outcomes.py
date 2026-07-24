@@ -13,6 +13,7 @@ from asset_state_mapping import AssetRecommendation
 from database import connect
 from market_data import MarketRequest, YahooProvider, fetch_market_data
 from market_interpretation import MarketInterpretation
+from saxo_provider import SaxoPriceProvider
 
 ASSET_SYMBOLS = {
     "Brent": "BZ=F",
@@ -126,8 +127,8 @@ def register_recommendations(
 
 def _market_frame(asset: str) -> tuple[pd.DataFrame, str]:
     symbol = ASSET_SYMBOLS[asset]
-    request = MarketRequest(asset, "5min", 2000, {"yahoo": symbol})
-    result = fetch_market_data(request, [YahooProvider()])
+    request = MarketRequest(asset, "5min", 1200, {"yahoo": symbol})
+    result = fetch_market_data(request, [SaxoPriceProvider(), YahooProvider()])
     return result.frame, result.provider_name
 
 
