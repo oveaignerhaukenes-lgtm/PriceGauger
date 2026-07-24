@@ -20,6 +20,12 @@ class MarketRequest:
 class MarketResult:
     frame: pd.DataFrame
     provider_name: str
+    attempted_providers: tuple[str, ...] = ()
+    fallback_reasons: tuple[str, ...] = ()
+
+    @property
+    def used_fallback(self) -> bool:
+        return bool(self.fallback_reasons)
 
 
 class MarketProvider(ABC):
@@ -33,6 +39,10 @@ class MarketProvider(ABC):
     def fetch(self, request: MarketRequest) -> pd.DataFrame:
         raise NotImplementedError
 
+    def unsupported_reason(self, request: MarketRequest) -> str | None:
+        """Return a safe diagnostic when supports() is false."""
+        return None
+
 
 class TwelveDataProvider(MarketProvider):
     name = "Twelve Data"
@@ -42,6 +52,13 @@ class TwelveDataProvider(MarketProvider):
 
     def supports(self, request: MarketRequest) -> bool:
         return bool(self._api_key and request.symbols.get("twelve"))
+
+    def unsupported_reason(self, request: MarketRequest) -> str | None:
+        if not self._api_key:
+            return "API-nøkkel mangler"
+        if not request.symbols.get("twelve"):
+            return f"symbol mangler for {request.asset_name}"
+        return None
 
     def fetch(self, request: MarketRequest) -> pd.DataFrame:
         response = requests.get(
@@ -75,6 +92,11 @@ class YahooProvider(MarketProvider):
 
     def supports(self, request: MarketRequest) -> bool:
         return bool(request.symbols.get("yahoo"))
+
+    def unsupported_reason(self, request: MarketRequest) -> str | None:
+        if not request.symbols.get("yahoo"):
+            return f"symbol mangler for {request.asset_name}"
+        return None
 
     def fetch(self, request: MarketRequest) -> pd.DataFrame:
         yahoo_interval = {"5min": "5m", "15min": "15m", "30min": "30m", "1h": "1h"}[request.interval]
@@ -112,16 +134,30 @@ def fetch_market_data(
     request: MarketRequest,
     providers: list[MarketProvider],
 ) -> MarketResult:
-    errors: list[str] = []
+    attempted: list[str] = []
+    diagnostics: list[str] = []
+
     for provider in providers:
+        attempted.append(provider.name)
         if not provider.supports(request):
+            reason = provider.unsupported_reason(request)
+            if reason:
+                diagnostics.append(f"{provider.name}: {reason}")
             continue
         try:
             frame = provider.fetch(request)
         except Exception as exc:
-            errors.append(f"{provider.name}: {exc}")
+            diagnostics.append(f"{provider.name}: {exc}")
             continue
-        if not frame.empty:
-            return MarketResult(frame=frame, provider_name=provider.name)
-    detail = "; ".join(errors) if errors else "Ingen konfigurert leverandør støtter dette markedet."
+        if frame.empty:
+            diagnostics.append(f"{provider.name}: tom respons")
+            continue
+        return MarketResult(
+            frame=frame,
+            provider_name=provider.name,
+            attempted_providers=tuple(attempted),
+            fallback_reasons=tuple(diagnostics),
+        )
+
+    detail = "; ".join(diagnostics) if diagnostics else "Ingen konfigurert leverandør støtter dette markedet."
     raise RuntimeError(detail)
