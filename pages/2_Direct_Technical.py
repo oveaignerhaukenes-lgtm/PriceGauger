@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 import pandas as pd
 import streamlit as st
 
@@ -17,38 +19,44 @@ render_build_badge()
 st.markdown(
     """
     <style>
-    [data-testid="stMetric"] {
+    .pg-metric-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1rem;
+        margin: .35rem 0 1rem 0;
+    }
+    .pg-metric {
         min-width: 0;
-        width: 100%;
     }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.72rem;
-        line-height: 1.15;
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
+    .pg-metric-label {
+        font-size: .74rem;
+        line-height: 1.2;
+        color: rgba(49, 51, 63, .78);
+        margin-bottom: .35rem;
+        white-space: normal;
     }
-    [data-testid="stMetricValue"] {
-        width: 100%;
-        max-width: none;
-        font-size: clamp(0.98rem, 1.35vw, 1.28rem);
-        line-height: 1.18;
-        white-space: normal !important;
-        overflow-wrap: anywhere !important;
-        word-break: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
+    .pg-metric-value {
+        font-size: 1.18rem;
+        line-height: 1.2;
+        font-weight: 400;
+        white-space: normal;
+        overflow: visible;
+        overflow-wrap: break-word;
+        word-break: normal;
+        text-overflow: clip;
     }
-    [data-testid="stMetricValue"] > div,
-    [data-testid="stMetricValue"] p,
-    [data-testid="stMetricValue"] span {
-        width: 100%;
-        max-width: none;
-        white-space: normal !important;
-        overflow-wrap: anywhere !important;
-        word-break: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
+    .pg-snapshot-grid .pg-metric-value {
+        font-size: 1rem;
+    }
+    @media (max-width: 900px) {
+        .pg-metric-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 560px) {
+        .pg-metric-grid {
+            grid-template-columns: 1fr;
+        }
     }
     </style>
     """,
@@ -94,17 +102,38 @@ def fetch_frames(asset: str, outputsize: int) -> tuple[dict[str, pd.DataFrame], 
     return frames, sources
 
 
+def render_metric_grid(items: list[tuple[str, str]], *, snapshot: bool = False) -> None:
+    cards = "".join(
+        (
+            '<div class="pg-metric">'
+            f'<div class="pg-metric-label">{html.escape(label)}</div>'
+            f'<div class="pg-metric-value">{html.escape(value)}</div>'
+            "</div>"
+        )
+        for label, value in items
+    )
+    extra_class = " pg-snapshot-grid" if snapshot else ""
+    st.markdown(
+        f'<div class="pg-metric-grid{extra_class}">{cards}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_snapshot(snapshot: TechnicalSnapshot) -> None:
     with st.container(border=True):
         st.markdown(f"### {snapshot.timeframe}")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Pris", f"{snapshot.price:,.3f}")
-        c2.metric("RSI 14", f"{snapshot.rsi_14:.1f}" if snapshot.rsi_14 is not None else "—")
-        c3.metric(
-            "MACD histogram",
-            f"{snapshot.macd_histogram:+.4f}" if snapshot.macd_histogram is not None else "—",
+        render_metric_grid(
+            [
+                ("Pris", f"{snapshot.price:,.3f}"),
+                ("RSI 14", f"{snapshot.rsi_14:.1f}" if snapshot.rsi_14 is not None else "—"),
+                (
+                    "MACD histogram",
+                    f"{snapshot.macd_histogram:+.4f}" if snapshot.macd_histogram is not None else "—",
+                ),
+                ("ATR 14", f"{snapshot.atr_14_pct:.2f} %" if snapshot.atr_14_pct is not None else "—"),
+            ],
+            snapshot=True,
         )
-        c4.metric("ATR 14", f"{snapshot.atr_14_pct:.2f} %" if snapshot.atr_14_pct is not None else "—")
         for reading in snapshot.readings:
             st.write(f"• {reading.display}")
 
@@ -112,11 +141,14 @@ def render_snapshot(snapshot: TechnicalSnapshot) -> None:
 def render_regime(regime: TechnicalRegime) -> None:
     with st.container(border=True):
         st.markdown("### Direct – Technical")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Technical bias", regime.bias)
-        c2.metric("Signal quality", regime.signal_quality)
-        c3.metric("Reversal risk", regime.reversal_risk)
-        c4.metric("Recommended monitoring", regime.review_label)
+        render_metric_grid(
+            [
+                ("Technical bias", regime.bias),
+                ("Signal quality", regime.signal_quality),
+                ("Reversal risk", regime.reversal_risk),
+                ("Recommended monitoring", regime.review_label),
+            ]
+        )
         st.write(f"**Regime:** {regime.regime}")
         for reason in regime.rationale:
             st.write(f"• {reason}")
