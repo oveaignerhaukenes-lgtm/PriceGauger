@@ -19,28 +19,36 @@ st.markdown(
     <style>
     [data-testid="stMetric"] {
         min-width: 0;
+        width: 100%;
     }
     [data-testid="stMetricLabel"] {
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         line-height: 1.15;
-        white-space: normal;
-        overflow: visible;
-        text-overflow: clip;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
     }
     [data-testid="stMetricValue"] {
-        font-size: clamp(1.25rem, 2.1vw, 2rem);
-        line-height: 1.08;
-        white-space: normal;
-        overflow-wrap: anywhere;
-        word-break: normal;
-        overflow: visible;
-        text-overflow: clip;
+        width: 100%;
+        max-width: none;
+        font-size: clamp(0.98rem, 1.35vw, 1.28rem);
+        line-height: 1.18;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
     }
-    [data-testid="stMetricValue"] > div {
-        white-space: normal;
-        overflow-wrap: anywhere;
-        overflow: visible;
-        text-overflow: clip;
+    [data-testid="stMetricValue"] > div,
+    [data-testid="stMetricValue"] p,
+    [data-testid="stMetricValue"] span {
+        width: 100%;
+        max-width: none;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
     }
     </style>
     """,
