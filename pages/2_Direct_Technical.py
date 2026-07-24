@@ -36,17 +36,25 @@ st.markdown(
         white-space: normal;
     }
     .pg-metric-value {
-        font-size: 1.18rem;
-        line-height: 1.2;
-        font-weight: 400;
+        font-size: 1.05rem;
+        line-height: 1.18;
+        font-weight: 600;
         white-space: normal;
         overflow: visible;
         overflow-wrap: break-word;
         word-break: normal;
         text-overflow: clip;
     }
+    .pg-snapshot-grid {
+        gap: .7rem;
+    }
     .pg-snapshot-grid .pg-metric-value {
-        font-size: 1rem;
+        font-size: .84rem;
+        font-weight: 600;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow-wrap: normal;
+        word-break: keep-all;
     }
     @media (max-width: 900px) {
         .pg-metric-grid {
@@ -56,6 +64,9 @@ st.markdown(
     @media (max-width: 560px) {
         .pg-metric-grid {
             grid-template-columns: 1fr;
+        }
+        .pg-snapshot-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
     </style>
