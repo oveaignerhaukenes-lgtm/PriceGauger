@@ -14,6 +14,39 @@ from technical_regime import TechnicalRegime, build_technical_regime
 st.set_page_config(page_title="Direct – Technical", page_icon="📈", layout="wide")
 render_build_badge()
 
+st.markdown(
+    """
+    <style>
+    [data-testid="stMetric"] {
+        min-width: 0;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.78rem;
+        line-height: 1.15;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: clamp(1.25rem, 2.1vw, 2rem);
+        line-height: 1.08;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: normal;
+        overflow: visible;
+        text-overflow: clip;
+    }
+    [data-testid="stMetricValue"] > div {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        overflow: visible;
+        text-overflow: clip;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 ASSETS = {
     "Brent": {"yahoo": "BZ=F"},
     "Silver": {"twelve": "XAG/USD", "yahoo": "SI=F"},
@@ -70,7 +103,7 @@ def render_snapshot(snapshot: TechnicalSnapshot) -> None:
 
 def render_regime(regime: TechnicalRegime) -> None:
     with st.container(border=True):
-        st.markdown("## Direct – Technical")
+        st.markdown("### Direct – Technical")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Technical bias", regime.bias)
         c2.metric("Signal quality", regime.signal_quality)
@@ -119,7 +152,7 @@ else:
     render_regime(regime)
     st.caption(" · ".join(f"{timeframe}: {sources.get(timeframe, 'ukjent')}" for timeframe in TIMEFRAMES))
 
-    st.markdown("## Indikatorgrunnlag")
+    st.markdown("### Indikatorgrunnlag")
     columns = st.columns(3)
     for column, timeframe in zip(columns, TIMEFRAMES):
         with column:
