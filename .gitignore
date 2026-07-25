@@ -10,3 +10,6 @@ data/*.db-wal
 data/*.sqlite3
 data/*.sqlite3-shm
 data/*.sqlite3-wal
+.data/
+*.session
+*.session-journal
