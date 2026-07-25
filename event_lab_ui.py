@@ -63,7 +63,7 @@ def _pipeline_signature(*, plan: TelegramSearchPlan, start_date: date, end_date:
         plan.domain,
         int(limit),
         tuple(sorted(assets)),
-        "bigquery-first-v1",
+        "precise-provider-first-v2",
     )
 
 
@@ -153,41 +153,72 @@ def _persist_canonical_signals(canonical, matches, intraday, assets: list[str]) 
     return stored
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_precise_candidates(
+    provider_key: str,
+    start_iso: str,
+    end_iso: str,
+    search: str,
+    country: str,
+    domain: str,
+    limit: int,
+):
+    """Cache external historical searches so Streamlit reruns do not hammer GDELT."""
+    return GdeltClient(provider_key).list_events(
+        date_start=start_iso,
+        date_end=end_iso,
+        search=search,
+        country=country,
+        domain=domain,
+        confidence_profile="precise",
+        sort="significance",
+        limit=limit,
+    )
+
+
 def _fetch_candidates(*, plan: TelegramSearchPlan, start_date: date, end_date: date, limit: int):
-    """Use BigQuery as the canonical source; DOC API is only a bounded fallback."""
-    try:
-        page = fetch_bigquery_events(
-            date_start=start_date,
-            date_end=end_date,
-            search=plan.search,
-            country=plan.country,
-            domain=plan.domain,
-            event_type=plan.event_type,
-            target=plan.target,
-            limit=limit,
-        )
-        return page, "GDELT BigQuery", None
-    except Exception as bigquery_error:
-        key = gdelt_api_key()
-        if not key:
-            raise RuntimeError(f"BigQuery feilet og DOC fallback er ikke konfigurert: {bigquery_error}") from bigquery_error
+    """Precise indexed provider first; BigQuery only for short bounded fallback windows."""
+    key = gdelt_api_key()
+    precise_error: Exception | None = None
+
+    if key:
         try:
-            page = GdeltClient(key).list_events(
-                date_start=start_date.isoformat(),
-                date_end=end_date.isoformat(),
+            page = _cached_precise_candidates(
+                key,
+                start_date.isoformat(),
+                end_date.isoformat(),
+                plan.search,
+                plan.country,
+                plan.domain,
+                limit,
+            )
+            provider = "GDELT DOC" if key == "__DIRECT__" else "GDELT Cloud"
+            return page, provider, page.warning
+        except Exception as exc:
+            precise_error = exc
+
+    span_days = (end_date - start_date).days + 1
+    if span_days <= 7:
+        try:
+            page = fetch_bigquery_events(
+                date_start=start_date,
+                date_end=end_date,
                 search=plan.search,
                 country=plan.country,
                 domain=plan.domain,
+                event_type=plan.event_type,
+                target=plan.target,
                 limit=limit,
             )
-            warning = f"BigQuery var utilgjengelig; brukte GDELT DOC fallback. BigQuery-feil: {bigquery_error}"
-            if page.warning:
-                warning += f" · DOC: {page.warning}"
-            return page, "GDELT DOC fallback", warning
-        except Exception as doc_error:
-            raise RuntimeError(
-                f"BigQuery feilet ({bigquery_error}); DOC fallback feilet også ({doc_error})"
-            ) from doc_error
+            warning = f"Presis GDELT-kilde feilet; brukte kort BigQuery-vindu. Feil: {precise_error}" if precise_error else page.warning
+            return page, "GDELT BigQuery (kort vindu)", warning
+        except Exception as bq_error:
+            raise RuntimeError(f"Presis GDELT-kilde feilet ({precise_error}); kort BigQuery-fallback feilet ({bq_error})") from bq_error
+
+    raise RuntimeError(
+        f"Presis GDELT-kilde feilet ({precise_error}). BigQuery brukes ikke som fallback over {span_days} dager, "
+        "fordi det ville skanne et stort historisk datavolum."
+    )
 
 
 def _run_pipeline(*, plan: TelegramSearchPlan, start_date: date, end_date: date, limit: int, selected_assets: list[str]) -> None:
@@ -197,7 +228,7 @@ def _run_pipeline(*, plan: TelegramSearchPlan, start_date: date, end_date: date,
 
     with st.status("Kjører event-sentrisk analysepipeline …", expanded=True) as status:
         try:
-            st.write("1/6 Henter historiske GDELT-kandidater fra BigQuery …")
+            st.write("1/6 Henter presise historiske GDELT-kandidater …")
             page, provider, provider_warning = _fetch_candidates(
                 plan=plan,
                 start_date=start_date,
@@ -238,7 +269,7 @@ def _run_pipeline(*, plan: TelegramSearchPlan, start_date: date, end_date: date,
             intraday_changes = save_intraday_reactions(intraday) if intraday else 0
             daily_changes = save_reactions(daily) if daily else 0
 
-            st.write("6/6 Produserer EventSignal-bidrag til Signalaggregat …")
+            st.write("6/6 Produserer kanoniske EventSignal-objekter …")
             signal_count = _persist_canonical_signals(canonical, matches, intraday, selected_assets)
             st.session_state.gdelt_historical_status = "AVAILABLE"
             st.session_state.gdelt_pipeline_summary = {
@@ -250,10 +281,9 @@ def _run_pipeline(*, plan: TelegramSearchPlan, start_date: date, end_date: date,
                 "daily": len(daily),
                 "signals": signal_count,
                 "saved": event_changes + intraday_changes + daily_changes,
-                "bytes_processed": getattr(page, "bytes_processed", 0),
             }
             st.session_state.gdelt_pipeline_error = provider_warning or page.warning
-            status.update(label=f"Historisk pipeline ferdig via {provider}", state="complete", expanded=False)
+            status.update(label="Event-sentrisk analysepipeline ferdig", state="complete", expanded=False)
         except Exception as exc:
             warning = f"Historisk GDELT-evidens er utilgjengelig: {exc}"
             _clear_historical_evidence(status="UNAVAILABLE", warning=warning)
@@ -262,7 +292,7 @@ def _run_pipeline(*, plan: TelegramSearchPlan, start_date: date, end_date: date,
 
 def render_event_lab() -> None:
     st.subheader("Historical Event Lab")
-    st.caption("BigQuery er primærkilden. DOC API brukes bare som fallback. Ferdige historiske reaksjoner blir EventSignal-bidrag i Signalaggregat.")
+    st.caption("Telegram er primærhendelsen. Presis GDELT-søk brukes til historiske analoger; BigQuery brukes ikke til brede flerårssøk.")
 
     plan = _sync_telegram_plan()
     error = st.session_state.get("telegram_query_error")
@@ -273,6 +303,7 @@ def render_event_lab() -> None:
         return
 
     _publish_canonical_event(plan)
+
     with st.container(border=True):
         st.markdown("**Kanonisk Telegram-hendelse**")
         q1, q2, q3, q4 = st.columns(4)
@@ -281,21 +312,16 @@ def render_event_lab() -> None:
         q3.metric("Land", plan.country or "Ukjent")
         q4.metric("Regime", plan.regime_id)
         st.write(plan.message_text)
-        st.caption(f"Historisk søk: {plan.search} · BigQuery kan ikke endre identiteten eller EventDNA-et til hendelsen.")
+        st.caption(f"Historisk søk: {plan.search} · bare kompakte nøkkelord skal sendes til GDELT.")
         st.link_button("Åpne Telegram-meldingen", plan.message_url)
 
     c1, c2 = st.columns(2)
     with c1:
-        start_date = st.date_input("Fra dato", value=date.today() - timedelta(days=30), key="gdelt_start")
+        start_date = st.date_input("Fra dato", value=date.today() - timedelta(days=730), key="gdelt_start")
     with c2:
         end_date = st.date_input("Til dato", value=date.today(), key="gdelt_end")
-    limit = st.slider("Maks GDELT-kandidater", 5, 100, 50, 5, key="gdelt_limit")
-    selected_assets = st.multiselect(
-        "Markeder",
-        list(REACTION_ASSETS),
-        default=list(REACTION_ASSETS),
-        key="gdelt_pipeline_assets",
-    )
+    limit = st.slider("Maks historiske kandidater", 5, 100, 50, 5, key="gdelt_limit")
+    selected_assets = st.multiselect("Markeder", list(REACTION_ASSETS), default=list(REACTION_ASSETS), key="gdelt_pipeline_assets")
 
     if start_date > end_date:
         st.error("Fra-dato må være før eller lik til-dato.")
@@ -304,39 +330,25 @@ def render_event_lab() -> None:
         st.info("Velg minst ett marked.")
         return
 
-    signature = _pipeline_signature(
-        plan=plan,
-        start_date=start_date,
-        end_date=end_date,
-        limit=limit,
-        assets=selected_assets,
-    )
+    signature = _pipeline_signature(plan=plan, start_date=start_date, end_date=end_date, limit=limit, assets=selected_assets)
     if st.session_state.get("gdelt_pipeline_signature") != signature:
         st.session_state.gdelt_pipeline_signature = signature
         st.session_state.pop("gdelt_pipeline_error", None)
-        _run_pipeline(
-            plan=plan,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            selected_assets=selected_assets,
-        )
+        _run_pipeline(plan=plan, start_date=start_date, end_date=end_date, limit=limit, selected_assets=selected_assets)
 
     historical_status = st.session_state.get("gdelt_historical_status", "NOT_ANALYSED")
     pipeline_error = st.session_state.get("gdelt_pipeline_error")
     if pipeline_error:
         st.warning(pipeline_error)
-
     summary = st.session_state.get("gdelt_pipeline_summary") or {}
-    provider = summary.get("provider", "IKKE KJØRT")
     st.caption(
-        f"Historisk evidensstatus: {historical_status} · Kilde: {provider} · "
+        f"Historisk evidensstatus: {historical_status} · Kilde: {summary.get('provider', 'ikke kjørt')} · "
         "Decision Lab beholder den kanoniske hendelsen uansett historikkstatus."
     )
 
     if summary:
         p1, p2, p3, p4, p5, p6 = st.columns(6)
-        p1.metric("Kilde", provider)
+        p1.metric("Kilde", summary.get("provider", "–"))
         p2.metric("Analoger", summary.get("analogues", 0))
         p3.metric("Med klokkeslett", summary.get("precise", 0))
         p4.metric("Intradag", summary.get("intraday", 0))
@@ -347,7 +359,7 @@ def render_event_lab() -> None:
     st.markdown("### Rangerte GDELT-analoger")
     if not matches:
         if historical_status == "UNAVAILABLE":
-            st.info("Historiske analoger ble ikke undersøkt fordi både BigQuery og eventuell DOC fallback var utilgjengelig.")
+            st.info("Historiske analoger kunne ikke hentes fra den presise GDELT-kilden.")
         elif historical_status == "DEGRADED":
             st.info("Historikkberikelsen ble bare delvis gjennomført.")
         else:
@@ -364,24 +376,12 @@ def render_event_lab() -> None:
             }
             for item in matches
         ])
-        st.dataframe(
-            frame,
-            use_container_width=True,
-            hide_index=True,
-            column_config={"likhet": st.column_config.NumberColumn("Likhet", format="%.1%%")},
-        )
+        st.dataframe(frame, use_container_width=True, hide_index=True, column_config={"likhet": st.column_config.NumberColumn("Likhet", format="%.1%%")})
 
     intraday = st.session_state.get("gdelt_intraday_reactions", [])
     st.markdown("### Analog → markedsreaksjon")
     if intraday:
         frame = pd.DataFrame([item.to_record() for item in intraday])
-        st.dataframe(
-            frame.reindex(columns=[
-                "event_title", "asset", "published_at", "quality_score",
-                "return_1h_pct", "return_4h_pct", "return_24h_pct",
-            ]),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(frame.reindex(columns=["event_title", "asset", "published_at", "quality_score", "return_1h_pct", "return_4h_pct", "return_24h_pct"]), use_container_width=True, hide_index=True)
     else:
         st.info("Ingen intradagreaksjoner tilgjengelig for analogutvalget.")
