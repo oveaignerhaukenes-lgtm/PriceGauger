@@ -6,18 +6,12 @@ import pandas as pd
 import streamlit as st
 
 from analysis_event_store import list_analysis_events
-from config import gdelt_api_key
-from gdelt_client import GdeltClient, GdeltError
-from storage import save_events
+from event_lab_ui import REACTION_ASSETS, _run_pipeline
+from telegram_query_builder import TelegramSearchPlan
 from ui_components import render_pipeline_breadcrumb
 
 st.set_page_config(page_title="Historical Event Lab", page_icon="🧭", layout="wide")
 render_pipeline_breadcrumb()
-
-api_key = gdelt_api_key()
-if not api_key:
-    st.error("GDELT_CLOUD_API_KEY mangler i Streamlit Secrets.")
-    st.stop()
 
 analysis_events = list_analysis_events(limit=100)
 if not analysis_events:
@@ -34,21 +28,18 @@ def _event_label(event: dict) -> str:
     return f"{timestamp} · {channel} · {summary[:90]}"
 
 
-def _fetch_for_event(event: dict, *, days: int, limit: int, profile: str):
-    end_date = date.today()
-    start_date = end_date - timedelta(days=days)
-    client = GdeltClient(api_key)
-    return client.list_events(
-        date_start=start_date.isoformat(),
-        date_end=end_date.isoformat(),
-        search=(event.get("search_query") or event.get("summary") or event.get("raw_text") or "")[:300],
-        country=event.get("country") or "",
-        category="",
-        domain=event.get("domain") or "",
-        event_family="",
-        confidence_profile=profile,
-        sort="significance",
-        limit=limit,
+def _selected_plan(event: dict) -> TelegramSearchPlan:
+    return TelegramSearchPlan(
+        message_id=str(event.get("event_id") or "historical-selection"),
+        message_url=str(event.get("source_url") or ""),
+        message_text=str(event.get("raw_text") or event.get("summary") or ""),
+        event_type=str(event.get("event_type") or "event"),
+        target=str(event.get("target") or "unspecified"),
+        country=str(event.get("country") or ""),
+        domain=str(event.get("domain") or ""),
+        search=str(event.get("search_query") or event.get("summary") or event.get("raw_text") or ""),
+        signal_score=3,
+        published_at=str(event.get("published_at") or event.get("created_at") or ""),
     )
 
 
@@ -60,90 +51,101 @@ with st.sidebar:
         index=0,
         format_func=lambda index: _event_label(analysis_events[index]),
     )
-    days = st.selectbox("Historisk søkevindu", [14, 30, 90, 180, 365], index=2, format_func=lambda value: f"{value} dager")
-    limit = st.slider("Maks GDELT-resultater", 10, 100, 50, 10)
-    confidence_profile = st.selectbox("Kvalitetsprofil", ["strictest", "precise", "balanced", "loose"], index=1)
-    refresh = st.button("Oppdater historisk kontekst", type="primary", use_container_width=True)
+    days = st.selectbox("Historisk søkevindu", [14, 30, 90, 180, 365], index=1, format_func=lambda value: f"{value} dager")
+    limit = st.slider("Maks GDELT-kandidater", 5, 100, 50, 5)
+    selected_assets = st.multiselect("Markeder", list(REACTION_ASSETS), default=list(REACTION_ASSETS))
+    refresh = st.button("Oppdater historisk analyse", type="primary", use_container_width=True)
 
 selected = analysis_events[selected_index]
-st.markdown(f"<div style='font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:rgba(128,128,128,.9);'>GDELT / HISTORICAL EVENT LAB</div>", unsafe_allow_html=True)
+plan = _selected_plan(selected)
+st.markdown(
+    "<div style='font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;color:rgba(128,128,128,.88);'>GDELT / HISTORICAL EVENT LAB</div>",
+    unsafe_allow_html=True,
+)
 st.title(selected.get("summary") or selected.get("raw_text", "Canonical Event"))
 st.caption(
     f"{selected.get('source_channel') or selected.get('source')} · "
     f"{selected.get('published_at') or 'ukjent tidspunkt'} · "
-    f"søk: {selected.get('search_query') or 'ikke generert'}"
+    f"BigQuery-first søk: {plan.search or 'ikke generert'}"
 )
 
-cache_key = f"gdelt_for_{selected['event_id']}_{days}_{limit}_{confidence_profile}"
-should_fetch = refresh or cache_key not in st.session_state
-if should_fetch:
-    try:
-        with st.spinner("Henter automatisk relevante GDELT-hendelser til valgt Canonical Event …"):
-            page = _fetch_for_event(selected, days=days, limit=limit, profile=confidence_profile)
-            st.session_state[cache_key] = {
-                "events": page.events,
-                "next_cursor": page.next_cursor,
-            }
-            save_events(page.events)
-    except (GdeltError, ValueError) as exc:
-        st.error(f"GDELT-kallet mislyktes: {exc}")
-    except Exception as exc:
-        st.error(f"Uventet feil under GDELT-kallet: {exc}")
-
-result = st.session_state.get(cache_key)
-if not result:
-    st.info("Ingen historisk kontekst er tilgjengelig for denne hendelsen ennå.")
+if not selected_assets:
+    st.info("Velg minst ett marked.")
     st.stop()
 
-records = [event.to_record() for event in result["events"]]
-if not records:
-    st.warning("GDELT fant ingen relevante hendelser med de valgte kvalitetskravene. Utvid søkevinduet eller velg en løsere kvalitetsprofil.")
-    st.stop()
-
-frame = pd.DataFrame(records)
-if "actors" in frame:
-    frame["actors"] = frame["actors"].apply(lambda values: ", ".join(values) if isinstance(values, list) else str(values or ""))
-
-confidence = pd.to_numeric(frame.get("confidence"), errors="coerce").fillna(0.0)
-sensitivity = pd.to_numeric(frame.get("market_sensitivity"), errors="coerce").fillna(0.0)
-significance = pd.to_numeric(frame.get("significance"), errors="coerce").fillna(0.0)
-frame["historical_relevance_score"] = (confidence * 0.30 + sensitivity * 0.35 + significance * 0.35).round(3)
-frame = frame.sort_values("historical_relevance_score", ascending=False)
-
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Historiske kandidater", len(frame))
-m2.metric("Gjennomsnittlig relevans", f"{frame['historical_relevance_score'].mean():.3f}")
-m3.metric("Sterkeste analog", f"{frame['historical_relevance_score'].max():.3f}")
-m4.metric("Neste resultatside", "Ja" if result.get("next_cursor") else "Nei")
-
-st.subheader("Rangerte historiske kandidater")
-visible_columns = [
-    column for column in [
-        "event_date", "title", "country", "category", "domain", "confidence",
-        "market_sensitivity", "significance", "historical_relevance_score", "url"
-    ] if column in frame.columns
-]
-st.dataframe(
-    frame[visible_columns],
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "url": st.column_config.LinkColumn("Kilde"),
-        "historical_relevance_score": st.column_config.NumberColumn("Relevans", format="%.3f"),
-    },
+end_date = date.today()
+start_date = end_date - timedelta(days=days)
+signature = (
+    selected.get("event_id"),
+    start_date.isoformat(),
+    end_date.isoformat(),
+    limit,
+    tuple(sorted(selected_assets)),
+    "bigquery-first-v1",
 )
+if refresh or st.session_state.get("historical_page_signature") != signature:
+    st.session_state.historical_page_signature = signature
+    _run_pipeline(
+        plan=plan,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        selected_assets=selected_assets,
+    )
 
-st.subheader("Historisk evidens til Signalaggregat")
-st.write(
-    "GDELT-resultatet er nå automatisk bundet til valgt Canonical Event og lagret i den felles databasen. "
-    "Retningsscore skal ikke utledes av nyhetslikhet alene; den produseres først når de rangerte analogene "
-    "er koblet til observerte markedsreaksjoner. Ferdige EventSignal-objekter blir deretter summert i Signalaggregat."
-)
+status = st.session_state.get("gdelt_historical_status", "NOT_ANALYSED")
+summary = st.session_state.get("gdelt_pipeline_summary") or {}
+warning = st.session_state.get("gdelt_pipeline_error")
+if warning:
+    st.warning(warning)
 
-st.download_button(
-    "Last ned rangerte analoger som CSV",
-    frame.drop(columns=["raw"], errors="ignore").to_csv(index=False).encode("utf-8"),
-    f"historical_analogues_{selected['event_id'].replace(':', '_')}.csv",
-    "text/csv",
-    use_container_width=True,
-)
+provider = summary.get("provider", "IKKE KJØRT")
+st.caption(f"Status: {status} · Kilde: {provider} · EventSignal sendes automatisk til Signalaggregat.")
+
+m1, m2, m3, m4, m5, m6 = st.columns(6)
+m1.metric("Kilde", provider)
+m2.metric("Analoger", summary.get("analogues", 0))
+m3.metric("Med klokkeslett", summary.get("precise", 0))
+m4.metric("Intradag", summary.get("intraday", 0))
+m5.metric("Daglig", summary.get("daily", 0))
+m6.metric("EventSignal", summary.get("signals", 0))
+
+matches = st.session_state.get("gdelt_analogue_matches", [])
+st.subheader("Rangerte GDELT-analoger")
+if matches:
+    frame = pd.DataFrame([
+        {
+            "likhet": item.get("score"),
+            "dato": (item.get("event") or {}).get("event_date"),
+            "hendelse": (item.get("event") or {}).get("title"),
+            "land": (item.get("event") or {}).get("country"),
+            "type": (item.get("dna") or {}).get("event_type"),
+            "mål": (item.get("dna") or {}).get("target"),
+        }
+        for item in matches
+    ])
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"likhet": st.column_config.NumberColumn("Likhet", format="%.1%%")},
+    )
+else:
+    st.info("Ingen historiske analoger er tilgjengelige for dette analyseobjektet.")
+
+intraday = st.session_state.get("gdelt_intraday_reactions", [])
+st.subheader("Analog → markedsreaksjon")
+if intraday:
+    reaction_frame = pd.DataFrame([item.to_record() for item in intraday])
+    st.dataframe(
+        reaction_frame.reindex(columns=[
+            "event_title", "asset", "published_at", "quality_score",
+            "return_1h_pct", "return_4h_pct", "return_24h_pct",
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+else:
+    st.info("Ingen intradagreaksjoner tilgjengelig for analogutvalget.")
+
+st.page_link("pages/2_Signalaggregat.py", label="Åpne Signalaggregat / Combined", icon="📊")
