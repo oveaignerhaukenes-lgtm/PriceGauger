@@ -15,7 +15,7 @@ def plans_from_messages(
     plans: list[TelegramSearchPlan] = []
     for message in messages:
         plan = build_search_plan(
-            message_id=f"{message.channel}:{message.message_id}",
+            message_id=str(message.message_id),
             message_url=message.message_url,
             text=message.text,
             published_at=message.published_at,
