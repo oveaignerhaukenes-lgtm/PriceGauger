@@ -89,13 +89,11 @@ class WorkerStateStore:
         return row is not None
 
     def seen_with_legacy_alias(self, message_id: str) -> bool:
-        """Recognize both new channel-scoped IDs and old numeric IDs."""
+        """Recognize both channel-scoped IDs and old numeric IDs."""
         value = str(message_id)
         if self.seen(value):
             return True
-        if ":" in value:
-            return self.seen(value.rsplit(":", 1)[-1])
-        return False
+        return self.seen(value.rsplit(":", 1)[-1]) if ":" in value else False
 
     def mark(self, message_id: str, status: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -121,11 +119,23 @@ def build_interpreter():
     return StructuredMarketInterpreter(provider), model
 
 
+def _raw_message_id(plan: TelegramSearchPlan) -> str:
+    return str(plan.message_id).rsplit(":", 1)[-1]
+
+
+def _channel_from_plan(plan: TelegramSearchPlan) -> str:
+    parts = str(plan.message_url).rstrip("/").rsplit("/", 2)
+    return parts[-2] if len(parts) >= 2 else "telegram"
+
+
+def _state_message_id(plan: TelegramSearchPlan) -> str:
+    return f"{_channel_from_plan(plan)}:{_raw_message_id(plan)}"
+
+
 def _message_order(plan: TelegramSearchPlan) -> tuple[str, int, str]:
-    """Order chronologically where possible, then by Telegram post number."""
-    raw_id = str(plan.message_id).rsplit(":", 1)[-1]
+    raw_id = _raw_message_id(plan)
     numeric_id = int(raw_id) if raw_id.isdigit() else -1
-    return (plan.published_at or "", numeric_id, str(plan.message_id))
+    return (plan.published_at or "", numeric_id, _state_message_id(plan))
 
 
 def _pending_plans(
@@ -135,12 +145,16 @@ def _pending_plans(
     source_key: str | None = None,
 ) -> tuple[list[TelegramSearchPlan], list[TelegramSearchPlan]]:
     ordered = sorted(plans, key=_message_order)
-    unseen = [plan for plan in ordered if not state.seen_with_legacy_alias(plan.message_id)]
+    unseen = [
+        plan
+        for plan in ordered
+        if not state.seen_with_legacy_alias(_state_message_id(plan))
+    ]
     if state.is_initialized(source_key) or not unseen:
         return unseen, []
 
-    # On the first run for this exact adapter/channel set, process only the
-    # newest visible event and record the rest without model calls.
+    # First run for this exact adapter/channel set: process only the newest
+    # visible event and record the older backlog without model calls.
     newest = max(unseen, key=lambda plan: _message_order(plan)[1:])
     ignored = [plan for plan in unseen if plan is not newest]
     return [newest], ignored
@@ -194,11 +208,12 @@ def run_once(
             result.recommendations,
             store=outcome_store,
         )
-        state.mark(plan.message_id, "processed")
+        state_id = _state_message_id(plan)
+        state.mark(state_id, "processed")
         processed += 1
         LOGGER.info(
             "processed telegram=%s event=%s recommendations=%s protocol=%s",
-            plan.message_id,
+            state_id,
             event.event_id,
             len(result.recommendations),
             PAPER_TEST_PROTOCOL.version,
@@ -206,9 +221,7 @@ def run_once(
 
     if not state.is_initialized(source_key):
         for plan in bootstrap_ignored:
-            state.mark(plan.message_id, "bootstrap_ignored")
-        # A successful fetch initializes the source even if all visible posts
-        # were already known under the legacy numeric-ID format.
+            state.mark(_state_message_id(plan), "bootstrap_ignored")
         state.mark_initialized(source_key)
 
     refreshed = refresh_signal_outcomes(store=outcome_store)
