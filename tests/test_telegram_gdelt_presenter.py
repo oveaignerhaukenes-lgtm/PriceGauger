@@ -1,5 +1,5 @@
+from gdelt_ingestion import GdeltCandidateRecord
 from telegram_gdelt_history import TelegramGdeltHistory
-from telegram_gdelt_ingestion import GdeltCandidateRecord
 from telegram_gdelt_link_store import TelegramGdeltSearchLink
 from telegram_gdelt_pipeline import TelegramGdeltIngestionResult
 from telegram_gdelt_presenter import (
