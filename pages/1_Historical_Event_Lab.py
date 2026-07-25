@@ -8,10 +8,12 @@ import streamlit as st
 from config import gdelt_api_key
 from gdelt_client import GdeltClient, GdeltError
 from storage import save_events
+from ui_components import render_pipeline_breadcrumb
 
 st.set_page_config(page_title="Historical Event Lab", page_icon="🧭", layout="wide")
+render_pipeline_breadcrumb()
 st.title("🧭 Historical Event Lab")
-st.caption("Mekanisk innsamling og filtrering først. Semantisk AI-vurdering kobles på etter at datasettet er ryddig og etterprøvbart.")
+st.caption("GDELT er det historiske dataleddet i analyseflyten: innsamling og filtrering først, deretter analoger, markedsreaksjoner og sannsynlighetsvurdering.")
 
 api_key = gdelt_api_key()
 if not api_key:
@@ -45,7 +47,7 @@ if "gdelt_events" not in st.session_state:
 if run_search:
     try:
         client = GdeltClient(api_key)
-        with st.spinner("Henter strukturerte hendelser fra GDELT Cloud …"):
+        with st.spinner("Henter strukturerte hendelser fra GDELT …"):
             page = client.list_events(
                 date_start=start_date.isoformat(),
                 date_end=end_date.isoformat(),
@@ -83,7 +85,7 @@ m2.metric("Land", int(frame["country"].replace("", pd.NA).nunique()))
 m3.metric("Kategorier", int(frame["category"].replace("", pd.NA).nunique()))
 m4.metric("Neste side", "Ja" if st.session_state.get("gdelt_next_cursor") else "Nei")
 
-st.subheader("Strukturert input-strøm")
+st.subheader("Strukturert GDELT-input")
 st.dataframe(
     frame[visible_columns],
     use_container_width=True,
@@ -103,12 +105,12 @@ with b:
 st.subheader("Neste analyseledd")
 st.markdown(
     """
-Denne siden stopper bevisst før en fri AI-konklusjon. Neste modul skal motta et begrenset utvalg hendelser og:
+GDELT-utvalget sendes videre til normalisering og rangering mot den aktuelle hendelsen. Neste ledd skal:
 
-1. avgjøre hvilke poster som beskriver samme underliggende hendelse,
-2. beskrive den kausale markedsbetydningen,
-3. finne historiske analogier,
-4. veie analogiene mot dagens særlige betingelser og et par ferske nyhetssøk,
-5. skille statistisk grunnlag fra AI-ens helhetsvurdering og oppgi usikkerhet for begge.
+1. samle poster som beskriver samme underliggende hendelse,
+2. rangere historiske analoger etter semantisk likhet,
+3. koble analogene til markedsreaksjoner i valgte instrumenter,
+4. bygge en historisk markedsprofil,
+5. produsere en sannsynlighetsvurdering med eksplisitt usikkerhet.
 """
 )
