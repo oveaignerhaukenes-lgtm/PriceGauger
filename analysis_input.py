@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
 from typing import Any, Mapping
 
 import requests
@@ -14,6 +15,13 @@ from telegram_query_builder import build_search_plan
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 INPUT_TYPES = ("EVENT", "SEARCH_REQUEST", "SCENARIO")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}")
+_STOPWORDS = {
+    "after", "against", "amid", "and", "are", "breaking", "from", "into",
+    "near", "over", "reported", "reports", "says", "that", "the", "their",
+    "this", "with", "will", "would", "could", "market", "markets", "price",
+    "prices", "impact", "analysis", "event", "news",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +64,29 @@ class SemanticInterpretation:
         return record
 
 
+def compact_search_keywords(
+    values: list[str] | tuple[str, ...],
+    *,
+    event_type: str = "",
+    target: str = "",
+    country: str = "",
+    maximum: int = 6,
+) -> tuple[str, ...]:
+    """Build a compact search vocabulary; never pass summaries or sentences to GDELT."""
+    terms: list[str] = []
+    for value in (country, target, event_type, *values):
+        for token in _TOKEN_RE.findall(str(value or "")):
+            lowered = token.lower()
+            if lowered in _STOPWORDS or lowered in terms:
+                continue
+            terms.append(lowered)
+            if len(terms) >= maximum:
+                return tuple(terms)
+    if len(terms) < 2:
+        raise ValueError("Kunne ikke ekstrahere minst to presise GDELT-nøkkelord")
+    return tuple(terms)
+
+
 def _schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -69,9 +100,14 @@ def _schema() -> dict[str, Any]:
             "domain": {"type": "string", "maxLength": 80},
             "search_keywords": {
                 "type": "array",
-                "items": {"type": "string", "maxLength": 80},
-                "minItems": 1,
-                "maxItems": 8,
+                "description": "Exactly 3-6 concrete entities, locations or actions. No sentences, explanations, market effects or filler words.",
+                "items": {
+                    "type": "string",
+                    "maxLength": 32,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{1,31}$",
+                },
+                "minItems": 3,
+                "maxItems": 6,
             },
             "affected_assets": {
                 "type": "array",
@@ -123,6 +159,12 @@ def _fallback(value: AnalysisInput, requested_type: str) -> SemanticInterpretati
         assets.append("Silver")
     if any(term in text for term in ("dollar", "usd", "dxy", "fed", "rates")):
         assets.append("DXY")
+    keywords = compact_search_keywords(
+        tuple(plan.search.split()),
+        event_type=plan.event_type,
+        target=plan.target,
+        country=plan.country,
+    )
     return SemanticInterpretation(
         input_type=chosen,
         summary=value.raw_text[:320],
@@ -130,11 +172,11 @@ def _fallback(value: AnalysisInput, requested_type: str) -> SemanticInterpretati
         target=plan.target,
         country=plan.country,
         domain=plan.domain,
-        search_keywords=tuple(plan.search.split()) or (value.raw_text[:80],),
+        search_keywords=keywords,
         affected_assets=tuple(dict.fromkeys(assets)),
         confidence=0.55,
         uncertainties=("Rule-based fallback; free AI semantic interpretation was unavailable.",),
-        model_version="semantic-fallback-v1",
+        model_version="semantic-fallback-v2",
     )
 
 
@@ -146,9 +188,10 @@ def interpret_analysis_input(value: AnalysisInput, *, requested_type: str = "AUT
     system_prompt = (
         "Interpret one user or news input for a market-analysis pipeline. Distinguish a reported "
         "real-world EVENT from a SEARCH_REQUEST and a hypothetical SCENARIO. Never turn a question "
-        "or hypothetical into a factual event. Produce a concise semantic classification, useful "
-        "historical-search keywords, and affected instruments. Do not recommend a trade and do not "
-        "invent facts not present in the input."
+        "or hypothetical into a factual event. search_keywords must contain only 3-6 short concrete "
+        "entities, locations or actions suitable for a database lookup. Do not include sentences, "
+        "explanations, inferred market effects, instrument names unless central to the reported event, "
+        "or generic words such as market, price, impact, conflict or news. Do not invent facts."
     )
     response = requests.post(
         OPENAI_RESPONSES_URL,
@@ -173,14 +216,23 @@ def interpret_analysis_input(value: AnalysisInput, *, requested_type: str = "AUT
     input_type = str(payload["input_type"]).upper()
     if requested_type in INPUT_TYPES:
         input_type = requested_type
+    event_type = str(payload["event_type"]).strip() or "other"
+    target = str(payload["target"]).strip() or "unspecified"
+    country = str(payload["country"]).strip()
+    keywords = compact_search_keywords(
+        tuple(str(item).strip() for item in payload["search_keywords"] if str(item).strip()),
+        event_type=event_type,
+        target=target,
+        country=country,
+    )
     return SemanticInterpretation(
         input_type=input_type,
         summary=str(payload["summary"]).strip(),
-        event_type=str(payload["event_type"]).strip() or "other",
-        target=str(payload["target"]).strip() or "unspecified",
-        country=str(payload["country"]).strip(),
+        event_type=event_type,
+        target=target,
+        country=country,
         domain=str(payload["domain"]).strip(),
-        search_keywords=tuple(str(item).strip() for item in payload["search_keywords"] if str(item).strip()),
+        search_keywords=keywords,
         affected_assets=tuple(str(item) for item in payload["affected_assets"]),
         confidence=float(payload["confidence"]),
         uncertainties=tuple(str(item) for item in payload["uncertainties"]),
