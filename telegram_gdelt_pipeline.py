@@ -12,6 +12,7 @@ from gdelt_ingestion import (
     ingest_gdelt_candidates,
 )
 from storage import DB_PATH
+from telegram_gdelt_link_store import save_telegram_gdelt_search_link
 from telegram_query_builder import TelegramSearchPlan
 
 
@@ -80,6 +81,11 @@ def ingest_telegram_plan_to_gdelt(
     saved_count = save_gdelt_candidates(
         request,
         candidates,
+        database_path=database_path,
+    )
+    save_telegram_gdelt_search_link(
+        plan,
+        request.search_id,
         database_path=database_path,
     )
     return TelegramGdeltIngestionResult(
