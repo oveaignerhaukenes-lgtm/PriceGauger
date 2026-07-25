@@ -23,6 +23,10 @@ def _plans_fetcher(*, channels: tuple[str, ...], mode: str):
     return fetcher
 
 
+def _source_key(mode: str, channels: tuple[str, ...]) -> str:
+    return f"telegram:{mode.strip().lower()}:{','.join(channels)}"
+
+
 def run_source_once(
     *,
     channels: str | tuple[str, ...],
@@ -31,11 +35,13 @@ def run_source_once(
     minimum_signal: int = 2,
 ):
     normalized = normalize_channels(channels)
+    selected_mode = mode.strip().lower()
     return run_once(
         db_path=db_path,
         channel=normalized[0],
         minimum_signal=minimum_signal,
-        plans_fetcher=_plans_fetcher(channels=normalized, mode=mode),
+        plans_fetcher=_plans_fetcher(channels=normalized, mode=selected_mode),
+        source_key=_source_key(selected_mode, normalized),
     )
 
 
@@ -50,9 +56,10 @@ def run_source_forever(
     if interval_seconds < 30:
         raise ValueError("interval must be at least 30 seconds")
     normalized = normalize_channels(channels)
+    selected_mode = mode.strip().lower()
     LOGGER.info(
         "telegram worker started mode=%s channels=%s interval=%ss",
-        mode,
+        selected_mode,
         ",".join(normalized),
         interval_seconds,
     )
@@ -61,7 +68,7 @@ def run_source_forever(
         try:
             run_source_once(
                 channels=normalized,
-                mode=mode,
+                mode=selected_mode,
                 db_path=db_path,
                 minimum_signal=minimum_signal,
             )
