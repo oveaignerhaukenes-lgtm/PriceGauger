@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any, Protocol
 
 from gdelt_types import GdeltPage
@@ -26,9 +28,29 @@ class GdeltSearchRequest:
         if self.limit < 1 or self.limit > 100:
             raise ValueError("limit must be between 1 and 100")
 
+    @property
+    def search_id(self) -> str:
+        """Stable identifier for one normalized historical-news search."""
+        payload = {
+            "date_start": self.date_start,
+            "date_end": self.date_end,
+            "search": self.search.strip(),
+            "country": self.country.strip(),
+            "domain": self.domain.strip(),
+            "limit": self.limit,
+            "confidence_profile": self.confidence_profile,
+            "sort": self.sort,
+        }
+        canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return "gdelt-search:" + sha256(canonical.encode("utf-8")).hexdigest()[:24]
+
+    def to_record(self) -> dict[str, Any]:
+        return {"search_id": self.search_id, **asdict(self)}
+
 
 @dataclass(frozen=True, slots=True)
 class GdeltCandidateRecord:
+    search_id: str
     event_id: str
     provider: str
     query: str
@@ -77,6 +99,7 @@ def ingest_gdelt_candidates(
     timestamp = (retrieved_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     records = [
         GdeltCandidateRecord(
+            search_id=request.search_id,
             event_id=event.event_id,
             provider=provider_name,
             query=request.search,
