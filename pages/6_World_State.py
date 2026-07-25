@@ -5,11 +5,19 @@ import html
 import streamlit as st
 
 from build_info import render_build_badge
+from market_data import MarketRequest, YahooProvider, fetch_market_data
 from world_state import WorldState, fetch_world_state
 
 
 st.set_page_config(page_title="World State", page_icon="🌍", layout="wide")
 render_build_badge()
+
+ASSET_SYMBOLS = {
+    "Brent": {"yahoo": "BZ=F"},
+    "Gold": {"yahoo": "GC=F"},
+    "Silver": {"yahoo": "SI=F"},
+    "DXY": {"yahoo": "DX-Y.NYB"},
+}
 
 st.markdown(
     """
@@ -47,10 +55,24 @@ st.markdown(
         gap:.7rem;
         margin-top:.5rem;
     }
-    .ws-asset { padding:.65rem .7rem; border-left:3px solid #ff4b4b; background:rgba(128,128,128,.055); }
+    .ws-asset {
+        min-width:0;
+        padding:.65rem .7rem;
+        border-left:3px solid #ff4b4b;
+        background:rgba(128,128,128,.055);
+    }
     .ws-asset-name { color:rgba(128,128,128,.95); font-size:.75rem; }
     .ws-asset-bias { font-weight:650; margin-top:.15rem; }
+    .ws-asset-price { font-size:1rem; font-weight:650; margin-top:.28rem; }
     .ws-asset-score { font-size:.8rem; margin-top:.15rem; }
+    .ws-asset-source { color:rgba(128,128,128,.95); font-size:.7rem; margin-top:.22rem; }
+    .ws-chain-note {
+        padding:.6rem .75rem;
+        border-left:3px solid rgba(255,75,75,.75);
+        background:rgba(128,128,128,.045);
+        margin:.35rem 0 .8rem;
+        font-size:.86rem;
+    }
     @media(max-width:850px) {
         .ws-summary,.ws-assets { grid-template-columns:repeat(2,minmax(0,1fr)); }
     }
@@ -73,7 +95,49 @@ def _change_label(value: int) -> str:
     return "→ 0"
 
 
-def render_world_state(state: WorldState) -> None:
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_asset_prices() -> dict[str, dict[str, str]]:
+    prices: dict[str, dict[str, str]] = {}
+    provider = YahooProvider()
+    for asset, symbols in ASSET_SYMBOLS.items():
+        try:
+            result = fetch_market_data(
+                MarketRequest(asset_name=asset, interval="5min", outputsize=10, symbols=symbols),
+                [provider],
+            )
+            latest = result.frame.dropna(subset=["close"]).iloc[-1]
+            timestamp = result.market_timestamp.isoformat() if result.market_timestamp is not None else "ukjent tidspunkt"
+            prices[asset] = {
+                "price": f"{float(latest['close']):,.3f}",
+                "source": f"{result.provider_name} · {timestamp}",
+            }
+        except Exception as exc:
+            prices[asset] = {"price": "—", "source": f"Pris utilgjengelig: {exc}"}
+    return prices
+
+
+def render_analysis_chain() -> None:
+    st.markdown("### Analyseflyt")
+    st.markdown(
+        '<div class="ws-chain-note">Modulene kan brukes separat, men ved full analyse bør de kjøres fra venstre mot høyre. Hver modul leverer evidens til den neste.</div>',
+        unsafe_allow_html=True,
+    )
+    columns = st.columns(4)
+    with columns[0]:
+        st.page_link("app.py", label="1 · Telegram → prisreaksjon", use_container_width=True)
+        st.caption("Hva skjedde etter konkret nyhetsinput?")
+    with columns[1]:
+        st.page_link("pages/6_World_State.py", label="2 · World State", use_container_width=True)
+        st.caption("Hva er den målbare globale tilstanden nå?")
+    with columns[2]:
+        st.page_link("pages/2_Direct_Technical.py", label="3 · Teknisk respons", use_container_width=True)
+        st.caption("Hvordan reagerer valgt instrument faktisk?")
+    with columns[3]:
+        st.page_link("pages/2_Signalaggregat.py", label="4 · Combined", use_container_width=True)
+        st.caption("Sammenstill nyheter, state og marked.")
+
+
+def render_world_state(state: WorldState, prices: dict[str, dict[str, str]]) -> None:
     summary = [
         ("World mood", state.mood_label),
         ("Mood score", f"{state.mood_score} / 100"),
@@ -89,14 +153,10 @@ def render_world_state(state: WorldState) -> None:
 
     st.markdown("### Global state profile")
     rows = "".join(
-        f"""
-        <div class="ws-row">
-          <div class="ws-name">{html.escape(item.name)}</div>
-          <div class="ws-track"><div class="ws-fill" style="width:{item.score}%"></div></div>
-          <div class="ws-score">{item.score}</div>
-          <div class="ws-change">{html.escape(_change_label(item.change))}</div>
-        </div>
-        """
+        f'<div class="ws-row"><div class="ws-name">{html.escape(item.name)}</div>'
+        f'<div class="ws-track"><div class="ws-fill" style="width:{item.score}%"></div></div>'
+        f'<div class="ws-score">{item.score}</div>'
+        f'<div class="ws-change">{html.escape(_change_label(item.change))}</div></div>'
         for item in state.categories
     )
     st.markdown(rows, unsafe_allow_html=True)
@@ -104,16 +164,15 @@ def render_world_state(state: WorldState) -> None:
 
     st.markdown("### Asset implications")
     assets = "".join(
-        f"""
-        <div class="ws-asset">
-          <div class="ws-asset-name">{html.escape(item.asset)}</div>
-          <div class="ws-asset-bias">{html.escape(item.bias)}</div>
-          <div class="ws-asset-score">Score {item.score} · confidence {item.confidence}%</div>
-        </div>
-        """
+        f'<div class="ws-asset"><div class="ws-asset-name">{html.escape(item.asset)}</div>'
+        f'<div class="ws-asset-bias">{html.escape(item.bias)}</div>'
+        f'<div class="ws-asset-price">{html.escape(prices.get(item.asset, {}).get("price", "—"))}</div>'
+        f'<div class="ws-asset-score">Score {item.score} · confidence {item.confidence}%</div>'
+        f'<div class="ws-asset-source">{html.escape(prices.get(item.asset, {}).get("source", "Pris ikke hentet"))}</div></div>'
         for item in state.asset_moods
     )
     st.markdown(f'<div class="ws-assets">{assets}</div>', unsafe_allow_html=True)
+    st.caption("Pris er observasjon; World State-score er en separat modellimplikasjon og må ikke leses som en ferdig trade.")
 
     st.markdown("### Measurement context")
     tone = "—" if state.average_tone is None else f"{state.average_tone:+.2f}"
@@ -140,17 +199,25 @@ st.title("World State")
 st.caption(
     "GDELT-based profile of the globally measurable news state, compared with the immediately preceding window."
 )
+render_analysis_chain()
 
 with st.sidebar:
     st.header("World State")
     window_hours = st.selectbox("Window", [3, 6, 12, 24], index=2, format_func=lambda value: f"{value} hours")
     refresh = st.button("Update World State", type="primary", use_container_width=True)
+    st.divider()
+    st.caption("Anbefalt rekkefølge")
+    st.page_link("app.py", label="1 · Telegram reaction")
+    st.page_link("pages/6_World_State.py", label="2 · World State")
+    st.page_link("pages/2_Direct_Technical.py", label="3 · Direct Technical")
+    st.page_link("pages/2_Signalaggregat.py", label="4 · Signalaggregat")
 
 state_key = f"world_state_{window_hours}"
 if refresh:
     try:
-        with st.spinner("Querying GDELT and building World State …"):
+        with st.spinner("Querying GDELT, prices and building World State …"):
             st.session_state[state_key] = fetch_world_state(window_hours=window_hours)
+            st.session_state["world_state_asset_prices"] = fetch_asset_prices()
     except Exception as exc:
         st.error(f"Could not build World State: {exc}")
 
@@ -158,4 +225,5 @@ state = st.session_state.get(state_key)
 if state is None:
     st.info("Press «Update World State» to calculate the current global state profile.")
 else:
-    render_world_state(state)
+    prices = st.session_state.get("world_state_asset_prices") or fetch_asset_prices()
+    render_world_state(state, prices)
