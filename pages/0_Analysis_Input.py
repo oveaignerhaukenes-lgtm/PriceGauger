@@ -116,7 +116,7 @@ def _render_result(record: dict) -> None:
     )
     st.page_link("pages/1_Historical_Event_Lab.py", label="Åpne Historical Event Lab", icon="🔎")
     st.page_link("pages/2_Direct_Technical.py", label="Åpne Direct Technical", icon="📈")
-    st.page_link("pages/2_Signalaggregat.py", label="Åpne Signalaggregat / Combined", icon="∑")
+    st.page_link("pages/2_Signalaggregat.py", label="Åpne Signalaggregat / Combined", icon="📊")
 
 
 st.title("Analysis Input")
