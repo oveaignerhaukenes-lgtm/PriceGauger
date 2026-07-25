@@ -61,6 +61,7 @@ def test_ingestion_preserves_raw_event_and_provider_provenance():
     assert warning is None
     assert len(records) == 1
     record = records[0]
+    assert record.search_id == request.search_id
     assert record.provider == "GDELT DOC"
     assert record.query == '"oil terminal" disruption'
     assert record.event_id == "gdelt-doc:test-1"
@@ -79,6 +80,31 @@ def test_ingestion_preserves_raw_event_and_provider_provenance():
             "limit": 25,
         }
     ]
+
+
+def test_search_id_is_stable_and_changes_with_search_contract():
+    request = GdeltSearchRequest(
+        date_start="2024-01-01",
+        date_end="2026-07-24",
+        search="shipping disruption",
+        country="Iran",
+    )
+    same = GdeltSearchRequest(
+        date_start="2024-01-01",
+        date_end="2026-07-24",
+        search="shipping disruption",
+        country="Iran",
+    )
+    changed = GdeltSearchRequest(
+        date_start="2024-01-01",
+        date_end="2026-07-24",
+        search="shipping disruption",
+        country="Iraq",
+    )
+
+    assert request.search_id == same.search_id
+    assert request.search_id != changed.search_id
+    assert request.to_record()["search_id"] == request.search_id
 
 
 def test_provider_warning_is_returned_without_becoming_analysis():
