@@ -64,7 +64,7 @@ def _query() -> str:
     WITH candidates AS (
       SELECT
         GLOBALEVENTID AS event_id,
-        TIMESTAMP_MILLIS(DATEADDED) AS published_at,
+        SAFE.PARSE_TIMESTAMP('%Y%m%d%H%M%S', CAST(DATEADDED AS STRING)) AS published_at,
         SOURCEURL AS url,
         COALESCE(Actor1Name, '') AS actor1,
         COALESCE(Actor2Name, '') AS actor2,
@@ -126,7 +126,6 @@ def fetch_bigquery_events(
         raise ValueError("Fra-dato må være før eller lik til-dato")
 
     keywords = _keywords(search, country)
-    # One strong term is enough for narrow searches; broader plans require two.
     minimum_hits = 1 if len(keywords) <= 3 else 2
     parameters = [
         bigquery.ScalarQueryParameter("start_date", "DATE", start),
