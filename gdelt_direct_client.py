@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
@@ -12,6 +14,9 @@ from event_models import MarketEvent
 from gdelt_types import GdeltError, GdeltPage
 
 DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+_MIN_REQUEST_INTERVAL_SECONDS = 5.1
+_RATE_LIMIT_LOCK = threading.Lock()
+_LAST_REQUEST_AT = 0.0
 
 
 def _gdelt_datetime(value: str, *, end_of_day: bool = False) -> str:
@@ -21,16 +26,22 @@ def _gdelt_datetime(value: str, *, end_of_day: bool = False) -> str:
     return parsed.strftime("%Y%m%d%H%M%S")
 
 
+def _parse_seen_date(value: str) -> datetime | None:
+    cleaned = value.strip()
+    for pattern in ("%Y%m%dT%H%M%SZ", "%Y%m%d%H%M%S"):
+        try:
+            return datetime.strptime(cleaned, pattern).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
 def _article_event(article: dict[str, Any]) -> MarketEvent:
     url = str(article.get("url") or "")
     title = str(article.get("title") or "")
-    seen = str(article.get("seendate") or "")
-    published_at = None
-    event_date = ""
-    if len(seen) >= 14 and seen[:14].isdigit():
-        parsed = datetime.strptime(seen[:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
-        published_at = parsed.isoformat()
-        event_date = parsed.date().isoformat()
+    parsed = _parse_seen_date(str(article.get("seendate") or ""))
+    published_at = parsed.isoformat() if parsed else None
+    event_date = parsed.date().isoformat() if parsed else ""
     domain = str(article.get("domain") or urlparse(url).netloc)
     country = str(article.get("sourcecountry") or "")
     event_id = "gdelt-doc:" + sha1((url or title).encode("utf-8")).hexdigest()[:20]
@@ -57,6 +68,25 @@ def _article_event(article: dict[str, Any]) -> MarketEvent:
     )
 
 
+def _wait_for_request_slot() -> None:
+    """Keep process-local DOC requests slightly more than five seconds apart."""
+    global _LAST_REQUEST_AT
+    with _RATE_LIMIT_LOCK:
+        now = time.monotonic()
+        remaining = _MIN_REQUEST_INTERVAL_SECONDS - (now - _LAST_REQUEST_AT)
+        if remaining > 0:
+            time.sleep(remaining)
+        _LAST_REQUEST_AT = time.monotonic()
+
+
+def _retry_delay(response: requests.Response) -> float:
+    raw = response.headers.get("Retry-After", "").strip()
+    try:
+        return max(_MIN_REQUEST_INTERVAL_SECONDS, float(raw))
+    except ValueError:
+        return _MIN_REQUEST_INTERVAL_SECONDS
+
+
 @dataclass(slots=True)
 class DirectGdeltClient:
     timeout: int = 30
@@ -78,8 +108,10 @@ class DirectGdeltClient:
     ) -> GdeltPage:
         del category, event_family, confidence_profile, cursor
         query_parts = [search.strip() or "news"]
-        if country.strip():
-            query_parts.append(f'sourcecountry:"{country.strip()}"')
+        # Telegram's country describes the event, not the publication source.
+        # GDELT sourcecountry would incorrectly restrict results to media based there.
+        if country.strip() and country.strip().lower() not in search.lower():
+            query_parts.append(f'"{country.strip()}"')
         if domain.strip():
             query_parts.append(f'domain:"{domain.strip()}"')
         params = {
@@ -91,20 +123,34 @@ class DirectGdeltClient:
             "enddatetime": _gdelt_datetime(date_end, end_of_day=True),
             "sort": "datedesc" if sort in {"date", "datedesc"} else "hybridrel",
         }
+
+        response: requests.Response | None = None
         try:
-            response = requests.get(
-                DOC_API_URL,
-                params=params,
-                headers={"User-Agent": "PriceGauger/1.0-alpha"},
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
+            for attempt in range(2):
+                _wait_for_request_slot()
+                response = requests.get(
+                    DOC_API_URL,
+                    params=params,
+                    headers={"User-Agent": "PriceGauger/1.0-alpha"},
+                    timeout=self.timeout,
+                )
+                if response.status_code != 429 or attempt == 1:
+                    response.raise_for_status()
+                    break
+                time.sleep(_retry_delay(response))
+
+            if response is None:
+                raise GdeltError("GDELT DOC-forespørselen ble ikke utført.", stage="nettverk")
             payload = response.json()
         except requests.Timeout as exc:
             raise GdeltError("Tidsavbrudd mot gratis GDELT DOC API.", stage="nettverk") from exc
         except requests.RequestException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
-            raise GdeltError("Kunne ikke hente gratis GDELT DOC-data.", stage="nettverk", status_code=status) from exc
+            if status == 429:
+                message = "GDELT DOC ratebegrenset forespørselen etter ett kontrollert nytt forsøk. Vent minst fem sekunder."
+            else:
+                message = "Kunne ikke hente gratis GDELT DOC-data."
+            raise GdeltError(message, stage="nettverk", status_code=status) from exc
         except ValueError as exc:
             raise GdeltError("Gratis GDELT DOC returnerte ugyldig JSON.", stage="respons") from exc
 
