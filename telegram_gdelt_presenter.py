@@ -18,13 +18,13 @@ def latest_result_summary(result: LatestTelegramGdeltResult) -> dict[str, Any]:
         "search": result.plan.search,
         "search_id": result.ingestion.search_id,
         "search_count": len(result.history.searches),
-        "candidate_count": len(result.history.candidates),
+        "candidate_count": len(result.ingestion.candidates),
         "warning": result.ingestion.warning,
     }
 
 
 def latest_result_candidate_rows(result: LatestTelegramGdeltResult) -> list[dict[str, Any]]:
-    """Return stored candidates in display order, with no ranking or inference."""
+    """Return candidates from the current provider run, with no ranking or inference."""
     return [
         {
             "published_at": candidate.published_at or "",
@@ -34,5 +34,5 @@ def latest_result_candidate_rows(result: LatestTelegramGdeltResult) -> list[dict
             "provider": candidate.provider,
             "url": candidate.url,
         }
-        for candidate in result.history.candidates
+        for candidate in result.ingestion.candidates
     ]
