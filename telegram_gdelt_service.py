@@ -60,6 +60,7 @@ def process_latest_telegram_with_gdelt(
     )
     history = load_telegram_gdelt_history(
         plan.message_id,
+        search_id=ingestion.search_id,
         database_path=database_path,
     )
     if history is None:
