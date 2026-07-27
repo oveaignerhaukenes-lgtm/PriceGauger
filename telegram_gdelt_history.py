@@ -25,13 +25,21 @@ class TelegramGdeltHistory:
 def load_telegram_gdelt_history(
     message_id: str,
     *,
+    search_id: str | None = None,
     database_path: Path | str = DB_PATH,
 ) -> TelegramGdeltHistory | None:
-    """Load one Telegram message and all stored GDELT candidates without API calls."""
+    """Load stored GDELT candidates for one Telegram message without API calls.
+
+    When ``search_id`` is supplied, only that exact persisted search is returned.
+    Omitting it preserves the broader historical view across every stored search for
+    the Telegram message.
+    """
     links = load_telegram_gdelt_search_links(
         message_id,
         database_path=database_path,
     )
+    if search_id is not None:
+        links = [link for link in links if link.search_id == search_id]
     if not links:
         return None
 
