@@ -33,7 +33,7 @@ def get_secret(name: str) -> str:
 
 
 def gdelt_provider() -> str:
-    return (get_secret("GDELT_PROVIDER") or "direct").lower()
+    return (get_secret("GDELT_PROVIDER") or "bigquery").lower()
 
 
 def gdelt_api_key() -> str:
@@ -44,7 +44,21 @@ def gdelt_api_key() -> str:
         return get_secret("GDELT_CLOUD_API_KEY") or "__DIRECT__"
     if provider == "cloud":
         return get_secret("GDELT_CLOUD_API_KEY")
-    return "__DIRECT__"
+    return ""
+
+
+def bigquery_project_id() -> str:
+    return get_secret("GOOGLE_CLOUD_PROJECT") or get_secret("GCP_PROJECT") or "pricegauger"
+
+
+def bigquery_max_bytes_billed() -> int:
+    raw = get_secret("BIGQUERY_MAX_BYTES_BILLED")
+    if not raw:
+        return 5 * 1024**3
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 5 * 1024**3
 
 
 def twelve_data_api_key() -> str:
