@@ -10,6 +10,25 @@ from telegram_gdelt_service import LatestTelegramGdeltResult
 from telegram_query_builder import TelegramSearchPlan
 
 
+def _candidate(*, event_id: str, provider: str, title: str, url: str) -> GdeltCandidateRecord:
+    return GdeltCandidateRecord(
+        search_id="gdelt-search:presenter",
+        event_id=event_id,
+        provider=provider,
+        query="attack energy infrastructure Iran",
+        title=title,
+        summary=title,
+        published_at="2026-07-20T12:00:00+00:00",
+        event_date="2026-07-20",
+        country="Iran",
+        domain="example.com",
+        url=url,
+        retrieved_at="2026-07-25T13:00:00+00:00",
+        raw={"source": provider},
+        schema_version="gdelt-candidate-v1",
+    )
+
+
 def sample_result() -> LatestTelegramGdeltResult:
     plan = TelegramSearchPlan(
         message_id="presenter-1",
@@ -23,37 +42,33 @@ def sample_result() -> LatestTelegramGdeltResult:
         signal_score=3,
         published_at="2026-07-25T12:00:00+00:00",
     )
-    candidate = GdeltCandidateRecord(
-        search_id="gdelt-search:presenter",
+    current_candidate = _candidate(
+        event_id="gdelt-bq:presenter",
+        provider="GDELT BigQuery",
+        title="IRAN ↔ IRAQ · CAMEO 190",
+        url="https://example.com/bigquery",
+    )
+    old_candidate = _candidate(
         event_id="gdelt-doc:presenter",
         provider="GDELT DOC",
-        query=plan.search,
-        title="Historical terminal disruption",
-        summary="Historical terminal disruption",
-        published_at="2026-07-20T12:00:00+00:00",
-        event_date="2026-07-20",
-        country="Turkey",
-        domain="example.com",
-        url="https://example.com/article",
-        retrieved_at="2026-07-25T13:00:00+00:00",
-        raw={"seendate": "20260720T120000Z"},
-        schema_version="gdelt-candidate-v1",
+        title="Old DOC article",
+        url="https://example.com/doc",
     )
     link = TelegramGdeltSearchLink(
         message_id=plan.message_id,
         message_url=plan.message_url,
         message_text=plan.message_text,
         published_at=plan.published_at,
-        search_id=candidate.search_id,
+        search_id=current_candidate.search_id,
         created_at="2026-07-25 13:00:00",
     )
     ingestion = TelegramGdeltIngestionResult(
         message_id=plan.message_id,
-        search_id=candidate.search_id,
+        search_id=current_candidate.search_id,
         candidate_count=1,
         saved_count=1,
         warning=None,
-        candidates=(candidate,),
+        candidates=(current_candidate,),
     )
     history = TelegramGdeltHistory(
         message_id=plan.message_id,
@@ -61,12 +76,12 @@ def sample_result() -> LatestTelegramGdeltResult:
         message_text=plan.message_text,
         published_at=plan.published_at,
         searches=(link,),
-        candidates=(candidate,),
+        candidates=(old_candidate, current_candidate),
     )
     return LatestTelegramGdeltResult(plan=plan, ingestion=ingestion, history=history)
 
 
-def test_latest_result_summary_exposes_core_flow_counts():
+def test_latest_result_summary_exposes_current_run_counts():
     summary = latest_result_summary(sample_result())
 
     assert summary["message_id"] == "presenter-1"
@@ -76,16 +91,16 @@ def test_latest_result_summary_exposes_core_flow_counts():
     assert summary["warning"] is None
 
 
-def test_latest_result_candidate_rows_preserve_stored_order_and_provenance():
+def test_latest_result_candidate_rows_use_current_ingestion_not_mixed_history():
     rows = latest_result_candidate_rows(sample_result())
 
     assert rows == [
         {
             "published_at": "2026-07-20T12:00:00+00:00",
-            "title": "Historical terminal disruption",
+            "title": "IRAN ↔ IRAQ · CAMEO 190",
             "domain": "example.com",
-            "source_country": "Turkey",
-            "provider": "GDELT DOC",
-            "url": "https://example.com/article",
+            "source_country": "Iran",
+            "provider": "GDELT BigQuery",
+            "url": "https://example.com/bigquery",
         }
     ]
