@@ -44,6 +44,12 @@ class FakeConfiguredClient:
         )
 
 
+class FakeBigQueryClient:
+    def __init__(self, project: str, maximum_bytes_billed: int) -> None:
+        self.project = project
+        self.maximum_bytes_billed = maximum_bytes_billed
+
+
 def sample_plan() -> TelegramSearchPlan:
     return TelegramSearchPlan(
         message_id="123",
@@ -72,6 +78,21 @@ def test_direct_configuration_builds_doc_provider(monkeypatch):
     assert configured.provider_name == "GDELT DOC"
     assert configured.client.api_key == "__DIRECT__"
     assert configured.client.timeout == 12
+
+
+def test_bigquery_configuration_builds_cost_bounded_provider(monkeypatch):
+    monkeypatch.setattr(gdelt_runtime, "BigQueryGdeltClient", FakeBigQueryClient)
+
+    configured = gdelt_runtime.build_configured_gdelt_provider(
+        provider_loader=lambda: "bigquery",
+        bigquery_project_loader=lambda: "pricegauger",
+        bigquery_max_bytes_loader=lambda: 12345,
+    )
+
+    assert configured.provider_mode == "bigquery"
+    assert configured.provider_name == "GDELT BigQuery"
+    assert configured.client.project == "pricegauger"
+    assert configured.client.maximum_bytes_billed == 12345
 
 
 def test_cloud_configuration_requires_token():
