@@ -12,6 +12,24 @@ from telegram_query_builder import TelegramSearchPlan
 _RESPONSES_URL = "https://api.openai.com/v1/responses"
 INTERPRETATION_VERSION = "telegram-market-search-v1"
 
+_SUPPORTED_COUNTRIES = {
+    "bahrain": "Bahrain",
+    "iran": "Iran",
+    "israel": "Israel",
+    "iraq": "Iraq",
+    "saudi arabia": "Saudi Arabia",
+    "yemen": "Yemen",
+    "lebanon": "Lebanon",
+    "syria": "Syria",
+    "qatar": "Qatar",
+    "united arab emirates": "United Arab Emirates",
+    "uae": "United Arab Emirates",
+    "oman": "Oman",
+    "united states": "United States",
+    "us": "United States",
+    "usa": "United States",
+}
+
 
 def _response_text(payload: dict[str, Any]) -> str:
     direct = payload.get("output_text")
@@ -37,11 +55,13 @@ Goal: produce a compact, realistic search basis for finding genuinely comparable
 
 Identify:
 - the principal action/event type
-- principal actor, target and country/location
+- principal actor, target and sovereign country
 - the causal market channel
 - 3 to 6 concise English search concepts likely to retrieve historical analogues
 
-Search concepts must be concrete and reusable across time. Do not write SQL, operators, dates, URLs, prose sentences, or speculative facts. Do not merely copy the entire post. Prefer concepts such as actor/action/target/location or market mechanism. Omit uncertain details rather than inventing them.
+The country field must contain only a sovereign state, never a strait, sea, city, region, route or facility. Leave country empty when no sovereign state is clearly supported. Put geographic features such as Strait of Hormuz in the target or search concepts instead.
+
+Search concepts must be concrete, reusable across time and no longer than a short phrase. Do not write SQL, operators, dates, URLs, prose sentences, predicted price outcomes or speculative facts. Do not merely copy the entire post. Prefer actor/action/target/location concepts. Omit uncertain details rather than inventing them.
 
 POST
 Published: {plan.published_at}
@@ -77,6 +97,14 @@ def _confidence(value: Any) -> float:
     if not 0.0 <= result <= 1.0:
         raise ValueError("confidence must be between 0 and 1")
     return result
+
+
+def _country(value: Any, fallback: str) -> str:
+    candidate = " ".join(str(value or "").strip().lower().split())
+    if candidate in _SUPPORTED_COUNTRIES:
+        return _SUPPORTED_COUNTRIES[candidate]
+    fallback_key = " ".join(str(fallback or "").strip().lower().split())
+    return _SUPPORTED_COUNTRIES.get(fallback_key, "")
 
 
 class OpenAITelegramInterpreter:
@@ -152,7 +180,7 @@ class OpenAITelegramInterpreter:
 
         event_type = str(parsed.get("event_type") or "").strip() or plan.event_type
         target = str(parsed.get("target") or "").strip() or plan.target
-        country = str(parsed.get("country") or "").strip() or plan.country
+        country = _country(parsed.get("country"), plan.country)
         actor = str(parsed.get("actor") or "").strip()
         market_channel = str(parsed.get("market_channel") or "").strip()
 
