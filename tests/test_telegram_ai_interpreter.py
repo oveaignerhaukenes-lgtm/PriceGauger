@@ -33,12 +33,13 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self):
+    def __init__(self, response=None):
         self.calls = []
+        self.response = response or FakeResponse()
 
     def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
-        return FakeResponse()
+        return self.response
 
 
 def sample_plan() -> TelegramSearchPlan:
@@ -85,6 +86,41 @@ def test_openai_interpreter_builds_compact_structured_search_plan():
     assert schema["additionalProperties"] is False
     assert schema["properties"]["search_terms"]["maxItems"] == 6
     assert "SQL" in request["input"]
+    assert "sovereign state" in request["input"]
+
+
+def test_openai_interpreter_does_not_use_geographic_feature_as_country():
+    class StraitResponse(FakeResponse):
+        def json(self):
+            return {
+                "output_text": json.dumps(
+                    {
+                        "event_type": "shipping disruption",
+                        "actor": "",
+                        "target": "commercial shipping in Strait of Hormuz",
+                        "country": "Strait of Hormuz",
+                        "market_channel": "oil supply risk",
+                        "search_terms": [
+                            "Strait of Hormuz disruption",
+                            "commercial shipping threat",
+                            "oil supply risk",
+                        ],
+                        "confidence": 0.75,
+                    }
+                )
+            }
+
+    plan = sample_plan()
+    plan = TelegramSearchPlan(**{**plan.to_record(), "country": ""})
+    interpreted = OpenAITelegramInterpreter(
+        api_key="test-key",
+        model="test-model",
+        session=FakeSession(StraitResponse()),
+    ).interpret(plan)
+
+    assert interpreted.country == ""
+    assert "Strait of Hormuz" in interpreted.target
+    assert interpreted.interpretation_source == "openai"
 
 
 def test_interpret_search_plan_preserves_rules_when_openai_is_not_configured(monkeypatch):
