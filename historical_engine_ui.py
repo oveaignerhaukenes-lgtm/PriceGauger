@@ -19,6 +19,22 @@ def _interval(low: float | None, high: float | None) -> str:
     return f"{float(low):+.2f} til {float(high):+.2f} %"
 
 
+def render_event_summary(summary: dict[str, Any]) -> None:
+    items = (
+        ("Hendelsestype", str(summary.get("event_type") or "ukjent")),
+        ("Mål", str(summary.get("target") or "ukjent")),
+        ("Land", str(summary.get("country") or "ikke angitt")),
+        ("Lagrede kandidater", str(summary.get("candidate_count") or 0)),
+    )
+    for start in range(0, len(items), 2):
+        columns = st.columns(2)
+        for column, (label, value) in zip(columns, items[start : start + 2]):
+            with column:
+                with st.container(border=True):
+                    st.caption(label)
+                    st.write(value)
+
+
 def render_semantic_ranking_table(rows: Iterable[dict[str, Any]]) -> None:
     records = []
     for index, item in enumerate(rows, start=1):
@@ -42,7 +58,7 @@ def render_semantic_ranking_table(rows: Iterable[dict[str, Any]]) -> None:
         frame,
         hide_index=True,
         use_container_width=True,
-        row_height=76,
+        row_height=88,
         column_order=(
             "rank",
             "title",
