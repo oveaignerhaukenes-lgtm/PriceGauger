@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from config import gdelt_provider
 from telegram_gdelt_presenter import (
     latest_result_candidate_rows,
     latest_result_summary,
@@ -17,12 +18,29 @@ st.caption(
     "Denne siden rangerer ikke kandidatene og gir ingen markedsanbefaling."
 )
 
+active_provider = gdelt_provider()
+provider_label = {
+    "bigquery": "GDELT BigQuery",
+    "direct": "GDELT DOC",
+    "cloud": "GDELT Cloud",
+    "auto": "Automatisk",
+}.get(active_provider, active_provider)
+st.caption(f"Aktiv datakilde: **{provider_label}**")
+
 with st.sidebar:
     st.header("Innhenting")
     channel = st.text_input("Telegram-kanal", value="Middle_East_Spectator")
     lookback_days = st.number_input("Historisk vindu (dager)", min_value=1, max_value=365, value=30)
     limit = st.number_input("Maks kandidater", min_value=1, max_value=250, value=10)
     minimum_signal = st.number_input("Minste signalscore", min_value=1, max_value=3, value=2)
+
+result_key = "latest_telegram_gdelt_result"
+result_provider_key = "latest_telegram_gdelt_provider"
+
+# Do not keep showing candidates from an older provider after configuration changes.
+if st.session_state.get(result_provider_key) not in (None, active_provider):
+    st.session_state.pop(result_key, None)
+    st.session_state.pop(result_provider_key, None)
 
 if st.button("Behandle nyeste relevante post", type="primary", use_container_width=True):
     try:
@@ -34,11 +52,12 @@ if st.button("Behandle nyeste relevante post", type="primary", use_container_wid
                 minimum_signal=int(minimum_signal),
                 timeout=60,
             )
-        st.session_state["latest_telegram_gdelt_result"] = result
+        st.session_state[result_key] = result
+        st.session_state[result_provider_key] = active_provider
     except Exception as exc:
         st.error(f"Kjerneflyten kunne ikke fullføres: {exc}")
 
-result = st.session_state.get("latest_telegram_gdelt_result")
+result = st.session_state.get(result_key)
 if result is None:
     st.info("Ingen behandlet Telegram-post er lastet i denne økten.")
 else:
