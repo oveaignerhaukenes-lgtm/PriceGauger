@@ -15,18 +15,19 @@ _ENGINE_LABELS = {
 
 def render_engine_sidebar(*, active: str) -> None:
     with st.sidebar.expander("Motorer", expanded=True):
-        historical_label = _ENGINE_LABELS["historical"]
-        technical_label = _ENGINE_LABELS["technical"]
         st.page_link(
             "pages/1_Kjerneflyt.py",
-            label=("● " if active == "historical" else "") + historical_label,
+            label=("● " if active == "historical" else "") + _ENGINE_LABELS["historical"],
         )
         st.page_link(
             "pages/2_Direct_Technical.py",
-            label=("● " if active == "technical" else "") + technical_label,
+            label=("● " if active == "technical" else "") + _ENGINE_LABELS["technical"],
+        )
+        st.page_link(
+            "pages/3_News_Context.py",
+            label=("● " if active == "news" else "") + _ENGINE_LABELS["news"],
         )
         st.caption("Planlagt")
-        st.write("Nyhetsmotor")
         st.write("Markedskontekst")
         st.write("Etternølere")
         st.write("Syntesemotor")
