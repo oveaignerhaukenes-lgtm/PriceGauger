@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 import requests
@@ -14,6 +14,18 @@ from market_data import MarketProvider, MarketRequest
 
 SIM_BASE_URL = "https://gateway.saxobank.com/sim/openapi"
 LIVE_BASE_URL = "https://gateway.saxobank.com/openapi"
+
+
+class SaxoError(RuntimeError):
+    """Safe Saxo failure suitable for provider fallback diagnostics."""
+
+    def __init__(self, message: str, *, status: str = "REQUEST_FAILED", status_code: int | None = None) -> None:
+        self.status = status
+        self.status_code = status_code
+        prefix = status
+        if status_code is not None:
+            prefix += f" · HTTP {status_code}"
+        super().__init__(f"{prefix}: {message}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,37 +57,82 @@ class SaxoInstrument:
 class SaxoClient:
     def __init__(
         self,
-        access_token: str,
+        access_token: str | None = None,
         *,
+        access_token_getter: Callable[..., str] | None = None,
         base_url: str = SIM_BASE_URL,
         timeout: float = 20.0,
         session: requests.Session | None = None,
     ) -> None:
-        token = access_token.strip()
-        if not token:
+        token = (access_token or "").strip()
+        if not token and access_token_getter is None:
             raise ValueError("Saxo access token mangler")
+        self._static_access_token = token
+        self._access_token_getter = access_token_getter
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = session or requests.Session()
         self.session.headers.update(
             {
-                "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
+                "User-Agent": "PriceGauger/1.0-alpha",
             }
         )
+        if token:
+            self.session.headers["Authorization"] = f"Bearer {token}"
+
+    def _set_authorization(self, *, force_refresh: bool = False) -> None:
+        if self._access_token_getter is not None:
+            try:
+                token = self._access_token_getter(force_refresh=force_refresh)
+            except TypeError:
+                token = self._access_token_getter()
+            except Exception as exc:
+                status = getattr(exc, "status", "AUTH_FAILED")
+                raise SaxoError(str(exc), status=status) from exc
+        else:
+            token = self._static_access_token
+        if not token:
+            raise SaxoError("Saxo access token mangler", status="TOKEN_MISSING")
+        self.session.headers["Authorization"] = f"Bearer {token}"
 
     def _get(self, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        response = self.session.get(
-            f"{self.base_url}/{path.lstrip('/')}",
-            params=params,
-            timeout=self.timeout,
-        )
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        for attempt in range(2):
+            self._set_authorization(force_refresh=attempt == 1)
+            try:
+                response = self.session.get(url, params=params, timeout=self.timeout)
+            except requests.Timeout as exc:
+                raise SaxoError(f"tidsavbrudd etter {self.timeout:g} sekunder", status="TIMEOUT") from exc
+            except requests.ConnectionError as exc:
+                raise SaxoError("kunne ikke opprette forbindelse", status="CONNECTION_FAILED") from exc
+            except requests.RequestException as exc:
+                raise SaxoError(type(exc).__name__, status="REQUEST_FAILED") from exc
+
+            if response.status_code == 401 and self._access_token_getter is not None and attempt == 0:
+                continue
+            break
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise SaxoError("responsen var ikke gyldig JSON", status="INVALID_RESPONSE", status_code=response.status_code) from exc
+
         if not response.ok:
-            detail = response.text[:500]
-            raise RuntimeError(f"Saxo HTTP {response.status_code}: {detail}")
-        payload = response.json()
+            message = "forespørselen ble avvist"
+            if isinstance(payload, dict):
+                error_info = payload.get("ErrorInfo") if isinstance(payload.get("ErrorInfo"), dict) else {}
+                message = str(
+                    error_info.get("Message")
+                    or error_info.get("ErrorCode")
+                    or payload.get("Message")
+                    or payload.get("message")
+                    or message
+                )
+            status = "AUTH_FAILED" if response.status_code in {401, 403} else "REQUEST_FAILED"
+            raise SaxoError(message, status=status, status_code=response.status_code)
         if not isinstance(payload, dict):
-            raise RuntimeError("Uventet Saxo-respons")
+            raise SaxoError("forventet JSON-objekt", status="INVALID_RESPONSE", status_code=response.status_code)
         return payload
 
     def search_instruments(
@@ -89,7 +146,12 @@ class SaxoClient:
             params={"Keywords": keywords, "AssetTypes": asset_types},
         )
         instruments: list[SaxoInstrument] = []
-        for item in payload.get("Data", []):
+        raw = payload.get("Data", [])
+        if not isinstance(raw, list):
+            raise SaxoError("instrumentlisten hadde ugyldig format", status="INVALID_RESPONSE")
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
             identifier = item.get("Identifier")
             asset_type = item.get("AssetType")
             if identifier is None or not asset_type:
@@ -112,6 +174,12 @@ class SaxoClient:
             params={"FieldGroups": "MarketData"},
         )
 
+    def info_price(self, instrument: SaxoInstrument) -> dict[str, Any]:
+        return self._get(
+            "trade/v1/infoprices",
+            params={"Uic": instrument.uic, "AssetType": instrument.asset_type, "FieldGroups": "DisplayAndFormat,PriceInfo,Quote"},
+        )
+
     def chart(
         self,
         instrument: SaxoInstrument,
@@ -130,6 +198,10 @@ class SaxoClient:
             },
         )
         rows = payload.get("Data", [])
+        if rows is None:
+            rows = []
+        if not isinstance(rows, list):
+            raise SaxoError("chart-data hadde ugyldig format", status="INVALID_RESPONSE")
         if not rows:
             return pd.DataFrame()
         frame = pd.DataFrame(rows)
@@ -149,7 +221,7 @@ class SaxoClient:
                 if target != "volume":
                     price_columns.append(target)
         if "close" not in frame:
-            raise RuntimeError("Saxo chart-respons mangler close-pris")
+            raise SaxoError("chart-respons mangler close-pris", status="INVALID_RESPONSE")
         if instrument.price_multiplier != 1.0:
             frame[price_columns] = frame[price_columns] * instrument.price_multiplier
         wanted = [column for column in ("timestamp", "open", "high", "low", "close", "volume") if column in frame]
@@ -183,11 +255,25 @@ def configured_instruments() -> dict[str, SaxoInstrument]:
 
 
 def configured_client() -> SaxoClient | None:
+    environment = (_secret("SAXO_ENVIRONMENT") or "sim").lower()
+    base_url = _secret("SAXO_BASE_URL") or (LIVE_BASE_URL if environment == "live" else SIM_BASE_URL)
+
+    try:
+        from saxo_auth import configured_oauth_client
+
+        oauth = configured_oauth_client(_secret)
+    except (ImportError, ValueError):
+        oauth = None
+    if oauth is not None:
+        try:
+            oauth.status()
+        except Exception:
+            pass
+        return SaxoClient(access_token_getter=oauth.access_token, base_url=base_url)
+
     token = _secret("SAXO_ACCESS_TOKEN")
     if not token:
         return None
-    environment = (_secret("SAXO_ENVIRONMENT") or "sim").lower()
-    base_url = _secret("SAXO_BASE_URL") or (LIVE_BASE_URL if environment == "live" else SIM_BASE_URL)
     return SaxoClient(token, base_url=base_url)
 
 
@@ -203,12 +289,27 @@ class SaxoPriceProvider(MarketProvider):
         self.instruments = instruments if instruments is not None else configured_instruments()
 
     def supports(self, request: MarketRequest) -> bool:
-        return self.client is not None and request.asset_name in self.instruments
+        instrument = self.instruments.get(request.asset_name)
+        return self.client is not None and instrument is not None and instrument_is_unexpired(instrument)
+
+    def unsupported_reason(self, request: MarketRequest) -> str | None:
+        if self.client is None:
+            return "TOKEN_MISSING: Saxo OAuth eller access token mangler"
+        instrument = self.instruments.get(request.asset_name)
+        if instrument is None:
+            return f"INSTRUMENT_MISSING: {request.asset_name} er ikke konfigurert"
+        if not instrument_is_unexpired(instrument):
+            return f"INSTRUMENT_EXPIRED: kontrakten for {request.asset_name} er utløpt"
+        return None
 
     def fetch(self, request: MarketRequest) -> pd.DataFrame:
         if self.client is None:
-            raise RuntimeError("Saxo er ikke konfigurert")
-        instrument = self.instruments[request.asset_name]
+            raise SaxoError("Saxo er ikke konfigurert", status="TOKEN_MISSING")
+        instrument = self.instruments.get(request.asset_name)
+        if instrument is None:
+            raise SaxoError(f"{request.asset_name} er ikke konfigurert", status="INSTRUMENT_MISSING")
+        if not instrument_is_unexpired(instrument):
+            raise SaxoError(f"kontrakten for {request.asset_name} er utløpt", status="INSTRUMENT_EXPIRED")
         horizon = {"1min": 1, "5min": 5, "15min": 15, "30min": 30, "1h": 60}.get(request.interval)
         if horizon is None:
             raise ValueError(f"Ustøttet Saxo-intervall: {request.interval}")
