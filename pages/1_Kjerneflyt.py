@@ -4,6 +4,8 @@ import pandas as pd
 import streamlit as st
 
 from config import gdelt_provider
+from saxo_analogue_reactions import measure_brent_reactions
+from saxo_provider import configured_client
 from telegram_gdelt_presenter import (
     latest_result_candidate_rows,
     latest_result_summary,
@@ -36,11 +38,15 @@ with st.sidebar:
 
 result_key = "latest_telegram_gdelt_result"
 result_provider_key = "latest_telegram_gdelt_provider"
+reaction_key = "latest_saxo_brent_reactions"
+reaction_search_key = "latest_saxo_brent_search_id"
 
-# Do not keep showing candidates from an older provider after configuration changes.
+# Do not keep showing candidates or reactions from an older provider/search.
 if st.session_state.get(result_provider_key) not in (None, active_provider):
     st.session_state.pop(result_key, None)
     st.session_state.pop(result_provider_key, None)
+    st.session_state.pop(reaction_key, None)
+    st.session_state.pop(reaction_search_key, None)
 
 if st.button("Behandle nyeste relevante post", type="primary", use_container_width=True):
     try:
@@ -54,6 +60,8 @@ if st.button("Behandle nyeste relevante post", type="primary", use_container_wid
             )
         st.session_state[result_key] = result
         st.session_state[result_provider_key] = active_provider
+        st.session_state.pop(reaction_key, None)
+        st.session_state.pop(reaction_search_key, None)
     except Exception as exc:
         st.error(f"Kjerneflyten kunne ikke fullføres: {exc}")
 
@@ -116,3 +124,46 @@ else:
                 "url": st.column_config.LinkColumn("Artikkel"),
             },
         )
+
+        st.subheader("Observerte Brent-reaksjoner · Saxo")
+        st.caption(
+            "Måler foreløpig alle returnerte kandidater. Semantisk rangering kobles på i neste lag. "
+            "Kun kandidater med eksakt publiseringstid kan måles."
+        )
+        if st.button("Hent Brent-reaksjoner fra Saxo", use_container_width=True):
+            client = configured_client()
+            if client is None:
+                st.error("Saxo OAuth er ikke konfigurert eller tilkoblet.")
+            else:
+                try:
+                    with st.spinner("Velger historiske Brent-kontrakter og henter prisvinduer …"):
+                        reactions = measure_brent_reactions(result.ingestion.candidates, client=client)
+                    st.session_state[reaction_key] = [item.to_record() for item in reactions]
+                    st.session_state[reaction_search_key] = summary["search_id"]
+                except Exception as exc:
+                    st.error(f"Saxo-reaksjonene kunne ikke hentes: {exc}")
+
+        if st.session_state.get(reaction_search_key) == summary["search_id"]:
+            reaction_rows = st.session_state.get(reaction_key, [])
+            if reaction_rows:
+                reaction_frame = pd.DataFrame(reaction_rows)
+                st.dataframe(
+                    reaction_frame,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "candidate_event_id": "Hendelse",
+                        "published_at": "Tidspunkt",
+                        "contract_symbol": "Kontrakt",
+                        "contract_uic": "UIC",
+                        "price_at_event": st.column_config.NumberColumn("Startpris", format="%.3f"),
+                        "return_15m_pct": st.column_config.NumberColumn("+15m %", format="%.3f"),
+                        "return_1h_pct": st.column_config.NumberColumn("+1t %", format="%.3f"),
+                        "return_4h_pct": st.column_config.NumberColumn("+4t %", format="%.3f"),
+                        "return_24h_pct": st.column_config.NumberColumn("+24t %", format="%.3f"),
+                        "mfe_4h_pct": st.column_config.NumberColumn("MFE 4t %", format="%.3f"),
+                        "mae_4h_pct": st.column_config.NumberColumn("MAE 4t %", format="%.3f"),
+                        "status": "Status",
+                        "error": "Feil",
+                    },
+                )
