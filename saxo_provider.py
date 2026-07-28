@@ -116,7 +116,11 @@ class SaxoClient:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise SaxoError("responsen var ikke gyldig JSON", status="INVALID_RESPONSE", status_code=response.status_code) from exc
+            raise SaxoError(
+                "responsen var ikke gyldig JSON",
+                status="INVALID_RESPONSE",
+                status_code=response.status_code,
+            ) from exc
 
         if not response.ok:
             message = "forespørselen ble avvist"
@@ -174,10 +178,40 @@ class SaxoClient:
             params={"FieldGroups": "MarketData"},
         )
 
+    def future_space(self, continuous_uic: int) -> list[SaxoInstrument]:
+        payload = self._get(f"ref/v1/instruments/futuresspaces/{int(continuous_uic)}")
+        rows = payload.get("Elements") or payload.get("Data") or []
+        if not isinstance(rows, list):
+            raise SaxoError("future-space hadde ugyldig format", status="INVALID_RESPONSE")
+
+        instruments: list[SaxoInstrument] = []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            uic = item.get("Uic") or item.get("Identifier")
+            asset_type = item.get("AssetType") or "ContractFutures"
+            if uic is None:
+                continue
+            instruments.append(
+                SaxoInstrument(
+                    asset="",
+                    uic=int(uic),
+                    asset_type=str(asset_type),
+                    symbol=str(item.get("Symbol") or ""),
+                    description=str(item.get("Description") or ""),
+                    expiry=str(item.get("ExpiryDate")) if item.get("ExpiryDate") else None,
+                )
+            )
+        return instruments
+
     def info_price(self, instrument: SaxoInstrument) -> dict[str, Any]:
         return self._get(
             "trade/v1/infoprices",
-            params={"Uic": instrument.uic, "AssetType": instrument.asset_type, "FieldGroups": "DisplayAndFormat,PriceInfo,Quote"},
+            params={
+                "Uic": instrument.uic,
+                "AssetType": instrument.asset_type,
+                "FieldGroups": "DisplayAndFormat,PriceInfo,Quote",
+            },
         )
 
     def chart(
@@ -186,17 +220,28 @@ class SaxoClient:
         *,
         horizon_minutes: int = 1,
         count: int = 1200,
+        time: datetime | pd.Timestamp | str | None = None,
+        mode: str | None = None,
     ) -> pd.DataFrame:
-        payload = self._get(
-            "chart/v3/charts",
-            params={
-                "Uic": instrument.uic,
-                "AssetType": instrument.asset_type,
-                "Horizon": horizon_minutes,
-                "Count": min(max(int(count), 1), 1200),
-                "FieldGroups": "Data",
-            },
-        )
+        params: dict[str, Any] = {
+            "Uic": instrument.uic,
+            "AssetType": instrument.asset_type,
+            "Horizon": horizon_minutes,
+            "Count": min(max(int(count), 1), 1200),
+            "FieldGroups": "Data",
+        }
+        if time is not None:
+            timestamp = pd.Timestamp(time)
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.tz_localize("UTC")
+            else:
+                timestamp = timestamp.tz_convert("UTC")
+            params["Time"] = timestamp.isoformat().replace("+00:00", "Z")
+            params["Mode"] = mode or "From"
+        elif mode is not None:
+            params["Mode"] = mode
+
+        payload = self._get("chart/v3/charts", params=params)
         rows = payload.get("Data", [])
         if rows is None:
             rows = []
@@ -226,6 +271,36 @@ class SaxoClient:
             frame[price_columns] = frame[price_columns] * instrument.price_multiplier
         wanted = [column for column in ("timestamp", "open", "high", "low", "close", "volume") if column in frame]
         return frame[wanted].dropna(subset=["timestamp", "close"]).sort_values("timestamp").reset_index(drop=True)
+
+
+def select_contract_for_timestamp(
+    contracts: list[SaxoInstrument],
+    timestamp: datetime | pd.Timestamp | str,
+    *,
+    minimum_days_to_expiry: int = 2,
+) -> SaxoInstrument:
+    target = pd.Timestamp(timestamp)
+    if target.tzinfo is None:
+        target = target.tz_localize("UTC")
+    else:
+        target = target.tz_convert("UTC")
+
+    eligible: list[tuple[pd.Timestamp, SaxoInstrument]] = []
+    for contract in contracts:
+        if not contract.expiry:
+            continue
+        expiry = pd.Timestamp(contract.expiry)
+        if expiry.tzinfo is None:
+            expiry = expiry.tz_localize("UTC")
+        else:
+            expiry = expiry.tz_convert("UTC")
+        if expiry >= target + pd.Timedelta(days=minimum_days_to_expiry):
+            eligible.append((expiry, contract))
+
+    if not eligible:
+        raise SaxoError("ingen gyldig futureskontrakt for tidspunktet", status="INSTRUMENT_MISSING")
+    eligible.sort(key=lambda item: item[0])
+    return eligible[0][1]
 
 
 def _secret(name: str) -> str:
