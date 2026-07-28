@@ -7,6 +7,7 @@ _ENGINE_LABELS = {
     "historical": "Historisk motor",
     "technical": "Teknisk motor",
     "news": "Nyhetsmotor",
+    "ai_assessment": "AI-markedsvurdering",
     "market_context": "Markedskontekst",
     "lagging_assets": "Etternølere",
     "synthesis": "Syntesemotor",
@@ -26,6 +27,10 @@ def render_engine_sidebar(*, active: str) -> None:
         st.page_link(
             "pages/3_News_Context.py",
             label=("● " if active == "news" else "") + _ENGINE_LABELS["news"],
+        )
+        st.page_link(
+            "pages/5_AI_Market_Assessment.py",
+            label=("● " if active == "ai_assessment" else "") + _ENGINE_LABELS["ai_assessment"],
         )
         st.caption("Planlagt")
         st.write("Markedskontekst")
