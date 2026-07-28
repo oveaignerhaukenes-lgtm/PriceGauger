@@ -7,6 +7,7 @@ _ENGINE_LABELS = {
     "historical": "Historisk motor",
     "technical": "Teknisk motor",
     "news": "Nyhetsmotor",
+    "telegram_flow": "Telegram Flow",
     "ai_assessment": "AI-markedsvurdering",
     "market_context": "Markedskontekst",
     "lagging_assets": "Etternølere",
@@ -27,6 +28,10 @@ def render_engine_sidebar(*, active: str) -> None:
         st.page_link(
             "pages/3_News_Context.py",
             label=("● " if active == "news" else "") + _ENGINE_LABELS["news"],
+        )
+        st.page_link(
+            "pages/4_Telegram_Flow.py",
+            label=("● " if active == "telegram_flow" else "") + _ENGINE_LABELS["telegram_flow"],
         )
         st.page_link(
             "pages/5_AI_Market_Assessment.py",
