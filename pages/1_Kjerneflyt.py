@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 
 import pandas as pd
@@ -10,6 +11,7 @@ from engine_sidebar import render_engine_sidebar
 from historical_engine import build_historical_assessment
 from saxo_analogue_reactions import measure_brent_reactions
 from saxo_provider import configured_client
+from semantic_analogue_ranking import rank_analogues
 from telegram_gdelt_presenter import (
     latest_result_candidate_rows,
     latest_result_summary,
@@ -46,13 +48,22 @@ result_key = "latest_telegram_gdelt_result"
 result_provider_key = "latest_telegram_gdelt_provider"
 reaction_key = "latest_saxo_brent_reactions"
 reaction_search_key = "latest_saxo_brent_search_id"
+semantic_key = "latest_semantic_analogue_ranking"
+semantic_search_key = "latest_semantic_analogue_search_id"
 
-# Do not keep showing candidates or reactions from an older provider/search.
+
+def _clear_derived_results() -> None:
+    st.session_state.pop(reaction_key, None)
+    st.session_state.pop(reaction_search_key, None)
+    st.session_state.pop(semantic_key, None)
+    st.session_state.pop(semantic_search_key, None)
+
+
+# Do not keep showing candidates or derived results from an older provider/search.
 if st.session_state.get(result_provider_key) not in (None, active_provider):
     st.session_state.pop(result_key, None)
     st.session_state.pop(result_provider_key, None)
-    st.session_state.pop(reaction_key, None)
-    st.session_state.pop(reaction_search_key, None)
+    _clear_derived_results()
 
 if st.button("Behandle nyeste relevante post", type="primary", use_container_width=True):
     try:
@@ -66,8 +77,7 @@ if st.button("Behandle nyeste relevante post", type="primary", use_container_wid
             )
         st.session_state[result_key] = result
         st.session_state[result_provider_key] = active_provider
-        st.session_state.pop(reaction_key, None)
-        st.session_state.pop(reaction_search_key, None)
+        _clear_derived_results()
     except Exception as exc:
         st.error(f"Kjerneflyten kunne ikke fullføres: {exc}")
 
@@ -131,10 +141,54 @@ else:
             },
         )
 
+        st.subheader("Semantisk analoglikhet")
+        st.caption(
+            "AI vurderer både likhet mellom hendelsene og likhet som mulig årsak til markedsreaksjon. "
+            "Den røde linjen viser et likt vektet samlet mål."
+        )
+        if st.button("Vurder semantisk likhet", use_container_width=True):
+            try:
+                with st.spinner("Sammenligner Telegram-hendelsen med de historiske kandidatene …"):
+                    ranked = rank_analogues(
+                        result.plan,
+                        result.ingestion.candidates,
+                        limit=int(limit),
+                    )
+                st.session_state[semantic_key] = [item.to_record() for item in ranked]
+                st.session_state[semantic_search_key] = summary["search_id"]
+            except Exception as exc:
+                st.error(f"Semantisk rangering kunne ikke fullføres: {exc}")
+
+        if st.session_state.get(semantic_search_key) == summary["search_id"]:
+            semantic_rows = st.session_state.get(semantic_key, [])
+            for index, item in enumerate(semantic_rows, start=1):
+                combined = float(item["combined_similarity"])
+                event_score = float(item["event_similarity"])
+                market_score = float(item["market_similarity"])
+                width = max(0.0, min(100.0, combined * 100.0))
+                st.markdown(
+                    f"""
+                    <div style="padding:.8rem 0;border-bottom:1px solid rgba(128,128,128,.22)">
+                      <div style="display:flex;justify-content:space-between;gap:1rem">
+                        <strong>{index}. {html.escape(str(item['title']))}</strong>
+                        <span>{combined * 100:.0f}%</span>
+                      </div>
+                      <div style="height:.45rem;margin:.45rem 0;border-radius:999px;background:rgba(128,128,128,.20);overflow:hidden">
+                        <div style="height:100%;width:{width:.1f}%;background:#ff4b4b;border-radius:999px"></div>
+                      </div>
+                      <div style="font-size:.82rem;color:rgba(128,128,128,.95)">
+                        Hendelseslikhet {event_score * 100:.0f}% · markedslikhet {market_score * 100:.0f}% · {html.escape(str(item['published_at']))}
+                      </div>
+                      <div style="margin-top:.35rem;font-size:.9rem">{html.escape(str(item['explanation']))}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
         st.subheader("Observerte Brent-reaksjoner · Saxo")
         st.caption(
-            "Måler foreløpig alle returnerte kandidater. Semantisk rangering kobles på i neste lag. "
-            "Kun kandidater med eksakt publiseringstid kan måles."
+            "Måler foreløpig alle returnerte kandidater. Neste steg er å bruke den semantiske "
+            "rangeringen til å velge analogene som inngår i prisvurderingen."
         )
         if st.button("Hent Brent-reaksjoner fra Saxo", use_container_width=True):
             client = configured_client()
@@ -183,7 +237,7 @@ else:
                 st.subheader("Historisk motor · prisvurdering")
                 st.caption(
                     "Primærhorisont: 4 timer. Duplikate publiseringstidspunkter teller bare én gang. "
-                    "Statusen er foreløpig urankert til semantisk analograngering er koblet på."
+                    "Statusen er foreløpig urankert til den semantiske rangeringen brukes som filter."
                 )
 
                 probability_up = assessment.probability_up
