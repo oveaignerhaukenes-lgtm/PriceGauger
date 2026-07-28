@@ -35,7 +35,10 @@ def rank_analogues(
 
     for candidate in list(candidates)[: max(1, int(limit))]:
         assessment = active_assessor.assess(source, candidate)
-        combined = 0.5 * assessment.event_similarity + 0.5 * assessment.market_similarity
+        combined = round(
+            0.5 * assessment.event_similarity + 0.5 * assessment.market_similarity,
+            12,
+        )
         ranked.append(
             RankedAnalogue(
                 candidate_event_id=candidate.event_id,
