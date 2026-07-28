@@ -69,6 +69,13 @@ class TelegramSearchPlan:
     published_at: str = ""
     regime_id: str = "GEOPOLITICAL_CONFLICT"
     taxonomy_version: str = "geopolitical-conflict-v1"
+    interpretation_source: str = "rules"
+    interpretation_model: str = ""
+    interpretation_version: str = "rules-v1"
+    interpretation_confidence: float | None = None
+    actor: str = ""
+    market_channel: str = ""
+    search_terms: tuple[str, ...] = ()
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
@@ -131,6 +138,7 @@ def build_search_plan(*, message_id: str, message_url: str, text: str, published
         search=search,
         signal_score=signal_score,
         published_at=published_at,
+        search_terms=tuple(parts),
     )
 
 
