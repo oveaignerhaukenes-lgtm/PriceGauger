@@ -7,6 +7,7 @@ from typing import Callable
 
 from gdelt_runtime import ingest_telegram_plan_with_configured_gdelt
 from storage import DB_PATH
+from telegram_ai_interpreter import interpret_search_plan
 from telegram_gdelt_history import TelegramGdeltHistory, load_telegram_gdelt_history
 from telegram_gdelt_pipeline import TelegramGdeltIngestionResult
 from telegram_query_builder import TelegramSearchPlan, fetch_latest_search_plan
@@ -29,13 +30,14 @@ def process_latest_telegram_with_gdelt(
     today: date | None = None,
     minimum_signal: int = 2,
     plan_loader: Callable[..., TelegramSearchPlan | None] = fetch_latest_search_plan,
+    plan_interpreter: Callable[[TelegramSearchPlan], TelegramSearchPlan] = interpret_search_plan,
     ingestion_runner: Callable[..., TelegramGdeltIngestionResult] = ingest_telegram_plan_with_configured_gdelt,
 ) -> LatestTelegramGdeltResult | None:
-    """Process the latest relevant Telegram post through the stable GDELT pipeline.
+    """Process the latest relevant Telegram post through interpretation and GDELT.
 
-    This service coordinates existing boundaries only: Telegram retrieval, GDELT
-    ingestion, persistence and read-back. It does not rank candidates, infer a
-    market direction or start aggregation.
+    Telegram retrieval remains deterministic. The selected post is then interpreted
+    into a compact search basis before GDELT ingestion. If AI is unavailable or
+    fails, the interpreter preserves the deterministic plan as a safe fallback.
     """
     if lookback_days < 1:
         raise ValueError("lookback_days must be at least 1")
@@ -47,6 +49,7 @@ def process_latest_telegram_with_gdelt(
     )
     if plan is None:
         return None
+    plan = plan_interpreter(plan)
 
     end = today or date.today()
     start = end - timedelta(days=lookback_days)
