@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 
 from event_models import MarketEvent
@@ -61,6 +62,7 @@ def test_service_processes_latest_plan_and_reads_persisted_history(tmp_path):
         return plan
 
     def ingestion_runner(plan_arg, **kwargs):
+        calls["ingested_plan"] = plan_arg
         calls["ingestion"] = kwargs
         return ingest_telegram_plan_to_gdelt(
             plan_arg,
@@ -72,6 +74,13 @@ def test_service_processes_latest_plan_and_reads_persisted_history(tmp_path):
             database_path=kwargs["database_path"],
         )
 
+    interpreted = replace(
+        plan,
+        search="Iran oil terminal attack supply disruption",
+        interpretation_source="openai",
+        search_terms=("Iran", "oil terminal attack", "supply disruption"),
+    )
+
     result = process_latest_telegram_with_gdelt(
         channel="Middle_East_Spectator",
         lookback_days=30,
@@ -80,11 +89,13 @@ def test_service_processes_latest_plan_and_reads_persisted_history(tmp_path):
         timeout=12,
         today=date(2026, 7, 25),
         plan_loader=plan_loader,
+        plan_interpreter=lambda value: interpreted,
         ingestion_runner=ingestion_runner,
     )
 
     assert result is not None
-    assert result.plan == plan
+    assert result.plan == interpreted
+    assert calls["ingested_plan"] == interpreted
     assert result.ingestion.candidate_count == 1
     assert result.history.message_id == plan.message_id
     assert len(result.history.candidates) == 1
@@ -105,6 +116,7 @@ def test_service_returns_none_when_no_relevant_telegram_plan(tmp_path):
     result = process_latest_telegram_with_gdelt(
         database_path=tmp_path / "pricegauger.db",
         plan_loader=plan_loader,
+        plan_interpreter=lambda value: value,
         ingestion_runner=ingestion_runner,
     )
 
