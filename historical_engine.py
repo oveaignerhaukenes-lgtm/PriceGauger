@@ -145,6 +145,7 @@ def build_historical_assessment(
     *,
     source_search_id: str,
     asset: str = "Brent",
+    semantic_filter_applied: bool = False,
 ) -> HistoricalAssessment:
     unique, raw_count, duplicate_count = _deduplicate_reactions(reactions)
     usable = [row for row in unique if str(row.get("status") or "") == "OK"]
@@ -165,29 +166,35 @@ def build_historical_assessment(
         invalidation.append("Directional agreement is below 60 percent.")
     invalidation.extend(
         [
-            "Semantic ranking may show that the retained events are not genuinely comparable.",
             "A materially different current market regime can invalidate the historical transfer.",
             "The forecast is stale if the current move is already outside the broad historical interval before use.",
         ]
     )
+    if not semantic_filter_applied:
+        invalidation.insert(0, "Semantic ranking has not been applied to the retained events.")
 
-    limitations = (
+    limitations = [
         "Candidate reactions are deduplicated by exact publication timestamp.",
-        "This version has not yet applied semantic analogue ranking or market-regime filtering.",
+        "Market-regime and conflict-regime filtering are not yet applied.",
         "The output is a historical conditional forecast, not a standalone trade recommendation.",
-    )
+    ]
+    if semantic_filter_applied:
+        limitations.insert(1, "Only candidates passing the current semantic thresholds are included.")
+    else:
+        limitations.insert(1, "This version has not yet applied semantic analogue ranking.")
 
     if primary.observations == 0:
         status = "INSUFFICIENT_DATA"
     elif primary.observations < 5:
-        status = "LOW_SAMPLE_UNRANKED"
+        status = "LOW_SAMPLE_EVENT_RANKED" if semantic_filter_applied else "LOW_SAMPLE_UNRANKED"
     else:
-        status = "PROVISIONAL_UNRANKED"
+        status = "EVENT_RANKED_CONTEXT_PENDING" if semantic_filter_applied else "PROVISIONAL_UNRANKED"
 
     identity = {
         "source_search_id": source_search_id,
         "asset": asset,
         "engine_version": ENGINE_VERSION,
+        "semantic_filter_applied": semantic_filter_applied,
         "event_ids": sorted(str(row.get("candidate_event_id") or "") for row in usable),
         "published_at": sorted(str(row.get("published_at") or "") for row in usable),
     }
@@ -216,6 +223,6 @@ def build_historical_assessment(
         duplicate_reactions_removed=duplicate_count,
         horizons=horizons,
         invalidation_conditions=tuple(invalidation),
-        limitations=limitations,
+        limitations=tuple(limitations),
         calibration_target="realized_return_4h_pct",
     )
