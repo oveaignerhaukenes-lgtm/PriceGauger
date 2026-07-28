@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import json
+
+import pandas as pd
+import streamlit as st
+
+from engine_sidebar import render_engine_sidebar
+from telegram_flow_engine import OpenAITelegramFlowScorer, aggregate_scored_posts
+from telegram_query_builder import fetch_search_plans
+
+
+st.set_page_config(page_title="Telegram Flow", page_icon="📡", layout="wide")
+st.title("📡 Telegram Flow")
+st.caption(
+    "Valgte Telegram-kanaler fungerer som den primære informasjonsstrømmen. Hver post scores semantisk "
+    "per marked, hendelser grupperes for å hindre dobbelttelling, og bidragene summeres med tidsvekting."
+)
+render_engine_sidebar(active="telegram_flow")
+
+with st.sidebar:
+    st.header("Valgt informasjonsbias")
+    channels_text = st.text_area(
+        "Telegram-kanaler · én per linje",
+        value="Middle_East_Spectator",
+        help="Kanalvalget er bevisst: strømmen skal kunne skreddersys til produkt og situasjon.",
+    )
+    posts_per_channel = st.number_input("Nyeste poster per kanal", min_value=2, max_value=20, value=8)
+    half_life_hours = st.number_input("Halveringstid for signal", min_value=0.5, max_value=48.0, value=4.0, step=0.5)
+    minimum_signal = st.number_input("Minste regelsignal ved innhenting", min_value=1, max_value=3, value=1)
+    run = st.button("Hent, score og summer", type="primary", use_container_width=True)
+
+state_key = "telegram_flow_latest"
+
+if run:
+    channels = [line.strip().lstrip("@") for line in channels_text.splitlines() if line.strip()]
+    if not channels:
+        st.error("Legg inn minst én Telegram-kanal.")
+    else:
+        try:
+            collected = []
+            weights = {}
+            with st.spinner("Henter poster fra valgte kanaler …"):
+                for channel in channels:
+                    plans = fetch_search_plans(
+                        channel,
+                        minimum_signal=int(minimum_signal),
+                        timeout=45,
+                    )
+                    for plan in plans[-int(posts_per_channel):]:
+                        collected.append((channel, plan))
+                    weights[channel] = 1.0
+            collected.sort(key=lambda item: item[1].published_at)
+            if not collected:
+                st.warning("Ingen relevante poster ble hentet fra kanalene.")
+            else:
+                scorer = OpenAITelegramFlowScorer()
+                with st.spinner("AI scorer markedsvirkningen i hver post og grupperer samme hendelse …"):
+                    scored = scorer.score(collected)
+                    assessment = aggregate_scored_posts(
+                        scored,
+                        channel_weights=weights,
+                        half_life_hours=float(half_life_hours),
+                    )
+                st.session_state[state_key] = {
+                    "assessment": assessment,
+                    "scored": scored,
+                    "model": scorer.model,
+                }
+        except Exception as exc:
+            st.error(f"Telegram Flow kunne ikke fullføres: {exc}")
+
+result = st.session_state.get(state_key)
+if result is None:
+    st.info("Kjør analysen for å bygge en tidsvektet markedsscore fra de valgte kanalene.")
+else:
+    assessment = result["assessment"]
+    st.caption(
+        f"Modell: {result['model']} · poster: {assessment.post_count} · "
+        f"hendelsesklynger: {assessment.event_cluster_count} · as-of: {assessment.as_of}"
+    )
+
+    st.subheader("Fortløpende markedsbias")
+    assets = list(assessment.assets)
+    for start in range(0, len(assets), 2):
+        columns = st.columns(2)
+        for column, item in zip(columns, assets[start:start + 2]):
+            with column:
+                with st.container(border=True):
+                    st.markdown(f"### {item.asset}")
+                    st.markdown(f"## {item.direction}")
+                    st.write(f"Flow-score: **{item.flow_score:+.3f}**")
+                    st.write(f"Normalisert retning: **{item.normalized_score:+.2f}**")
+                    st.write(f"Confidence: **{item.confidence * 100:.0f} %**")
+                    st.caption(
+                        f"Bullish hendelser: {item.bullish_events} · bearish: {item.bearish_events} · "
+                        f"valgte hendelser: {item.selected_event_count}"
+                    )
+                    if item.top_drivers:
+                        st.markdown("**Sterkeste drivere**")
+                        for driver in item.top_drivers:
+                            st.write(driver)
+
+    st.subheader("Alle postbidrag")
+    st.caption(
+        "Bare én hovedpost per semantisk hendelsesklynge og marked inngår i summen. Hele teksten vises under tabellen."
+    )
+    rows = [item.to_record() for item in assessment.contributions]
+    if rows:
+        frame = pd.DataFrame(rows)
+        display = frame[
+            [
+                "selected",
+                "asset",
+                "raw_score",
+                "channel",
+                "published_at",
+                "event_key",
+                "direction",
+                "impact",
+                "confidence",
+                "decay",
+                "novelty",
+                "source_quality",
+                "rationale",
+            ]
+        ]
+        st.dataframe(
+            display,
+            hide_index=True,
+            use_container_width=True,
+            row_height=62,
+            column_config={
+                "selected": st.column_config.CheckboxColumn("Teller"),
+                "asset": "Marked",
+                "raw_score": st.column_config.NumberColumn("Bidrag", format="%+.3f"),
+                "channel": st.column_config.TextColumn("Kanal", width="medium"),
+                "published_at": st.column_config.TextColumn("Tidspunkt", width="medium"),
+                "event_key": st.column_config.TextColumn("Hendelsesklynge", width="large"),
+                "direction": st.column_config.NumberColumn("Retning", format="%+.2f"),
+                "impact": st.column_config.NumberColumn("Impact", format="%.2f"),
+                "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
+                "decay": st.column_config.NumberColumn("Tidsvekt", format="%.2f"),
+                "novelty": st.column_config.NumberColumn("Nyhet", format="%.2f"),
+                "source_quality": st.column_config.NumberColumn("Kilde", format="%.2f"),
+                "rationale": st.column_config.TextColumn("Kausal begrunnelse", width="large"),
+            },
+        )
+
+        with st.expander("Full begrunnelse per tellende bidrag", expanded=False):
+            for item in assessment.contributions:
+                if not item.selected:
+                    continue
+                st.markdown(
+                    f"**{item.asset} · {item.raw_score:+.3f} · {item.channel} · {item.event_key}**"
+                )
+                st.write(item.rationale)
+                st.caption(item.published_at)
+
+    with st.expander("Strukturert output"):
+        record = assessment.to_record()
+        st.json(record)
+        st.download_button(
+            "Last ned Telegram Flow som JSON",
+            data=json.dumps(record, ensure_ascii=False, indent=2),
+            file_name="telegram_flow_assessment.json",
+            mime="application/json",
+            use_container_width=True,
+        )
