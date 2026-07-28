@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import streamlit as st
 
 from config import gdelt_provider
+from engine_sidebar import render_engine_sidebar
+from historical_engine import build_historical_assessment
 from saxo_analogue_reactions import measure_brent_reactions
 from saxo_provider import configured_client
 from telegram_gdelt_presenter import (
@@ -13,11 +17,12 @@ from telegram_gdelt_presenter import (
 from telegram_gdelt_service import process_latest_telegram_with_gdelt
 
 
-st.set_page_config(page_title="PriceGauger kjerneflyt", page_icon="🔗", layout="wide")
-st.title("🔗 Kjerneflyt: Telegram → historiske kandidater")
+st.set_page_config(page_title="PriceGauger historisk motor", page_icon="🔗", layout="wide")
+st.title("🔗 Historisk motor")
 st.caption(
-    "Behandler én relevant Telegram-post gjennom AI-tolkning, GDELT og SQLite. "
-    "Denne siden rangerer ikke kandidatene og gir ingen markedsanbefaling."
+    "Tolker en ny Telegram-hendelse, finner historiske GDELT-kandidater og måler observerte "
+    "Brent-reaksjoner. Prisvurderingen er foreløpig urankert og skal ikke brukes som en "
+    "selvstendig handelsanbefaling."
 )
 
 active_provider = gdelt_provider()
@@ -29,6 +34,7 @@ provider_label = {
 }.get(active_provider, active_provider)
 st.caption(f"Aktiv datakilde: **{provider_label}**")
 
+render_engine_sidebar(active="historical")
 with st.sidebar:
     st.header("Innhenting")
     channel = st.text_input("Telegram-kanal", value="Middle_East_Spectator")
@@ -167,3 +173,60 @@ else:
                         "error": "Feil",
                     },
                 )
+
+                assessment = build_historical_assessment(
+                    reaction_rows,
+                    source_search_id=summary["search_id"],
+                    asset="Brent",
+                )
+                assessment_record = assessment.to_record()
+                st.subheader("Historisk motor · prisvurdering")
+                st.caption(
+                    "Primærhorisont: 4 timer. Duplikate publiseringstidspunkter teller bare én gang. "
+                    "Statusen er foreløpig urankert til semantisk analograngering er koblet på."
+                )
+
+                probability_up = assessment.probability_up
+                probability_text = f"{probability_up * 100:.0f} % opp" if probability_up is not None else "—"
+                expected_text = (
+                    f"{assessment.expected_return_pct:+.2f} %"
+                    if assessment.expected_return_pct is not None
+                    else "—"
+                )
+                interval_text = (
+                    f"{assessment.likely_interval_low_pct:+.2f} til {assessment.likely_interval_high_pct:+.2f} %"
+                    if assessment.likely_interval_low_pct is not None
+                    and assessment.likely_interval_high_pct is not None
+                    else "—"
+                )
+
+                p1, p2, p3, p4, p5 = st.columns(5)
+                p1.metric("Retning · 4t", assessment.forecast_direction)
+                p2.metric("Sannsynlighet", probability_text)
+                p3.metric("Median · 4t", expected_text)
+                p4.metric("Sannsynlig intervall", interval_text)
+                p5.metric("Confidence", f"{assessment.confidence * 100:.0f} %")
+
+                st.write(
+                    f"Uavhengige analogtidspunkter: **{assessment.independent_analogues}** · "
+                    f"duplikater fjernet: **{assessment.duplicate_reactions_removed}** · "
+                    f"status: **{assessment.status}**"
+                )
+
+                with st.expander("Hva ugyldiggjør eller begrenser vurderingen?"):
+                    st.markdown("**Ugyldiggjøringskriterier**")
+                    for item in assessment.invalidation_conditions:
+                        st.write(f"- {item}")
+                    st.markdown("**Begrensninger**")
+                    for item in assessment.limitations:
+                        st.write(f"- {item}")
+
+                with st.expander("Strukturert motor-output"):
+                    st.json(assessment_record)
+                    st.download_button(
+                        "Last ned vurdering som JSON",
+                        data=json.dumps(assessment_record, ensure_ascii=False, indent=2),
+                        file_name=f"{assessment.assessment_id.replace(':', '_')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                    )
