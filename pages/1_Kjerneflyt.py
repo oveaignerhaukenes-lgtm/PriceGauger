@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import json
 
 import pandas as pd
@@ -9,6 +8,7 @@ import streamlit as st
 from config import gdelt_provider
 from engine_sidebar import render_engine_sidebar
 from historical_engine import build_historical_assessment
+from historical_engine_ui import render_historical_assessment, render_semantic_ranking_table
 from saxo_analogue_reactions import measure_brent_reactions
 from saxo_provider import configured_client
 from semantic_analogue_ranking import rank_analogues
@@ -144,7 +144,7 @@ else:
         st.subheader("Semantisk analoglikhet")
         st.caption(
             "AI vurderer både likhet mellom hendelsene og likhet som mulig årsak til markedsreaksjon. "
-            "Den røde linjen viser et likt vektet samlet mål."
+            "Samlet likhet vises som en rød fremdriftslinje i tabellen."
         )
         if st.button("Vurder semantisk likhet", use_container_width=True):
             try:
@@ -161,34 +161,13 @@ else:
 
         if st.session_state.get(semantic_search_key) == summary["search_id"]:
             semantic_rows = st.session_state.get(semantic_key, [])
-            for index, item in enumerate(semantic_rows, start=1):
-                combined = float(item["combined_similarity"])
-                event_score = float(item["event_similarity"])
-                market_score = float(item["market_similarity"])
-                width = max(0.0, min(100.0, combined * 100.0))
-                st.markdown(
-                    f"""
-                    <div style="padding:.8rem 0;border-bottom:1px solid rgba(128,128,128,.22)">
-                      <div style="display:flex;justify-content:space-between;gap:1rem">
-                        <strong>{index}. {html.escape(str(item['title']))}</strong>
-                        <span>{combined * 100:.0f}%</span>
-                      </div>
-                      <div style="height:.45rem;margin:.45rem 0;border-radius:999px;background:rgba(128,128,128,.20);overflow:hidden">
-                        <div style="height:100%;width:{width:.1f}%;background:#ff4b4b;border-radius:999px"></div>
-                      </div>
-                      <div style="font-size:.82rem;color:rgba(128,128,128,.95)">
-                        Hendelseslikhet {event_score * 100:.0f}% · markedslikhet {market_score * 100:.0f}% · {html.escape(str(item['published_at']))}
-                      </div>
-                      <div style="margin-top:.35rem;font-size:.9rem">{html.escape(str(item['explanation']))}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+            render_semantic_ranking_table(semantic_rows)
 
         st.subheader("Observerte Brent-reaksjoner · Saxo")
         st.caption(
             "Måler foreløpig alle returnerte kandidater. Neste steg er å bruke den semantiske "
-            "rangeringen til å velge analogene som inngår i prisvurderingen."
+            "rangeringen til å velge analogene som inngår i prisvurderingen. Saxo access-token "
+            "fornyes automatisk så lenge det lagrede refresh-tokenet fortsatt er gyldig."
         )
         if st.button("Hent Brent-reaksjoner fra Saxo", use_container_width=True):
             client = configured_client()
@@ -201,7 +180,13 @@ else:
                     st.session_state[reaction_key] = [item.to_record() for item in reactions]
                     st.session_state[reaction_search_key] = summary["search_id"]
                 except Exception as exc:
-                    st.error(f"Saxo-reaksjonene kunne ikke hentes: {exc}")
+                    message = str(exc)
+                    st.error(f"Saxo-reaksjonene kunne ikke hentes: {message}")
+                    if "REAUTH_REQUIRED" in message or "AUTH_FAILED" in message:
+                        st.info(
+                            "Access-token fornyes automatisk. Denne feilen betyr vanligvis at også "
+                            "refresh-tokenet er utløpt eller avvist, og Saxo må kobles til på nytt."
+                        )
 
         if st.session_state.get(reaction_search_key) == summary["search_id"]:
             reaction_rows = st.session_state.get(reaction_key, [])
@@ -240,32 +225,7 @@ else:
                     "Statusen er foreløpig urankert til den semantiske rangeringen brukes som filter."
                 )
 
-                probability_up = assessment.probability_up
-                probability_text = f"{probability_up * 100:.0f} % opp" if probability_up is not None else "—"
-                expected_text = (
-                    f"{assessment.expected_return_pct:+.2f} %"
-                    if assessment.expected_return_pct is not None
-                    else "—"
-                )
-                interval_text = (
-                    f"{assessment.likely_interval_low_pct:+.2f} til {assessment.likely_interval_high_pct:+.2f} %"
-                    if assessment.likely_interval_low_pct is not None
-                    and assessment.likely_interval_high_pct is not None
-                    else "—"
-                )
-
-                p1, p2, p3, p4, p5 = st.columns(5)
-                p1.metric("Retning · 4t", assessment.forecast_direction)
-                p2.metric("Sannsynlighet", probability_text)
-                p3.metric("Median · 4t", expected_text)
-                p4.metric("Sannsynlig intervall", interval_text)
-                p5.metric("Confidence", f"{assessment.confidence * 100:.0f} %")
-
-                st.write(
-                    f"Uavhengige analogtidspunkter: **{assessment.independent_analogues}** · "
-                    f"duplikater fjernet: **{assessment.duplicate_reactions_removed}** · "
-                    f"status: **{assessment.status}**"
-                )
+                render_historical_assessment(assessment)
 
                 with st.expander("Hva ugyldiggjør eller begrenser vurderingen?"):
                     st.markdown("**Ugyldiggjøringskriterier**")
