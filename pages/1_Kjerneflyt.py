@@ -14,7 +14,7 @@ from telegram_gdelt_service import process_latest_telegram_with_gdelt
 st.set_page_config(page_title="PriceGauger kjerneflyt", page_icon="🔗", layout="wide")
 st.title("🔗 Kjerneflyt: Telegram → historiske kandidater")
 st.caption(
-    "Behandler én relevant Telegram-post gjennom den stabile GDELT- og SQLite-kjeden. "
+    "Behandler én relevant Telegram-post gjennom AI-tolkning, GDELT og SQLite. "
     "Denne siden rangerer ikke kandidatene og gir ingen markedsanbefaling."
 )
 
@@ -44,7 +44,7 @@ if st.session_state.get(result_provider_key) not in (None, active_provider):
 
 if st.button("Behandle nyeste relevante post", type="primary", use_container_width=True):
     try:
-        with st.spinner("Henter Telegram-post og historiske GDELT-kandidater …"):
+        with st.spinner("Tolker Telegram-post og henter historiske GDELT-kandidater …"):
             result = process_latest_telegram_with_gdelt(
                 channel=channel,
                 lookback_days=int(lookback_days),
@@ -70,11 +70,28 @@ else:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Hendelsestype", summary["event_type"] or "ukjent")
     c2.metric("Mål", summary["target"] or "ukjent")
-    c3.metric("Land", summary["country"] or "ukjent")
+    c3.metric("Land", summary["country"] or "ikke angitt")
     c4.metric("Lagrede kandidater", summary["candidate_count"])
 
+    source = summary["interpretation_source"] or "ukjent"
+    model = summary["interpretation_model"] or "—"
+    confidence = summary["interpretation_confidence"]
+    confidence_text = f"{confidence * 100:.0f} %" if confidence is not None else "—"
+    st.markdown("**AI-tolkning**")
+    st.caption(f"Kilde: {source} · modell: {model} · confidence: {confidence_text}")
+
+    details = []
+    if summary["actor"]:
+        details.append(f"Aktør: {summary['actor']}")
+    if summary["market_channel"]:
+        details.append(f"Markedskanal: {summary['market_channel']}")
+    if summary["search_terms"]:
+        details.append("Søkebegreper: " + " · ".join(summary["search_terms"]))
+    if details:
+        st.write("  \n".join(details))
+
     st.caption(
-        f"Søk: {summary['search']} · search_id: {summary['search_id']} · "
+        f"BigQuery-søk: {summary['search']} · search_id: {summary['search_id']} · "
         f"lagrede søk for meldingen: {summary['search_count']}"
     )
     if summary["warning"]:
