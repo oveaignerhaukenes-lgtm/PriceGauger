@@ -7,6 +7,7 @@ import streamlit as st
 
 from engine_sidebar import render_engine_sidebar
 from telegram_flow_engine import OpenAITelegramFlowScorer, aggregate_scored_posts
+from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import fetch_search_plans
 
 
@@ -28,9 +29,20 @@ with st.sidebar:
     posts_per_channel = st.number_input("Nyeste poster per kanal", min_value=2, max_value=20, value=8)
     half_life_hours = st.number_input("Halveringstid for signal", min_value=0.5, max_value=48.0, value=4.0, step=0.5)
     minimum_signal = st.number_input("Minste regelsignal ved innhenting", min_value=1, max_value=3, value=1)
-    run = st.button("Hent, score og summer", type="primary", use_container_width=True)
+    run = st.button("Kjør ny vurdering nå", type="primary", use_container_width=True)
 
+store = TelegramFlowStore()
 state_key = "telegram_flow_latest"
+
+if state_key not in st.session_state:
+    persisted = store.load_latest_snapshot()
+    if persisted is not None:
+        st.session_state[state_key] = {
+            "assessment": persisted,
+            "scored": [],
+            "model": persisted.model,
+            "source": "worker/database",
+        }
 
 if run:
     channels = [line.strip().lstrip("@") for line in channels_text.splitlines() if line.strip()]
@@ -57,26 +69,31 @@ if run:
                 scorer = OpenAITelegramFlowScorer()
                 with st.spinner("AI scorer markedsvirkningen i hver post og grupperer samme hendelse …"):
                     scored = scorer.score(collected)
+                    store.save_posts(scored)
                     assessment = aggregate_scored_posts(
-                        scored,
+                        store.load_posts(limit=500),
                         channel_weights=weights,
                         half_life_hours=float(half_life_hours),
                     )
+                    store.save_snapshot(assessment)
                 st.session_state[state_key] = {
                     "assessment": assessment,
                     "scored": scored,
                     "model": scorer.model,
+                    "source": "manual/database",
                 }
         except Exception as exc:
             st.error(f"Telegram Flow kunne ikke fullføres: {exc}")
 
 result = st.session_state.get(state_key)
 if result is None:
-    st.info("Kjør analysen for å bygge en tidsvektet markedsscore fra de valgte kanalene.")
+    st.info(
+        "Ingen lagret Telegram Flow-vurdering finnes ennå. Workeren bygger den automatisk når nye poster behandles."
+    )
 else:
     assessment = result["assessment"]
     st.caption(
-        f"Modell: {result['model']} · poster: {assessment.post_count} · "
+        f"Kilde: {result.get('source', 'ukjent')} · modell: {result['model']} · poster: {assessment.post_count} · "
         f"hendelsesklynger: {assessment.event_cluster_count} · as-of: {assessment.as_of}"
     )
 
@@ -88,7 +105,7 @@ else:
             with column:
                 with st.container(border=True):
                     st.markdown(f"### {item.asset}")
-                    st.markdown(f"## {item.direction}")
+                    st.markdown(f"**{item.direction}**")
                     st.write(f"Flow-score: **{item.flow_score:+.3f}**")
                     st.write(f"Normalisert retning: **{item.normalized_score:+.2f}**")
                     st.write(f"Confidence: **{item.confidence * 100:.0f} %**")
