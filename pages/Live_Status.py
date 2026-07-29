@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -9,12 +11,49 @@ import streamlit as st
 from database import connect, using_postgres
 from signal_outcomes import SignalOutcomeStore
 
+LOCAL_TIMEZONE = ZoneInfo("Europe/Oslo")
+CHANNEL_CODES = {
+    "Middle_East_Spectator": "MES",
+}
+
+
+def _compact_timestamp(value: object) -> str:
+    if value in (None, ""):
+        return "–"
+    parsed = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(parsed):
+        return str(value)
+    return parsed.tz_convert(LOCAL_TIMEZONE).strftime("%d.%m.%y · %H:%M")
+
+
+def _channel_code(channel: str) -> str:
+    cleaned = str(channel or "").strip().lstrip("@")
+    if cleaned in CHANNEL_CODES:
+        return CHANNEL_CODES[cleaned]
+    words = [word for word in re.split(r"[^A-Za-z0-9]+", cleaned) if word]
+    if len(words) >= 2:
+        return "".join(word[0].upper() for word in words[:3])
+    return (cleaned[:3] or "TG").upper()
+
+
+def _compact_telegram_id(value: object) -> str:
+    raw = str(value or "").strip()
+    match = re.fullmatch(r"telegram:([^:]+):(\d+)", raw, flags=re.IGNORECASE)
+    if not match:
+        return raw or "–"
+    channel, message_number = match.groups()
+    return f"{_channel_code(channel)}:{message_number}"
+
+
 st.set_page_config(page_title="Live Status", page_icon="🟢", layout="wide")
 st.title("PriceGauger Live")
 st.caption("Read-only produksjonsstatus fra den delte databasen.")
 
 if not using_postgres():
-    st.warning("Denne siden bruker lokal SQLite. Legg inn DATABASE_URL for å vise Railway-data.")
+    st.warning(
+        "Denne visningen leser lokal SQLite, ikke den delte Railway-databasen. "
+        "Legg DATABASE_URL i Streamlit-miljøet for å vise faktisk worker-status."
+    )
 
 with connect() as db:
     worker_rows = db.execute(
@@ -33,20 +72,22 @@ with connect() as db:
 outcomes = SignalOutcomeStore().load_all()
 completed_1h = [item for item in outcomes if item.return_1h_pct is not None]
 completed_4h = [item for item in outcomes if item.return_4h_pct is not None]
-processed = [row for row in worker_rows if row["status"] == "processed"]
 latest_worker = worker_rows[0]["recorded_at"] if worker_rows else None
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Lagrede signaler", len(outcomes))
 c2.metric("Ferdige 1t", len(completed_1h))
 c3.metric("Ferdige 4t", len(completed_4h))
-c4.metric("Siste worker-hendelse", latest_worker or "–")
+c4.metric("Siste worker-hendelse", _compact_timestamp(latest_worker))
 
 if latest_interpretation:
     payload = json.loads(latest_interpretation["payload_json"])
     st.subheader("Siste tolket hendelse")
-    st.write(f"**{latest_interpretation['event_id']}**")
-    st.caption(f"Publisert {latest_interpretation['published_at']} · type {latest_interpretation['update_type']}")
+    st.write(f"**{_compact_telegram_id(latest_interpretation['event_id'])}**")
+    st.caption(
+        f"Publisert {_compact_timestamp(latest_interpretation['published_at'])} · "
+        f"type {latest_interpretation['update_type']}"
+    )
     summary = payload.get("summary") or payload.get("event_summary") or payload.get("reasoning_summary")
     if summary:
         st.write(summary)
@@ -58,7 +99,7 @@ else:
 if latest_snapshot:
     snapshot = json.loads(latest_snapshot["payload_json"])
     st.subheader("Gjeldende Market State")
-    st.caption(f"Oppdatert {latest_snapshot['as_of']}")
+    st.caption(f"Oppdatert {_compact_timestamp(latest_snapshot['as_of'])}")
     numeric = {
         key: value
         for key, value in snapshot.items()
@@ -87,13 +128,25 @@ if recommendations:
             }
         )
     st.subheader("Siste anbefalinger")
-    st.caption(f"Beregnet {latest_as_of}")
+    st.caption(f"Beregnet {_compact_timestamp(latest_as_of)}")
     st.dataframe(pd.DataFrame(recommendation_rows), use_container_width=True, hide_index=True)
 
 st.subheader("Siste worker-registreringer")
 if worker_rows:
-    st.dataframe(pd.DataFrame([dict(row) for row in worker_rows]), use_container_width=True, hide_index=True)
+    worker_display = []
+    for row in worker_rows:
+        worker_display.append(
+            {
+                "melding": _compact_telegram_id(row["message_id"]),
+                "status": row["status"],
+                "tid": _compact_timestamp(row["recorded_at"]),
+            }
+        )
+    st.dataframe(pd.DataFrame(worker_display), use_container_width=True, hide_index=True)
 else:
     st.info("Ingen worker-registreringer funnet.")
 
-st.caption(f"Siden lest {datetime.now(timezone.utc).isoformat()} · backend={'PostgreSQL' if using_postgres() else 'SQLite'}")
+st.caption(
+    f"Siden lest {_compact_timestamp(datetime.now(timezone.utc))} · "
+    f"backend={'PostgreSQL' if using_postgres() else 'SQLite'}"
+)
