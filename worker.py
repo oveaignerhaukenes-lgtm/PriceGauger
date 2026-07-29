@@ -16,6 +16,8 @@ from market_state_service import process_market_event
 from market_state_store import MarketStateStore
 from openai_market_provider import OpenAIJsonProvider
 from signal_outcomes import SignalOutcomeStore, refresh_signal_outcomes, register_recommendations
+from telegram_flow_engine import OpenAITelegramFlowScorer, aggregate_scored_posts
+from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
 from test_protocol import PAPER_TEST_PROTOCOL
 
@@ -129,6 +131,39 @@ def _ensure_event_timestamp(event: CanonicalEvent) -> CanonicalEvent:
     return replace(event, published_at=fallback)
 
 
+def _refresh_telegram_flow(
+    *,
+    db_path: str | Path,
+    channel: str,
+    plans: list[TelegramSearchPlan],
+) -> None:
+    store = TelegramFlowStore(db_path)
+    key = openai_api_key()
+    new_plans = [plan for plan in plans if not store.has_post(plan.message_id)]
+
+    if key and new_plans:
+        # Keep each AI request bounded. Older visible posts are picked up in later cycles.
+        selected = new_plans[-8:]
+        scorer = OpenAITelegramFlowScorer(api_key=key)
+        scored = scorer.score([(channel, plan) for plan in selected])
+        store.save_posts(scored)
+        LOGGER.info("telegram flow scored posts=%s model=%s", len(scored), scorer.model)
+    elif new_plans:
+        LOGGER.warning("telegram flow skipped new_posts=%s because OPENAI_API_KEY is missing", len(new_plans))
+
+    stored = store.load_posts(limit=500)
+    if not stored:
+        return
+    assessment = aggregate_scored_posts(stored, as_of=datetime.now(timezone.utc))
+    store.save_snapshot(assessment)
+    LOGGER.info(
+        "telegram flow snapshot as_of=%s posts=%s clusters=%s",
+        assessment.as_of,
+        assessment.post_count,
+        assessment.event_cluster_count,
+    )
+
+
 def run_once(
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
@@ -177,6 +212,7 @@ def run_once(
             state.mark(plan.message_id, "bootstrap_ignored")
         state.mark_initialized()
 
+    _refresh_telegram_flow(db_path=db_path, channel=channel, plans=plans)
     refreshed = refresh_signal_outcomes(store=outcome_store)
     summary = WorkerRunSummary(
         fetched=len(plans),
