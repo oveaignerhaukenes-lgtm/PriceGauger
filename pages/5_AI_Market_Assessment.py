@@ -12,8 +12,11 @@ from semantic_analogue_ranking import select_reactions_for_ranked_analogues
 from telegram_gdelt_presenter import latest_result_summary
 
 
+INSTRUMENT = "Brent"
+
 st.set_page_config(page_title="PriceGauger AI-vurdering", page_icon="🧠", layout="wide")
 render_engine_sidebar(active="ai_assessment")
+st.caption(f"MARKED · **{INSTRUMENT.upper()}**")
 st.title("🧠 AI-markedsvurdering · v1")
 st.caption(
     "Bygger en testbar kausal hypotese fra hendelsen, semantiske analoger, historisk kalibrering "
@@ -24,7 +27,7 @@ st.caption(
 def _technical_record() -> dict[str, Any] | None:
     candidates: list[tuple[str, Any]] = []
     for key in st.session_state:
-        if str(key).startswith("direct_technical_Brent_"):
+        if str(key).startswith(f"direct_technical_{INSTRUMENT}_"):
             candidates.append((str(key), st.session_state[key]))
     if not candidates:
         return None
@@ -34,6 +37,7 @@ def _technical_record() -> dict[str, Any] | None:
     if regime is None:
         return None
     return {
+        "instrument": INSTRUMENT,
         "bias": getattr(regime, "bias", None),
         "regime": getattr(regime, "regime", None),
         "signal_quality": getattr(regime, "signal_quality", None),
@@ -45,11 +49,16 @@ def _technical_record() -> dict[str, Any] | None:
                 "rsi_14": getattr(snapshot, "rsi_14", None),
                 "macd_histogram": getattr(snapshot, "macd_histogram", None),
                 "atr_14_pct": getattr(snapshot, "atr_14_pct", None),
-                "readings": [getattr(item, "display", str(item)) for item in getattr(snapshot, "readings", ())],
             }
             for timeframe, snapshot in (snapshots or {}).items()
         },
     }
+
+
+def _status_card(label: str, value: str) -> None:
+    with st.container(border=True):
+        st.caption(label)
+        st.markdown(f"**{value}**")
 
 
 result = st.session_state.get("latest_telegram_gdelt_result")
@@ -72,19 +81,22 @@ else:
             historical = build_historical_assessment(
                 selection.selected_reactions,
                 source_search_id=summary["search_id"],
-                asset="Brent",
+                asset=INSTRUMENT,
                 semantic_filter_applied=True,
             )
             historical_record = historical.to_record()
 
     technical_record = _technical_record()
     c1, c2, c3 = st.columns(3)
-    c1.metric("Semantiske analoger", len(semantic_rows))
-    c2.metric("Valgte historiske analoger", selected_count)
-    c3.metric("Teknisk analyse", "Tilgjengelig" if technical_record else "Mangler")
+    with c1:
+        _status_card("Semantiske analoger", str(len(semantic_rows)))
+    with c2:
+        _status_card("Valgte historiske analoger", str(selected_count))
+    with c3:
+        _status_card("Teknisk analyse", "Tilgjengelig" if technical_record else "Mangler")
 
     if technical_record is None:
-        st.info("Kjør Teknisk motor for Brent først for å gi AI-vurderingen oppdatert pris- og indikatorgrunnlag.")
+        st.info(f"Kjør Teknisk motor for {INSTRUMENT} først for å gi AI-vurderingen oppdatert pris- og indikatorgrunnlag.")
     if historical_record is None:
         st.info("Historisk støtte mangler eller ingen analoger bestod filteret. AI-en kan fortsatt vurdere hendelsen, men må markere dette som usikkerhet.")
 
@@ -102,7 +114,7 @@ else:
         try:
             with st.spinner("Bygger kausal hypotese og testbar prisvurdering …"):
                 assessment = assess_market(
-                    instrument="Brent",
+                    instrument=INSTRUMENT,
                     event=event,
                     historical=historical_record,
                     semantic_analogues=list(semantic_rows),
@@ -114,7 +126,8 @@ else:
 
     record = st.session_state.get("latest_ai_market_assessment")
     if record:
-        st.markdown("### Testbar prognose")
+        assessed_instrument = str(record.get("instrument") or INSTRUMENT)
+        st.markdown(f"### Testbar prognose · {assessed_instrument}")
         left, right = st.columns(2)
         with left:
             with st.container(border=True):
@@ -161,7 +174,7 @@ else:
             st.download_button(
                 "Last ned AI-vurdering som JSON",
                 data=json.dumps(record, ensure_ascii=False, indent=2),
-                file_name="ai_market_assessment_brent.json",
+                file_name=f"ai_market_assessment_{assessed_instrument.lower().replace(' ', '_')}.json",
                 mime="application/json",
                 use_container_width=True,
             )
