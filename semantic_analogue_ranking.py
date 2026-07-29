@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
@@ -47,28 +48,35 @@ def rank_analogues(
     *,
     assessor: AnalogueAssessor | None = None,
     limit: int = 10,
+    max_workers: int = 4,
 ) -> list[RankedAnalogue]:
+    """Rank candidates concurrently because each semantic assessment is network-bound."""
     active_assessor = assessor or OpenAIAnalogueAssessor()
-    ranked: list[RankedAnalogue] = []
+    selected = list(candidates)[: max(1, int(limit))]
 
-    for candidate in list(candidates)[: max(1, int(limit))]:
+    def assess_candidate(candidate: GdeltCandidateRecord) -> RankedAnalogue:
         assessment = active_assessor.assess(source, candidate)
         combined = round(
             0.5 * assessment.event_similarity + 0.5 * assessment.market_similarity,
             12,
         )
-        ranked.append(
-            RankedAnalogue(
-                candidate_event_id=candidate.event_id,
-                title=candidate.title,
-                published_at=candidate.published_at or candidate.event_date,
-                event_similarity=assessment.event_similarity,
-                market_similarity=assessment.market_similarity,
-                combined_similarity=combined,
-                explanation=assessment.explanation,
-                model=assessment.model,
-            )
+        return RankedAnalogue(
+            candidate_event_id=candidate.event_id,
+            title=candidate.title,
+            published_at=candidate.published_at or candidate.event_date,
+            event_similarity=assessment.event_similarity,
+            market_similarity=assessment.market_similarity,
+            combined_similarity=combined,
+            explanation=assessment.explanation,
+            model=assessment.model,
         )
+
+    if len(selected) <= 1 or max_workers <= 1:
+        ranked = [assess_candidate(candidate) for candidate in selected]
+    else:
+        workers = min(max(1, int(max_workers)), len(selected))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="semantic-analogue") as executor:
+            ranked = list(executor.map(assess_candidate, selected))
 
     return sorted(ranked, key=lambda item: item.combined_similarity, reverse=True)
 
