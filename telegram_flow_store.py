@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Iterable
+
+from database import connect
+from telegram_flow_engine import (
+    AssetFlowAssessment,
+    AssetPostScore,
+    FlowContribution,
+    ScoredTelegramPost,
+    TelegramFlowAssessment,
+)
+
+
+class TelegramFlowStore:
+    """Persistent Telegram Flow storage shared by SQLite and PostgreSQL."""
+
+    def __init__(self, path: str | Path = "pricegauger.db") -> None:
+        self.path = str(path)
+        with self._connect() as db:
+            db.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS telegram_flow_posts (
+                    message_id TEXT PRIMARY KEY,
+                    channel TEXT NOT NULL,
+                    published_at TEXT NOT NULL,
+                    event_key TEXT NOT NULL,
+                    relation TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    scored_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS telegram_flow_snapshots (
+                    as_of TEXT PRIMARY KEY,
+                    engine_version TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+
+    def _connect(self):
+        return connect(self.path)
+
+    def save_posts(self, posts: Iterable[ScoredTelegramPost]) -> int:
+        rows = list(posts)
+        if not rows:
+            return 0
+        with self._connect() as db:
+            for item in rows:
+                db.execute(
+                    """
+                    INSERT INTO telegram_flow_posts(
+                        message_id, channel, published_at, event_key, relation, payload_json
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(message_id) DO UPDATE SET
+                        channel=excluded.channel,
+                        published_at=excluded.published_at,
+                        event_key=excluded.event_key,
+                        relation=excluded.relation,
+                        payload_json=excluded.payload_json,
+                        scored_at=CURRENT_TIMESTAMP
+                    """,
+                    (
+                        item.message_id,
+                        item.channel,
+                        item.published_at,
+                        item.event_key,
+                        item.relation,
+                        json.dumps(item.to_record(), ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+        return len(rows)
+
+    def has_post(self, message_id: str) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT 1 AS present FROM telegram_flow_posts WHERE message_id=?",
+                (str(message_id),),
+            ).fetchone()
+        return row is not None
+
+    def load_posts(self, *, limit: int = 500) -> list[ScoredTelegramPost]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT payload_json
+                FROM telegram_flow_posts
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+        return [_post_from_record(json.loads(row["payload_json"])) for row in reversed(rows)]
+
+    def save_snapshot(self, assessment: TelegramFlowAssessment) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO telegram_flow_snapshots(as_of, engine_version, payload_json)
+                VALUES (?, ?, ?)
+                ON CONFLICT(as_of) DO UPDATE SET
+                    engine_version=excluded.engine_version,
+                    payload_json=excluded.payload_json,
+                    recorded_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    assessment.as_of,
+                    assessment.engine_version,
+                    json.dumps(assessment.to_record(), ensure_ascii=False, sort_keys=True),
+                ),
+            )
+
+    def load_latest_snapshot(self) -> TelegramFlowAssessment | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT payload_json
+                FROM telegram_flow_snapshots
+                ORDER BY as_of DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        if row is None:
+            return None
+        return _assessment_from_record(json.loads(row["payload_json"]))
+
+
+def _post_from_record(record: dict) -> ScoredTelegramPost:
+    return ScoredTelegramPost(
+        message_id=str(record.get("message_id") or ""),
+        channel=str(record.get("channel") or ""),
+        published_at=str(record.get("published_at") or ""),
+        text=str(record.get("text") or ""),
+        event_key=str(record.get("event_key") or ""),
+        relation=str(record.get("relation") or "new"),
+        novelty=float(record.get("novelty") or 0.0),
+        source_quality=float(record.get("source_quality") or 0.0),
+        scores=tuple(AssetPostScore(**item) for item in record.get("scores") or []),
+    )
+
+
+def _assessment_from_record(record: dict) -> TelegramFlowAssessment:
+    return TelegramFlowAssessment(
+        as_of=str(record.get("as_of") or ""),
+        engine_version=str(record.get("engine_version") or ""),
+        source_channels=tuple(record.get("source_channels") or ()),
+        post_count=int(record.get("post_count") or 0),
+        event_cluster_count=int(record.get("event_cluster_count") or 0),
+        assets=tuple(AssetFlowAssessment(**item) for item in record.get("assets") or []),
+        contributions=tuple(FlowContribution(**item) for item in record.get("contributions") or []),
+        model=str(record.get("model") or ""),
+    )
