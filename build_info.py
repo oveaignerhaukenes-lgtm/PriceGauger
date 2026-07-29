@@ -59,6 +59,22 @@ def render_build_badge() -> None:
     st.markdown(
         f"""
         <style>
+        [data-testid="stMetricValue"] {{
+            font-size: 1.12rem !important;
+            line-height: 1.28 !important;
+            font-weight: 600 !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            overflow-wrap: anywhere !important;
+            word-break: normal !important;
+        }}
+        [data-testid="stMetricLabel"] {{
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            line-height: 1.25 !important;
+        }}
         .pricegauger-build-badge {{
             position: fixed;
             top: 0.55rem;
@@ -106,6 +122,9 @@ def render_build_badge() -> None:
             }}
         }}
         @media (max-width: 700px) {{
+            [data-testid="stMetricValue"] {{
+                font-size: 1rem !important;
+            }}
             .pricegauger-build-badge {{
                 top: 0.48rem;
                 right: 4.2rem;
