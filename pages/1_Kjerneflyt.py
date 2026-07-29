@@ -9,6 +9,7 @@ from config import gdelt_provider
 from engine_sidebar import render_engine_sidebar
 from historical_engine import build_historical_assessment
 from historical_engine_ui import (
+    compact_timestamp,
     render_event_summary,
     render_historical_assessment,
     render_semantic_ranking_table,
@@ -16,10 +17,7 @@ from historical_engine_ui import (
 from saxo_analogue_reactions import measure_brent_reactions
 from saxo_provider import configured_client
 from semantic_analogue_ranking import rank_analogues, select_reactions_for_ranked_analogues
-from telegram_gdelt_presenter import (
-    latest_result_candidate_rows,
-    latest_result_summary,
-)
+from telegram_gdelt_presenter import latest_result_candidate_rows, latest_result_summary
 from telegram_gdelt_service import process_latest_telegram_with_gdelt
 
 
@@ -90,6 +88,7 @@ else:
     summary = latest_result_summary(result)
     st.subheader("Behandlet Telegram-post")
     st.write(summary["message_text"])
+    st.caption(f"Publisert {compact_timestamp(result.plan.published_at)}")
     if summary["message_url"]:
         st.link_button("Åpne posten i Telegram", summary["message_url"])
 
@@ -109,7 +108,7 @@ else:
     if summary["search_terms"]:
         st.write("**Søkebegreper:** " + " · ".join(summary["search_terms"]))
 
-    with st.expander("Søkedetaljer"):
+    with st.expander("Tekniske søkedetaljer"):
         st.write(f"**BigQuery-søk:** {summary['search']}")
         st.write(f"**search_id:** {summary['search_id']}")
         st.write(f"**Lagrede søk for meldingen:** {summary['search_count']}")
@@ -121,18 +120,27 @@ else:
     if not rows:
         st.info("Ingen historiske kandidater ble lagret for dette søket.")
     else:
-        frame = pd.DataFrame(rows)
+        candidate_records = []
+        for row in rows:
+            item = dict(row)
+            item["published_at"] = compact_timestamp(item.get("published_at"))
+            candidate_records.append(item)
+        frame = pd.DataFrame(candidate_records)
+        preferred = ["published_at", "title", "domain", "source_country", "provider", "url"]
+        technical = [column for column in frame.columns if column not in preferred]
         st.dataframe(
             frame,
             hide_index=True,
             use_container_width=True,
+            column_order=tuple(column for column in preferred + technical if column in frame.columns),
             column_config={
-                "published_at": "Publisert",
+                "published_at": st.column_config.TextColumn("Publisert", width="small"),
                 "title": st.column_config.TextColumn("Tittel", width="large"),
                 "domain": "Domene",
                 "source_country": "Kildeland",
                 "provider": "Leverandør",
                 "url": st.column_config.LinkColumn("Artikkel"),
+                "event_id": st.column_config.TextColumn("Teknisk hendelses-ID", width="medium"),
             },
         )
 
@@ -143,12 +151,8 @@ else:
         )
         if st.button("Vurder semantisk likhet", use_container_width=True):
             try:
-                with st.spinner("Sammenligner Telegram-hendelsen med de historiske kandidatene …"):
-                    ranked = rank_analogues(
-                        result.plan,
-                        result.ingestion.candidates,
-                        limit=int(limit),
-                    )
+                with st.spinner("Sammenligner kandidatene parallelt …"):
+                    ranked = rank_analogues(result.plan, result.ingestion.candidates, limit=int(limit))
                 st.session_state[semantic_key] = [item.to_record() for item in ranked]
                 st.session_state[semantic_search_key] = summary["search_id"]
             except Exception as exc:
@@ -161,9 +165,7 @@ else:
             st.caption("Filter: hendelseslikhet ≥ 60 % · markedslikhet ≥ 50 % · samlet likhet ≥ 60 %.")
 
         st.subheader("Observerte Brent-reaksjoner · Saxo")
-        st.caption(
-            "Saxo access-token fornyes automatisk så lenge det lagrede refresh-tokenet fortsatt er gyldig."
-        )
+        st.caption("Saxo access-token fornyes automatisk så lenge det lagrede refresh-tokenet fortsatt er gyldig.")
         if st.button("Hent Brent-reaksjoner fra Saxo", use_container_width=True):
             client = configured_client()
             if client is None:
@@ -186,16 +188,24 @@ else:
         if st.session_state.get(reaction_search_key) == summary["search_id"]:
             reaction_rows = st.session_state.get(reaction_key, [])
             if reaction_rows:
-                reaction_frame = pd.DataFrame(reaction_rows)
+                display_rows = []
+                for row in reaction_rows:
+                    item = dict(row)
+                    item["published_at"] = compact_timestamp(item.get("published_at"))
+                    display_rows.append(item)
+                reaction_frame = pd.DataFrame(display_rows)
+                human_columns = [
+                    "published_at", "price_at_event", "return_15m_pct", "return_1h_pct",
+                    "return_4h_pct", "return_24h_pct", "mfe_4h_pct", "mae_4h_pct", "status", "error",
+                ]
+                technical_columns = ["contract_symbol", "contract_uic", "candidate_event_id"]
                 st.dataframe(
                     reaction_frame,
                     hide_index=True,
                     use_container_width=True,
+                    column_order=tuple(column for column in human_columns + technical_columns if column in reaction_frame.columns),
                     column_config={
-                        "candidate_event_id": "Hendelse",
-                        "published_at": "Tidspunkt",
-                        "contract_symbol": "Kontrakt",
-                        "contract_uic": "UIC",
+                        "published_at": st.column_config.TextColumn("Tidspunkt", width="small"),
                         "price_at_event": st.column_config.NumberColumn("Startpris", format="%.3f"),
                         "return_15m_pct": st.column_config.NumberColumn("+15m %", format="%.3f"),
                         "return_1h_pct": st.column_config.NumberColumn("+1t %", format="%.3f"),
@@ -205,6 +215,9 @@ else:
                         "mae_4h_pct": st.column_config.NumberColumn("MAE 4t %", format="%.3f"),
                         "status": "Status",
                         "error": "Feil",
+                        "contract_symbol": "Kontrakt",
+                        "contract_uic": "UIC",
+                        "candidate_event_id": st.column_config.TextColumn("Teknisk hendelses-ID", width="medium"),
                     },
                 )
 
