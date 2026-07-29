@@ -8,8 +8,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
+from build_info import render_build_badge
 from database import connect, using_postgres
 from signal_outcomes import SignalOutcomeStore
+from telegram_flow_store import TelegramFlowStore
 
 LOCAL_TIMEZONE = ZoneInfo("Europe/Oslo")
 CHANNEL_CODES = {
@@ -46,6 +48,7 @@ def _compact_telegram_id(value: object) -> str:
 
 
 st.set_page_config(page_title="Worker Status", page_icon="🟢", layout="wide")
+render_build_badge()
 st.title("PriceGauger Worker Status")
 st.caption("Read-only produksjonsstatus fra workeren og den delte databasen.")
 
@@ -70,15 +73,35 @@ with connect() as db:
     ).fetchall()
 
 outcomes = SignalOutcomeStore().load_all()
+flow_snapshot = TelegramFlowStore().load_latest_snapshot()
 completed_1h = [item for item in outcomes if item.return_1h_pct is not None]
 completed_4h = [item for item in outcomes if item.return_4h_pct is not None]
 latest_worker = worker_rows[0]["recorded_at"] if worker_rows else None
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Lagrede signaler", len(outcomes))
 c2.metric("Ferdige 1t", len(completed_1h))
 c3.metric("Ferdige 4t", len(completed_4h))
 c4.metric("Siste worker-hendelse", _compact_timestamp(latest_worker))
+c5.metric("Siste Telegram Flow", _compact_timestamp(flow_snapshot.as_of if flow_snapshot else None))
+
+if flow_snapshot:
+    st.subheader("Telegram Flow-status")
+    st.caption(
+        f"{flow_snapshot.post_count} scorede poster · {flow_snapshot.event_cluster_count} hendelsesklynger · "
+        f"modell {flow_snapshot.model or 'ukjent'}"
+    )
+    flow_rows = [
+        {
+            "marked": item.asset,
+            "retning": item.direction,
+            "flow-score": item.flow_score,
+            "confidence": item.confidence,
+            "aktive hendelser": item.selected_event_count,
+        }
+        for item in flow_snapshot.assets
+    ]
+    st.dataframe(pd.DataFrame(flow_rows), use_container_width=True, hide_index=True)
 
 if latest_interpretation:
     payload = json.loads(latest_interpretation["payload_json"])
