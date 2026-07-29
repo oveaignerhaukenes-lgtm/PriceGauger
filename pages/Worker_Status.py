@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from build_info import render_build_badge
-from database import connect, using_postgres
+from database import connect, database_config_status, using_postgres
 from signal_outcomes import SignalOutcomeStore
 from telegram_flow_store import TelegramFlowStore
 
@@ -52,11 +52,15 @@ render_build_badge()
 st.title("PriceGauger Worker Status")
 st.caption("Read-only produksjonsstatus fra workeren og den delte databasen.")
 
+db_status = database_config_status()
 if not using_postgres():
     st.warning(
         "Denne visningen leser lokal SQLite, ikke den delte Railway-databasen. "
-        "Legg DATABASE_URL i Streamlit-miljøet for å vise faktisk worker-status."
+        "Legg DATABASE_URL eller DATABASE_PUBLIC_URL i Streamlit-miljøet. "
+        f"Konfigurasjonsstatus: {db_status['source']}."
     )
+else:
+    st.success(f"Delt PostgreSQL er aktiv via {db_status['source']}.")
 
 with connect() as db:
     worker_rows = db.execute(
@@ -171,5 +175,5 @@ else:
 
 st.caption(
     f"Siden lest {_compact_timestamp(datetime.now(timezone.utc))} · "
-    f"backend={'PostgreSQL' if using_postgres() else 'SQLite'}"
+    f"backend={'PostgreSQL' if using_postgres() else 'SQLite'} · config={db_status['source']}"
 )
