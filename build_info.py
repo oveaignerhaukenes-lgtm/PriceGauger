@@ -59,20 +59,35 @@ def render_build_badge() -> None:
     st.markdown(
         f"""
         <style>
-        [data-testid="stMetricValue"] {{
-            font-size: 1.12rem !important;
-            line-height: 1.28 !important;
-            font-weight: 600 !important;
+        [data-testid="stMetric"] {{
+            min-width: 0 !important;
+        }}
+        [data-testid="stMetricValue"],
+        [data-testid="stMetricValue"] > div,
+        [data-testid="stMetricValue"] p,
+        [data-testid="stMetricLabel"],
+        [data-testid="stMetricLabel"] > div,
+        [data-testid="stMetricLabel"] p {{
+            min-width: 0 !important;
+            max-width: 100% !important;
             white-space: normal !important;
             overflow: visible !important;
             text-overflow: clip !important;
             overflow-wrap: anywhere !important;
             word-break: normal !important;
         }}
+        [data-testid="stMetricValue"] {{
+            font-size: 1.08rem !important;
+            line-height: 1.28 !important;
+            font-weight: 600 !important;
+        }}
+        [data-testid="stMetricValue"] > div,
+        [data-testid="stMetricValue"] p {{
+            font-size: inherit !important;
+            line-height: inherit !important;
+            font-weight: inherit !important;
+        }}
         [data-testid="stMetricLabel"] {{
-            white-space: normal !important;
-            overflow: visible !important;
-            text-overflow: clip !important;
             line-height: 1.25 !important;
         }}
         .pricegauger-build-badge {{
@@ -123,7 +138,7 @@ def render_build_badge() -> None:
         }}
         @media (max-width: 700px) {{
             [data-testid="stMetricValue"] {{
-                font-size: 1rem !important;
+                font-size: 0.98rem !important;
             }}
             .pricegauger-build-badge {{
                 top: 0.48rem;
