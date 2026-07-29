@@ -6,6 +6,16 @@ import pandas as pd
 import streamlit as st
 
 
+def compact_timestamp(value: Any) -> str:
+    """Render human-facing timestamps without seconds or ISO noise."""
+    if value in (None, ""):
+        return "—"
+    parsed = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(parsed):
+        return str(value)
+    return parsed.tz_convert("Europe/Oslo").strftime("%d.%m.%y · %H:%M")
+
+
 def _pct(value: float | None, *, signed: bool = False, digits: int = 2) -> str:
     if value is None or pd.isna(value):
         return "—"
@@ -42,7 +52,7 @@ def render_semantic_ranking_table(rows: Iterable[dict[str, Any]]) -> None:
             {
                 "rank": index,
                 "title": str(item.get("title") or ""),
-                "published_at": str(item.get("published_at") or ""),
+                "published_at": compact_timestamp(item.get("published_at")),
                 "combined_similarity": float(item.get("combined_similarity") or 0.0) * 100.0,
                 "event_similarity": float(item.get("event_similarity") or 0.0) * 100.0,
                 "market_similarity": float(item.get("market_similarity") or 0.0) * 100.0,
@@ -88,7 +98,7 @@ def render_semantic_ranking_table(rows: Iterable[dict[str, Any]]) -> None:
                 width="small",
                 format="%.0f %%",
             ),
-            "published_at": st.column_config.TextColumn("Tidspunkt", width="medium"),
+            "published_at": st.column_config.TextColumn("Tidspunkt", width="small"),
             "explanation": st.column_config.TextColumn("Begrunnelse", width="large"),
         },
     )
