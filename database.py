@@ -7,18 +7,53 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-def database_url() -> str:
-    """Return DATABASE_URL from the environment or Streamlit secrets."""
-    configured = os.getenv("DATABASE_URL", "").strip()
-    if configured:
-        return configured
+_ENV_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
+_SECRET_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
+
+
+def _streamlit_secret_value() -> tuple[str, str]:
+    """Return a supported Streamlit secret value and a safe source label."""
     try:
         import streamlit as st
 
-        value = st.secrets.get("DATABASE_URL", "")
-        return str(value).strip() if value else ""
+        for key in _SECRET_KEYS:
+            value = st.secrets.get(key, "")
+            if value:
+                return str(value).strip(), f"st.secrets[{key}]"
+
+        nested = st.secrets.get("database", {})
+        if nested:
+            for key in ("url", "URL", "database_url", "DATABASE_URL"):
+                value = nested.get(key, "")
+                if value:
+                    return str(value).strip(), f"st.secrets[database.{key}]"
     except Exception:
-        return ""
+        return "", "unavailable"
+    return "", "missing"
+
+
+def database_config_status() -> dict[str, str | bool]:
+    """Return non-secret diagnostics for the active database configuration."""
+    for key in _ENV_KEYS:
+        value = os.getenv(key, "").strip()
+        if value:
+            return {"configured": True, "source": f"environment:{key}", "backend": "PostgreSQL"}
+
+    value, source = _streamlit_secret_value()
+    if value:
+        return {"configured": True, "source": source, "backend": "PostgreSQL"}
+    return {"configured": False, "source": source, "backend": "SQLite"}
+
+
+def database_url() -> str:
+    """Return PostgreSQL URL from environment or Streamlit secrets."""
+    for key in _ENV_KEYS:
+        configured = os.getenv(key, "").strip()
+        if configured:
+            return configured
+
+    value, _ = _streamlit_secret_value()
+    return value
 
 
 def using_postgres() -> bool:
