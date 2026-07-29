@@ -19,15 +19,21 @@ render_build_badge()
 st.markdown(
     """
     <style>
+    .pg-market-name {
+        margin: 0 0 .15rem 0;
+        font-size: 1rem;
+        line-height: 1.2;
+        font-weight: 650;
+        letter-spacing: .02em;
+        color: rgba(49, 51, 63, .78);
+    }
     .pg-metric-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 1rem;
         margin: .35rem 0 1rem 0;
     }
-    .pg-metric {
-        min-width: 0;
-    }
+    .pg-metric { min-width: 0; }
     .pg-metric-label {
         font-size: .74rem;
         line-height: 1.2;
@@ -45,29 +51,20 @@ st.markdown(
         word-break: normal;
         text-overflow: clip;
     }
-    .pg-snapshot-grid {
-        gap: .7rem;
-    }
+    .pg-snapshot-grid { gap: .7rem; }
     .pg-snapshot-grid .pg-metric-value {
-        font-size: .84rem;
+        font-size: .9rem;
         font-weight: 600;
-        line-height: 1.15;
-        white-space: nowrap;
-        overflow-wrap: normal;
-        word-break: keep-all;
+        line-height: 1.2;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
     @media (max-width: 900px) {
-        .pg-metric-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
+        .pg-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 560px) {
-        .pg-metric-grid {
-            grid-template-columns: 1fr;
-        }
-        .pg-snapshot-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
+        .pg-metric-grid { grid-template-columns: 1fr; }
+        .pg-snapshot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     </style>
     """,
@@ -80,26 +77,31 @@ ASSETS = {
     "Gold": {"twelve": "XAU/USD", "yahoo": "GC=F"},
     "DXY": {"yahoo": "DX-Y.NYB"},
 }
-TIMEFRAMES = {
-    "5m": "5min",
-    "30m": "30min",
-    "1h": "1h",
-}
+TIMEFRAMES = {"5m": "5min", "30m": "30min", "1h": "1h"}
 
 
-def providers() -> list:
-    configured = [SaxoPriceProvider()]
-    api_key = twelve_data_api_key()
-    if api_key:
-        configured.append(TwelveDataProvider(api_key))
-    configured.append(YahooProvider())
+def providers(asset: str) -> list:
+    yahoo = YahooProvider()
+    saxo = SaxoPriceProvider()
+    twelve_key = twelve_data_api_key()
+    twelve = TwelveDataProvider(twelve_key) if twelve_key else None
+
+    # BZ=F is the continuous Brent series used for the visible technical dashboard.
+    # A statically configured Saxo contract can differ around expiry/rollover.
+    if asset == "Brent":
+        configured = [yahoo, saxo]
+    else:
+        configured = [saxo]
+        if twelve is not None:
+            configured.append(twelve)
+        configured.append(yahoo)
     return configured
 
 
 def fetch_frames(asset: str, outputsize: int) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
     frames: dict[str, pd.DataFrame] = {}
     sources: dict[str, str] = {}
-    configured = providers()
+    configured = providers(asset)
     for timeframe, interval in TIMEFRAMES.items():
         request = MarketRequest(
             asset_name=asset,
@@ -124,10 +126,7 @@ def render_metric_grid(items: list[tuple[str, str]], *, snapshot: bool = False) 
         for label, value in items
     )
     extra_class = " pg-snapshot-grid" if snapshot else ""
-    st.markdown(
-        f'<div class="pg-metric-grid{extra_class}">{cards}</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<div class="pg-metric-grid{extra_class}">{cards}</div>', unsafe_allow_html=True)
 
 
 def render_snapshot(snapshot: TechnicalSnapshot) -> None:
@@ -136,17 +135,12 @@ def render_snapshot(snapshot: TechnicalSnapshot) -> None:
         render_metric_grid(
             [
                 ("Pris", f"{snapshot.price:,.3f}"),
-                ("RSI 14", f"{snapshot.rsi_14:.1f}" if snapshot.rsi_14 is not None else "—"),
-                (
-                    "MACD histogram",
-                    f"{snapshot.macd_histogram:+.4f}" if snapshot.macd_histogram is not None else "—",
-                ),
-                ("ATR 14", f"{snapshot.atr_14_pct:.2f} %" if snapshot.atr_14_pct is not None else "—"),
+                ("RSI", f"{snapshot.rsi_14:.1f}" if snapshot.rsi_14 is not None else "—"),
+                ("MACD", f"{snapshot.macd_histogram:+.4f}" if snapshot.macd_histogram is not None else "—"),
+                ("ATR", f"{snapshot.atr_14_pct:.2f} %" if snapshot.atr_14_pct is not None else "—"),
             ],
             snapshot=True,
         )
-        for reading in snapshot.readings:
-            st.write(f"• {reading.display}")
 
 
 def render_regime(regime: TechnicalRegime) -> None:
@@ -165,17 +159,18 @@ def render_regime(regime: TechnicalRegime) -> None:
             st.write(f"• {reason}")
 
 
-st.title("Direct – Technical")
-st.caption(
-    "Deterministisk flertidsrammeanalyse fra OHLCV. Oppdateringsintervallet er en "
-    "overvåkingsanbefaling, ikke en prognose for når markedet snur."
-)
-
 with st.sidebar:
     st.header("Teknisk analyse")
     asset = st.selectbox("Marked", list(ASSETS))
     outputsize = st.selectbox("Prisbarer per tidsramme", [150, 300, 600, 1200], index=1)
     run_analysis = st.button("Oppdater teknisk analyse", type="primary", use_container_width=True)
+
+st.markdown(f'<div class="pg-market-name">MARKED · {html.escape(asset.upper())}</div>', unsafe_allow_html=True)
+st.title("Direct – Technical")
+st.caption(
+    "Deterministisk flertidsrammeanalyse fra OHLCV. Oppdateringsintervallet er en "
+    "overvåkingsanbefaling, ikke en prognose for når markedet snur."
+)
 
 state_key = f"direct_technical_{asset}_{outputsize}"
 if run_analysis:
@@ -184,11 +179,7 @@ if run_analysis:
             frames, sources = fetch_frames(asset, outputsize)
             snapshots = build_multi_timeframe_snapshot(frames, asset=asset)
             regime = build_technical_regime(snapshots)
-            st.session_state[state_key] = {
-                "snapshots": snapshots,
-                "regime": regime,
-                "sources": sources,
-            }
+            st.session_state[state_key] = {"snapshots": snapshots, "regime": regime, "sources": sources}
     except Exception as exc:
         st.error(f"Kunne ikke bygge teknisk analyse: {exc}")
 
