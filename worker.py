@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+import pandas as pd
+
 from config import openai_api_key, openai_market_model
 from database import connect, using_postgres
 from event_resolution import CanonicalEvent, canonical_event_from_plan
@@ -16,7 +18,7 @@ from market_state_service import process_market_event
 from market_state_store import MarketStateStore
 from openai_market_provider import OpenAIJsonProvider
 from signal_outcomes import SignalOutcomeStore, refresh_signal_outcomes, register_recommendations
-from telegram_flow_engine import OpenAITelegramFlowScorer, aggregate_scored_posts
+from telegram_flow_engine import OpenAITelegramFlowScorer, TelegramFlowAssessment, aggregate_scored_posts
 from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
 from test_protocol import PAPER_TEST_PROTOCOL
@@ -24,6 +26,8 @@ from test_protocol import PAPER_TEST_PROTOCOL
 LOGGER = logging.getLogger("pricegauger.worker")
 DEFAULT_DB_PATH = "pricegauger.db"
 DEFAULT_INTERVAL_SECONDS = 300
+FLOW_HEARTBEAT_SECONDS = 600
+FLOW_SCORE_DELTA = 0.02
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +135,51 @@ def _ensure_event_timestamp(event: CanonicalEvent) -> CanonicalEvent:
     return replace(event, published_at=fallback)
 
 
+def _asset_map(assessment: TelegramFlowAssessment) -> dict[str, object]:
+    return {item.asset: item for item in assessment.assets}
+
+
+def _snapshot_is_informative(
+    current: TelegramFlowAssessment,
+    previous: TelegramFlowAssessment | None,
+    *,
+    scored_posts: int,
+    heartbeat_seconds: int = FLOW_HEARTBEAT_SECONDS,
+    score_delta: float = FLOW_SCORE_DELTA,
+) -> tuple[bool, str]:
+    if previous is None:
+        return True, "first_snapshot"
+    if scored_posts:
+        return True, "new_posts"
+    if current.post_count != previous.post_count:
+        return True, "post_count_changed"
+    if current.event_cluster_count != previous.event_cluster_count:
+        return True, "cluster_count_changed"
+
+    previous_assets = _asset_map(previous)
+    for item in current.assets:
+        prior = previous_assets.get(item.asset)
+        if prior is None:
+            return True, f"new_asset:{item.asset}"
+        if item.direction != prior.direction:
+            return True, f"direction_changed:{item.asset}"
+        if item.selected_event_count != prior.selected_event_count:
+            return True, f"event_count_changed:{item.asset}"
+        if abs(item.flow_score - prior.flow_score) >= score_delta:
+            return True, f"score_changed:{item.asset}"
+
+    current_time = pd.Timestamp(current.as_of)
+    previous_time = pd.Timestamp(previous.as_of)
+    if current_time.tzinfo is None:
+        current_time = current_time.tz_localize("UTC")
+    if previous_time.tzinfo is None:
+        previous_time = previous_time.tz_localize("UTC")
+    age_seconds = max(0.0, (current_time - previous_time).total_seconds())
+    if age_seconds >= heartbeat_seconds:
+        return True, "heartbeat"
+    return False, "no_material_change"
+
+
 def _refresh_telegram_flow(
     *,
     db_path: str | Path,
@@ -140,27 +189,46 @@ def _refresh_telegram_flow(
     store = TelegramFlowStore(db_path)
     key = openai_api_key()
     new_plans = [plan for plan in plans if not store.has_post(plan.message_id)]
+    scored_count = 0
 
     if key and new_plans:
         # Keep each AI request bounded. Older visible posts are picked up in later cycles.
         selected = new_plans[-8:]
         scorer = OpenAITelegramFlowScorer(api_key=key)
         scored = scorer.score([(channel, plan) for plan in selected])
-        store.save_posts(scored)
-        LOGGER.info("telegram flow scored posts=%s model=%s", len(scored), scorer.model)
+        scored_count = store.save_posts(scored)
+        LOGGER.info("telegram flow scored posts=%s model=%s", scored_count, scorer.model)
     elif new_plans:
         LOGGER.warning("telegram flow skipped new_posts=%s because OPENAI_API_KEY is missing", len(new_plans))
 
     stored = store.load_posts(limit=500)
     if not stored:
         return
+
     assessment = aggregate_scored_posts(stored, as_of=datetime.now(timezone.utc))
+    assessment = replace(assessment, model=openai_market_model())
+    previous = store.load_latest_snapshot()
+    should_save, reason = _snapshot_is_informative(
+        assessment,
+        previous,
+        scored_posts=scored_count,
+    )
+    if not should_save:
+        LOGGER.info(
+            "telegram flow snapshot skipped reason=%s posts=%s clusters=%s",
+            reason,
+            assessment.post_count,
+            assessment.event_cluster_count,
+        )
+        return
+
     store.save_snapshot(assessment)
     LOGGER.info(
-        "telegram flow snapshot as_of=%s posts=%s clusters=%s",
+        "telegram flow snapshot as_of=%s posts=%s clusters=%s reason=%s",
         assessment.as_of,
         assessment.post_count,
         assessment.event_cluster_count,
+        reason,
     )
 
 
@@ -181,7 +249,14 @@ def run_once(
         else build_interpreter()
     )
 
-    plans = plans_fetcher(channel, minimum_signal=minimum_signal)
+    try:
+        plans = plans_fetcher(channel, minimum_signal=minimum_signal)
+    except Exception as exc:
+        # Telegram's public page occasionally times out. Keep flow decay and outcome
+        # updates alive from persisted data instead of aborting the whole worker cycle.
+        LOGGER.warning("telegram fetch failed; continuing with stored data: %s", exc)
+        plans = []
+
     pending, bootstrap_ignored = _pending_plans(plans, state)
     processed = 0
 
