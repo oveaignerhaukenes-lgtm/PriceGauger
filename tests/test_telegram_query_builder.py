@@ -37,6 +37,41 @@ def test_low_signal_commentary_is_not_selected_from_telegram_html() -> None:
     assert plans[0].search == "attack energy infrastructure Iran"
 
 
+def test_flow_mode_keeps_low_signal_posts_for_ai_scoring() -> None:
+    html = """
+    <div class="tgme_widget_message_wrap">
+      <div class="tgme_widget_message" data-post="Middle_East_Spectator/12"></div>
+      <div class="tgme_widget_message_text">General commentary with no concrete event.</div>
+      <time datetime="2026-07-30T18:00:00+00:00"></time>
+    </div>
+    """
+
+    plans = plans_from_telegram_html(html, minimum_signal=0)
+
+    assert len(plans) == 1
+    assert plans[0].message_id == "12"
+    assert plans[0].signal_score < 2
+
+
+def test_telegram_plans_are_sorted_chronologically_not_by_html_order() -> None:
+    html = """
+    <div class="tgme_widget_message_wrap">
+      <div class="tgme_widget_message" data-post="Middle_East_Spectator/22"></div>
+      <div class="tgme_widget_message_text">Missile attack on an Iranian refinery.</div>
+      <time datetime="2026-07-30T19:00:00+00:00"></time>
+    </div>
+    <div class="tgme_widget_message_wrap">
+      <div class="tgme_widget_message" data-post="Middle_East_Spectator/21"></div>
+      <div class="tgme_widget_message_text">Missile attack on an Iranian refinery.</div>
+      <time datetime="2026-07-30T18:00:00+00:00"></time>
+    </div>
+    """
+
+    plans = plans_from_telegram_html(html)
+
+    assert [plan.message_id for plan in plans] == ["21", "22"]
+
+
 def test_shipping_blockade_maps_to_infrastructure_domain() -> None:
     plan = build_search_plan(
         message_id="200",
