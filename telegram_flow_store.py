@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Iterable
 
@@ -12,6 +13,9 @@ from telegram_flow_engine import (
     ScoredTelegramPost,
     TelegramFlowAssessment,
 )
+
+
+LOGGER = logging.getLogger("pricegauger.telegram_flow_store")
 
 
 class TelegramFlowStore:
@@ -111,6 +115,19 @@ class TelegramFlowStore:
                     json.dumps(assessment.to_record(), ensure_ascii=False, sort_keys=True),
                 ),
             )
+
+        # State processing is downstream of the persisted flow snapshot. Failures are
+        # isolated so Telegram Flow remains available even when an alert provider fails.
+        try:
+            from state_runtime_pipeline import process_flow_snapshot
+
+            process_flow_snapshot(
+                db_path=self.path,
+                assessment=assessment,
+                posts=self.load_posts(limit=500),
+            )
+        except Exception:
+            LOGGER.exception("state runtime processing failed after Telegram flow snapshot")
 
     def load_latest_snapshot(self) -> TelegramFlowAssessment | None:
         with self._connect() as db:
