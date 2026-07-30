@@ -71,6 +71,9 @@ class DeliveryResult:
 class AlertNotifier(Protocol):
     channel: str
 
+    @property
+    def recipients(self) -> tuple[str, ...]: ...
+
     def send(self, alert: MarketMoverAlert, *, dashboard_url: str = "") -> list[DeliveryResult]: ...
 
 
@@ -171,15 +174,19 @@ class EmailNotifier:
         self.config = config
         self.smtp_factory = smtp_factory
 
+    @property
+    def recipients(self) -> tuple[str, ...]:
+        return self.config.email_to
+
     def send(self, alert: MarketMoverAlert, *, dashboard_url: str = "") -> list[DeliveryResult]:
         if not self.config.email_enabled:
             return []
         sender = self.config.smtp_from or self.config.smtp_username
         if not sender:
-            return [DeliveryResult(self.channel, recipient, False, "missing sender") for recipient in self.config.email_to]
+            return [DeliveryResult(self.channel, recipient, False, "missing sender") for recipient in self.recipients]
         message = EmailMessage()
         message["From"] = sender
-        message["To"] = ", ".join(self.config.email_to)
+        message["To"] = ", ".join(self.recipients)
         message["Subject"] = f"[{alert.severity}] {alert.market}: {alert.headline}"
         message.set_content(format_alert_text(alert, dashboard_url=dashboard_url))
         factory = self.smtp_factory or (smtplib.SMTP_SSL if self.config.smtp_use_ssl else smtplib.SMTP)
@@ -190,9 +197,9 @@ class EmailNotifier:
                 if self.config.smtp_username:
                     client.login(self.config.smtp_username, self.config.smtp_password)
                 client.send_message(message)
-            return [DeliveryResult(self.channel, recipient, True) for recipient in self.config.email_to]
+            return [DeliveryResult(self.channel, recipient, True) for recipient in self.recipients]
         except Exception as exc:
-            return [DeliveryResult(self.channel, recipient, False, str(exc)) for recipient in self.config.email_to]
+            return [DeliveryResult(self.channel, recipient, False, str(exc)) for recipient in self.recipients]
 
 
 class TelegramNotifier:
@@ -202,13 +209,17 @@ class TelegramNotifier:
         self.config = config
         self.session = session
 
+    @property
+    def recipients(self) -> tuple[str, ...]:
+        return self.config.telegram_chat_ids
+
     def send(self, alert: MarketMoverAlert, *, dashboard_url: str = "") -> list[DeliveryResult]:
         if not self.config.telegram_enabled:
             return []
         url = f"https://api.telegram.org/bot{self.config.telegram_bot_token}/sendMessage"
         text = format_alert_text(alert, dashboard_url=dashboard_url)
         results: list[DeliveryResult] = []
-        for chat_id in self.config.telegram_chat_ids:
+        for chat_id in self.recipients:
             try:
                 response = self.session.post(
                     url,
@@ -246,16 +257,24 @@ def dispatch_market_mover(
     fingerprint = alert_fingerprint(alert)
     results: list[DeliveryResult] = []
     for notifier in selected_notifiers:
-        pending_results = notifier.send(alert, dashboard_url=selected_config.dashboard_url)
-        for result in pending_results:
+        duplicates = [
+            recipient
+            for recipient in notifier.recipients
             if selected_store.was_delivered(
-                channel=result.channel,
-                recipient=result.recipient,
+                channel=notifier.channel,
+                recipient=recipient,
                 alert_id=alert.alert_id,
                 fingerprint=fingerprint,
-            ):
-                results.append(DeliveryResult(result.channel, result.recipient, True, "duplicate skipped"))
-                continue
+            )
+        ]
+        if notifier.recipients and len(duplicates) == len(notifier.recipients):
+            results.extend(
+                DeliveryResult(notifier.channel, recipient, True, "duplicate skipped")
+                for recipient in notifier.recipients
+            )
+            continue
+        pending_results = notifier.send(alert, dashboard_url=selected_config.dashboard_url)
+        for result in pending_results:
             if result.delivered:
                 selected_store.mark_delivered(
                     channel=result.channel,
