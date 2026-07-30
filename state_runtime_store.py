@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Iterable
 
 from database import connect
-from state_contracts import EventContribution, InformationStateSnapshot, MarketMoverAlert
+from state_contracts import (
+    DecisionStateSnapshot,
+    EventContribution,
+    InformationStateSnapshot,
+    MarketMoverAlert,
+)
 
 
 class StateRuntimeStore:
@@ -22,6 +27,16 @@ class StateRuntimeStore:
                     payload_json TEXT NOT NULL,
                     recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS decision_state_snapshots (
+                    snapshot_id TEXT PRIMARY KEY,
+                    market TEXT NOT NULL,
+                    as_of TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_decision_state_market_as_of
+                ON decision_state_snapshots(market, as_of);
                 CREATE TABLE IF NOT EXISTS event_contributions (
                     event_id TEXT NOT NULL,
                     event_cluster_id TEXT NOT NULL,
@@ -58,6 +73,62 @@ class StateRuntimeStore:
                 """,
                 (snapshot.snapshot_id, snapshot.as_of, json.dumps(snapshot.to_record(), ensure_ascii=False, sort_keys=True)),
             )
+
+    def save_decision_states(self, snapshots: Iterable[DecisionStateSnapshot]) -> int:
+        rows = list(snapshots)
+        with self._connect() as db:
+            for snapshot in rows:
+                db.execute(
+                    """
+                    INSERT INTO decision_state_snapshots(snapshot_id, market, as_of, direction, payload_json)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(snapshot_id) DO UPDATE SET
+                        market=excluded.market,
+                        as_of=excluded.as_of,
+                        direction=excluded.direction,
+                        payload_json=excluded.payload_json,
+                        recorded_at=CURRENT_TIMESTAMP
+                    """,
+                    (
+                        snapshot.snapshot_id,
+                        snapshot.market,
+                        snapshot.as_of,
+                        snapshot.direction,
+                        json.dumps(snapshot.to_record(), ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+        return len(rows)
+
+    def load_latest_decision_state(self, *, market: str) -> DecisionStateSnapshot | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT payload_json
+                FROM decision_state_snapshots
+                WHERE market=?
+                ORDER BY as_of DESC
+                LIMIT 1
+                """,
+                (market,),
+            ).fetchone()
+        return None if row is None else DecisionStateSnapshot(**json.loads(row["payload_json"]))
+
+    def load_latest_decision_states(self) -> list[DecisionStateSnapshot]:
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT d.payload_json
+                FROM decision_state_snapshots d
+                INNER JOIN (
+                    SELECT market, MAX(as_of) AS max_as_of
+                    FROM decision_state_snapshots
+                    GROUP BY market
+                ) latest
+                ON d.market=latest.market AND d.as_of=latest.max_as_of
+                ORDER BY d.market
+                """
+            ).fetchall()
+        return [DecisionStateSnapshot(**json.loads(row["payload_json"])) for row in rows]
 
     def has_contribution(self, *, event_id: str, market: str) -> bool:
         with self._connect() as db:
