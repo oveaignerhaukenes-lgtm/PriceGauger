@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 _ENV_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
 _SECRET_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
+_DEFAULT_SQLITE_PATH = "pricegauger.db"
 
 
 def _streamlit_secret_value() -> tuple[str, str]:
@@ -66,11 +67,17 @@ def _postgres_sql(sql: str) -> str:
 
 
 class DatabaseConnection(AbstractContextManager):
-    """Minimal connection adapter shared by SQLite and PostgreSQL stores."""
+    """Minimal connection adapter shared by SQLite and PostgreSQL stores.
 
-    def __init__(self, sqlite_path: str | Path = "pricegauger.db") -> None:
+    The default database path follows DATABASE_URL when configured. Passing an
+    explicit, non-default SQLite path is treated as an intentional local/test
+    database and must never be redirected to the shared PostgreSQL database.
+    """
+
+    def __init__(self, sqlite_path: str | Path = _DEFAULT_SQLITE_PATH) -> None:
         self.sqlite_path = str(sqlite_path)
-        self.is_postgres = using_postgres()
+        explicit_sqlite = self.sqlite_path != _DEFAULT_SQLITE_PATH
+        self.is_postgres = using_postgres() and not explicit_sqlite
         if self.is_postgres:
             try:
                 import psycopg
@@ -112,5 +119,5 @@ class DatabaseConnection(AbstractContextManager):
         return False
 
 
-def connect(sqlite_path: str | Path = "pricegauger.db") -> DatabaseConnection:
+def connect(sqlite_path: str | Path = _DEFAULT_SQLITE_PATH) -> DatabaseConnection:
     return DatabaseConnection(sqlite_path)
