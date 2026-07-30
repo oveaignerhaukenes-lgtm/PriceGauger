@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from market_state_store import MarketStateStore
-from notification_service import dispatch_market_mover
+from notification_service import NotificationStore, dispatch_market_mover
 from state_runtime_service import build_information_state, contributions_from_posts, detect_alerts
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
@@ -43,9 +43,10 @@ def process_flow_snapshot(
     contributions = contributions_from_posts(new_posts)
     runtime_store.save_contributions(contributions)
     alerts = detect_alerts(new_posts, information)
+    delivery_store = NotificationStore(db_path)
     for alert in alerts:
         runtime_store.save_alert(alert)
-        results = dispatch_market_mover(alert)
+        results = dispatch_market_mover(alert, store=delivery_store)
         delivered = sum(item.delivered and item.detail != "duplicate skipped" for item in results)
         LOGGER.info(
             "market mover alert=%s severity=%s market=%s deliveries=%s",
