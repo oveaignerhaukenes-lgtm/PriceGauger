@@ -5,7 +5,12 @@ from pathlib import Path
 
 from market_state_store import MarketStateStore
 from notification_service import NotificationStore, dispatch_market_mover
-from state_runtime_service import build_information_state, contributions_from_posts, detect_alerts
+from state_runtime_service import (
+    build_decision_states,
+    build_information_state,
+    contributions_from_posts,
+    detect_alerts,
+)
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 
@@ -19,11 +24,18 @@ def process_flow_snapshot(
     assessment: TelegramFlowAssessment,
     posts: list[ScoredTelegramPost],
 ) -> None:
-    """Persist state updates and dispatch alerts for newly evaluated event contributions."""
+    """Persist authoritative state updates and dispatch alerts for newly evaluated event contributions."""
     runtime_store = StateRuntimeStore(db_path)
     interpretations = MarketStateStore(db_path).load_interpretations()
     information = build_information_state(assessment, interpretations)
     runtime_store.save_information_state(information)
+
+    previous = {
+        item.asset: runtime_store.load_latest_decision_state(market=item.asset)
+        for item in assessment.assets
+    }
+    decisions = build_decision_states(assessment, information, previous=previous)
+    runtime_store.save_decision_states(decisions)
 
     new_posts: list[ScoredTelegramPost] = []
     for post in posts:
@@ -35,8 +47,9 @@ def process_flow_snapshot(
 
     if not new_posts:
         LOGGER.info(
-            "state runtime updated information=%s new_posts=0 alerts=0",
+            "state runtime updated information=%s decisions=%s new_posts=0 alerts=0",
             information.snapshot_id,
+            len(decisions),
         )
         return
 
@@ -57,8 +70,9 @@ def process_flow_snapshot(
         )
 
     LOGGER.info(
-        "state runtime updated information=%s new_posts=%s contributions=%s alerts=%s",
+        "state runtime updated information=%s decisions=%s new_posts=%s contributions=%s alerts=%s",
         information.snapshot_id,
+        len(decisions),
         len(new_posts),
         len(contributions),
         len(alerts),
