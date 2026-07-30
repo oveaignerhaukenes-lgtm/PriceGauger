@@ -59,6 +59,14 @@ class StateRuntimeStore:
                 (snapshot.snapshot_id, snapshot.as_of, json.dumps(snapshot.to_record(), ensure_ascii=False, sort_keys=True)),
             )
 
+    def has_contribution(self, *, event_id: str, market: str) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT 1 AS present FROM event_contributions WHERE event_id=? AND market=?",
+                (str(event_id), str(market)),
+            ).fetchone()
+        return row is not None
+
     def save_contributions(self, items: Iterable[EventContribution]) -> int:
         rows = list(items)
         with self._connect() as db:
