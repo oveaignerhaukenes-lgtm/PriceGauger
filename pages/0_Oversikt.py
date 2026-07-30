@@ -26,6 +26,7 @@ st.markdown(
     .pg-direction {font-weight:700; letter-spacing:.02em;}
     .pg-meta {font-size:.78rem; opacity:.76; margin-top:.35rem; line-height:1.35;}
     .pg-driver {font-size:.86rem; margin-top:.55rem; line-height:1.35; overflow-wrap:anywhere;}
+    .pg-delta {font-size:.78rem; margin-top:.4rem; font-weight:650;}
     .pg-bar {height:.4rem; border-radius:999px; background:rgba(128,128,128,.20); overflow:hidden; margin-top:.55rem;}
     .pg-bar span {display:block; height:100%; border-radius:999px; background:currentColor;}
     .pg-alert-card {padding:1rem;}
@@ -87,11 +88,12 @@ main_col, mover_col = st.columns([2, 1], gap="large")
 with main_col:
     st.subheader("Nåværende markedstilstand")
     if data.flow is None or not data.markets:
-        st.info("Venter på første Telegram Flow-snapshot fra workeren.")
+        st.info("Venter på første autoritative Decision State-snapshot fra workeren.")
     else:
         for item in data.markets:
             color = _direction_color(item.direction)
             width = max(2.0, min(100.0, abs(item.score) * 100.0))
+            delta_label = f"Endring siden forrige snapshot: {item.change_from_previous:+.2f}"
             st.markdown(
                 f"""
                 <article class="pg-state-card" style="color:{color}">
@@ -101,9 +103,11 @@ with main_col:
                   </div>
                   <div class="pg-bar"><span style="width:{width:.1f}%"></span></div>
                   <div class="pg-meta" style="color:var(--text-color)">
-                    Flow {item.score:+.2f} · konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser
+                    Decision State {item.score:+.2f} · konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser
                   </div>
+                  <div class="pg-delta" style="color:var(--text-color)">{html.escape(delta_label)}</div>
                   <div class="pg-driver" style="color:var(--text-color)">{html.escape(item.top_driver)}</div>
+                  <div class="pg-meta" style="color:var(--text-color)">{html.escape(item.status_reason)}</div>
                 </article>
                 """,
                 unsafe_allow_html=True,
