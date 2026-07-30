@@ -18,6 +18,7 @@ from market_state_service import process_market_event
 from market_state_store import MarketStateStore
 from openai_market_provider import OpenAIJsonProvider
 from signal_outcomes import SignalOutcomeStore, refresh_signal_outcomes, register_recommendations
+from state_runtime_pipeline import process_flow_snapshot
 from telegram_flow_engine import OpenAITelegramFlowScorer, TelegramFlowAssessment, aggregate_scored_posts
 from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
@@ -25,7 +26,7 @@ from test_protocol import PAPER_TEST_PROTOCOL
 
 LOGGER = logging.getLogger("pricegauger.worker")
 DEFAULT_DB_PATH = "pricegauger.db"
-DEFAULT_INTERVAL_SECONDS = 300
+DEFAULT_INTERVAL_SECONDS = 60
 FLOW_HEARTBEAT_SECONDS = 600
 FLOW_SCORE_DELTA = 0.02
 
@@ -192,7 +193,7 @@ def _refresh_telegram_flow(
     scored_count = 0
 
     if key and new_plans:
-        # Keep each AI request bounded. Older visible posts are picked up in later cycles.
+        # Newest visible posts are scored first; older backlog is picked up later.
         selected = new_plans[-8:]
         scorer = OpenAITelegramFlowScorer(api_key=key)
         scored = scorer.score([(channel, plan) for plan in selected])
@@ -213,23 +214,29 @@ def _refresh_telegram_flow(
         previous,
         scored_posts=scored_count,
     )
-    if not should_save:
+    if should_save:
+        store.save_snapshot(assessment)
+        LOGGER.info(
+            "telegram flow snapshot as_of=%s posts=%s clusters=%s reason=%s",
+            assessment.as_of,
+            assessment.post_count,
+            assessment.event_cluster_count,
+            reason,
+        )
+    else:
         LOGGER.info(
             "telegram flow snapshot skipped reason=%s posts=%s clusters=%s",
             reason,
             assessment.post_count,
             assessment.event_cluster_count,
         )
-        return
 
-    store.save_snapshot(assessment)
-    LOGGER.info(
-        "telegram flow snapshot as_of=%s posts=%s clusters=%s reason=%s",
-        assessment.as_of,
-        assessment.post_count,
-        assessment.event_cluster_count,
-        reason,
-    )
+    # The persistent runtime is authoritative. Run it even when the flow snapshot
+    # itself is unchanged so a new deployment can bootstrap missing Decision State.
+    try:
+        process_flow_snapshot(db_path=db_path, assessment=assessment, posts=stored)
+    except Exception:
+        LOGGER.exception("state runtime failed; Telegram Flow remains available")
 
 
 def run_once(
@@ -250,14 +257,15 @@ def run_once(
     )
 
     try:
-        plans = plans_fetcher(channel, minimum_signal=minimum_signal)
+        # Fetch every text post for Telegram Flow. The old rule-based path still
+        # receives only plans that meet minimum_signal below.
+        all_plans = plans_fetcher(channel, minimum_signal=0)
     except Exception as exc:
-        # Telegram's public page occasionally times out. Keep flow decay and outcome
-        # updates alive from persisted data instead of aborting the whole worker cycle.
         LOGGER.warning("telegram fetch failed; continuing with stored data: %s", exc)
-        plans = []
+        all_plans = []
 
-    pending, bootstrap_ignored = _pending_plans(plans, state)
+    legacy_plans = [plan for plan in all_plans if plan.signal_score >= minimum_signal]
+    pending, bootstrap_ignored = _pending_plans(legacy_plans, state)
     processed = 0
 
     for plan in pending:
@@ -282,15 +290,15 @@ def run_once(
             PAPER_TEST_PROTOCOL.version,
         )
 
-    if not state.is_initialized() and (processed or not plans):
+    if not state.is_initialized() and (processed or not legacy_plans):
         for plan in bootstrap_ignored:
             state.mark(plan.message_id, "bootstrap_ignored")
         state.mark_initialized()
 
-    _refresh_telegram_flow(db_path=db_path, channel=channel, plans=plans)
+    _refresh_telegram_flow(db_path=db_path, channel=channel, plans=all_plans)
     refreshed = refresh_signal_outcomes(store=outcome_store)
     summary = WorkerRunSummary(
-        fetched=len(plans),
+        fetched=len(all_plans),
         pending=len(pending),
         processed=processed,
         skipped_bootstrap=len(bootstrap_ignored),
@@ -298,8 +306,9 @@ def run_once(
         interpreter=str(interpreter_name),
     )
     LOGGER.info(
-        "cycle complete fetched=%s pending=%s processed=%s bootstrap_skipped=%s outcomes=%s interpreter=%s",
+        "cycle complete fetched=%s relevant=%s pending=%s processed=%s bootstrap_skipped=%s outcomes=%s interpreter=%s",
         summary.fetched,
+        len(legacy_plans),
         summary.pending,
         summary.processed,
         summary.skipped_bootstrap,
@@ -351,7 +360,7 @@ def _parser() -> argparse.ArgumentParser:
         "--interval",
         type=int,
         default=DEFAULT_INTERVAL_SECONDS,
-        help="continuous polling interval in seconds (default: 300)",
+        help="continuous polling interval in seconds (default: 60)",
     )
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite fallback database path")
     parser.add_argument("--channel", default="Middle_East_Spectator")
