@@ -6,7 +6,7 @@ from math import exp, log
 import pandas as pd
 import streamlit as st
 
-from config import gdelt_api_key
+from config import gdelt_api_key, gdelt_provider
 from event_dna import build_event_dna, build_market_profile
 from event_reactions import calculate_reactions
 from event_resolution import canonical_event_from_plan, rank_gdelt_analogues
@@ -136,8 +136,6 @@ def _run_pipeline(*, key: str, plan: TelegramSearchPlan, start_date: date, end_d
             analogue_events = [item.event for item in matches]
             st.session_state.canonical_telegram_event = canonical.to_record()
             st.session_state.gdelt_analogue_matches = [item.to_record() for item in matches]
-            # Decision Lab expects one query event followed by historical candidates.
-            # The first item is now always the canonical Telegram event, never a GDELT spin-off.
             st.session_state.gdelt_events = [canonical_market_event, *analogue_events]
             st.write(f"Beholdt {len(analogue_events)} rangerte analoger.")
 
@@ -186,11 +184,27 @@ def _run_pipeline(*, key: str, plan: TelegramSearchPlan, start_date: date, end_d
 
 def render_event_lab() -> None:
     st.subheader("Historical Event Lab")
-    st.caption("Telegram er primærhendelsen. GDELT brukes kun som rangert historisk evidens for markedsprofil og score.")
+    st.caption("Eldre eksperimentell analyseflyt. Den aktive historiske motoren bruker GDELT BigQuery og ligger under Kjerneflyt/Historisk motor.")
+
+    provider = gdelt_provider()
+    if provider == "bigquery":
+        st.info(
+            "Denne eldre modulen bruker GDELT Cloud/DOC-klienten og er derfor deaktivert når "
+            "GDELT_PROVIDER=bigquery. Dette er ikke en manglende secret eller driftsfeil. "
+            "Bruk Historisk motor for den aktive BigQuery-baserte flyten."
+        )
+        try:
+            st.page_link("pages/1_Kjerneflyt.py", label="Åpne Historisk motor", icon="🔗")
+        except Exception:
+            pass
+        return
 
     key = gdelt_api_key()
     if not key:
-        st.error("GDELT_CLOUD_API_KEY mangler i Streamlit Secrets.")
+        st.error(
+            "Denne legacy-modulen krever GDELT_CLOUD_API_KEY når GDELT_PROVIDER=cloud. "
+            "Den aktive BigQuery-baserte Historisk motor trenger ikke denne nøkkelen."
+        )
         return
 
     plan = _sync_telegram_plan()
