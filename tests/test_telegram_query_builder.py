@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import telegram_query_builder as tqb
 from telegram_query_builder import build_search_plan, plans_from_telegram_html
 
 
@@ -84,3 +85,31 @@ def test_shipping_blockade_maps_to_infrastructure_domain() -> None:
     assert plan.country == "Iran"
     assert plan.domain == "INFRASTRUCTURE"
     assert plan.search == "blockade shipping Iran"
+
+
+def test_auto_provider_prefers_telethon_when_credentials_exist(monkeypatch) -> None:
+    expected = [build_search_plan(message_id="301", message_url="https://t.me/x/301", text="Fresh report")]
+    monkeypatch.setenv("TELEGRAM_INGEST_PROVIDER", "auto")
+    monkeypatch.setenv("TELEGRAM_API_ID", "123")
+    monkeypatch.setenv("TELEGRAM_API_HASH", "hash")
+    monkeypatch.setenv("TELEGRAM_SESSION", "session")
+    monkeypatch.setattr(tqb, "_fetch_telethon_search_plans", lambda channel, minimum_signal: expected)
+    monkeypatch.setattr(tqb, "_fetch_web_search_plans", lambda *args, **kwargs: [])
+
+    assert tqb.fetch_search_plans("channel", minimum_signal=0) == expected
+
+
+def test_telethon_failure_falls_back_to_web(monkeypatch) -> None:
+    fallback = [build_search_plan(message_id="302", message_url="https://t.me/x/302", text="Fallback report")]
+    monkeypatch.setenv("TELEGRAM_INGEST_PROVIDER", "telethon")
+    monkeypatch.setenv("TELEGRAM_API_ID", "123")
+    monkeypatch.setenv("TELEGRAM_API_HASH", "hash")
+    monkeypatch.setenv("TELEGRAM_SESSION", "session")
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("temporary Telegram API failure")
+
+    monkeypatch.setattr(tqb, "_fetch_telethon_search_plans", fail)
+    monkeypatch.setattr(tqb, "_fetch_web_search_plans", lambda *args, **kwargs: fallback)
+
+    assert tqb.fetch_search_plans("channel", minimum_signal=0) == fallback
