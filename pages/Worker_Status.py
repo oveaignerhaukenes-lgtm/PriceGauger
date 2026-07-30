@@ -55,12 +55,23 @@ st.caption("Read-only produksjonsstatus fra workeren og den delte databasen.")
 db_status = database_config_status()
 if not using_postgres():
     st.warning(
-        "Denne visningen leser lokal SQLite, ikke den delte Railway-databasen. "
-        "Legg DATABASE_URL eller DATABASE_PUBLIC_URL i Streamlit-miljøet. "
+        "DATABASE_URL eller DATABASE_PUBLIC_URL ble ikke funnet i denne Streamlit-appen. "
         f"Konfigurasjonsstatus: {db_status['source']}."
     )
-else:
-    st.success(f"Delt PostgreSQL er aktiv via {db_status['source']}.")
+    st.info(
+        "Worker Status krever den delte PostgreSQL-databasen. En ny Streamlit-deployment har en tom lokal "
+        "SQLite-fil uten worker-tabellene, så siden stopper her i stedet for å vise en misvisende lokal status."
+    )
+    st.code(
+        'DATABASE_URL = "postgresql://..."',
+        language="toml",
+    )
+    st.caption(
+        "Legg linjen på toppnivå i Secrets for akkurat denne app-instansen, lagre og start appen på nytt."
+    )
+    st.stop()
+
+st.success(f"Delt PostgreSQL er aktiv via {db_status['source']}.")
 
 with connect() as db:
     worker_rows = db.execute(
@@ -175,5 +186,5 @@ else:
 
 st.caption(
     f"Siden lest {_compact_timestamp(datetime.now(timezone.utc))} · "
-    f"backend={'PostgreSQL' if using_postgres() else 'SQLite'} · config={db_status['source']}"
+    f"backend=PostgreSQL · config={db_status['source']}"
 )
