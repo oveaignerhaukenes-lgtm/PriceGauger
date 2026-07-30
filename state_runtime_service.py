@@ -4,11 +4,12 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from market_interpretation import MarketInterpretation
 from state_contracts import (
     ComponentStatus,
+    DecisionStateSnapshot,
     EventContribution,
     InformationStateSnapshot,
     MarketMoverAlert,
@@ -108,6 +109,57 @@ def build_information_state(
         source_channels=flow.source_channels,
         component=component,
     )
+
+
+def build_decision_states(
+    flow: TelegramFlowAssessment,
+    information: InformationStateSnapshot,
+    *,
+    previous: Mapping[str, DecisionStateSnapshot | None] | None = None,
+) -> list[DecisionStateSnapshot]:
+    prior = previous or {}
+    results: list[DecisionStateSnapshot] = []
+    for item in flow.assets:
+        old = prior.get(item.asset)
+        score = float(item.normalized_score)
+        confidence = float(item.confidence)
+        direction = item.direction
+        if information.component.freshness != "FRESH":
+            direction = "STALE"
+        elif item.selected_event_count == 0:
+            direction = "INSUFFICIENT_DATA"
+        change = score - (old.direction_score if old is not None else 0.0)
+        payload = {
+            "market": item.asset,
+            "as_of": flow.as_of,
+            "flow_score": score,
+            "information_snapshot_id": information.snapshot_id,
+        }
+        results.append(
+            DecisionStateSnapshot(
+                snapshot_id=_stable_id("decision-state", payload),
+                market=item.asset,
+                as_of=flow.as_of,
+                previous_snapshot_id=old.snapshot_id if old is not None else "",
+                direction=direction,
+                direction_score=score,
+                confidence=confidence,
+                expected_move_low_pct=None,
+                expected_move_high_pct=None,
+                horizon_hours=4.0,
+                information_snapshot_id=information.snapshot_id,
+                market_snapshot_id="market-confirmation-pending",
+                change_from_previous=round(change, 4),
+                contributing_event_ids=tuple(
+                    contribution.message_id
+                    for contribution in flow.contributions
+                    if contribution.asset == item.asset and contribution.selected
+                ),
+                status_reason="Information-state signal; price and technical confirmation pending.",
+                engine_version=ENGINE_VERSION,
+            )
+        )
+    return results
 
 
 def contributions_from_posts(posts: Iterable[ScoredTelegramPost]) -> list[EventContribution]:
