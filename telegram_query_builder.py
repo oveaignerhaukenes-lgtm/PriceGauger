@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import re
 from typing import Any
 
@@ -108,6 +109,23 @@ def _distinct_keywords(text: str, *, limit: int = 4) -> list[str]:
     return found
 
 
+def _plan_sort_key(plan: TelegramSearchPlan) -> tuple[float, int, str]:
+    timestamp = 0.0
+    if plan.published_at:
+        try:
+            parsed = datetime.fromisoformat(plan.published_at.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            timestamp = parsed.timestamp()
+        except ValueError:
+            pass
+    try:
+        numeric_id = int(plan.message_id)
+    except ValueError:
+        numeric_id = -1
+    return timestamp, numeric_id, plan.message_id
+
+
 def build_search_plan(*, message_id: str, message_url: str, text: str, published_at: str = "") -> TelegramSearchPlan:
     lowered = _normalise(text)
     event_type = _first_match(lowered, _EVENT_TERMS, "event")
@@ -166,7 +184,7 @@ def plans_from_telegram_html(html: str, *, minimum_signal: int = 2) -> list[Tele
         )
         if plan.signal_score >= minimum_signal and plan.search:
             plans.append(plan)
-    return plans
+    return sorted(plans, key=_plan_sort_key)
 
 
 def fetch_search_plans(
@@ -175,10 +193,16 @@ def fetch_search_plans(
     minimum_signal: int = 2,
     timeout: int = 30,
 ) -> list[TelegramSearchPlan]:
+    cache_buster = int(datetime.now(timezone.utc).timestamp())
     response = requests.get(
         f"https://t.me/s/{channel.lstrip('@')}",
+        params={"_pg": cache_buster},
         timeout=timeout,
-        headers={"User-Agent": "Mozilla/5.0 PriceGauger/1.2"},
+        headers={
+            "User-Agent": "Mozilla/5.0 PriceGauger/1.3",
+            "Cache-Control": "no-cache, no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
     response.raise_for_status()
     return plans_from_telegram_html(response.text, minimum_signal=minimum_signal)
