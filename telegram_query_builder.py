@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import logging
+import os
 import re
 from typing import Any
 
 import requests
 from bs4 import BeautifulSoup
 
+LOGGER = logging.getLogger("pricegauger.telegram_ingest")
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z'-]{2,}")
 
 _EVENT_TERMS: dict[str, tuple[str, ...]] = {
@@ -187,11 +190,11 @@ def plans_from_telegram_html(html: str, *, minimum_signal: int = 2) -> list[Tele
     return sorted(plans, key=_plan_sort_key)
 
 
-def fetch_search_plans(
-    channel: str = "Middle_East_Spectator",
+def _fetch_web_search_plans(
+    channel: str,
     *,
-    minimum_signal: int = 2,
-    timeout: int = 30,
+    minimum_signal: int,
+    timeout: int,
 ) -> list[TelegramSearchPlan]:
     cache_buster = int(datetime.now(timezone.utc).timestamp())
     response = requests.get(
@@ -205,7 +208,92 @@ def fetch_search_plans(
         },
     )
     response.raise_for_status()
-    return plans_from_telegram_html(response.text, minimum_signal=minimum_signal)
+    plans = plans_from_telegram_html(response.text, minimum_signal=minimum_signal)
+    LOGGER.info("telegram ingest provider=web channel=%s fetched=%s", channel, len(plans))
+    return plans
+
+
+def _fetch_telethon_search_plans(
+    channel: str,
+    *,
+    minimum_signal: int,
+) -> list[TelegramSearchPlan]:
+    from telethon.sessions import StringSession
+    from telethon.sync import TelegramClient
+
+    raw_api_id = os.getenv("TELEGRAM_API_ID", "").strip()
+    api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
+    session = os.getenv("TELEGRAM_SESSION", "").strip()
+    if not raw_api_id or not api_hash or not session:
+        raise RuntimeError("Telethon credentials are incomplete")
+    try:
+        api_id = int(raw_api_id)
+    except ValueError as exc:
+        raise RuntimeError("TELEGRAM_API_ID must be numeric") from exc
+
+    try:
+        fetch_limit = max(20, min(500, int(os.getenv("TELEGRAM_FETCH_LIMIT", "100"))))
+    except ValueError:
+        fetch_limit = 100
+
+    username = channel.lstrip("@")
+    plans: list[TelegramSearchPlan] = []
+    with TelegramClient(StringSession(session), api_id, api_hash) as client:
+        messages = client.get_messages(username, limit=fetch_limit)
+        for message in messages:
+            text = str(getattr(message, "message", "") or "").strip()
+            if not text:
+                continue
+            published = getattr(message, "date", None)
+            published_at = ""
+            if published is not None:
+                if published.tzinfo is None:
+                    published = published.replace(tzinfo=timezone.utc)
+                published_at = published.astimezone(timezone.utc).isoformat()
+            plan = build_search_plan(
+                message_id=str(message.id),
+                message_url=f"https://t.me/{username}/{message.id}",
+                text=text,
+                published_at=published_at,
+            )
+            if plan.signal_score >= minimum_signal and plan.search:
+                plans.append(plan)
+
+    plans = sorted(plans, key=_plan_sort_key)
+    latest = plans[-1] if plans else None
+    LOGGER.info(
+        "telegram ingest provider=telethon channel=%s fetched=%s latest_id=%s latest_at=%s",
+        channel,
+        len(plans),
+        latest.message_id if latest else "none",
+        latest.published_at if latest else "none",
+    )
+    return plans
+
+
+def fetch_search_plans(
+    channel: str = "Middle_East_Spectator",
+    *,
+    minimum_signal: int = 2,
+    timeout: int = 30,
+) -> list[TelegramSearchPlan]:
+    provider = os.getenv("TELEGRAM_INGEST_PROVIDER", "auto").strip().lower()
+    credentials_present = all(
+        os.getenv(name, "").strip()
+        for name in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_SESSION")
+    )
+    use_telethon = provider == "telethon" or (provider == "auto" and credentials_present)
+
+    if use_telethon:
+        try:
+            return _fetch_telethon_search_plans(channel, minimum_signal=minimum_signal)
+        except Exception as exc:
+            fallback_enabled = os.getenv("TELEGRAM_WEB_FALLBACK", "1").strip().lower() not in {"0", "false", "no"}
+            if not fallback_enabled:
+                raise
+            LOGGER.warning("telethon ingest failed; falling back to public web source: %s", exc)
+
+    return _fetch_web_search_plans(channel, minimum_signal=minimum_signal, timeout=timeout)
 
 
 def fetch_latest_search_plan(
