@@ -94,7 +94,12 @@ def process_flow_snapshot(
 
     latest_information = runtime_store.load_latest_information_state()
     heartbeat_due = _heartbeat_due(latest_information)
-    if not new_posts and not heartbeat_due:
+    missing_decisions = [
+        item.asset
+        for item in assessment.assets
+        if runtime_store.load_latest_decision_state(market=item.asset) is None
+    ]
+    if not new_posts and not heartbeat_due and not missing_decisions:
         try:
             from overview_summary_store import OverviewSummaryStore
 
@@ -123,6 +128,12 @@ def process_flow_snapshot(
     }
     decisions = build_decision_states(assessment, information, previous=previous)
     runtime_store.save_decision_states(decisions)
+
+    if missing_decisions:
+        LOGGER.info(
+            "state runtime bootstrapped missing_decisions=%s",
+            ",".join(missing_decisions),
+        )
 
     if not new_posts:
         LOGGER.info(
