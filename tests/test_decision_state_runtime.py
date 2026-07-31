@@ -1,5 +1,5 @@
 from state_contracts import ComponentStatus, DecisionStateSnapshot, InformationStateSnapshot
-from state_runtime_service import build_decision_states
+from state_runtime_service import build_decision_states, market_impulse_score
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import AssetFlowAssessment, TelegramFlowAssessment
 
@@ -77,10 +77,11 @@ def test_decision_state_records_change_from_previous():
     )
 
     result = build_decision_states(_flow(0.5), _information(), previous={"Brent": previous})[0]
+    expected = round(market_impulse_score("Brent", 0.5), 4)
 
     assert result.direction == "LONG_BIAS"
-    assert result.direction_score == 0.5
-    assert result.change_from_previous == 0.3
+    assert result.direction_score == expected
+    assert result.change_from_previous == round(expected - 0.2, 4)
     assert result.previous_snapshot_id == "previous"
     assert "confirmation pending" in result.status_reason
 
@@ -88,6 +89,7 @@ def test_decision_state_records_change_from_previous():
 def test_decision_state_round_trips_through_store(tmp_path):
     store = StateRuntimeStore(tmp_path / "state.sqlite3")
     decision = build_decision_states(_flow(0.5), _information())[0]
+    expected = round(market_impulse_score("Brent", 0.5), 4)
 
     assert store.save_decision_states([decision]) == 1
     loaded = store.load_latest_decision_state(market="Brent")
@@ -97,4 +99,4 @@ def test_decision_state_round_trips_through_store(tmp_path):
     assert loaded.snapshot_id == decision.snapshot_id
     assert loaded.market == "Brent"
     assert len(latest) == 1
-    assert latest[0].direction_score == 0.5
+    assert latest[0].direction_score == expected
