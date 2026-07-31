@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from analysis_status import AnalysisStatusStore, AnalysisStepStatus
 from overview_summary_contract import OverviewSummary
 from overview_summary_store import OverviewSummaryStore
 from state_contracts import DecisionStateSnapshot
@@ -35,6 +36,7 @@ class OverviewData:
     information_state: dict | None
     latest_alert: object | None
     summary: OverviewSummary | None = None
+    analysis_steps: tuple[AnalysisStepStatus, ...] = ()
 
 
 def _recommendation_status(item: DecisionStateSnapshot) -> str:
@@ -86,4 +88,5 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
         information_state=runtime_store.load_latest_information_state(),
         latest_alert=runtime_store.load_latest_alert(),
         summary=OverviewSummaryStore(db_path).load_latest(),
+        analysis_steps=AnalysisStatusStore(db_path).load(),
     )
