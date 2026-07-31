@@ -112,6 +112,11 @@ def _postgres_sql(sql: str) -> str:
     return sql.replace("?", "%s")
 
 
+def _is_read_only_sql(sql: str) -> bool:
+    normalized = sql.lstrip().upper()
+    return normalized.startswith(("SELECT ", "SHOW ", "WITH "))
+
+
 class DatabaseConnection(AbstractContextManager):
     """Minimal connection adapter shared by SQLite and PostgreSQL stores.
 
@@ -126,26 +131,43 @@ class DatabaseConnection(AbstractContextManager):
         railway_postgres = _running_on_railway() and using_postgres()
         self.is_postgres = using_postgres() and (not explicit_sqlite or railway_postgres)
         if self.is_postgres:
-            try:
-                import psycopg
-                from psycopg.rows import dict_row
-            except ImportError as exc:  # pragma: no cover - deployment dependency guard
-                raise RuntimeError(
-                    "DATABASE_URL is configured, but psycopg is not installed"
-                ) from exc
-            self._connection = psycopg.connect(
-                database_url(),
-                row_factory=dict_row,
-                connect_timeout=10,
-            )
+            self._connection = self._open_postgres()
         else:
             connection = sqlite3.connect(self.sqlite_path)
             connection.row_factory = sqlite3.Row
             self._connection = connection
 
+    @staticmethod
+    def _open_postgres():
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:  # pragma: no cover - deployment dependency guard
+            raise RuntimeError(
+                "DATABASE_URL is configured, but psycopg is not installed"
+            ) from exc
+        return psycopg.connect(
+            database_url(),
+            row_factory=dict_row,
+            connect_timeout=10,
+        )
+
     def execute(self, sql: str, parameters: Iterable[Any] | None = None):
         query = _postgres_sql(sql) if self.is_postgres else sql
-        return self._connection.execute(query, tuple(parameters or ()))
+        values = tuple(parameters or ())
+        try:
+            return self._connection.execute(query, values)
+        except Exception:
+            if not self.is_postgres or not _is_read_only_sql(sql):
+                raise
+            # Railway's public PostgreSQL proxy can occasionally drop an otherwise
+            # healthy read connection. Reconnect and retry one idempotent read once.
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._connection = self._open_postgres()
+            return self._connection.execute(query, values)
 
     def executescript(self, script: str) -> None:
         if not self.is_postgres:
