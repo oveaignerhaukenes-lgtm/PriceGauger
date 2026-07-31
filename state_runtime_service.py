@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import math
 from typing import Iterable, Mapping
 
 from market_interpretation import MarketInterpretation
@@ -28,6 +29,18 @@ _MOVE_SCALE = {
     "Natural Gas": 6.0,
 }
 
+# A raw Telegram-flow contribution is not directly comparable across markets.
+# These scales convert aggregate impulse into a bounded directional strength while
+# preserving differences between instruments. They are explicit v1 baselines and
+# should later be calibrated from realized outcomes rather than changed ad hoc.
+_IMPULSE_SCALE = {
+    "Brent": 0.20,
+    "Gold": 0.16,
+    "Silver": 0.20,
+    "DXY": 0.08,
+    "Natural Gas": 0.25,
+}
+
 
 def _stable_id(prefix: str, payload: dict) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
@@ -37,6 +50,18 @@ def _stable_id(prefix: str, payload: dict) -> str:
 def _utc_now(value: datetime | None = None) -> datetime:
     now = value or datetime.now(timezone.utc)
     return now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+
+
+def market_impulse_score(market: str, flow_score: float) -> float:
+    """Convert aggregate flow impulse to a bounded, market-specific strength.
+
+    ``normalized_score`` in Telegram Flow expresses directional agreement. It
+    reaches ±1 whenever all selected contributions point the same way, even when
+    their total market impact is tiny. Decision State instead needs the magnitude
+    of the aggregate impulse, so it uses a smooth tanh transform of ``flow_score``.
+    """
+    scale = max(0.01, float(_IMPULSE_SCALE.get(str(market), 0.20)))
+    return max(-1.0, min(1.0, math.tanh(float(flow_score) / scale)))
 
 
 def build_information_state(
@@ -121,7 +146,8 @@ def build_decision_states(
     results: list[DecisionStateSnapshot] = []
     for item in flow.assets:
         old = prior.get(item.asset)
-        score = float(item.normalized_score)
+        consensus = float(item.normalized_score)
+        score = market_impulse_score(item.asset, item.flow_score)
         confidence = float(item.confidence)
         direction = item.direction
         if information.component.freshness != "FRESH":
@@ -132,7 +158,8 @@ def build_decision_states(
         payload = {
             "market": item.asset,
             "as_of": flow.as_of,
-            "flow_score": score,
+            "flow_score": item.flow_score,
+            "impulse_score": score,
             "information_snapshot_id": information.snapshot_id,
         }
         results.append(
@@ -142,7 +169,7 @@ def build_decision_states(
                 as_of=flow.as_of,
                 previous_snapshot_id=old.snapshot_id if old is not None else "",
                 direction=direction,
-                direction_score=score,
+                direction_score=round(score, 4),
                 confidence=confidence,
                 expected_move_low_pct=None,
                 expected_move_high_pct=None,
@@ -155,7 +182,10 @@ def build_decision_states(
                     for contribution in flow.contributions
                     if contribution.asset == item.asset and contribution.selected
                 ),
-                status_reason="Information-state signal; price and technical confirmation pending.",
+                status_reason=(
+                    f"Information impulse {score:+.2f}; directional consensus {consensus:+.2f}. "
+                    "Price and technical confirmation pending."
+                ),
                 engine_version=ENGINE_VERSION,
             )
         )
