@@ -53,6 +53,28 @@ def _heartbeat_due(latest: dict | None, *, now: datetime | None = None) -> bool:
     return (current.astimezone(timezone.utc) - recorded.astimezone(timezone.utc)).total_seconds() >= _heartbeat_seconds()
 
 
+def _refresh_overview_summary(*, db_path: str | Path, information_snapshot_id: str, as_of: str) -> None:
+    try:
+        from overview_ai_summary import build_overview_summary
+        from overview_service import load_overview
+        from overview_summary_store import OverviewSummaryStore
+
+        data = load_overview(db_path)
+        summary = build_overview_summary(data)
+        OverviewSummaryStore(db_path).save(
+            information_snapshot_id=information_snapshot_id,
+            as_of=as_of,
+            summary=summary,
+        )
+        LOGGER.info(
+            "overview summary persisted information=%s model=%s",
+            information_snapshot_id,
+            summary.model,
+        )
+    except Exception:
+        LOGGER.exception("overview summary generation failed; persisted market state remains available")
+
+
 def process_flow_snapshot(
     *,
     db_path: str | Path,
@@ -73,6 +95,18 @@ def process_flow_snapshot(
     latest_information = runtime_store.load_latest_information_state()
     heartbeat_due = _heartbeat_due(latest_information)
     if not new_posts and not heartbeat_due:
+        try:
+            from overview_summary_store import OverviewSummaryStore
+
+            summary_missing = OverviewSummaryStore(db_path).load_latest() is None
+        except Exception:
+            summary_missing = True
+        if summary_missing and latest_information is not None:
+            _refresh_overview_summary(
+                db_path=db_path,
+                information_snapshot_id=str(latest_information.get("snapshot_id") or "legacy-state"),
+                as_of=str(latest_information.get("as_of") or assessment.as_of),
+            )
         LOGGER.info(
             "state runtime skipped reason=no_material_change heartbeat_seconds=%s",
             _heartbeat_seconds(),
@@ -134,6 +168,11 @@ def process_flow_snapshot(
             failed,
         )
 
+    _refresh_overview_summary(
+        db_path=db_path,
+        information_snapshot_id=information.snapshot_id,
+        as_of=information.as_of,
+    )
     LOGGER.info(
         "state runtime updated information=%s decisions=%s new_posts=%s contributions=%s alerts=%s",
         information.snapshot_id,
