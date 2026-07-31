@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 from typing import Any, Mapping
 
@@ -9,28 +8,7 @@ import requests
 from config import openai_api_key, openai_market_model
 from openai_market_provider import OPENAI_RESPONSES_URL, _response_output_text
 from overview_service import OverviewData
-
-
-SUMMARY_ENGINE_VERSION = "overview-summary-v1"
-SENSITIVITY_TYPES = (
-    "HEADLINE_SENSITIVE",
-    "COMMODITY_SENSITIVE",
-    "MACRO_POLICY_SENSITIVE",
-    "MIXED",
-    "UNCLEAR",
-)
-
-
-@dataclass(frozen=True, slots=True)
-class OverviewSummary:
-    regime: str
-    sensitivity: str
-    headline: str
-    summary: str
-    key_driver: str
-    caveat: str
-    model: str
-    engine_version: str = SUMMARY_ENGINE_VERSION
+from overview_summary_contract import OverviewSummary, SENSITIVITY_TYPES
 
 
 def _schema() -> dict[str, Any]:
@@ -117,7 +95,7 @@ def _fallback(data: OverviewData) -> OverviewSummary:
     else:
         headline = f"{regime}: {strongest.market} har tydeligst informasjonsdrevet bias"
         summary = (
-            f"Det helhetlige bildet er foreløpig mest nyhets- og overskriftsfølsomt. "
+            "Det helhetlige bildet er foreløpig mest nyhets- og overskriftsfølsomt. "
             f"{strongest.market} har sterkest utslag ({strongest.direction}, {strongest.score:+.2f}), "
             "men pris- og teknisk bekreftelse er ennå ikke fullt koblet inn."
         )
