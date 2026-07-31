@@ -60,7 +60,7 @@ def _refresh_overview_summary(*, db_path: str | Path, information_snapshot_id: s
         from overview_summary_store import OverviewSummaryStore
 
         data = load_overview(db_path)
-        summary = build_overview_summary(data)
+        summary = build_overview_summary(data, prefer_persisted=False)
         OverviewSummaryStore(db_path).save(
             information_snapshot_id=information_snapshot_id,
             as_of=as_of,
