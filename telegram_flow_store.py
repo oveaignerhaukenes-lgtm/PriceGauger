@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from database import connect
+from telegram_content_filter import classify_telegram_content
 from telegram_flow_engine import (
     AssetFlowAssessment,
     AssetPostScore,
@@ -85,7 +86,18 @@ class TelegramFlowStore:
             ).fetchone()
         return row is not None
 
-    def load_posts(self, *, limit: int = 500) -> list[ScoredTelegramPost]:
+    def load_posts(
+        self,
+        *,
+        limit: int = 500,
+        include_filtered: bool = False,
+    ) -> list[ScoredTelegramPost]:
+        """Load scored posts, excluding promotional recruitment by default.
+
+        Filtered posts remain in persistent storage for diagnostics and audit. Pass
+        ``include_filtered=True`` only from development tooling that explicitly
+        needs to inspect rejected content.
+        """
         with self._connect() as db:
             rows = db.execute(
                 """
@@ -96,7 +108,24 @@ class TelegramFlowStore:
                 """,
                 (int(limit),),
             ).fetchall()
-        return [_post_from_record(json.loads(row["payload_json"])) for row in reversed(rows)]
+        posts = [_post_from_record(json.loads(row["payload_json"])) for row in reversed(rows)]
+        if include_filtered:
+            return posts
+
+        accepted: list[ScoredTelegramPost] = []
+        for post in posts:
+            eligibility = classify_telegram_content(post.text)
+            if eligibility.eligible:
+                accepted.append(post)
+            else:
+                LOGGER.info(
+                    "telegram post filtered message_id=%s channel=%s reason=%s promotional_score=%.2f",
+                    post.message_id,
+                    post.channel,
+                    eligibility.reason,
+                    eligibility.promotional_score,
+                )
+        return accepted
 
     def save_snapshot(self, assessment: TelegramFlowAssessment) -> None:
         with self._connect() as db:
