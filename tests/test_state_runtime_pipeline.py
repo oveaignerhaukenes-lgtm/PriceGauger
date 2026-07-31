@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from database import connect
+import state_runtime_pipeline as pipeline
 from state_runtime_pipeline import process_flow_snapshot
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import (
@@ -63,6 +65,13 @@ def _assessment() -> TelegramFlowAssessment:
     )
 
 
+def _counts(db_path) -> tuple[int, int]:
+    with connect(db_path) as db:
+        information = db.execute("SELECT COUNT(*) AS count FROM information_state_snapshots").fetchone()["count"]
+        decisions = db.execute("SELECT COUNT(*) AS count FROM decision_state_snapshots").fetchone()["count"]
+    return int(information), int(decisions)
+
+
 def test_flow_snapshot_persists_information_contributions_and_alert(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
     db_path = tmp_path / "state.sqlite3"
@@ -81,15 +90,33 @@ def test_flow_snapshot_persists_information_contributions_and_alert(tmp_path, mo
     assert alert.expected_direction == "UP"
 
 
-def test_same_post_is_not_reprocessed_as_a_new_contribution(tmp_path, monkeypatch):
+def test_same_post_is_not_reprocessed_or_persisted_each_cycle(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
     db_path = tmp_path / "state.sqlite3"
 
     process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
     first = StateRuntimeStore(db_path).load_latest_alert(market="Brent")
+    first_counts = _counts(db_path)
+
     process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
     second = StateRuntimeStore(db_path).load_latest_alert(market="Brent")
 
     assert first is not None
     assert second is not None
     assert first.alert_id == second.alert_id
+    assert _counts(db_path) == first_counts
+
+
+def test_heartbeat_persists_state_without_reprocessing_posts(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    db_path = tmp_path / "state.sqlite3"
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    first_counts = _counts(db_path)
+    monkeypatch.setattr(pipeline, "_heartbeat_due", lambda latest: True)
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    second_counts = _counts(db_path)
+
+    assert second_counts[0] == first_counts[0] + 1
+    assert second_counts[1] == first_counts[1] + 1
