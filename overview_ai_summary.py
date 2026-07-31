@@ -118,7 +118,11 @@ def build_overview_summary(
     model: str | None = None,
     session: Any = requests,
     timeout: int = 45,
+    prefer_persisted: bool = True,
 ) -> OverviewSummary:
+    if prefer_persisted and data.summary is not None:
+        return data.summary
+
     key = (api_key if api_key is not None else openai_api_key()).strip()
     selected_model = (model if model is not None else openai_market_model()).strip()
     if not key:
