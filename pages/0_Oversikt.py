@@ -19,7 +19,7 @@ st.caption("Kontinuerlig markedstilstand · nye hendelser vises som endringer i 
 st.markdown(
     """
     <style>
-    .pg-summary-card,.pg-state-card,.pg-alert-card,.pg-news-card {
+    .pg-summary-card,.pg-market-card,.pg-alert-card,.pg-news-card {
         border:1px solid rgba(128,128,128,.24); border-radius:.8rem;
         padding:.85rem 1rem; margin-bottom:.7rem; background:rgba(128,128,128,.035);
     }
@@ -39,10 +39,12 @@ st.markdown(
     .pg-alert-stat {border-left:1px solid rgba(128,128,128,.22); padding-left:.7rem; font-size:.74rem; line-height:1.25;}
     .pg-alert-stat strong {font-size:.82rem;}
 
-    .pg-state-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8rem; align-items:stretch;}
-    .pg-state-card {border-left:4px solid var(--market-color); margin-bottom:0; height:100%; box-sizing:border-box;}
+    .pg-market-card {padding:0; overflow:hidden; border-left:4px solid var(--market-color);}
+    .pg-market-layout {display:grid; grid-template-columns:minmax(0,7fr) minmax(15rem,3fr);}
+    .pg-analysis {padding:.9rem 1rem 1rem;}
+    .pg-recommendation {padding:.9rem 1rem 1rem; border-left:1px solid rgba(128,128,128,.22); background:rgba(128,128,128,.035);}
     .pg-state-top {display:flex; justify-content:space-between; gap:.8rem; align-items:flex-start;}
-    .pg-market {font-size:1.02rem; font-weight:750; color:var(--market-color);}
+    .pg-market {font-size:1.05rem; font-weight:780; color:var(--market-color);}
     .pg-direction {font-weight:750; letter-spacing:.02em; color:var(--market-color);}
     .pg-meta {font-size:.78rem; opacity:.76; margin-top:.35rem; line-height:1.35;}
     .pg-driver {font-size:.84rem; margin-top:.5rem; line-height:1.35; overflow-wrap:anywhere;}
@@ -58,6 +60,13 @@ st.markdown(
     .pg-score-row {display:flex; justify-content:space-between; gap:.8rem; margin-top:.48rem; font-size:.75rem;}
     .pg-confidence {height:.26rem; margin-top:.25rem; border-radius:999px; background:rgba(128,128,128,.16); overflow:hidden;}
     .pg-confidence span {display:block; height:100%; background:var(--market-color); opacity:.55; border-radius:999px;}
+    .pg-rec-kicker {font-size:.69rem; font-weight:780; letter-spacing:.09em; opacity:.7;}
+    .pg-rec-action {font-size:1.25rem; font-weight:820; margin:.28rem 0 .12rem; color:var(--market-color);}
+    .pg-rec-signal {font-size:.78rem; font-weight:700; margin-bottom:.65rem;}
+    .pg-rec-grid {display:grid; grid-template-columns:1fr; gap:.42rem;}
+    .pg-rec-row {border-top:1px solid rgba(128,128,128,.18); padding-top:.4rem; font-size:.76rem; line-height:1.3;}
+    .pg-rec-row strong {display:block; font-size:.82rem; margin-bottom:.08rem;}
+    .pg-rec-status {display:inline-block; margin-top:.62rem; border:1px solid rgba(128,128,128,.28); border-radius:999px; padding:.28rem .55rem; font-size:.69rem; font-weight:780; letter-spacing:.05em;}
 
     .pg-news-card {padding:.75rem .9rem;}
     .pg-news-head {display:flex; justify-content:space-between; gap:.75rem; font-size:.76rem; opacity:.76;}
@@ -67,14 +76,16 @@ st.markdown(
     @media(max-width:1000px){
       .pg-alert-row {grid-template-columns:1fr 2fr repeat(2,1fr);}
       .pg-alert-stat:nth-last-child(-n+2) {margin-top:.15rem;}
+      .pg-market-layout {grid-template-columns:minmax(0,2fr) minmax(14rem,1fr);}
     }
     @media(max-width:700px){
       .pg-summary-top {display:block;}
       .pg-summary-tag {display:inline-block; margin-top:.55rem; white-space:normal;}
-      .pg-state-grid {grid-template-columns:1fr;}
       .pg-alert-row {grid-template-columns:1fr 1fr;}
       .pg-alert-main,.pg-alert-summary {grid-column:1 / -1;}
       .pg-alert-stat {border-left:0; border-top:1px solid rgba(128,128,128,.22); padding:.45rem 0 0;}
+      .pg-market-layout {grid-template-columns:1fr;}
+      .pg-recommendation {border-left:0; border-top:1px solid rgba(128,128,128,.22);}
     }
     </style>
     """,
@@ -110,33 +121,77 @@ def _sensitivity_label(value: str) -> str:
     }.get(value, value)
 
 
-def _render_state_card(item) -> str:
+def _signal_action(direction: str) -> str:
+    return {
+        "LONG_BIAS": "LONG",
+        "SHORT_BIAS": "SHORT",
+        "NEUTRAL": "HOLD",
+    }.get(direction, "NO-TRADE")
+
+
+def _recommendation_action(item) -> str:
+    if item.recommendation_status != "ACTIONABLE":
+        return "NO-TRADE"
+    return _signal_action(item.direction)
+
+
+def _move_interval(item) -> str:
+    if item.expected_move_low_pct is None or item.expected_move_high_pct is None:
+        return "Ikke beregnet"
+    return f"{item.expected_move_low_pct:+.2f}% til {item.expected_move_high_pct:+.2f}%"
+
+
+def _horizon(item) -> str:
+    return "Ikke fastsatt" if item.horizon_hours is None else f"{item.horizon_hours:g} timer"
+
+
+def _render_market_card(item) -> str:
     color = asset_color(item.market)
     left_width, right_width, marker_position = bipolar_fill(item.score)
     display_score = visual_direction_score(item.score)
     confidence_width = max(0.0, min(100.0, item.confidence * 100.0))
     delta_label = f"Endring siden forrige snapshot: {item.change_from_previous:+.2f}"
+    action = _recommendation_action(item)
+    signal = _signal_action(item.direction)
+    interval = _move_interval(item)
+    horizon = _horizon(item)
     return f"""
-    <article class="pg-state-card" style="--market-color:{color}">
-      <div class="pg-state-top">
-        <div class="pg-market">{html.escape(item.market)}</div>
-        <div class="pg-direction">{html.escape(_direction_label(item.direction))}</div>
+    <article class="pg-market-card" style="--market-color:{color}">
+      <div class="pg-market-layout">
+        <section class="pg-analysis">
+          <div class="pg-state-top">
+            <div class="pg-market">{html.escape(item.market)}</div>
+            <div class="pg-direction">{html.escape(_direction_label(item.direction))}</div>
+          </div>
+          <div class="pg-gauge-labels"><span>Bearish</span><span>0</span><span>Bullish</span></div>
+          <div class="pg-bipolar">
+            <span class="pg-fill-left" style="width:{left_width:.2f}%"></span>
+            <span class="pg-fill-right" style="width:{right_width:.2f}%"></span>
+            <span class="pg-marker" style="left:{marker_position:.2f}%"></span>
+          </div>
+          <div class="pg-score-row">
+            <span>Retningsstyrke {display_score:+.2f}</span>
+            <span>Rå Decision State {item.score:+.2f}</span>
+          </div>
+          <div class="pg-meta">Konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser</div>
+          <div class="pg-confidence"><span style="width:{confidence_width:.1f}%"></span></div>
+          <div class="pg-delta">{html.escape(delta_label)}</div>
+          <div class="pg-driver">{html.escape(item.top_driver)}</div>
+          <div class="pg-meta">{html.escape(item.status_reason)}</div>
+        </section>
+        <aside class="pg-recommendation">
+          <div class="pg-rec-kicker">ANBEFALING</div>
+          <div class="pg-rec-action">{html.escape(action)}</div>
+          <div class="pg-rec-signal">Retningssignal: {html.escape(signal)}</div>
+          <div class="pg-rec-grid">
+            <div class="pg-rec-row"><strong>{html.escape(interval)}</strong>forventet prosentintervall</div>
+            <div class="pg-rec-row"><strong>Ikke tilgjengelig</strong>forventet prisintervall</div>
+            <div class="pg-rec-row"><strong>{html.escape(horizon)}</strong>hovedhorisont</div>
+            <div class="pg-rec-row"><strong>{item.confidence:.0%}</strong>modellkonfidens</div>
+          </div>
+          <div class="pg-rec-status">{html.escape(item.recommendation_status)}</div>
+        </aside>
       </div>
-      <div class="pg-gauge-labels"><span>Bearish</span><span>0</span><span>Bullish</span></div>
-      <div class="pg-bipolar">
-        <span class="pg-fill-left" style="width:{left_width:.2f}%"></span>
-        <span class="pg-fill-right" style="width:{right_width:.2f}%"></span>
-        <span class="pg-marker" style="left:{marker_position:.2f}%"></span>
-      </div>
-      <div class="pg-score-row">
-        <span>Retningsstyrke {display_score:+.2f}</span>
-        <span>Rå Decision State {item.score:+.2f}</span>
-      </div>
-      <div class="pg-meta">Konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser</div>
-      <div class="pg-confidence"><span style="width:{confidence_width:.1f}%"></span></div>
-      <div class="pg-delta">{html.escape(delta_label)}</div>
-      <div class="pg-driver">{html.escape(item.top_driver)}</div>
-      <div class="pg-meta">{html.escape(item.status_reason)}</div>
     </article>
     """
 
@@ -215,12 +270,12 @@ else:
         st.write(f"Tilstandsnudge: {float(alert.state_delta):+.2f}")
         st.write(f"Prisbekreftelse: {float(alert.price_confirmation):+.2f}")
 
-st.subheader("Nåværende markedstilstand")
+st.subheader("Analyse og anbefaling")
 if data.flow is None or not data.markets:
     st.info("Venter på første autoritative Decision State-snapshot fra workeren.")
 else:
-    cards = "".join(_render_state_card(item) for item in data.markets)
-    st.markdown(f'<div class="pg-state-grid">{cards}</div>', unsafe_allow_html=True)
+    for item in data.markets:
+        st.markdown(_render_market_card(item), unsafe_allow_html=True)
     st.caption(
         f"Oppdatert {_fmt_time(data.flow.as_of)} · {data.flow.post_count} poster · "
         f"{data.flow.event_cluster_count} hendelsesklynger · {data.flow.model or 'modell ukjent'}"
