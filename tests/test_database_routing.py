@@ -58,3 +58,67 @@ def test_worker_runtime_prefers_environment_over_streamlit_secret(monkeypatch):
 
     assert database.database_url() == "postgresql://worker-environment"
     assert database.database_config_status()["source"] == "environment:DATABASE_URL"
+
+
+def test_postgres_read_is_retried_once_after_connection_loss(monkeypatch):
+    class LostConnection:
+        def execute(self, query, values):
+            raise RuntimeError("connection lost")
+
+        def close(self):
+            return None
+
+    class HealthyConnection:
+        def execute(self, query, values):
+            return (query, values)
+
+        def close(self):
+            return None
+
+        def commit(self):
+            return None
+
+    db = object.__new__(database.DatabaseConnection)
+    db.is_postgres = True
+    db._connection = LostConnection()
+    monkeypatch.setattr(db, "_open_postgres", lambda: HealthyConnection())
+
+    result = db.execute("SELECT value FROM sample WHERE id=?", (7,))
+
+    assert result == ("SELECT value FROM sample WHERE id=%s", (7,))
+
+
+def test_postgres_write_is_not_retried_after_connection_loss(monkeypatch):
+    class LostConnection:
+        def execute(self, query, values):
+            raise RuntimeError("connection lost")
+
+    db = object.__new__(database.DatabaseConnection)
+    db.is_postgres = True
+    db._connection = LostConnection()
+    monkeypatch.setattr(
+        db,
+        "_open_postgres",
+        lambda: (_ for _ in ()).throw(AssertionError("write must not be retried")),
+    )
+
+    try:
+        db.execute("INSERT INTO sample(value) VALUES (?)", ("x",))
+    except RuntimeError as exc:
+        assert str(exc) == "connection lost"
+    else:
+        raise AssertionError("expected original write failure")
+
+
+def test_exit_preserves_original_error_when_rollback_connection_is_lost():
+    class BrokenConnection:
+        def rollback(self):
+            raise RuntimeError("rollback connection lost")
+
+        def close(self):
+            raise RuntimeError("close connection lost")
+
+    db = object.__new__(database.DatabaseConnection)
+    db._connection = BrokenConnection()
+
+    assert db.__exit__(RuntimeError, RuntimeError("original query error"), None) is False
