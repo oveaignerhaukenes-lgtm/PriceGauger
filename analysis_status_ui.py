@@ -22,7 +22,7 @@ _STATUS_LABEL = {
 
 
 def render_analysis_status(steps: Iterable[object]) -> str:
-    """Return a compact, audit-friendly worker progress strip."""
+    """Return compact HTML without Markdown-indented code blocks."""
     rows = list(steps)
     if not rows:
         return ""
@@ -36,23 +36,29 @@ def render_analysis_status(steps: Iterable[object]) -> str:
         icon = _STATUS_ICON.get(status, "·")
         status_label = _STATUS_LABEL.get(status, status.title())
         cards.append(
-            f"""
-            <div class="pg-step pg-step-{html.escape(status.lower())}" title="{html.escape(detail)}">
-              <div class="pg-step-icon">{html.escape(icon)}</div>
-              <div class="pg-step-copy">
-                <div class="pg-step-label">{html.escape(label)}</div>
-                <div class="pg-step-state">{html.escape(status_label)}</div>
-              </div>
-              <div class="pg-step-time">{html.escape(updated_at[11:16] if len(updated_at) >= 16 else "")}</div>
-            </div>
-            """
+            '<div class="pg-step pg-step-{status}" title="{detail}">'
+            '<div class="pg-step-icon">{icon}</div>'
+            '<div class="pg-step-copy">'
+            '<div class="pg-step-label">{label}</div>'
+            '<div class="pg-step-state">{status_label}</div>'
+            '</div>'
+            '<div class="pg-step-time">{time}</div>'
+            '</div>'.format(
+                status=html.escape(status.lower()),
+                detail=html.escape(detail),
+                icon=html.escape(icon),
+                label=html.escape(label),
+                status_label=html.escape(status_label),
+                time=html.escape(updated_at[11:16] if len(updated_at) >= 16 else ""),
+            )
         )
 
     return (
         '<section class="pg-progress-card">'
         '<div class="pg-progress-head"><strong>Analyseflyt</strong><span>Vedvarende workerstatus</span></div>'
-        f'<div class="pg-progress-grid">{"".join(cards)}</div>'
-        "</section>"
+        '<div class="pg-progress-grid">'
+        + "".join(cards)
+        + "</div></section>"
     )
 
 
