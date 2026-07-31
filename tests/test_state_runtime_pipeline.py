@@ -72,13 +72,8 @@ def _counts(db_path) -> tuple[int, int]:
     return int(information), int(decisions)
 
 
-def _disable_summary(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline, "_refresh_overview_summary", lambda **kwargs: None)
-
-
 def test_flow_snapshot_persists_information_contributions_and_alert(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
-    _disable_summary(monkeypatch)
     db_path = tmp_path / "state.sqlite3"
 
     process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
@@ -97,7 +92,6 @@ def test_flow_snapshot_persists_information_contributions_and_alert(tmp_path, mo
 
 def test_same_post_is_not_reprocessed_or_persisted_each_cycle(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
-    _disable_summary(monkeypatch)
     db_path = tmp_path / "state.sqlite3"
 
     process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
@@ -113,9 +107,25 @@ def test_same_post_is_not_reprocessed_or_persisted_each_cycle(tmp_path, monkeypa
     assert _counts(db_path) == first_counts
 
 
+def test_missing_decision_state_is_bootstrapped_without_new_post(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    db_path = tmp_path / "state.sqlite3"
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    with connect(db_path) as db:
+        db.execute("DELETE FROM decision_state_snapshots")
+
+    assert StateRuntimeStore(db_path).load_latest_decision_state(market="Brent") is None
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+
+    decision = StateRuntimeStore(db_path).load_latest_decision_state(market="Brent")
+    assert decision is not None
+    assert decision.direction == "LONG_BIAS"
+
+
 def test_heartbeat_persists_state_without_reprocessing_posts(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
-    _disable_summary(monkeypatch)
     db_path = tmp_path / "state.sqlite3"
 
     process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
