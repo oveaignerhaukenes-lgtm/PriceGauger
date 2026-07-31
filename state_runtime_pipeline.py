@@ -21,6 +21,7 @@ from state_runtime_service import (
 )
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
+from worker_probe import record_worker_probe
 
 
 LOGGER = logging.getLogger("pricegauger.state_runtime")
@@ -82,6 +83,12 @@ def process_flow_snapshot(
     posts: list[ScoredTelegramPost],
 ) -> None:
     """Persist authoritative state updates and dispatch alerts for newly evaluated event contributions."""
+    probe = record_worker_probe(db_path, component="state-runtime", cycle_status="active")
+    LOGGER.info(
+        "state runtime probe heartbeat=%s database_identity=%s",
+        probe.heartbeat_at,
+        probe.database_identity,
+    )
     runtime_store = StateRuntimeStore(db_path)
 
     new_posts: list[ScoredTelegramPost] = []
