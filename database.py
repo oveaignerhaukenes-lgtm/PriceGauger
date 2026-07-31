@@ -12,6 +12,16 @@ _SECRET_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
 _DEFAULT_SQLITE_PATH = "pricegauger.db"
 
 
+def _running_in_streamlit() -> bool:
+    """Return True only for an active Streamlit app runtime, not merely an installed package."""
+    try:
+        from streamlit.runtime import exists
+
+        return bool(exists())
+    except Exception:
+        return False
+
+
 def _streamlit_secret_value() -> tuple[str, str]:
     """Return a supported Streamlit secret value and a safe source label."""
     try:
@@ -33,27 +43,48 @@ def _streamlit_secret_value() -> tuple[str, str]:
     return "", "missing"
 
 
-def database_config_status() -> dict[str, str | bool]:
-    """Return non-secret diagnostics for the active database configuration."""
+def _environment_value() -> tuple[str, str]:
     for key in _ENV_KEYS:
         value = os.getenv(key, "").strip()
         if value:
-            return {"configured": True, "source": f"environment:{key}", "backend": "PostgreSQL"}
+            return value, f"environment:{key}"
+    return "", "missing"
 
-    value, source = _streamlit_secret_value()
-    if value:
-        return {"configured": True, "source": source, "backend": "PostgreSQL"}
-    return {"configured": False, "source": source, "backend": "SQLite"}
+
+def _configured_database_value() -> tuple[str, str]:
+    """Resolve the database URL without exposing it.
+
+    Streamlit Cloud may expose an inherited environment variable in addition to
+    app-specific secrets. Inside a running Streamlit app, the app's own secrets
+    are authoritative. Workers and CLI processes continue to prefer environment
+    variables.
+    """
+    if _running_in_streamlit():
+        secret_value, secret_source = _streamlit_secret_value()
+        if secret_value:
+            return secret_value, secret_source
+        return _environment_value()
+
+    environment_value, environment_source = _environment_value()
+    if environment_value:
+        return environment_value, environment_source
+    return _streamlit_secret_value()
+
+
+def database_config_status() -> dict[str, str | bool]:
+    """Return non-secret diagnostics for the active database configuration."""
+    value, source = _configured_database_value()
+    return {
+        "configured": bool(value),
+        "source": source,
+        "backend": "PostgreSQL" if value else "SQLite",
+        "runtime": "streamlit" if _running_in_streamlit() else "worker-or-cli",
+    }
 
 
 def database_url() -> str:
-    """Return PostgreSQL URL from environment or Streamlit secrets."""
-    for key in _ENV_KEYS:
-        configured = os.getenv(key, "").strip()
-        if configured:
-            return configured
-
-    value, _ = _streamlit_secret_value()
+    """Return the resolved PostgreSQL URL from the authoritative runtime source."""
+    value, _ = _configured_database_value()
     return value
 
 
