@@ -5,6 +5,7 @@ from datetime import datetime
 
 import streamlit as st
 
+from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from build_info import render_build_badge
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
@@ -91,6 +92,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+st.markdown(f"<style>{ANALYSIS_STATUS_CSS}</style>", unsafe_allow_html=True)
 
 
 def _fmt_time(value: str) -> str:
@@ -237,6 +239,10 @@ if summary is not None:
         """,
         unsafe_allow_html=True,
     )
+
+progress_html = render_analysis_status(data.analysis_steps)
+if progress_html:
+    st.markdown(progress_html, unsafe_allow_html=True)
 
 st.subheader("Siste markedsflytter")
 alert = data.latest_alert
