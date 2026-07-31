@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Iterable
 
+from analysis_status import AnalysisStatusStore
 from database import connect
 from telegram_content_filter import classify_telegram_content
 from telegram_flow_engine import (
@@ -48,10 +49,15 @@ class TelegramFlowStore:
     def _connect(self):
         return connect(self.path)
 
+    def _status(self) -> AnalysisStatusStore:
+        return AnalysisStatusStore(self.path)
+
     def save_posts(self, posts: Iterable[ScoredTelegramPost]) -> int:
         rows = list(posts)
         if not rows:
             return 0
+        status = self._status()
+        status.running("telegram_scoring", f"Lagrer {len(rows)} AI-vurderte poster.")
         with self._connect() as db:
             for item in rows:
                 db.execute(
@@ -76,6 +82,8 @@ class TelegramFlowStore:
                         json.dumps(item.to_record(), ensure_ascii=False, sort_keys=True),
                     ),
                 )
+        status.complete("telegram_fetch", f"{len(rows)} nye poster hentet og mottatt av analyseflyten.")
+        status.complete("telegram_scoring", f"{len(rows)} poster AI-vurdert og lagret.")
         return len(rows)
 
     def has_post(self, message_id: str) -> bool:
@@ -113,11 +121,13 @@ class TelegramFlowStore:
             return posts
 
         accepted: list[ScoredTelegramPost] = []
+        rejected = 0
         for post in posts:
             eligibility = classify_telegram_content(post.text)
             if eligibility.eligible:
                 accepted.append(post)
             else:
+                rejected += 1
                 LOGGER.info(
                     "telegram post filtered message_id=%s channel=%s reason=%s promotional_score=%.2f",
                     post.message_id,
@@ -125,9 +135,15 @@ class TelegramFlowStore:
                     eligibility.reason,
                     eligibility.promotional_score,
                 )
+        self._status().complete(
+            "semantic_filter",
+            f"{len(accepted)} poster godkjent; {rejected} promo-/rekrutteringsposter filtrert.",
+        )
         return accepted
 
     def save_snapshot(self, assessment: TelegramFlowAssessment) -> None:
+        status = self._status()
+        status.running("event_clustering", "Oppdaterer hendelsesklynger og samlet Telegram Flow.")
         with self._connect() as db:
             db.execute(
                 """
@@ -144,18 +160,30 @@ class TelegramFlowStore:
                     json.dumps(assessment.to_record(), ensure_ascii=False, sort_keys=True),
                 ),
             )
+        status.complete(
+            "event_clustering",
+            f"{assessment.post_count} poster redusert til {assessment.event_cluster_count} hendelsesklynger.",
+        )
 
         # State processing is downstream of the persisted flow snapshot. Failures are
         # isolated so Telegram Flow remains available even when an alert provider fails.
         try:
             from state_runtime_pipeline import process_flow_snapshot
 
+            status.running("information_state", "Bygger samlet Information State.")
+            status.running("decision_state", "Oppdaterer Decision State per marked.")
             process_flow_snapshot(
                 db_path=self.path,
                 assessment=assessment,
                 posts=self.load_posts(limit=500),
             )
-        except Exception:
+            status.complete("information_state", "Information State oppdatert fra siste autoritative flow-snapshot.")
+            status.complete("decision_state", "Decision State oppdatert for alle tilgjengelige markeder.")
+            status.complete("recommendation", "Foreløpige anbefalinger regenerert fra siste Decision State.")
+        except Exception as exc:
+            status.failed("information_state", str(exc))
+            status.failed("decision_state", str(exc))
+            status.failed("recommendation", "Ingen ny anbefaling fordi state runtime feilet.")
             LOGGER.exception("state runtime processing failed after Telegram flow snapshot")
 
     def load_latest_snapshot(self) -> TelegramFlowAssessment | None:
