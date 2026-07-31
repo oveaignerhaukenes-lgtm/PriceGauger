@@ -21,10 +21,10 @@ class OverviewMarket:
     top_driver: str
     change_from_previous: float
     status_reason: str
-    expected_move_low_pct: float | None
-    expected_move_high_pct: float | None
-    horizon_hours: float | None
-    recommendation_status: str
+    expected_move_low_pct: float | None = None
+    expected_move_high_pct: float | None = None
+    horizon_hours: float | None = None
+    recommendation_status: str = "PROVISIONAL"
 
 
 @dataclass(frozen=True, slots=True)
