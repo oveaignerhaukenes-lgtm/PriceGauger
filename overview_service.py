@@ -21,6 +21,10 @@ class OverviewMarket:
     top_driver: str
     change_from_previous: float
     status_reason: str
+    expected_move_low_pct: float | None
+    expected_move_high_pct: float | None
+    horizon_hours: float | None
+    recommendation_status: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +35,19 @@ class OverviewData:
     information_state: dict | None
     latest_alert: object | None
     summary: OverviewSummary | None = None
+
+
+def _recommendation_status(item: DecisionStateSnapshot) -> str:
+    has_interval = item.expected_move_low_pct is not None and item.expected_move_high_pct is not None
+    has_market_confirmation = bool(item.market_snapshot_id and item.market_snapshot_id != "market-confirmation-pending")
+    if (
+        item.direction in {"LONG_BIAS", "SHORT_BIAS", "NEUTRAL"}
+        and has_interval
+        and has_market_confirmation
+        and item.confidence >= 0.5
+    ):
+        return "ACTIONABLE"
+    return "PROVISIONAL"
 
 
 def _market(
@@ -48,6 +65,10 @@ def _market(
         top_driver=(flow_item.top_drivers[0] if flow_item is not None and flow_item.top_drivers else "Ingen tydelig hoveddriver."),
         change_from_previous=float(item.change_from_previous),
         status_reason=item.status_reason,
+        expected_move_low_pct=item.expected_move_low_pct,
+        expected_move_high_pct=item.expected_move_high_pct,
+        horizon_hours=item.horizon_hours,
+        recommendation_status=_recommendation_status(item),
     )
 
 
