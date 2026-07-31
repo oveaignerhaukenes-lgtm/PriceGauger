@@ -8,6 +8,7 @@ import streamlit as st
 from build_info import render_build_badge
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
+from overview_visuals import asset_color, bipolar_fill, visual_direction_score
 
 
 st.set_page_config(page_title="Oversikt · PriceGauger", page_icon="📡", layout="wide")
@@ -29,14 +30,24 @@ st.markdown(
     .pg-summary-text {font-size:.9rem; line-height:1.48; max-width:75rem;}
     .pg-summary-tag {white-space:nowrap; border:1px solid rgba(128,128,128,.28); border-radius:999px; padding:.3rem .6rem; font-size:.72rem; font-weight:700;}
     .pg-summary-driver {font-size:.8rem; margin-top:.65rem; line-height:1.4;}
+    .pg-state-card {border-left:4px solid var(--market-color);}
     .pg-state-top {display:flex; justify-content:space-between; gap:.8rem; align-items:flex-start;}
-    .pg-market {font-size:1.02rem; font-weight:700;}
-    .pg-direction {font-weight:700; letter-spacing:.02em;}
+    .pg-market {font-size:1.02rem; font-weight:750; color:var(--market-color);}
+    .pg-direction {font-weight:750; letter-spacing:.02em; color:var(--market-color);}
     .pg-meta {font-size:.78rem; opacity:.76; margin-top:.35rem; line-height:1.35;}
     .pg-driver {font-size:.86rem; margin-top:.55rem; line-height:1.35; overflow-wrap:anywhere;}
     .pg-delta {font-size:.78rem; margin-top:.4rem; font-weight:650;}
-    .pg-bar {height:.4rem; border-radius:999px; background:rgba(128,128,128,.20); overflow:hidden; margin-top:.55rem;}
-    .pg-bar span {display:block; height:100%; border-radius:999px; background:currentColor;}
+    .pg-gauge-labels {display:grid; grid-template-columns:1fr auto 1fr; margin-top:.62rem; font-size:.68rem; opacity:.66;}
+    .pg-gauge-labels span:last-child {text-align:right;}
+    .pg-bipolar {position:relative; height:.55rem; margin-top:.2rem; border-radius:999px; background:rgba(128,128,128,.18); overflow:visible;}
+    .pg-bipolar::after {content:""; position:absolute; left:50%; top:-.18rem; width:1px; height:.91rem; background:rgba(128,128,128,.68);}
+    .pg-fill-left,.pg-fill-right {position:absolute; top:0; height:100%; background:var(--market-color); opacity:.9;}
+    .pg-fill-left {right:50%; border-radius:999px 0 0 999px;}
+    .pg-fill-right {left:50%; border-radius:0 999px 999px 0;}
+    .pg-marker {position:absolute; top:50%; width:.72rem; height:.72rem; border:2px solid var(--card-bg-color,#fff); border-radius:50%; background:var(--market-color); transform:translate(-50%,-50%); box-shadow:0 0 0 1px rgba(0,0,0,.18); z-index:2;}
+    .pg-score-row {display:flex; justify-content:space-between; gap:.8rem; margin-top:.52rem; font-size:.77rem;}
+    .pg-confidence {height:.28rem; margin-top:.28rem; border-radius:999px; background:rgba(128,128,128,.16); overflow:hidden;}
+    .pg-confidence span {display:block; height:100%; background:var(--market-color); opacity:.55; border-radius:999px;}
     .pg-alert-card {padding:1rem;}
     .pg-alert-severity {font-size:.75rem; font-weight:700; letter-spacing:.08em; opacity:.82;}
     .pg-alert-title {font-size:1rem; font-weight:750; margin:.35rem 0 .5rem; line-height:1.3;}
@@ -75,16 +86,6 @@ def _direction_label(value: str) -> str:
         "INSUFFICIENT_DATA": "FOR LITE DATA",
         "STALE": "UTDATERT",
     }.get(value, value)
-
-
-def _direction_color(value: str) -> str:
-    if value == "LONG_BIAS":
-        return "#2e8b57"
-    if value == "SHORT_BIAS":
-        return "#b24a4a"
-    if value == "CONFLICTED":
-        return "#b27a28"
-    return "#7a7a7a"
 
 
 def _sensitivity_label(value: str) -> str:
@@ -147,23 +148,33 @@ with main_col:
         st.info("Venter på første autoritative Decision State-snapshot fra workeren.")
     else:
         for item in data.markets:
-            color = _direction_color(item.direction)
-            width = max(2.0, min(100.0, abs(item.score) * 100.0))
+            color = asset_color(item.market)
+            left_width, right_width, marker_position = bipolar_fill(item.score)
+            display_score = visual_direction_score(item.score)
+            confidence_width = max(0.0, min(100.0, item.confidence * 100.0))
             delta_label = f"Endring siden forrige snapshot: {item.change_from_previous:+.2f}"
             st.markdown(
                 f"""
-                <article class="pg-state-card" style="color:{color}">
+                <article class="pg-state-card" style="--market-color:{color}">
                   <div class="pg-state-top">
-                    <div class="pg-market" style="color:inherit">{html.escape(item.market)}</div>
-                    <div class="pg-direction" style="color:inherit">{html.escape(_direction_label(item.direction))}</div>
+                    <div class="pg-market">{html.escape(item.market)}</div>
+                    <div class="pg-direction">{html.escape(_direction_label(item.direction))}</div>
                   </div>
-                  <div class="pg-bar"><span style="width:{width:.1f}%"></span></div>
-                  <div class="pg-meta" style="color:var(--text-color)">
-                    Decision State {item.score:+.2f} · konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser
+                  <div class="pg-gauge-labels"><span>Bearish</span><span>0</span><span>Bullish</span></div>
+                  <div class="pg-bipolar">
+                    <span class="pg-fill-left" style="width:{left_width:.2f}%"></span>
+                    <span class="pg-fill-right" style="width:{right_width:.2f}%"></span>
+                    <span class="pg-marker" style="left:{marker_position:.2f}%"></span>
                   </div>
-                  <div class="pg-delta" style="color:var(--text-color)">{html.escape(delta_label)}</div>
-                  <div class="pg-driver" style="color:var(--text-color)">{html.escape(item.top_driver)}</div>
-                  <div class="pg-meta" style="color:var(--text-color)">{html.escape(item.status_reason)}</div>
+                  <div class="pg-score-row">
+                    <span>Retningsstyrke {display_score:+.2f}</span>
+                    <span>Rå Decision State {item.score:+.2f}</span>
+                  </div>
+                  <div class="pg-meta">Konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser</div>
+                  <div class="pg-confidence"><span style="width:{confidence_width:.1f}%"></span></div>
+                  <div class="pg-delta">{html.escape(delta_label)}</div>
+                  <div class="pg-driver">{html.escape(item.top_driver)}</div>
+                  <div class="pg-meta">{html.escape(item.status_reason)}</div>
                 </article>
                 """,
                 unsafe_allow_html=True,
