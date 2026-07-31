@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from overview_summary_contract import OverviewSummary
+from overview_summary_store import OverviewSummaryStore
 from state_contracts import DecisionStateSnapshot
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
@@ -28,6 +30,7 @@ class OverviewData:
     latest_posts: tuple[ScoredTelegramPost, ...]
     information_state: dict | None
     latest_alert: object | None
+    summary: OverviewSummary | None = None
 
 
 def _market(
@@ -61,4 +64,5 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
         latest_posts=posts,
         information_state=runtime_store.load_latest_information_state(),
         latest_alert=runtime_store.load_latest_alert(),
+        summary=OverviewSummaryStore(db_path).load_latest(),
     )
