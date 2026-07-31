@@ -22,6 +22,21 @@ def _running_in_streamlit() -> bool:
         return False
 
 
+def _running_on_railway() -> bool:
+    """Return True inside a Railway deployment.
+
+    Railway services may retain a legacy ``--db /data/...`` argument for a mounted
+    SQLite volume. Once DATABASE_URL is configured, production state must still be
+    written to PostgreSQL so the worker and Streamlit share one authoritative store.
+    """
+    return bool(
+        os.getenv("RAILWAY_ENVIRONMENT", "").strip()
+        or os.getenv("RAILWAY_ENVIRONMENT_ID", "").strip()
+        or os.getenv("RAILWAY_PROJECT_ID", "").strip()
+        or os.getenv("RAILWAY_SERVICE_ID", "").strip()
+    )
+
+
 def _streamlit_secret_value() -> tuple[str, str]:
     """Return a supported Streamlit secret value and a safe source label."""
     try:
@@ -100,15 +115,16 @@ def _postgres_sql(sql: str) -> str:
 class DatabaseConnection(AbstractContextManager):
     """Minimal connection adapter shared by SQLite and PostgreSQL stores.
 
-    The default database path follows DATABASE_URL when configured. Passing an
-    explicit, non-default SQLite path is treated as an intentional local/test
-    database and must never be redirected to the shared PostgreSQL database.
+    Explicit non-default paths stay isolated SQLite databases for local tools and
+    tests. In Railway production, a configured DATABASE_URL is authoritative even
+    when a legacy mounted-volume path is supplied to the worker.
     """
 
     def __init__(self, sqlite_path: str | Path = _DEFAULT_SQLITE_PATH) -> None:
         self.sqlite_path = str(sqlite_path)
         explicit_sqlite = self.sqlite_path != _DEFAULT_SQLITE_PATH
-        self.is_postgres = using_postgres() and not explicit_sqlite
+        railway_postgres = _running_on_railway() and using_postgres()
+        self.is_postgres = using_postgres() and (not explicit_sqlite or railway_postgres)
         if self.is_postgres:
             try:
                 import psycopg
