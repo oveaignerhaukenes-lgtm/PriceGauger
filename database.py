@@ -133,7 +133,11 @@ class DatabaseConnection(AbstractContextManager):
                 raise RuntimeError(
                     "DATABASE_URL is configured, but psycopg is not installed"
                 ) from exc
-            self._connection = psycopg.connect(database_url(), row_factory=dict_row)
+            self._connection = psycopg.connect(
+                database_url(),
+                row_factory=dict_row,
+                connect_timeout=10,
+            )
         else:
             connection = sqlite3.connect(self.sqlite_path)
             connection.row_factory = sqlite3.Row
@@ -160,9 +164,17 @@ class DatabaseConnection(AbstractContextManager):
             if exc_type is None:
                 self._connection.commit()
             else:
-                self._connection.rollback()
+                try:
+                    self._connection.rollback()
+                except Exception:
+                    # A dropped PostgreSQL connection cannot be rolled back. Preserve
+                    # the original query exception instead of masking it here.
+                    pass
         finally:
-            self._connection.close()
+            try:
+                self._connection.close()
+            except Exception:
+                pass
         return False
 
 
