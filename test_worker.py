@@ -22,7 +22,7 @@ def test_worker_bootstraps_latest_then_deduplicates(tmp_path, monkeypatch):
 
     def fetcher(channel, *, minimum_signal):
         assert channel == "Middle_East_Spectator"
-        assert minimum_signal == 2
+        assert minimum_signal == 0
         return list(plans)
 
     monkeypatch.setattr(worker, "refresh_signal_outcomes", lambda **kwargs: [])
