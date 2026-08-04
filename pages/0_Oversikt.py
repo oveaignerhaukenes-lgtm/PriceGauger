@@ -34,7 +34,7 @@ with saxo_col:
         f"**{_saxo_icon} Saxo · {str(_saxo_status.get('environment', 'ukjent')).upper()}**"
     )
     st.caption(str(_saxo_status.get("status", "UKJENT")).replace("_", " "))
-    st.page_link("pages/1_Saxo.py", label="Åpne Saxo-status", icon="🔌")
+    st.page_link("pages/1_Saxo_OpenAPI.py", label="Åpne Saxo-status", icon="🔌")
 
 st.markdown(
     """
