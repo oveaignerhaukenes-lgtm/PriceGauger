@@ -126,7 +126,12 @@ def process_flow_snapshot(
         return
 
     interpretations = MarketStateStore(db_path).load_interpretations()
-    information = build_information_state(assessment, interpretations)
+    previous_information = runtime_store.load_latest_information_snapshot()
+    information = build_information_state(
+        assessment,
+        interpretations,
+        previous=previous_information,
+    )
     runtime_store.save_information_state(information)
 
     previous = {

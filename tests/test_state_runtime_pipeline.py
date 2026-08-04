@@ -4,6 +4,8 @@ from database import connect
 import state_runtime_pipeline as pipeline
 from state_runtime_pipeline import process_flow_snapshot
 from state_runtime_store import StateRuntimeStore
+from market_interpretation import MarketInterpretation
+from market_state_store import MarketStateStore
 from telegram_flow_engine import (
     AssetFlowAssessment,
     AssetPostScore,
@@ -72,6 +74,28 @@ def _counts(db_path) -> tuple[int, int]:
     return int(information), int(decisions)
 
 
+def _interpretation(event_id: str, *, update_type: str, conflict: float, supply: float) -> MarketInterpretation:
+    return MarketInterpretation.from_mapping(
+        {
+            "event_id": event_id,
+            "cluster_id": "iran-conflict",
+            "published_at": NOW,
+            "summary": "Material update in the Iran conflict",
+            "state_deltas": {
+                "conflict_pressure": conflict,
+                "energy_supply_risk": supply,
+                "shipping_risk": supply,
+                "safe_haven_pressure": max(0.0, conflict),
+                "usd_pressure": 0.0,
+            },
+            "novelty": 1.0,
+            "confidence": 1.0,
+            "source_quality": 1.0,
+            "update_type": update_type,
+        }
+    )
+
+
 def test_flow_snapshot_persists_information_contributions_and_alert(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
     db_path = tmp_path / "state.sqlite3"
@@ -137,3 +161,68 @@ def test_heartbeat_persists_state_without_reprocessing_posts(tmp_path, monkeypat
 
     assert second_counts[0] == first_counts[0] + 1
     assert second_counts[1] == first_counts[1] + 1
+
+
+def test_information_state_updates_previous_snapshot_once_per_interpretation(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    db_path = tmp_path / "state.sqlite3"
+    real_builder = pipeline.build_information_state
+    build_time = [datetime.fromisoformat(NOW)]
+    monkeypatch.setattr(
+        pipeline,
+        "build_information_state",
+        lambda flow, interpretations, **kwargs: real_builder(
+            flow, interpretations, as_of=build_time[0], **kwargs
+        ),
+    )
+    interpretation_store = MarketStateStore(db_path)
+    interpretation_store.save_interpretation(
+        _interpretation("event-1", update_type="ESCALATION", conflict=0.6, supply=0.5)
+    )
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    first = StateRuntimeStore(db_path).load_latest_information_snapshot()
+    assert first is not None
+    assert first.state_values["conflict_pressure"] == 0.6
+    assert first.processed_event_ids == ("event-1",)
+
+    monkeypatch.setattr(pipeline, "_heartbeat_due", lambda latest: True)
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    heartbeat = StateRuntimeStore(db_path).load_latest_information_snapshot()
+    assert heartbeat is not None
+    assert heartbeat.state_values["conflict_pressure"] == 0.6
+
+    interpretation_store.save_interpretation(
+        _interpretation("event-2", update_type="DEESCALATION", conflict=-0.25, supply=-0.2)
+    )
+    build_time[0] = datetime.fromisoformat(NOW).replace(minute=1)
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    updated = StateRuntimeStore(db_path).load_latest_information_snapshot()
+    assert updated is not None
+    assert updated.state_values["conflict_pressure"] < 0.36
+    assert updated.state_change["conflict_pressure"] < -0.24
+    assert updated.processed_event_ids == ("event-1", "event-2")
+
+
+def test_context_and_duplicate_are_recorded_but_do_not_change_information_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    db_path = tmp_path / "state.sqlite3"
+    real_builder = pipeline.build_information_state
+    monkeypatch.setattr(
+        pipeline,
+        "build_information_state",
+        lambda flow, interpretations, **kwargs: real_builder(
+            flow, interpretations, as_of=datetime.fromisoformat(NOW), **kwargs
+        ),
+    )
+    store = MarketStateStore(db_path)
+    store.save_interpretation(_interpretation("context-1", update_type="CONTEXT", conflict=1.0, supply=1.0))
+    store.save_interpretation(_interpretation("duplicate-1", update_type="DUPLICATE", conflict=1.0, supply=1.0))
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    information = StateRuntimeStore(db_path).load_latest_information_snapshot()
+
+    assert information is not None
+    assert information.state_values["conflict_pressure"] == 0.0
+    assert information.active_event_count == 0
+    assert set(information.processed_event_ids) == {"context-1", "duplicate-1"}

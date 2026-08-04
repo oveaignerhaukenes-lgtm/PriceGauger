@@ -8,6 +8,9 @@ import math
 from typing import Iterable, Mapping
 
 from market_interpretation import MarketInterpretation
+from market_interpretation import STATE_NAMES
+from asset_state_mapping import ASSET_WEIGHTS
+from market_state import interpretation_weight
 from state_contracts import (
     ComponentStatus,
     DecisionStateSnapshot,
@@ -21,6 +24,7 @@ from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 
 
 ENGINE_VERSION = "state-runtime-v1"
+INFORMATION_STATE_HALF_LIFE_HOURS = 6.0
 _MOVE_SCALE = {
     "Brent": 5.0,
     "Gold": 2.5,
@@ -68,50 +72,80 @@ def build_information_state(
     flow: TelegramFlowAssessment,
     interpretations: Iterable[MarketInterpretation],
     *,
+    previous: InformationStateSnapshot | None = None,
     as_of: datetime | None = None,
 ) -> InformationStateSnapshot:
     now = _utc_now(as_of)
-    rows = list(interpretations)
-    recent = []
-    for item in rows:
-        published = datetime.fromisoformat(item.published_at.replace("Z", "+00:00"))
-        if (now - published.astimezone(timezone.utc)).total_seconds() <= 12 * 3600:
-            recent.append(item)
+    rows = sorted(interpretations, key=lambda item: item.published_at)
+    processed = set(previous.processed_event_ids if previous else ())
+    new_rows = [item for item in rows if item.event_id not in processed]
 
-    latest = recent[-1] if recent else None
-    recent_types = [item.update_type for item in recent]
-    ceasefire_active = bool(
-        latest
-        and latest.update_type == "DEESCALATION"
-        and any(token in latest.summary.lower() for token in ("ceasefire", "truce", "våpenhvile"))
-    )
+    values = {name: 0.0 for name in STATE_NAMES}
+    if previous is not None:
+        values.update(previous.state_values or {})
+        previous_time = datetime.fromisoformat(previous.as_of.replace("Z", "+00:00"))
+        elapsed_hours = max(0.0, (now - previous_time).total_seconds() / 3600.0)
+        decay = math.exp(-math.log(2.0) * elapsed_hours / INFORMATION_STATE_HALF_LIFE_HOURS)
+        values = {name: float(values[name]) * decay for name in STATE_NAMES}
+
+    state_change = {name: 0.0 for name in STATE_NAMES}
+    material_rows: list[MarketInterpretation] = []
+    for item in new_rows:
+        published = datetime.fromisoformat(item.published_at.replace("Z", "+00:00"))
+        age_hours = max(0.0, (now - published.astimezone(timezone.utc)).total_seconds() / 3600.0)
+        weight = interpretation_weight(
+            item,
+            age_hours=age_hours,
+            half_life_hours=INFORMATION_STATE_HALF_LIFE_HOURS,
+            max_age_hours=24.0,
+        )
+        if weight:
+            material_rows.append(item)
+            for name in STATE_NAMES:
+                delta = float(item.state_deltas[name]) * weight
+                state_change[name] += delta
+                values[name] = max(-1.0, min(1.0, values[name] + delta))
+        processed.add(item.event_id)
+
+    active_clusters = {
+        item.cluster_id
+        for item in rows
+        if item.update_type not in {"DUPLICATE", "CONTEXT"}
+        and 0.0
+        <= (now - datetime.fromisoformat(item.published_at.replace("Z", "+00:00")).astimezone(timezone.utc)).total_seconds()
+        <= 12 * 3600
+    }
+    latest = material_rows[-1] if material_rows else None
+    ceasefire_active = bool(previous.ceasefire_active if previous else False)
+    if latest and latest.update_type in {"ESCALATION", "NEW_EVENT"}:
+        ceasefire_active = False
+    if latest and latest.update_type == "DEESCALATION" and any(
+        token in latest.summary.lower() for token in ("ceasefire", "truce", "våpenhvile")
+    ):
+        ceasefire_active = True
+
+    conflict = values["conflict_pressure"]
     if ceasefire_active:
         regime = "CEASEFIRE"
-    elif recent_types.count("ESCALATION") >= 3:
+    elif conflict >= 0.65:
         regime = "HIGH_INTENSITY_WAR"
-    elif "ESCALATION" in recent_types:
+    elif conflict >= 0.2:
         regime = "ACTIVE_WAR"
-    elif "DEESCALATION" in recent_types:
+    elif conflict <= -0.2:
         regime = "DEESCALATING"
     else:
-        regime = "CALM" if not recent else "MIXED"
+        regime = "CALM" if not active_clusters else "MIXED"
 
-    active_clusters = {item.cluster_id for item in recent if item.update_type not in {"DUPLICATE", "CONTEXT"}}
     saturation = min(1.0, max(0.0, (flow.post_count - flow.event_cluster_count) / max(flow.post_count, 1)))
-    confirmation_rows = [item for item in recent if item.update_type in {"CONFIRMATION", "UPDATE"}]
-    confirmation_quality = (
+    confirmation_rows = [item for item in new_rows if item.update_type in {"CONFIRMATION", "UPDATE"}]
+    new_confirmation_quality = (
         sum(item.confidence * item.source_quality for item in confirmation_rows) / len(confirmation_rows)
         if confirmation_rows
-        else 0.35
+        else None
     )
-    supply_rows = [item for item in recent if item.state_deltas.get("energy_supply_risk", 0.0) > 0]
-    supply_risk = min(
-        1.0,
-        sum(
-            item.state_deltas["energy_supply_risk"] * item.confidence * item.source_quality
-            for item in supply_rows
-        ),
-    )
+    prior_quality = previous.confirmation_quality if previous else 0.35
+    confirmation_quality = prior_quality if new_confirmation_quality is None else (0.6 * prior_quality + 0.4 * new_confirmation_quality)
+    supply_risk = max(0.0, values["energy_supply_risk"])
     component = ComponentStatus(
         observed_at=flow.as_of,
         age_seconds=max(0, int((now - datetime.fromisoformat(flow.as_of.replace("Z", "+00:00"))).total_seconds())),
@@ -120,7 +154,12 @@ def build_information_state(
         instrument="selected-markets",
         engine_version=ENGINE_VERSION,
     )
-    payload = {"as_of": now.isoformat(), "flow_as_of": flow.as_of, "clusters": flow.event_cluster_count, "regime": regime}
+    payload = {
+        "as_of": now.isoformat(),
+        "previous": previous.snapshot_id if previous else "",
+        "new_events": sorted(item.event_id for item in new_rows),
+        "state_values": values,
+    }
     return InformationStateSnapshot(
         snapshot_id=_stable_id("information-state", payload),
         as_of=now.isoformat(),
@@ -133,6 +172,10 @@ def build_information_state(
         supply_risk=round(max(0.0, min(1.0, supply_risk)), 4),
         source_channels=flow.source_channels,
         component=component,
+        state_values={name: round(values[name], 6) for name in STATE_NAMES},
+        state_change={name: round(state_change[name], 6) for name in STATE_NAMES},
+        processed_event_ids=tuple(sorted(processed)),
+        active_cluster_ids=tuple(sorted(active_clusters)),
     )
 
 
@@ -147,9 +190,17 @@ def build_decision_states(
     for item in flow.assets:
         old = prior.get(item.asset)
         consensus = float(item.normalized_score)
-        score = market_impulse_score(item.asset, item.flow_score)
-        confidence = float(item.confidence)
-        direction = item.direction
+        impulse_score = market_impulse_score(item.asset, item.flow_score)
+        weights = ASSET_WEIGHTS.get(item.asset)
+        if weights and information.state_values:
+            state_score = max(-1.0, min(1.0, sum(weights[name] * information.state_values.get(name, 0.0) for name in STATE_NAMES)))
+            score = 0.65 * state_score + 0.35 * impulse_score
+        else:
+            state_score = impulse_score
+            score = impulse_score
+        score = max(-1.0, min(1.0, score))
+        confidence = max(0.0, min(1.0, 0.65 * float(item.confidence) + 0.35 * information.confirmation_quality))
+        direction = "LONG_BIAS" if score > 0.10 else "SHORT_BIAS" if score < -0.10 else "NEUTRAL"
         if information.component.freshness != "FRESH":
             direction = "STALE"
         elif item.selected_event_count == 0:
@@ -159,7 +210,8 @@ def build_decision_states(
             "market": item.asset,
             "as_of": flow.as_of,
             "flow_score": item.flow_score,
-            "impulse_score": score,
+            "impulse_score": impulse_score,
+            "state_score": state_score,
             "information_snapshot_id": information.snapshot_id,
         }
         results.append(
@@ -183,7 +235,8 @@ def build_decision_states(
                     if contribution.asset == item.asset and contribution.selected
                 ),
                 status_reason=(
-                    f"Information impulse {score:+.2f}; directional consensus {consensus:+.2f}. "
+                    f"Persistent Information State {state_score:+.2f}; latest flow impulse {impulse_score:+.2f}; "
+                    f"directional consensus {consensus:+.2f}. "
                     "Price and technical confirmation pending."
                 ),
                 engine_version=ENGINE_VERSION,

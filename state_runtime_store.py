@@ -202,3 +202,16 @@ class StateRuntimeStore:
                 "SELECT payload_json FROM information_state_snapshots ORDER BY as_of DESC LIMIT 1"
             ).fetchone()
         return None if row is None else json.loads(row["payload_json"])
+
+    def load_latest_information_snapshot(self) -> InformationStateSnapshot | None:
+        record = self.load_latest_information_state()
+        if record is None:
+            return None
+        component = record.get("component")
+        if isinstance(component, dict):
+            from state_contracts import ComponentStatus
+
+            record["component"] = ComponentStatus(**component)
+        for name in ("source_channels", "processed_event_ids", "active_cluster_ids"):
+            record[name] = tuple(record.get(name) or ())
+        return InformationStateSnapshot(**record)
