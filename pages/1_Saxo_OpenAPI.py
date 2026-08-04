@@ -6,6 +6,7 @@ import streamlit as st
 
 from build_info import render_build_badge
 from saxo_auth import SaxoAuthError, configured_oauth_client
+from saxo_auth_ui import handle_saxo_oauth_callback, render_saxo_auth_panel
 from saxo_provider import configured_client, configured_instruments
 
 
@@ -13,6 +14,10 @@ st.set_page_config(page_title="Saxo · PriceGauger", page_icon="🔌", layout="w
 render_build_badge()
 st.title("Saxo")
 st.caption("Tilkobling, tokenstatus og manuell kontroll av prisgrunnlaget. Ingen ordreutførelse.")
+
+# Saxo redirects to /Saxo_OpenAPI?code=...&state=.... Consume the
+# callback before reading status so the freshly issued token is visible below.
+handle_saxo_oauth_callback()
 
 oauth = configured_oauth_client()
 if oauth is None:
@@ -41,27 +46,8 @@ if status.get("refresh_expires_at"):
     except ValueError:
         pass
 
-params = st.query_params
-code = str(params.get("code") or "")
-returned_state = str(params.get("state") or "")
-expected_state = st.session_state.get("saxo_oauth_state")
-if code:
-    if not expected_state or returned_state != expected_state:
-        st.error("OAuth-returen hadde ugyldig state. Start innloggingen på nytt.")
-    else:
-        try:
-            oauth.exchange_code(code)
-            st.session_state.pop("saxo_oauth_state", None)
-            st.query_params.clear()
-            st.success("Saxo er koblet til.")
-            st.rerun()
-        except SaxoAuthError as exc:
-            st.error(str(exc))
-
 if not connected:
-    url, state = oauth.build_authorization_url()
-    st.session_state["saxo_oauth_state"] = state
-    st.link_button("Koble til Saxo", url, type="primary", use_container_width=True)
+    render_saxo_auth_panel()
 else:
     left, right = st.columns(2)
     with left:
