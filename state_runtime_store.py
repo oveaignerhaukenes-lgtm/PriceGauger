@@ -10,6 +10,7 @@ from state_contracts import (
     EventContribution,
     InformationStateSnapshot,
     MarketMoverAlert,
+    MarketStateSnapshot,
 )
 
 
@@ -37,6 +38,15 @@ class StateRuntimeStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_decision_state_market_as_of
                 ON decision_state_snapshots(market, as_of);
+                CREATE TABLE IF NOT EXISTS technical_market_state_snapshots (
+                    snapshot_id TEXT PRIMARY KEY,
+                    market TEXT NOT NULL,
+                    as_of TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_technical_market_state_market_as_of
+                ON technical_market_state_snapshots(market, as_of);
                 CREATE TABLE IF NOT EXISTS event_contributions (
                     event_id TEXT NOT NULL,
                     event_cluster_id TEXT NOT NULL,
@@ -96,6 +106,22 @@ class StateRuntimeStore:
                         snapshot.direction,
                         json.dumps(snapshot.to_record(), ensure_ascii=False, sort_keys=True),
                     ),
+                )
+        return len(rows)
+
+    def save_market_states(self, snapshots: Iterable[MarketStateSnapshot]) -> int:
+        rows = list(snapshots)
+        with self._connect() as db:
+            for item in rows:
+                db.execute(
+                    """
+                    INSERT INTO technical_market_state_snapshots(snapshot_id, market, as_of, payload_json)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(snapshot_id) DO UPDATE SET
+                        payload_json=excluded.payload_json,
+                        recorded_at=CURRENT_TIMESTAMP
+                    """,
+                    (item.snapshot_id, item.market, item.as_of, json.dumps(item.to_record(), sort_keys=True)),
                 )
         return len(rows)
 

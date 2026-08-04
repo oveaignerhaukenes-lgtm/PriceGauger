@@ -184,8 +184,10 @@ def build_decision_states(
     information: InformationStateSnapshot,
     *,
     previous: Mapping[str, DecisionStateSnapshot | None] | None = None,
+    market_states: Mapping[str, MarketStateSnapshot] | None = None,
 ) -> list[DecisionStateSnapshot]:
     prior = previous or {}
+    technical = market_states or {}
     results: list[DecisionStateSnapshot] = []
     for item in flow.assets:
         old = prior.get(item.asset)
@@ -198,8 +200,18 @@ def build_decision_states(
         else:
             state_score = impulse_score
             score = impulse_score
+        information_score = max(-1.0, min(1.0, score))
+        market_state = technical.get(item.asset)
+        technical_score = market_state.direction_score if market_state is not None else 0.0
+        if market_state is not None and market_state.component.freshness == "FRESH":
+            score = 0.72 * information_score + 0.28 * technical_score
+            agreement = information_score * technical_score
+            confidence_adjustment = 0.12 if agreement > 0.08 else -0.12 if agreement < -0.08 else 0.0
+        else:
+            score = information_score
+            confidence_adjustment = 0.0
         score = max(-1.0, min(1.0, score))
-        confidence = max(0.0, min(1.0, 0.65 * float(item.confidence) + 0.35 * information.confirmation_quality))
+        confidence = max(0.0, min(1.0, 0.65 * float(item.confidence) + 0.35 * information.confirmation_quality + confidence_adjustment))
         direction = "LONG_BIAS" if score > 0.10 else "SHORT_BIAS" if score < -0.10 else "NEUTRAL"
         if information.component.freshness != "FRESH":
             direction = "STALE"
@@ -213,6 +225,7 @@ def build_decision_states(
             "impulse_score": impulse_score,
             "state_score": state_score,
             "information_snapshot_id": information.snapshot_id,
+            "market_snapshot_id": market_state.snapshot_id if market_state is not None else "market-confirmation-pending",
         }
         results.append(
             DecisionStateSnapshot(
@@ -227,7 +240,7 @@ def build_decision_states(
                 expected_move_high_pct=None,
                 horizon_hours=4.0,
                 information_snapshot_id=information.snapshot_id,
-                market_snapshot_id="market-confirmation-pending",
+                market_snapshot_id=market_state.snapshot_id if market_state is not None else "market-confirmation-pending",
                 change_from_previous=round(change, 4),
                 contributing_event_ids=tuple(
                     contribution.message_id
@@ -237,7 +250,11 @@ def build_decision_states(
                 status_reason=(
                     f"Persistent Information State {state_score:+.2f}; latest flow impulse {impulse_score:+.2f}; "
                     f"directional consensus {consensus:+.2f}. "
-                    "Price and technical confirmation pending."
+                    + (
+                        f"Technical confirmation {technical_score:+.2f} from {market_state.component.provider}."
+                        if market_state is not None
+                        else "Price and technical confirmation pending."
+                    )
                 ),
                 engine_version=ENGINE_VERSION,
             )

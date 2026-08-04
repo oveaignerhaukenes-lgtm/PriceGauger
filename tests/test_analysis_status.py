@@ -28,7 +28,7 @@ def test_begin_cycle_preserves_explicit_pending_components(tmp_path):
     loaded = {item.step_key: item for item in store.load()}
     assert loaded["decision_state"].status == "PENDING"
     assert loaded["technical_state"].status == "PENDING"
-    assert "Ikke koblet" in loaded["technical_state"].detail
+    assert "Venter på workeren" in loaded["technical_state"].detail
     assert "Ikke koblet" in loaded["context_state"].detail
 
 

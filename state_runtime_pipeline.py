@@ -5,6 +5,9 @@ import logging
 import os
 from pathlib import Path
 
+from analysis_status import AnalysisStatusStore
+from config import twelve_data_api_key
+from market_data import TwelveDataProvider, fetch_market_data
 from market_state_store import MarketStateStore
 from notification_service import (
     NotificationConfig,
@@ -20,7 +23,9 @@ from state_runtime_service import (
     detect_alerts,
 )
 from state_runtime_store import StateRuntimeStore
+from saxo_provider import SaxoPriceProvider
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
+from technical_state_runtime import build_technical_market_states
 from worker_probe import record_worker_probe
 
 
@@ -90,6 +95,7 @@ def process_flow_snapshot(
         probe.database_identity,
     )
     runtime_store = StateRuntimeStore(db_path)
+    status_store = AnalysisStatusStore(db_path)
 
     new_posts: list[ScoredTelegramPost] = []
     for post in posts:
@@ -138,7 +144,36 @@ def process_flow_snapshot(
         item.asset: runtime_store.load_latest_decision_state(market=item.asset)
         for item in assessment.assets
     }
-    decisions = build_decision_states(assessment, information, previous=previous)
+    status_store.running("technical_state", "Henter prisbarer og bygger flertidsrammeregime.")
+    saxo = SaxoPriceProvider()
+    providers = [saxo] if saxo.client is not None and saxo.instruments else []
+    twelve_key = twelve_data_api_key()
+    if twelve_key:
+        providers.append(TwelveDataProvider(twelve_key))
+    if providers:
+        def fetcher(request):
+            return fetch_market_data(request, providers)
+
+        market_states, technical_errors = build_technical_market_states(
+            [item.asset for item in assessment.assets], fetcher=fetcher
+        )
+    else:
+        market_states, technical_errors = {}, {}
+    runtime_store.save_market_states(market_states.values())
+    if market_states:
+        detail = f"{len(market_states)} markeder oppdatert fra pris og teknisk regime."
+        if technical_errors:
+            detail += f" {len(technical_errors)} marked(er) manglet data."
+        status_store.complete("technical_state", detail)
+    elif technical_errors:
+        detail = "; ".join(f"{market}: {error}" for market, error in technical_errors.items())
+        status_store.failed("technical_state", detail or "Ingen markedsdata tilgjengelig.")
+    else:
+        status_store.skipped("technical_state", "Saxo/Twelve Data er ikke konfigurert for workeren.")
+
+    decisions = build_decision_states(
+        assessment, information, previous=previous, market_states=market_states
+    )
     runtime_store.save_decision_states(decisions)
 
     if missing_decisions:

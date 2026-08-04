@@ -91,7 +91,7 @@ class AnalysisStatusStore:
 
     def begin_cycle(self) -> None:
         for key in STEP_ORDER:
-            if key in {"technical_state", "context_state"}:
+            if key == "context_state":
                 self.set(key, "PENDING", "Ikke koblet inn i produksjonskjeden ennå.")
             else:
                 self.set(key, "PENDING", "Venter på workeren.")
