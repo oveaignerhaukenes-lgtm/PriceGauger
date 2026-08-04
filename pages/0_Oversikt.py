@@ -10,12 +10,31 @@ from build_info import render_build_badge
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
 from overview_visuals import asset_color, bipolar_fill, visual_direction_score
+from saxo_auth import configured_oauth_client
 
 
 st.set_page_config(page_title="Oversikt · PriceGauger", page_icon="📡", layout="wide")
 render_build_badge()
-st.title("PriceGauger")
-st.caption("Kontinuerlig markedstilstand · nye hendelser vises som endringer i totalbildet")
+title_col, saxo_col = st.columns([4, 1])
+with title_col:
+    st.title("PriceGauger")
+    st.caption("Kontinuerlig markedstilstand · nye hendelser vises som endringer i totalbildet")
+with saxo_col:
+    try:
+        _saxo_client = configured_oauth_client()
+        _saxo_status = _saxo_client.status() if _saxo_client is not None else {
+            "connected": False,
+            "environment": "ukjent",
+            "status": "NOT_CONFIGURED",
+        }
+    except Exception:
+        _saxo_status = {"connected": False, "environment": "ukjent", "status": "STATUS_ERROR"}
+    _saxo_icon = "🟢" if _saxo_status.get("connected") else "🔴"
+    st.markdown(
+        f"**{_saxo_icon} Saxo · {str(_saxo_status.get('environment', 'ukjent')).upper()}**"
+    )
+    st.caption(str(_saxo_status.get("status", "UKJENT")).replace("_", " "))
+    st.page_link("pages/1_Saxo.py", label="Åpne Saxo-status", icon="🔌")
 
 st.markdown(
     """
