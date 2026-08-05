@@ -17,9 +17,16 @@ def test_analysis_status_renders_ordered_worker_steps():
             AnalysisStepStatus(
                 step_key="technical_state",
                 label="Teknisk analyse",
-                status="PENDING",
-                detail="Ikke koblet inn ennå",
+                status="RUNNING",
+                detail="Henter prisbarer",
                 updated_at="2026-08-01T00:12:01+00:00",
+            ),
+            AnalysisStepStatus(
+                step_key="decision_state",
+                label="Decision State",
+                status="FAILED",
+                detail="Kunne ikke lese markedsdata",
+                updated_at="2026-08-01T00:12:02+00:00",
             ),
         )
     )
@@ -28,8 +35,13 @@ def test_analysis_status_renders_ordered_worker_steps():
     assert "Telegram innhentet" in html
     assert "Teknisk analyse" in html
     assert "Ferdig" in html
-    assert "Venter" in html
+    assert "Arbeider" in html
+    assert "pg-step-running" in html
+    assert "Feilet" in html
+    assert "pg-step-failed" in html
+    assert "×" in html
     assert "12 poster hentet" in html
+    assert "Kunne ikke lese markedsdata" in html
 
 
 def test_analysis_status_is_empty_without_steps():

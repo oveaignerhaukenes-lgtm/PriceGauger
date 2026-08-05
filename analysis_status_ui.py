@@ -9,15 +9,15 @@ _STATUS_ICON = {
     "RUNNING": "↻",
     "PENDING": "·",
     "SKIPPED": "–",
-    "FAILED": "!",
+    "FAILED": "×",
 }
 
 _STATUS_LABEL = {
     "COMPLETE": "Ferdig",
-    "RUNNING": "Kjører",
+    "RUNNING": "Arbeider",
     "PENDING": "Venter",
     "SKIPPED": "Hoppet over",
-    "FAILED": "Feil",
+    "FAILED": "Feilet",
 }
 
 
@@ -36,7 +36,7 @@ def render_analysis_status(steps: Iterable[object]) -> str:
         icon = _STATUS_ICON.get(status, "·")
         status_label = _STATUS_LABEL.get(status, status.title())
         cards.append(
-            '<div class="pg-step pg-step-{status}" title="{detail}">'
+            '<div class="pg-step pg-step-{status}" title="{detail}" aria-label="{label}: {status_label}. {detail}">'
             '<div class="pg-step-icon">{icon}</div>'
             '<div class="pg-step-copy">'
             '<div class="pg-step-label">{label}</div>'
@@ -73,9 +73,12 @@ ANALYSIS_STATUS_CSS = """
 .pg-step-state {font-size:.61rem; opacity:.64; margin-top:.08rem;}
 .pg-step-time {font-size:.58rem; opacity:.52;}
 .pg-step-complete .pg-step-icon {background:rgba(46,139,87,.18); color:#2e8b57;}
-.pg-step-running {border-color:rgba(36,74,124,.42);}
-.pg-step-running .pg-step-icon {background:rgba(36,74,124,.18); color:#244a7c; animation:pg-spin 1.2s linear infinite;}
-.pg-step-failed .pg-step-icon {background:rgba(178,74,74,.18); color:#b24a4a;}
+.pg-step-running {border-color:rgba(36,112,181,.5); background:rgba(36,112,181,.055);}
+.pg-step-running .pg-step-icon {background:rgba(36,112,181,.18); color:#2470b5; animation:pg-spin .9s linear infinite;}
+.pg-step-running .pg-step-state {color:#2470b5; opacity:1; font-weight:720;}
+.pg-step-failed {border-color:rgba(204,45,45,.72); background:rgba(204,45,45,.075);}
+.pg-step-failed .pg-step-icon {background:#c92f2f; color:#fff; font-size:.9rem;}
+.pg-step-failed .pg-step-state {color:#c92f2f; opacity:1; font-weight:800;}
 .pg-step-skipped,.pg-step-pending {opacity:.7;}
 @keyframes pg-spin {from{transform:rotate(0deg)} to{transform:rotate(360deg)}}
 @media(max-width:1000px){.pg-progress-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
