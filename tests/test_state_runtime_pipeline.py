@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from analysis_status import AnalysisStatusStore
 from database import connect
 import state_runtime_pipeline as pipeline
 from state_runtime_pipeline import process_flow_snapshot
@@ -172,6 +173,24 @@ def test_missing_technical_market_state_is_bootstrapped_without_new_post(tmp_pat
 
     assert calls == [("Brent",)]
     assert _counts(db_path) == (first_counts[0] + 1, first_counts[1] + 1)
+
+
+def test_technical_status_is_not_left_pending_when_saxo_has_no_instruments(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    db_path = tmp_path / "state.sqlite3"
+
+    class ConnectedSaxoWithoutInstruments:
+        client = object()
+        instruments = {}
+
+    monkeypatch.setattr(pipeline, "SaxoPriceProvider", ConnectedSaxoWithoutInstruments)
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+
+    technical = next(
+        item for item in AnalysisStatusStore(db_path).load() if item.step_key == "technical_state"
+    )
+    assert technical.status == "SKIPPED"
+    assert "SAXO_INSTRUMENTS_JSON" in technical.detail
 
 
 def test_heartbeat_persists_state_without_reprocessing_posts(tmp_path, monkeypatch):
