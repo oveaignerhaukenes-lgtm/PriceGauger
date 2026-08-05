@@ -107,12 +107,22 @@ def process_flow_snapshot(
 
     latest_information = runtime_store.load_latest_information_state()
     heartbeat_due = _heartbeat_due(latest_information)
+    saxo = SaxoPriceProvider()
+    providers = [saxo] if saxo.client is not None and saxo.instruments else []
+    twelve_key = twelve_data_api_key()
+    if twelve_key:
+        providers.append(TwelveDataProvider(twelve_key))
     missing_decisions = [
         item.asset
         for item in assessment.assets
         if runtime_store.load_latest_decision_state(market=item.asset) is None
     ]
-    if not new_posts and not heartbeat_due and not missing_decisions:
+    missing_market_states = [
+        item.asset
+        for item in assessment.assets
+        if providers and runtime_store.load_latest_market_state(market=item.asset) is None
+    ]
+    if not new_posts and not heartbeat_due and not missing_decisions and not missing_market_states:
         try:
             from overview_summary_store import OverviewSummaryStore
 
@@ -145,11 +155,6 @@ def process_flow_snapshot(
         for item in assessment.assets
     }
     status_store.running("technical_state", "Henter prisbarer og bygger flertidsrammeregime.")
-    saxo = SaxoPriceProvider()
-    providers = [saxo] if saxo.client is not None and saxo.instruments else []
-    twelve_key = twelve_data_api_key()
-    if twelve_key:
-        providers.append(TwelveDataProvider(twelve_key))
     if providers:
         def fetcher(request):
             return fetch_market_data(request, providers)
@@ -180,6 +185,11 @@ def process_flow_snapshot(
         LOGGER.info(
             "state runtime bootstrapped missing_decisions=%s",
             ",".join(missing_decisions),
+        )
+    if missing_market_states:
+        LOGGER.info(
+            "state runtime bootstrapped missing_market_states=%s",
+            ",".join(missing_market_states),
         )
 
     if not new_posts:

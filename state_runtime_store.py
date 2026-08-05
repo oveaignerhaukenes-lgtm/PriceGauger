@@ -156,6 +156,28 @@ class StateRuntimeStore:
             ).fetchall()
         return [DecisionStateSnapshot(**json.loads(row["payload_json"])) for row in rows]
 
+    def load_latest_market_state(self, *, market: str) -> MarketStateSnapshot | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT payload_json
+                FROM technical_market_state_snapshots
+                WHERE market=?
+                ORDER BY as_of DESC
+                LIMIT 1
+                """,
+                (market,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = json.loads(row["payload_json"])
+        component = record.get("component")
+        if isinstance(component, dict):
+            from state_contracts import ComponentStatus
+
+            record["component"] = ComponentStatus(**component)
+        return MarketStateSnapshot(**record)
+
     def has_contribution(self, *, event_id: str, market: str) -> bool:
         with self._connect() as db:
             row = db.execute(

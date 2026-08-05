@@ -148,6 +148,32 @@ def test_missing_decision_state_is_bootstrapped_without_new_post(tmp_path, monke
     assert decision.direction == "LONG_BIAS"
 
 
+def test_missing_technical_market_state_is_bootstrapped_without_new_post(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    db_path = tmp_path / "state.sqlite3"
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+    first_counts = _counts(db_path)
+
+    class ConfiguredSaxo:
+        client = object()
+        instruments = {"Brent": object()}
+
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(pipeline, "SaxoPriceProvider", ConfiguredSaxo)
+
+    def build_states(markets, *, fetcher):
+        calls.append(tuple(markets))
+        return {}, {market: "test feed unavailable" for market in markets}
+
+    monkeypatch.setattr(pipeline, "build_technical_market_states", build_states)
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+
+    assert calls == [("Brent",)]
+    assert _counts(db_path) == (first_counts[0] + 1, first_counts[1] + 1)
+
+
 def test_heartbeat_persists_state_without_reprocessing_posts(tmp_path, monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
     db_path = tmp_path / "state.sqlite3"
