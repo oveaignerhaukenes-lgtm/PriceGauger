@@ -82,7 +82,6 @@ class TelegramFlowStore:
                         json.dumps(item.to_record(), ensure_ascii=False, sort_keys=True),
                     ),
                 )
-        status.complete("telegram_fetch", f"{len(rows)} nye poster hentet og mottatt av analyseflyten.")
         status.complete("telegram_scoring", f"{len(rows)} poster AI-vurdert og lagret.")
         return len(rows)
 
@@ -141,7 +140,12 @@ class TelegramFlowStore:
         )
         return accepted
 
-    def save_snapshot(self, assessment: TelegramFlowAssessment) -> None:
+    def save_snapshot(
+        self,
+        assessment: TelegramFlowAssessment,
+        *,
+        process_runtime: bool = True,
+    ) -> None:
         status = self._status()
         status.running("event_clustering", "Oppdaterer hendelsesklynger og samlet Telegram Flow.")
         with self._connect() as db:
@@ -165,26 +169,28 @@ class TelegramFlowStore:
             f"{assessment.post_count} poster redusert til {assessment.event_cluster_count} hendelsesklynger.",
         )
 
-        # State processing is downstream of the persisted flow snapshot. Failures are
-        # isolated so Telegram Flow remains available even when an alert provider fails.
-        try:
-            from state_runtime_pipeline import process_flow_snapshot
+        # Legacy callers use save_snapshot as a save-and-process operation. The worker
+        # opts out explicitly because it owns status reporting and invokes runtime once.
+        if process_runtime:
+            try:
+                from state_runtime_pipeline import process_flow_snapshot
 
-            status.running("information_state", "Bygger samlet Information State.")
-            status.running("decision_state", "Oppdaterer Decision State per marked.")
-            process_flow_snapshot(
-                db_path=self.path,
-                assessment=assessment,
-                posts=self.load_posts(limit=500),
-            )
-            status.complete("information_state", "Information State oppdatert fra siste autoritative flow-snapshot.")
-            status.complete("decision_state", "Decision State oppdatert for alle tilgjengelige markeder.")
-            status.complete("recommendation", "Foreløpige anbefalinger regenerert fra siste Decision State.")
-        except Exception as exc:
-            status.failed("information_state", str(exc))
-            status.failed("decision_state", str(exc))
-            status.failed("recommendation", "Ingen ny anbefaling fordi state runtime feilet.")
-            LOGGER.exception("state runtime processing failed after Telegram flow snapshot")
+                status.running("information_state", "Bygger samlet Information State.")
+                status.running("decision_state", "Oppdaterer Decision State per marked.")
+                status.running("recommendation", "Avventer oppdatert Decision State.")
+                process_flow_snapshot(
+                    db_path=self.path,
+                    assessment=assessment,
+                    posts=self.load_posts(limit=500),
+                )
+                status.complete("information_state", "Information State oppdatert fra siste autoritative flow-snapshot.")
+                status.complete("decision_state", "Decision State oppdatert for alle tilgjengelige markeder.")
+                status.complete("recommendation", "Foreløpige anbefalinger regenerert fra siste Decision State.")
+            except Exception as exc:
+                status.failed("information_state", str(exc))
+                status.failed("decision_state", str(exc))
+                status.failed("recommendation", "Ingen ny anbefaling fordi state runtime feilet.")
+                LOGGER.exception("state runtime processing failed after Telegram flow snapshot")
 
     def load_latest_snapshot(self) -> TelegramFlowAssessment | None:
         with self._connect() as db:

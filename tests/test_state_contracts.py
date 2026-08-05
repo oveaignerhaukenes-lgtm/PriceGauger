@@ -6,6 +6,8 @@ from state_contracts import (
     context_multiplier,
     detect_market_mover,
 )
+from state_runtime_service import contributions_from_posts
+from telegram_flow_engine import AssetPostScore, ScoredTelegramPost
 
 
 NOW = "2026-07-30T20:00:00+00:00"
@@ -133,3 +135,32 @@ def test_price_confirmation_updates_alert_status():
 
     assert alert is not None
     assert alert.status == "CONFIRMED"
+
+
+def test_contribution_uses_explicit_fallback_when_post_timestamp_is_blank():
+    post = ScoredTelegramPost(
+        message_id="MES:missing-time",
+        channel="Middle_East_Spectator",
+        published_at="",
+        text="Material update",
+        event_key="material-update",
+        relation="new",
+        novelty=0.8,
+        source_quality=0.8,
+        scores=(
+            AssetPostScore(
+                asset="Brent",
+                direction=-1.0,
+                impact=0.7,
+                confidence=0.8,
+                horizon_hours=24.0,
+                rationale="Test fallback timestamp.",
+            ),
+        ),
+    )
+
+    contribution = contributions_from_posts(
+        [post], fallback_observed_at=NOW
+    )[0]
+
+    assert contribution.observed_at == NOW

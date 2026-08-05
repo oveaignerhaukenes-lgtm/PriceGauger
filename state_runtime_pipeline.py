@@ -5,6 +5,9 @@ import logging
 import os
 from pathlib import Path
 
+from analysis_status import AnalysisStatusStore
+from config import twelve_data_api_key
+from market_data import TwelveDataProvider, fetch_market_data
 from market_state_store import MarketStateStore
 from notification_service import (
     NotificationConfig,
@@ -20,7 +23,9 @@ from state_runtime_service import (
     detect_alerts,
 )
 from state_runtime_store import StateRuntimeStore
+from saxo_provider import SaxoPriceProvider
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
+from technical_state_runtime import build_technical_market_states
 from worker_probe import record_worker_probe
 
 
@@ -90,6 +95,7 @@ def process_flow_snapshot(
         probe.database_identity,
     )
     runtime_store = StateRuntimeStore(db_path)
+    status_store = AnalysisStatusStore(db_path)
 
     new_posts: list[ScoredTelegramPost] = []
     for post in posts:
@@ -101,12 +107,35 @@ def process_flow_snapshot(
 
     latest_information = runtime_store.load_latest_information_state()
     heartbeat_due = _heartbeat_due(latest_information)
+    saxo = SaxoPriceProvider()
+    providers = [saxo] if saxo.client is not None and saxo.instruments else []
+    twelve_key = twelve_data_api_key()
+    if twelve_key:
+        providers.append(TwelveDataProvider(twelve_key))
+    if not providers:
+        if saxo.client is not None and not saxo.instruments:
+            technical_unavailable_detail = (
+                "Saxo er tilkoblet, men SAXO_INSTRUMENTS_JSON mangler; "
+                "workeren har ingen instrumenter å hente prisbarer for."
+            )
+        elif saxo.client is None:
+            technical_unavailable_detail = (
+                "Saxo-token er ikke tilgjengelig for workeren, og Twelve Data er ikke konfigurert."
+            )
+        else:
+            technical_unavailable_detail = "Ingen prisleverandør er konfigurert for workeren."
+        status_store.skipped("technical_state", technical_unavailable_detail)
     missing_decisions = [
         item.asset
         for item in assessment.assets
         if runtime_store.load_latest_decision_state(market=item.asset) is None
     ]
-    if not new_posts and not heartbeat_due and not missing_decisions:
+    missing_market_states = [
+        item.asset
+        for item in assessment.assets
+        if providers and runtime_store.load_latest_market_state(market=item.asset) is None
+    ]
+    if not new_posts and not heartbeat_due and not missing_decisions and not missing_market_states:
         try:
             from overview_summary_store import OverviewSummaryStore
 
@@ -123,23 +152,64 @@ def process_flow_snapshot(
             "state runtime skipped reason=no_material_change heartbeat_seconds=%s",
             _heartbeat_seconds(),
         )
+        status_store.complete("information_state", "Ingen vesentlig informasjonsendring siden forrige syklus.")
+        status_store.skipped("technical_state", "Ingen ny analyse nødvendig; siste tekniske state beholdes.")
+        status_store.complete("decision_state", "Ingen vesentlig endring; siste Decision State beholdes.")
+        status_store.complete("recommendation", "Ingen vesentlig endring; siste anbefaling beholdes.")
         return
 
     interpretations = MarketStateStore(db_path).load_interpretations()
-    information = build_information_state(assessment, interpretations)
+    previous_information = runtime_store.load_latest_information_snapshot()
+    information = build_information_state(
+        assessment,
+        interpretations,
+        previous=previous_information,
+    )
     runtime_store.save_information_state(information)
+    status_store.complete("information_state", "Information State kontrollert og oppdatert.")
 
     previous = {
         item.asset: runtime_store.load_latest_decision_state(market=item.asset)
         for item in assessment.assets
     }
-    decisions = build_decision_states(assessment, information, previous=previous)
+    status_store.running("technical_state", "Henter prisbarer og bygger flertidsrammeregime.")
+    if providers:
+        def fetcher(request):
+            return fetch_market_data(request, providers)
+
+        market_states, technical_errors = build_technical_market_states(
+            [item.asset for item in assessment.assets], fetcher=fetcher
+        )
+    else:
+        market_states, technical_errors = {}, {}
+    runtime_store.save_market_states(market_states.values())
+    if market_states:
+        detail = f"{len(market_states)} markeder oppdatert fra pris og teknisk regime."
+        if technical_errors:
+            detail += f" {len(technical_errors)} marked(er) manglet data."
+        status_store.complete("technical_state", detail)
+    elif technical_errors:
+        detail = "; ".join(f"{market}: {error}" for market, error in technical_errors.items())
+        status_store.failed("technical_state", detail or "Ingen markedsdata tilgjengelig.")
+    else:
+        status_store.skipped("technical_state", technical_unavailable_detail)
+
+    decisions = build_decision_states(
+        assessment, information, previous=previous, market_states=market_states
+    )
     runtime_store.save_decision_states(decisions)
+    status_store.complete("decision_state", f"Decision State oppdatert for {len(decisions)} markeder.")
+    status_store.complete("recommendation", "Foreløpige anbefalinger regenerert fra siste Decision State.")
 
     if missing_decisions:
         LOGGER.info(
             "state runtime bootstrapped missing_decisions=%s",
             ",".join(missing_decisions),
+        )
+    if missing_market_states:
+        LOGGER.info(
+            "state runtime bootstrapped missing_market_states=%s",
+            ",".join(missing_market_states),
         )
 
     if not new_posts:
@@ -150,7 +220,16 @@ def process_flow_snapshot(
         )
         return
 
-    contributions = contributions_from_posts(new_posts)
+    missing_published_at = sum(not str(post.published_at).strip() for post in new_posts)
+    if missing_published_at:
+        LOGGER.warning(
+            "telegram posts missing published_at count=%s; using assessment as_of=%s",
+            missing_published_at,
+            assessment.as_of,
+        )
+    contributions = contributions_from_posts(
+        new_posts, fallback_observed_at=assessment.as_of
+    )
     runtime_store.save_contributions(contributions)
     alerts = detect_alerts(new_posts, information)
     delivery_store = NotificationStore(db_path)

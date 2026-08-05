@@ -67,13 +67,21 @@ class InformationStateSnapshot:
     supply_risk: float
     source_channels: tuple[str, ...]
     component: ComponentStatus
+    state_values: dict[str, float] | None = None
+    state_change: dict[str, float] | None = None
+    processed_event_ids: tuple[str, ...] = ()
+    active_cluster_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "as_of", _utc_iso(self.as_of))
+        object.__setattr__(self, "state_values", dict(self.state_values or {}))
+        object.__setattr__(self, "state_change", dict(self.state_change or {}))
 
     def to_record(self) -> dict[str, Any]:
         record = asdict(self)
         record["source_channels"] = list(self.source_channels)
+        record["processed_event_ids"] = list(self.processed_event_ids)
+        record["active_cluster_ids"] = list(self.active_cluster_ids)
         return record
 
 

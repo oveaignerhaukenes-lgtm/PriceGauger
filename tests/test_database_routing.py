@@ -5,12 +5,28 @@ import sqlite3
 import database
 
 
-def test_explicit_sqlite_path_ignores_configured_postgres(monkeypatch, tmp_path):
+def test_configured_postgres_overrides_explicit_legacy_sqlite_path(
+    monkeypatch, tmp_path
+):
+    postgres_connection = object()
     monkeypatch.setattr(database, "using_postgres", lambda: True)
-    monkeypatch.setattr(database, "_running_on_railway", lambda: False)
+    monkeypatch.setattr(
+        database.DatabaseConnection,
+        "_open_postgres",
+        lambda self: postgres_connection,
+    )
+
+    db = database.connect(tmp_path / "legacy.sqlite3")
+
+    assert db.is_postgres is True
+    assert db._connection is postgres_connection
+
+
+def test_force_sqlite_keeps_isolated_test_database(monkeypatch, tmp_path):
+    monkeypatch.setattr(database, "using_postgres", lambda: True)
 
     path = tmp_path / "isolated.sqlite3"
-    with database.connect(path) as db:
+    with database.connect(path, force_sqlite=True) as db:
         assert db.is_postgres is False
         db.execute("CREATE TABLE sample(value TEXT)")
         db.execute("INSERT INTO sample(value) VALUES (?)", ("ok",))

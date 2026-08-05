@@ -10,6 +10,7 @@ from state_contracts import (
     EventContribution,
     InformationStateSnapshot,
     MarketMoverAlert,
+    MarketStateSnapshot,
 )
 
 
@@ -37,6 +38,15 @@ class StateRuntimeStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_decision_state_market_as_of
                 ON decision_state_snapshots(market, as_of);
+                CREATE TABLE IF NOT EXISTS technical_market_state_snapshots (
+                    snapshot_id TEXT PRIMARY KEY,
+                    market TEXT NOT NULL,
+                    as_of TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_technical_market_state_market_as_of
+                ON technical_market_state_snapshots(market, as_of);
                 CREATE TABLE IF NOT EXISTS event_contributions (
                     event_id TEXT NOT NULL,
                     event_cluster_id TEXT NOT NULL,
@@ -99,6 +109,22 @@ class StateRuntimeStore:
                 )
         return len(rows)
 
+    def save_market_states(self, snapshots: Iterable[MarketStateSnapshot]) -> int:
+        rows = list(snapshots)
+        with self._connect() as db:
+            for item in rows:
+                db.execute(
+                    """
+                    INSERT INTO technical_market_state_snapshots(snapshot_id, market, as_of, payload_json)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(snapshot_id) DO UPDATE SET
+                        payload_json=excluded.payload_json,
+                        recorded_at=CURRENT_TIMESTAMP
+                    """,
+                    (item.snapshot_id, item.market, item.as_of, json.dumps(item.to_record(), sort_keys=True)),
+                )
+        return len(rows)
+
     def load_latest_decision_state(self, *, market: str) -> DecisionStateSnapshot | None:
         with self._connect() as db:
             row = db.execute(
@@ -129,6 +155,28 @@ class StateRuntimeStore:
                 """
             ).fetchall()
         return [DecisionStateSnapshot(**json.loads(row["payload_json"])) for row in rows]
+
+    def load_latest_market_state(self, *, market: str) -> MarketStateSnapshot | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT payload_json
+                FROM technical_market_state_snapshots
+                WHERE market=?
+                ORDER BY as_of DESC
+                LIMIT 1
+                """,
+                (market,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = json.loads(row["payload_json"])
+        component = record.get("component")
+        if isinstance(component, dict):
+            from state_contracts import ComponentStatus
+
+            record["component"] = ComponentStatus(**component)
+        return MarketStateSnapshot(**record)
 
     def has_contribution(self, *, event_id: str, market: str) -> bool:
         with self._connect() as db:
@@ -202,3 +250,16 @@ class StateRuntimeStore:
                 "SELECT payload_json FROM information_state_snapshots ORDER BY as_of DESC LIMIT 1"
             ).fetchone()
         return None if row is None else json.loads(row["payload_json"])
+
+    def load_latest_information_snapshot(self) -> InformationStateSnapshot | None:
+        record = self.load_latest_information_state()
+        if record is None:
+            return None
+        component = record.get("component")
+        if isinstance(component, dict):
+            from state_contracts import ComponentStatus
+
+            record["component"] = ComponentStatus(**component)
+        for name in ("source_channels", "processed_event_ids", "active_cluster_ids"):
+            record[name] = tuple(record.get(name) or ())
+        return InformationStateSnapshot(**record)

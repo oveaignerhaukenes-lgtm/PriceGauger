@@ -28,7 +28,7 @@ def test_begin_cycle_preserves_explicit_pending_components(tmp_path):
     loaded = {item.step_key: item for item in store.load()}
     assert loaded["decision_state"].status == "PENDING"
     assert loaded["technical_state"].status == "PENDING"
-    assert "Ikke koblet" in loaded["technical_state"].detail
+    assert "Venter på workeren" in loaded["technical_state"].detail
     assert "Ikke koblet" in loaded["context_state"].detail
 
 
@@ -40,6 +40,19 @@ def test_unknown_step_and_status_are_rejected(tmp_path):
         assert False, "unknown step should fail"
     except ValueError:
         pass
+
+
+def test_fail_running_closes_only_active_steps(tmp_path):
+    store = AnalysisStatusStore(tmp_path / "status.sqlite3")
+    store.running("telegram_fetch", "henter")
+    store.complete("semantic_filter", "ferdig")
+
+    store.fail_running("TimeoutError: provider timed out")
+
+    loaded = {item.step_key: item for item in store.load()}
+    assert loaded["telegram_fetch"].status == "FAILED"
+    assert "TimeoutError" in loaded["telegram_fetch"].detail
+    assert loaded["semantic_filter"].status == "COMPLETE"
 
     try:
         store.set("telegram_fetch", "MAYBE")

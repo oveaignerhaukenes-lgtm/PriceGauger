@@ -1,4 +1,4 @@
-from state_contracts import ComponentStatus, DecisionStateSnapshot, InformationStateSnapshot
+from state_contracts import ComponentStatus, DecisionStateSnapshot, InformationStateSnapshot, MarketStateSnapshot
 from state_runtime_service import build_decision_states, market_impulse_score
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import AssetFlowAssessment, TelegramFlowAssessment
@@ -27,6 +27,13 @@ def _information() -> InformationStateSnapshot:
             instrument="selected-markets",
             engine_version="test-v1",
         ),
+        state_values={
+            "conflict_pressure": 0.5,
+            "energy_supply_risk": 0.8,
+            "shipping_risk": 0.6,
+            "safe_haven_pressure": 0.2,
+            "usd_pressure": 0.0,
+        },
     )
 
 
@@ -77,7 +84,8 @@ def test_decision_state_records_change_from_previous():
     )
 
     result = build_decision_states(_flow(0.5), _information(), previous={"Brent": previous})[0]
-    expected = round(market_impulse_score("Brent", 0.5), 4)
+    state_score = 0.20 * 0.5 + 0.50 * 0.8 + 0.35 * 0.6
+    expected = round(0.65 * state_score + 0.35 * market_impulse_score("Brent", 0.5), 4)
 
     assert result.direction == "LONG_BIAS"
     assert result.direction_score == expected
@@ -89,7 +97,8 @@ def test_decision_state_records_change_from_previous():
 def test_decision_state_round_trips_through_store(tmp_path):
     store = StateRuntimeStore(tmp_path / "state.sqlite3")
     decision = build_decision_states(_flow(0.5), _information())[0]
-    expected = round(market_impulse_score("Brent", 0.5), 4)
+    state_score = 0.20 * 0.5 + 0.50 * 0.8 + 0.35 * 0.6
+    expected = round(0.65 * state_score + 0.35 * market_impulse_score("Brent", 0.5), 4)
 
     assert store.save_decision_states([decision]) == 1
     loaded = store.load_latest_decision_state(market="Brent")
@@ -100,3 +109,35 @@ def test_decision_state_round_trips_through_store(tmp_path):
     assert loaded.market == "Brent"
     assert len(latest) == 1
     assert latest[0].direction_score == expected
+
+
+def test_decision_state_combines_persistent_information_with_latest_flow():
+    result = build_decision_states(_flow(-0.05, direction="SHORT_BIAS"), _information())[0]
+
+    assert result.direction == "LONG_BIAS"
+    assert result.direction_score > 0.2
+    assert "Persistent Information State" in result.status_reason
+
+
+def test_decision_state_adds_fresh_technical_confirmation():
+    market = MarketStateSnapshot(
+        snapshot_id="market-1",
+        market="Brent",
+        as_of=NOW,
+        price=88.0,
+        direction_score=0.8,
+        volatility_score=0.4,
+        momentum_score=0.8,
+        price_confirmation=0.8,
+        regime="BULLISH · HIGH",
+        component=ComponentStatus(NOW, 0, "FRESH", "Saxo OpenAPI", "Brent", "technical-v1"),
+    )
+
+    without = build_decision_states(_flow(0.5), _information())[0]
+    confirmed = build_decision_states(_flow(0.5), _information(), market_states={"Brent": market})[0]
+
+    assert confirmed.market_snapshot_id == "market-1"
+    assert confirmed.direction_score > 0
+    assert confirmed.snapshot_id != without.snapshot_id
+    assert confirmed.confidence > without.confidence
+    assert "Technical confirmation" in confirmed.status_reason

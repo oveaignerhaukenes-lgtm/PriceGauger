@@ -91,10 +91,16 @@ class AnalysisStatusStore:
 
     def begin_cycle(self) -> None:
         for key in STEP_ORDER:
-            if key in {"technical_state", "context_state"}:
+            if key == "context_state":
                 self.set(key, "PENDING", "Ikke koblet inn i produksjonskjeden ennå.")
             else:
                 self.set(key, "PENDING", "Venter på workeren.")
+
+    def fail_running(self, detail: str) -> None:
+        """Close every active step after an unexpected worker-cycle failure."""
+        for item in self.load():
+            if item.status == "RUNNING":
+                self.failed(item.step_key, detail)
 
     def complete(self, step_key: str, detail: str = "") -> None:
         self.set(step_key, "COMPLETE", detail)

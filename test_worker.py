@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from telegram_query_builder import build_search_plan
 from market_interpreter import MockMarketInterpreter
+from analysis_status import AnalysisStatusStore
 import worker
 
 
@@ -71,3 +72,24 @@ def test_empty_first_cycle_initializes_without_error(tmp_path, monkeypatch):
     assert summary.fetched == 0
     assert summary.processed == 0
     assert worker.WorkerStateStore(tmp_path / "empty.db").is_initialized()
+
+    statuses = {item.step_key: item for item in AnalysisStatusStore(tmp_path / "empty.db").load()}
+    assert statuses["telegram_fetch"].status == "COMPLETE"
+    assert statuses["event_clustering"].status == "SKIPPED"
+    assert statuses["outcome_refresh"].status == "COMPLETE"
+
+
+def test_worker_records_fetch_failure_but_continues_with_stored_flow(tmp_path, monkeypatch):
+    db_path = tmp_path / "failed-fetch.db"
+    monkeypatch.setattr(worker, "refresh_signal_outcomes", lambda **kwargs: [])
+
+    summary = worker.run_once(
+        db_path=db_path,
+        plans_fetcher=lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("telegram")),
+        interpreter=MockMarketInterpreter(),
+    )
+
+    statuses = {item.step_key: item for item in AnalysisStatusStore(db_path).load()}
+    assert summary.fetched == 0
+    assert statuses["telegram_fetch"].status == "FAILED"
+    assert "TimeoutError" in statuses["telegram_fetch"].detail
