@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from analysis_status import AnalysisStepStatus
-from analysis_status_ui import render_analysis_status
+from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 
 
 def test_analysis_status_renders_ordered_worker_steps():
@@ -46,3 +46,10 @@ def test_analysis_status_renders_ordered_worker_steps():
 
 def test_analysis_status_is_empty_without_steps():
     assert render_analysis_status(()) == ""
+
+
+def test_running_animation_rotates_only_the_spinner_glyph():
+    running_rule = ".pg-step-running .pg-step-icon::before"
+    assert running_rule in ANALYSIS_STATUS_CSS
+    assert "animation:pg-spin" in ANALYSIS_STATUS_CSS
+    assert "opacity" not in ANALYSIS_STATUS_CSS.split(running_rule, 1)[1].split("}", 1)[0]
