@@ -6,6 +6,7 @@ from datetime import datetime
 import streamlit as st
 
 from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
+from analysis_status import AnalysisStatusStore
 from build_info import render_build_badge
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
@@ -112,6 +113,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(f"<style>{ANALYSIS_STATUS_CSS}</style>", unsafe_allow_html=True)
+
+
+def _render_live_analysis_status() -> None:
+    """Render worker progress without waiting for the rest of Overview to load."""
+    progress_html = render_analysis_status(AnalysisStatusStore().load())
+    if progress_html:
+        st.markdown(progress_html, unsafe_allow_html=True)
+
+
+_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+if _fragment is not None:
+    _fragment(run_every="2s")(_render_live_analysis_status)()
+else:
+    _render_live_analysis_status()
 
 
 def _fmt_time(value: str) -> str:
@@ -258,19 +273,6 @@ if summary is not None:
         """,
         unsafe_allow_html=True,
     )
-
-def _render_live_analysis_status() -> None:
-    live_data = load_overview()
-    progress_html = render_analysis_status(live_data.analysis_steps)
-    if progress_html:
-        st.markdown(progress_html, unsafe_allow_html=True)
-
-
-_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-if _fragment is not None:
-    _fragment(run_every="2s")(_render_live_analysis_status)()
-else:
-    _render_live_analysis_status()
 
 st.subheader("Siste markedsflytter")
 alert = data.latest_alert
