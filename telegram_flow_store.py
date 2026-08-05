@@ -172,6 +172,7 @@ class TelegramFlowStore:
 
             status.running("information_state", "Bygger samlet Information State.")
             status.running("decision_state", "Oppdaterer Decision State per marked.")
+            status.running("recommendation", "Avventer oppdatert Decision State.")
             process_flow_snapshot(
                 db_path=self.path,
                 assessment=assessment,
