@@ -5,12 +5,11 @@ import sqlite3
 import database
 
 
-def test_explicit_sqlite_path_ignores_configured_postgres(monkeypatch, tmp_path):
+def test_force_sqlite_path_ignores_configured_postgres(monkeypatch, tmp_path):
     monkeypatch.setattr(database, "using_postgres", lambda: True)
-    monkeypatch.setattr(database, "_running_on_railway", lambda: False)
 
     path = tmp_path / "isolated.sqlite3"
-    with database.connect(path) as db:
+    with database.connect(path, force_sqlite=True) as db:
         assert db.is_postgres is False
         db.execute("CREATE TABLE sample(value TEXT)")
         db.execute("INSERT INTO sample(value) VALUES (?)", ("ok",))
@@ -19,19 +18,23 @@ def test_explicit_sqlite_path_ignores_configured_postgres(monkeypatch, tmp_path)
         assert connection.execute("SELECT value FROM sample").fetchone()[0] == "ok"
 
 
-def test_railway_runtime_is_detected_from_service_environment(monkeypatch):
-    for key in (
-        "RAILWAY_ENVIRONMENT",
-        "RAILWAY_ENVIRONMENT_ID",
-        "RAILWAY_PROJECT_ID",
-        "RAILWAY_SERVICE_ID",
-    ):
-        monkeypatch.delenv(key, raising=False)
+def test_configured_postgres_wins_over_legacy_sqlite_path(monkeypatch, tmp_path):
+    class FakePostgres:
+        def commit(self):
+            return None
 
-    assert database._running_on_railway() is False
+        def close(self):
+            return None
 
-    monkeypatch.setenv("RAILWAY_SERVICE_ID", "service-test")
-    assert database._running_on_railway() is True
+    monkeypatch.setattr(database, "using_postgres", lambda: True)
+    monkeypatch.setattr(
+        database.DatabaseConnection,
+        "_open_postgres",
+        staticmethod(lambda: FakePostgres()),
+    )
+
+    with database.connect(tmp_path / "legacy.sqlite3") as db:
+        assert db.is_postgres is True
 
 
 def test_streamlit_runtime_prefers_app_secret_over_environment(monkeypatch):

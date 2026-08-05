@@ -22,21 +22,6 @@ def _running_in_streamlit() -> bool:
         return False
 
 
-def _running_on_railway() -> bool:
-    """Return True inside a Railway deployment.
-
-    Railway services may retain a legacy ``--db /data/...`` argument for a mounted
-    SQLite volume. Once DATABASE_URL is configured, production state must still be
-    written to PostgreSQL so the worker and Streamlit share one authoritative store.
-    """
-    return bool(
-        os.getenv("RAILWAY_ENVIRONMENT", "").strip()
-        or os.getenv("RAILWAY_ENVIRONMENT_ID", "").strip()
-        or os.getenv("RAILWAY_PROJECT_ID", "").strip()
-        or os.getenv("RAILWAY_SERVICE_ID", "").strip()
-    )
-
-
 def _streamlit_secret_value() -> tuple[str, str]:
     """Return a supported Streamlit secret value and a safe source label."""
     try:
@@ -120,16 +105,20 @@ def _is_read_only_sql(sql: str) -> bool:
 class DatabaseConnection(AbstractContextManager):
     """Minimal connection adapter shared by SQLite and PostgreSQL stores.
 
-    Explicit non-default paths stay isolated SQLite databases for local tools and
-    tests. In Railway production, a configured DATABASE_URL is authoritative even
-    when a legacy mounted-volume path is supplied to the worker.
+    A configured DATABASE_URL is authoritative in every runtime so the worker,
+    Streamlit app, and CLI diagnostics share one persistent store. ``sqlite_path``
+    remains the fallback when PostgreSQL is not configured. Tests and explicitly
+    local tools can opt into an isolated SQLite database with ``force_sqlite``.
     """
 
-    def __init__(self, sqlite_path: str | Path = _DEFAULT_SQLITE_PATH) -> None:
+    def __init__(
+        self,
+        sqlite_path: str | Path = _DEFAULT_SQLITE_PATH,
+        *,
+        force_sqlite: bool = False,
+    ) -> None:
         self.sqlite_path = str(sqlite_path)
-        explicit_sqlite = self.sqlite_path != _DEFAULT_SQLITE_PATH
-        railway_postgres = _running_on_railway() and using_postgres()
-        self.is_postgres = using_postgres() and (not explicit_sqlite or railway_postgres)
+        self.is_postgres = using_postgres() and not force_sqlite
         if self.is_postgres:
             self._connection = self._open_postgres()
         else:
@@ -200,5 +189,9 @@ class DatabaseConnection(AbstractContextManager):
         return False
 
 
-def connect(sqlite_path: str | Path = _DEFAULT_SQLITE_PATH) -> DatabaseConnection:
-    return DatabaseConnection(sqlite_path)
+def connect(
+    sqlite_path: str | Path = _DEFAULT_SQLITE_PATH,
+    *,
+    force_sqlite: bool = False,
+) -> DatabaseConnection:
+    return DatabaseConnection(sqlite_path, force_sqlite=force_sqlite)
