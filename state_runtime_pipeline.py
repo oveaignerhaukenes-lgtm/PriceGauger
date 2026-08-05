@@ -213,7 +213,16 @@ def process_flow_snapshot(
         )
         return
 
-    contributions = contributions_from_posts(new_posts)
+    missing_published_at = sum(not str(post.published_at).strip() for post in new_posts)
+    if missing_published_at:
+        LOGGER.warning(
+            "telegram posts missing published_at count=%s; using assessment as_of=%s",
+            missing_published_at,
+            assessment.as_of,
+        )
+    contributions = contributions_from_posts(
+        new_posts, fallback_observed_at=assessment.as_of
+    )
     runtime_store.save_contributions(contributions)
     alerts = detect_alerts(new_posts, information)
     delivery_store = NotificationStore(db_path)

@@ -262,7 +262,11 @@ def build_decision_states(
     return results
 
 
-def contributions_from_posts(posts: Iterable[ScoredTelegramPost]) -> list[EventContribution]:
+def contributions_from_posts(
+    posts: Iterable[ScoredTelegramPost],
+    *,
+    fallback_observed_at: str | None = None,
+) -> list[EventContribution]:
     results: list[EventContribution] = []
     for post in posts:
         for score in post.scores:
@@ -281,7 +285,11 @@ def contributions_from_posts(posts: Iterable[ScoredTelegramPost]) -> list[EventC
                     event_id=str(post.message_id),
                     event_cluster_id=post.event_key,
                     market=score.asset,
-                    observed_at=post.published_at,
+                    observed_at=(
+                        str(post.published_at).strip()
+                        or fallback_observed_at
+                        or _utc_now().isoformat()
+                    ),
                     direction_nudge=direction_nudge,
                     confidence_nudge=score.confidence * post.source_quality,
                     expected_move_low_pct=round(signed_low, 4),
@@ -304,7 +312,9 @@ def detect_alerts(
 ) -> list[MarketMoverAlert]:
     post_by_id = {str(item.message_id): item for item in posts}
     alerts: list[MarketMoverAlert] = []
-    for contribution in contributions_from_posts(post_by_id.values()):
+    for contribution in contributions_from_posts(
+        post_by_id.values(), fallback_observed_at=information.as_of
+    ):
         post = post_by_id[contribution.event_id]
         market_state = MarketStateSnapshot(
             snapshot_id=f"pending-market:{contribution.market}:{contribution.event_id}",
