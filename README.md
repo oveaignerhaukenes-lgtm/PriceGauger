@@ -19,7 +19,7 @@ Telegram-observasjon
 → tidsvektet Market State
 → transparent mapping til Brent, Gold, Silver og DXY
 → LONG / SHORT / NEUTRAL
-→ SQLite-logg
+→ PostgreSQL-logg i produksjon, SQLite lokalt
 → pris ved signal, 1t/4t-resultat og MFE/MAE
 ```
 
@@ -46,7 +46,7 @@ Workeren:
 - sjekker Telegram hvert 60. sekund
 - behandler bare nye meldinger
 - bruker OpenAI når nøkkel er konfigurert, ellers mock-interpreter
-- lagrer Market State, anbefalinger og utfall i SQLite
+- lagrer Market State, anbefalinger og utfall i PostgreSQL når `DATABASE_URL` er satt, ellers SQLite lokalt
 - oppdaterer 1t/4t-resultater og MFE/MAE i hver syklus
 
 Den låste papirtesten bruker fortsatt 5-minutters prisbarer. Senere kan 1-minutts rådata lagres og aggregeres til 5 minutter uten å endre første testprotokoll.
@@ -69,21 +69,32 @@ GDELT behandles som sekundær evidens om sirkulasjon, repetisjon og historisk ma
 
 ## Railway
 
-Repositoryet inneholder `railway.toml` med startkommando:
+Produksjonen bruker to Railway-tjenester fra samme repository og branch, koblet
+til samme Railway PostgreSQL-database:
 
-```text
-python worker.py --interval 60 --db /data/pricegauger.db
-```
+| Tjeneste | Config file path | Startkommando |
+| --- | --- | --- |
+| Streamlit | `/railway.streamlit.toml` | `streamlit run app.py ... --server.port $PORT` |
+| Worker | `/railway.worker.toml` | `python worker.py --interval 60` |
 
 Ved deploy:
 
-1. Opprett et Railway-prosjekt fra GitHub-repositoryet.
-2. Velg grenen som skal deployes.
-3. Legg inn `OPENAI_API_KEY` og `OPENAI_MARKET_MODEL` som Railway Variables.
-4. Opprett et persistent volume og monter det på `/data`.
-5. Verifiser i loggen at workeren starter med 60 sekunders intervall og skriver `cycle complete`.
+1. Opprett eller behold én PostgreSQL-tjeneste i Railway-prosjektet.
+2. Opprett to tjenester fra dette GitHub-repositoryet: `pricegauger-web` og
+   `pricegauger-worker`. Begge skal bruke `main`.
+3. Sett **Config File Path** til `/railway.streamlit.toml` for webtjenesten og
+   `/railway.worker.toml` for workeren.
+4. Gjør PostgreSQL-variabelen `DATABASE_URL` tilgjengelig i begge tjenestene.
+   Begge må peke til den samme databasen.
+5. Legg `OPENAI_API_KEY`, `OPENAI_MARKET_MODEL` og nødvendige Telegram-/Saxo-
+   variabler på workeren. Legg også modellvariablene på webtjenesten dersom UI-et
+   bruker dem direkte.
+6. Deploy begge tjenester. Webtjenestens healthcheck er
+   `/_stcore/health`; workerloggen skal vise `cycle complete` hvert 60. sekund.
 
-Uten volum forsvinner SQLite-databasen ved redeploy eller ny instans.
+Det skal ikke monteres et SQLite-volum på `/data` i produksjon. Uten
+`DATABASE_URL` faller applikasjonen tilbake til lokal SQLite, som bare er ment
+for lokal utvikling og isolerte tester.
 
 ## Begrensninger i Alpha
 
