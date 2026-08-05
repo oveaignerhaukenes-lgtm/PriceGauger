@@ -112,6 +112,19 @@ def process_flow_snapshot(
     twelve_key = twelve_data_api_key()
     if twelve_key:
         providers.append(TwelveDataProvider(twelve_key))
+    if not providers:
+        if saxo.client is not None and not saxo.instruments:
+            technical_unavailable_detail = (
+                "Saxo er tilkoblet, men SAXO_INSTRUMENTS_JSON mangler; "
+                "workeren har ingen instrumenter å hente prisbarer for."
+            )
+        elif saxo.client is None:
+            technical_unavailable_detail = (
+                "Saxo-token er ikke tilgjengelig for workeren, og Twelve Data er ikke konfigurert."
+            )
+        else:
+            technical_unavailable_detail = "Ingen prisleverandør er konfigurert for workeren."
+        status_store.skipped("technical_state", technical_unavailable_detail)
     missing_decisions = [
         item.asset
         for item in assessment.assets
@@ -174,7 +187,7 @@ def process_flow_snapshot(
         detail = "; ".join(f"{market}: {error}" for market, error in technical_errors.items())
         status_store.failed("technical_state", detail or "Ingen markedsdata tilgjengelig.")
     else:
-        status_store.skipped("technical_state", "Saxo/Twelve Data er ikke konfigurert for workeren.")
+        status_store.skipped("technical_state", technical_unavailable_detail)
 
     decisions = build_decision_states(
         assessment, information, previous=previous, market_states=market_states
@@ -245,7 +258,3 @@ def process_flow_snapshot(
         "state runtime updated information=%s decisions=%s new_posts=%s contributions=%s alerts=%s",
         information.snapshot_id,
         len(decisions),
-        len(new_posts),
-        len(contributions),
-        len(alerts),
-    )
