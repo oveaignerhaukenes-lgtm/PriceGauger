@@ -259,9 +259,18 @@ if summary is not None:
         unsafe_allow_html=True,
     )
 
-progress_html = render_analysis_status(data.analysis_steps)
-if progress_html:
-    st.markdown(progress_html, unsafe_allow_html=True)
+def _render_live_analysis_status() -> None:
+    live_data = load_overview()
+    progress_html = render_analysis_status(live_data.analysis_steps)
+    if progress_html:
+        st.markdown(progress_html, unsafe_allow_html=True)
+
+
+_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+if _fragment is not None:
+    _fragment(run_every="2s")(_render_live_analysis_status)()
+else:
+    _render_live_analysis_status()
 
 st.subheader("Siste markedsflytter")
 alert = data.latest_alert

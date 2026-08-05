@@ -96,6 +96,12 @@ class AnalysisStatusStore:
             else:
                 self.set(key, "PENDING", "Venter på workeren.")
 
+    def fail_running(self, detail: str) -> None:
+        """Close every active step after an unexpected worker-cycle failure."""
+        for item in self.load():
+            if item.status == "RUNNING":
+                self.failed(item.step_key, detail)
+
     def complete(self, step_key: str, detail: str = "") -> None:
         self.set(step_key, "COMPLETE", detail)
 

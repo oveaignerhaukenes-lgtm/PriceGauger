@@ -152,6 +152,10 @@ def process_flow_snapshot(
             "state runtime skipped reason=no_material_change heartbeat_seconds=%s",
             _heartbeat_seconds(),
         )
+        status_store.complete("information_state", "Ingen vesentlig informasjonsendring siden forrige syklus.")
+        status_store.skipped("technical_state", "Ingen ny analyse nødvendig; siste tekniske state beholdes.")
+        status_store.complete("decision_state", "Ingen vesentlig endring; siste Decision State beholdes.")
+        status_store.complete("recommendation", "Ingen vesentlig endring; siste anbefaling beholdes.")
         return
 
     interpretations = MarketStateStore(db_path).load_interpretations()
@@ -162,6 +166,7 @@ def process_flow_snapshot(
         previous=previous_information,
     )
     runtime_store.save_information_state(information)
+    status_store.complete("information_state", "Information State kontrollert og oppdatert.")
 
     previous = {
         item.asset: runtime_store.load_latest_decision_state(market=item.asset)
@@ -193,6 +198,8 @@ def process_flow_snapshot(
         assessment, information, previous=previous, market_states=market_states
     )
     runtime_store.save_decision_states(decisions)
+    status_store.complete("decision_state", f"Decision State oppdatert for {len(decisions)} markeder.")
+    status_store.complete("recommendation", "Foreløpige anbefalinger regenerert fra siste Decision State.")
 
     if missing_decisions:
         LOGGER.info(

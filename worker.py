@@ -11,6 +11,7 @@ from typing import Callable
 import pandas as pd
 
 from config import openai_api_key, openai_market_model
+from analysis_status import AnalysisStatusStore
 from database import connect, using_postgres
 from event_resolution import CanonicalEvent, canonical_event_from_plan
 from market_interpreter import MockMarketInterpreter, StructuredMarketInterpreter
@@ -188,11 +189,13 @@ def _refresh_telegram_flow(
     plans: list[TelegramSearchPlan],
 ) -> None:
     store = TelegramFlowStore(db_path)
+    status = AnalysisStatusStore(db_path)
     key = openai_api_key()
     new_plans = [plan for plan in plans if not store.has_post(plan.message_id)]
     scored_count = 0
 
     if key and new_plans:
+        status.running("telegram_scoring", f"AI-vurderer {min(8, len(new_plans))} nye poster.")
         # Newest visible posts are scored first; older backlog is picked up later.
         selected = new_plans[-8:]
         scorer = OpenAITelegramFlowScorer(api_key=key)
@@ -200,12 +203,20 @@ def _refresh_telegram_flow(
         scored_count = store.save_posts(scored)
         LOGGER.info("telegram flow scored posts=%s model=%s", scored_count, scorer.model)
     elif new_plans:
+        status.skipped("telegram_scoring", "OPENAI_API_KEY mangler; nye poster ble ikke AI-vurdert.")
         LOGGER.warning("telegram flow skipped new_posts=%s because OPENAI_API_KEY is missing", len(new_plans))
+    else:
+        status.complete("telegram_scoring", "Ingen nye poster å AI-vurdere.")
 
+    status.running("semantic_filter", "Kontrollerer lagrede poster for relevans og promo-innhold.")
     stored = store.load_posts(limit=500)
     if not stored:
+        status.skipped("event_clustering", "Ingen godkjente poster å gruppere.")
+        for step in ("information_state", "technical_state", "decision_state", "recommendation"):
+            status.skipped(step, "Ingen godkjente poster å analysere.")
         return
 
+    status.running("event_clustering", "Grupperer poster i hendelser og bygger samlet Telegram Flow.")
     assessment = aggregate_scored_posts(stored, as_of=datetime.now(timezone.utc))
     assessment = replace(assessment, model=openai_market_model())
     previous = store.load_latest_snapshot()
@@ -215,7 +226,7 @@ def _refresh_telegram_flow(
         scored_posts=scored_count,
     )
     if should_save:
-        store.save_snapshot(assessment)
+        store.save_snapshot(assessment, process_runtime=False)
         LOGGER.info(
             "telegram flow snapshot as_of=%s posts=%s clusters=%s reason=%s",
             assessment.as_of,
@@ -224,6 +235,10 @@ def _refresh_telegram_flow(
             reason,
         )
     else:
+        status.complete(
+            "event_clustering",
+            f"Ingen vesentlig endring; {assessment.post_count} poster i {assessment.event_cluster_count} klynger.",
+        )
         LOGGER.info(
             "telegram flow snapshot skipped reason=%s posts=%s clusters=%s",
             reason,
@@ -234,8 +249,17 @@ def _refresh_telegram_flow(
     # The persistent runtime is authoritative. Run it even when the flow snapshot
     # itself is unchanged so a new deployment can bootstrap missing Decision State.
     try:
+        status.running("information_state", "Kontrollerer og oppdaterer samlet Information State.")
+        status.running("technical_state", "Kontrollerer prisdata og teknisk regime.")
+        status.running("decision_state", "Avventer oppdatert informasjons- og teknisk state.")
+        status.running("recommendation", "Avventer oppdatert Decision State.")
         process_flow_snapshot(db_path=db_path, assessment=assessment, posts=stored)
-    except Exception:
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        for step in ("information_state", "technical_state", "decision_state", "recommendation"):
+            current = {item.step_key: item for item in status.load()}[step]
+            if current.status == "RUNNING":
+                status.failed(step, detail)
         LOGGER.exception("state runtime failed; Telegram Flow remains available")
 
 
@@ -247,6 +271,9 @@ def run_once(
     plans_fetcher: Callable[..., list[TelegramSearchPlan]] = fetch_search_plans,
     interpreter=None,
 ) -> WorkerRunSummary:
+    status = AnalysisStatusStore(db_path)
+    status.begin_cycle()
+    status.running("telegram_fetch", f"Henter poster fra {channel}.")
     state = WorkerStateStore(db_path)
     market_store = MarketStateStore(db_path)
     outcome_store = SignalOutcomeStore(db_path)
@@ -260,7 +287,9 @@ def run_once(
         # Fetch every text post for Telegram Flow. The old rule-based path still
         # receives only plans that meet minimum_signal below.
         all_plans = plans_fetcher(channel, minimum_signal=0)
+        status.complete("telegram_fetch", f"{len(all_plans)} poster hentet fra Telegram.")
     except Exception as exc:
+        status.failed("telegram_fetch", f"{type(exc).__name__}: {exc}")
         LOGGER.warning("telegram fetch failed; continuing with stored data: %s", exc)
         all_plans = []
 
@@ -296,7 +325,13 @@ def run_once(
         state.mark_initialized()
 
     _refresh_telegram_flow(db_path=db_path, channel=channel, plans=all_plans)
-    refreshed = refresh_signal_outcomes(store=outcome_store)
+    status.running("outcome_refresh", "Oppdaterer resultatene for tidligere anbefalinger.")
+    try:
+        refreshed = refresh_signal_outcomes(store=outcome_store)
+        status.complete("outcome_refresh", f"{len(refreshed)} resultater kontrollert eller oppdatert.")
+    except Exception as exc:
+        status.failed("outcome_refresh", f"{type(exc).__name__}: {exc}")
+        raise
     summary = WorkerRunSummary(
         fetched=len(all_plans),
         pending=len(pending),
@@ -346,7 +381,8 @@ def run_forever(
             )
         except KeyboardInterrupt:
             raise
-        except Exception:
+        except Exception as exc:
+            AnalysisStatusStore(db_path).fail_running(f"{type(exc).__name__}: {exc}")
             LOGGER.exception("worker cycle failed; next cycle will retry")
         elapsed = time.monotonic() - started
         time.sleep(max(1.0, interval_seconds - elapsed))
