@@ -258,3 +258,7 @@ def process_flow_snapshot(
         "state runtime updated information=%s decisions=%s new_posts=%s contributions=%s alerts=%s",
         information.snapshot_id,
         len(decisions),
+        len(new_posts),
+        len(contributions),
+        len(alerts),
+    )
