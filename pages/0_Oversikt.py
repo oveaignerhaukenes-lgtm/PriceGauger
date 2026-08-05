@@ -10,12 +10,17 @@ from build_info import render_build_badge
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
 from overview_visuals import asset_color, bipolar_fill, visual_direction_score
+from saxo_auth_ui import render_compact_saxo_status
 
 
 st.set_page_config(page_title="Oversikt · PriceGauger", page_icon="📡", layout="wide")
 render_build_badge()
-st.title("PriceGauger")
-st.caption("Kontinuerlig markedstilstand · nye hendelser vises som endringer i totalbildet")
+title_column, saxo_column = st.columns([5, 1])
+with title_column:
+    st.title("PriceGauger")
+    st.caption("Kontinuerlig markedstilstand · nye hendelser vises som endringer i totalbildet")
+with saxo_column:
+    render_compact_saxo_status()
 
 st.markdown(
     """

@@ -105,6 +105,35 @@ def handle_saxo_oauth_callback() -> None:
     _clear_oauth_query_params()
 
 
+def render_compact_saxo_status() -> None:
+    """Render token connectivity only; price access is verified on the Saxo page."""
+
+    client = configured_oauth_client()
+    if client is None:
+        label, color, detail = "Ikke konfigurert", "#d97706", "OAuth mangler"
+    else:
+        try:
+            status = client.status()
+        except Exception:
+            status = {"connected": False, "environment": client.config.environment}
+        environment = str(status.get("environment", client.config.environment)).upper()
+        if status.get("connected"):
+            label, color, detail = "Tilkoblet", "#16a34a", f"Saxo {environment}"
+        else:
+            label, color, detail = "Koble til", "#dc2626", f"Saxo {environment}"
+
+    st.markdown(
+        f"""
+        <div style="text-align:right;line-height:1.2;margin-top:.25rem">
+          <div style="font-size:.72rem;opacity:.7">{detail}</div>
+          <div style="font-size:.82rem;font-weight:750;color:{color}">● {label}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.page_link("pages/1_Saxo_OpenAPI.py", label="Åpne Saxo", icon="🔌")
+
+
 def render_saxo_auth_panel() -> None:
     client = configured_oauth_client()
     with st.expander("Saxo OpenAPI", expanded=False):

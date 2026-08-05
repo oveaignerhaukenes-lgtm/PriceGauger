@@ -30,6 +30,8 @@ def test_analysis_status_renders_ordered_worker_steps():
     assert "Ferdig" in html
     assert "Venter" in html
     assert "12 poster hentet" in html
+    assert "\n" not in html
+    assert not any(line.startswith("    <") for line in html.splitlines())
 
 
 def test_analysis_status_is_empty_without_steps():
