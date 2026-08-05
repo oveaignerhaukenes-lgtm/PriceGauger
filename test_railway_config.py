@@ -1,0 +1,31 @@
+from pathlib import Path
+import tomllib
+
+
+ROOT = Path(__file__).parent
+
+
+def _load(name: str) -> dict:
+    with (ROOT / name).open("rb") as config_file:
+        return tomllib.load(config_file)
+
+
+def test_streamlit_service_has_web_start_and_healthcheck():
+    deploy = _load("railway.streamlit.toml")["deploy"]
+
+    assert deploy["startCommand"] == (
+        "streamlit run app.py --server.address 0.0.0.0 "
+        "--server.port $PORT --server.headless true"
+    )
+    assert deploy["healthcheckPath"] == "/_stcore/health"
+
+
+def test_worker_service_runs_without_sqlite_volume_path():
+    deploy = _load("railway.worker.toml")["deploy"]
+
+    assert deploy["startCommand"] == "python worker.py --interval 60"
+    assert "/data" not in deploy["startCommand"]
+
+
+def test_legacy_single_service_config_is_removed():
+    assert not (ROOT / "railway.toml").exists()
