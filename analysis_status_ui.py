@@ -74,7 +74,9 @@ ANALYSIS_STATUS_CSS = """
 .pg-step-time {font-size:.58rem; opacity:.52;}
 .pg-step-complete .pg-step-icon {background:rgba(46,139,87,.18); color:#2e8b57;}
 .pg-step-running {border-color:rgba(36,112,181,.5); background:rgba(36,112,181,.055);}
-.pg-step-running .pg-step-icon {background:rgba(36,112,181,.18); color:#2470b5;}\n.pg-step-running .pg-step-icon::before {content:""; width:.72rem; height:.72rem; border:.13rem solid rgba(36,112,181,.24); border-top-color:#2470b5; border-radius:50%; animation:pg-spin .9s linear infinite;}\n.pg-step-running .pg-step-icon {font-size:0;}
+.pg-step-running .pg-step-icon {background:rgba(36,112,181,.18); color:#2470b5;}
+.pg-step-running .pg-step-icon::before {content:""; width:.72rem; height:.72rem; border:.13rem solid rgba(36,112,181,.24); border-top-color:#2470b5; border-radius:50%; animation:pg-spin .9s linear infinite;}
+.pg-step-running .pg-step-icon {font-size:0;}
 .pg-step-running .pg-step-state {color:#2470b5; opacity:1; font-weight:720;}
 .pg-step-failed {border-color:rgba(204,45,45,.72); background:rgba(204,45,45,.075);}
 .pg-step-failed .pg-step-icon {background:#c92f2f; color:#fff; font-size:.9rem;}
