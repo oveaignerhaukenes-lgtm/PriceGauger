@@ -120,16 +120,22 @@ def _is_read_only_sql(sql: str) -> bool:
 class DatabaseConnection(AbstractContextManager):
     """Minimal connection adapter shared by SQLite and PostgreSQL stores.
 
-    Explicit non-default paths stay isolated SQLite databases for local tools and
-    tests. In Railway production, a configured DATABASE_URL is authoritative even
-    when a legacy mounted-volume path is supplied to the worker.
+    A configured DATABASE_URL is authoritative, including when callers retain a
+    legacy --db path. Local tools and tests can explicitly request isolated
+    SQLite storage with force_sqlite=True.
     """
 
-    def __init__(self, sqlite_path: str | Path = _DEFAULT_SQLITE_PATH) -> None:
+    def __init__(
+        self,
+        sqlite_path: str | Path = _DEFAULT_SQLITE_PATH,
+        *,
+        force_sqlite: bool = False,
+    ) -> None:
         self.sqlite_path = str(sqlite_path)
-        explicit_sqlite = self.sqlite_path != _DEFAULT_SQLITE_PATH
-        railway_postgres = _running_on_railway() and using_postgres()
-        self.is_postgres = using_postgres() and (not explicit_sqlite or railway_postgres)
+        # A configured PostgreSQL URL is the authoritative shared store in every
+        # runtime. sqlite_path remains a legacy fallback argument; isolated
+        # tools and tests must opt into SQLite explicitly.
+        self.is_postgres = using_postgres() and not force_sqlite
         if self.is_postgres:
             self._connection = self._open_postgres()
         else:
@@ -200,5 +206,9 @@ class DatabaseConnection(AbstractContextManager):
         return False
 
 
-def connect(sqlite_path: str | Path = _DEFAULT_SQLITE_PATH) -> DatabaseConnection:
-    return DatabaseConnection(sqlite_path)
+def connect(
+    sqlite_path: str | Path = _DEFAULT_SQLITE_PATH,
+    *,
+    force_sqlite: bool = False,
+) -> DatabaseConnection:
+    return DatabaseConnection(sqlite_path, force_sqlite=force_sqlite)
