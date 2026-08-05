@@ -210,6 +210,7 @@ def _refresh_telegram_flow(
 
     status.running("semantic_filter", "Kontrollerer lagrede poster for relevans og promo-innhold.")
     stored = store.load_posts(limit=500)
+    status.complete("semantic_filter", f"{len(stored)} lagrede poster kontrollert for relevans og promo-innhold.")
     if not stored:
         status.skipped("event_clustering", "Ingen godkjente poster å gruppere.")
         for step in ("information_state", "technical_state", "decision_state", "recommendation"):
@@ -227,6 +228,10 @@ def _refresh_telegram_flow(
     )
     if should_save:
         store.save_snapshot(assessment, process_runtime=False)
+        status.complete(
+            "event_clustering",
+            f"{assessment.post_count} poster gruppert i {assessment.event_cluster_count} klynger.",
+        )
         LOGGER.info(
             "telegram flow snapshot as_of=%s posts=%s clusters=%s reason=%s",
             assessment.as_of,
@@ -254,6 +259,19 @@ def _refresh_telegram_flow(
         status.running("decision_state", "Avventer oppdatert informasjons- og teknisk state.")
         status.running("recommendation", "Avventer oppdatert Decision State.")
         process_flow_snapshot(db_path=db_path, assessment=assessment, posts=stored)
+        # A successful runtime call must never leave a spinner behind. Individual
+        # runtime stages normally close their own status; this guard makes every
+        # successful return terminal, including no-material-change/bootstrap paths.
+        terminal = {
+            "information_state": ("complete", "Information State kontrollert."),
+            "technical_state": ("skipped", "Ingen ny teknisk analyse nødvendig."),
+            "decision_state": ("complete", "Decision State kontrollert; siste state beholdes."),
+            "recommendation": ("complete", "Anbefaling kontrollert; siste vurdering beholdes."),
+        }
+        current = {item.step_key: item for item in status.load()}
+        for step, (method, detail) in terminal.items():
+            if current[step].status == "RUNNING":
+                getattr(status, method)(step, detail)
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         for step in ("information_state", "technical_state", "decision_state", "recommendation"):
