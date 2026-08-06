@@ -397,6 +397,9 @@ def instrument_candidates() -> dict[str, tuple[str, str]]:
         "Gold": ("Gold", "ContractFutures,CfdOnFutures"),
         "Silver": ("Silver", "ContractFutures,CfdOnFutures"),
         "DXY": ("US Dollar Index", "ContractFutures,CfdOnFutures,CfdOnIndex,StockIndex"),
+        # Saxo may expose a Treasury future rather than the cash yield itself.
+        # The UI therefore labels the selected result as a possible inverse proxy.
+        "US10Y": ("US 10 Year Treasury", "ContractFutures,CfdOnFutures,CfdOnIndex,StockIndex"),
     }
 
 
@@ -415,3 +418,67 @@ def instrument_is_unexpired(instrument: SaxoInstrument, now: datetime | None = N
         expiry = expiry.tz_localize("UTC")
     current = pd.Timestamp(now or datetime.now(timezone.utc))
     return expiry >= current
+
+
+def instrument_config_payload(
+    instruments: dict[str, SaxoInstrument],
+    *,
+    price_multipliers: dict[str, float] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Build the non-secret JSON payload expected by SAXO_INSTRUMENTS_JSON."""
+    multipliers = price_multipliers or {}
+    payload: dict[str, dict[str, Any]] = {}
+    for asset, instrument in instruments.items():
+        multiplier = float(multipliers.get(asset, instrument.price_multiplier))
+        if multiplier <= 0:
+            raise ValueError(f"price_multiplier for {asset} må være større enn 0")
+        payload[asset] = {
+            "uic": instrument.uic,
+            "asset_type": instrument.asset_type,
+            "symbol": instrument.symbol,
+            "description": instrument.description,
+            "expiry": instrument.expiry,
+            "price_multiplier": multiplier,
+        }
+    return payload
+
+
+def latest_gold_silver_ratio(
+    gold: pd.DataFrame,
+    silver: pd.DataFrame,
+    *,
+    tolerance: str = "15min",
+) -> dict[str, Any]:
+    """Return the latest synchronized gold/silver observation and ratio."""
+    required = {"timestamp", "close"}
+    if not required.issubset(gold.columns) or not required.issubset(silver.columns):
+        raise ValueError("Gull- og sølvseriene må inneholde timestamp og close")
+
+    left = gold[["timestamp", "close"]].rename(columns={"close": "gold"}).copy()
+    right = silver[["timestamp", "close"]].rename(columns={"close": "silver"}).copy()
+    left["timestamp"] = pd.to_datetime(left["timestamp"], utc=True, errors="coerce")
+    right["timestamp"] = pd.to_datetime(right["timestamp"], utc=True, errors="coerce")
+    left["gold"] = pd.to_numeric(left["gold"], errors="coerce")
+    right["silver"] = pd.to_numeric(right["silver"], errors="coerce")
+    left = left.dropna().sort_values("timestamp")
+    right = right.dropna().sort_values("timestamp")
+    if left.empty or right.empty:
+        raise ValueError("Gull- eller sølvserien mangler gyldige prisdata")
+
+    synchronized = pd.merge_asof(
+        left,
+        right,
+        on="timestamp",
+        direction="nearest",
+        tolerance=pd.Timedelta(tolerance),
+    ).dropna(subset=["silver"])
+    synchronized = synchronized[synchronized["silver"] > 0]
+    if synchronized.empty:
+        raise ValueError("Fant ingen samtidige gull- og sølvpriser")
+    latest = synchronized.iloc[-1]
+    return {
+        "timestamp": latest["timestamp"],
+        "gold": float(latest["gold"]),
+        "silver": float(latest["silver"]),
+        "ratio": float(latest["gold"] / latest["silver"]),
+    }
