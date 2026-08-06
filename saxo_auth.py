@@ -4,10 +4,11 @@ import json
 import os
 import secrets
 import threading
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, ContextManager, Iterator, Protocol
 from urllib.parse import urlencode
 
 import requests
@@ -105,6 +106,16 @@ class SaxoTokenRecord:
         return bool(self.refresh_token) and (expiry is None or expiry > _utc_now() + timedelta(seconds=leeway_seconds))
 
 
+class SaxoTokenStoreProtocol(Protocol):
+    def load(self) -> SaxoTokenRecord | None: ...
+
+    def save(self, record: SaxoTokenRecord) -> None: ...
+
+    def clear(self) -> None: ...
+
+    def refresh_guard(self) -> ContextManager[None]: ...
+
+
 class SaxoTokenStore:
     """Small atomic JSON token store. The file must live outside version control."""
 
@@ -144,13 +155,148 @@ class SaxoTokenStore:
             except FileNotFoundError:
                 pass
 
+    def refresh_guard(self) -> ContextManager[None]:
+        return nullcontext()
+
+
+class SaxoDatabaseTokenStore:
+    """Shared Saxo token store for the Railway web and worker services.
+
+    PostgreSQL advisory locking serializes refresh-token rotation across service
+    processes. The same implementation can use an isolated SQLite connection in
+    tests, where the process lock provides equivalent local serialization.
+    """
+
+    _POSTGRES_REFRESH_LOCK = 1_397_311_311
+
+    def __init__(
+        self,
+        environment: str,
+        *,
+        connection_factory: Callable[[], ContextManager[Any]] | None = None,
+    ) -> None:
+        self.environment = environment
+        self._connection_factory = connection_factory or self._default_connection_factory
+        self._local = threading.local()
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _default_connection_factory():
+        from database import connect
+
+        return connect()
+
+    @staticmethod
+    def _ensure_schema(db: Any) -> None:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS saxo_oauth_tokens (
+                environment TEXT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                token_type TEXT NOT NULL,
+                access_expires_at TEXT NOT NULL,
+                refresh_expires_at TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+    @contextmanager
+    def _connection(self) -> Iterator[Any]:
+        active = getattr(self._local, "connection", None)
+        if active is not None:
+            yield active
+            return
+        with self._connection_factory() as db:
+            self._ensure_schema(db)
+            yield db
+
+    def load(self) -> SaxoTokenRecord | None:
+        with self._lock, self._connection() as db:
+            row = db.execute(
+                """
+                SELECT access_token, refresh_token, token_type, access_expires_at,
+                       refresh_expires_at, environment, updated_at
+                FROM saxo_oauth_tokens
+                WHERE environment = ?
+                """,
+                (self.environment,),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                return SaxoTokenRecord(**dict(row))
+            except (ValueError, TypeError) as exc:
+                raise SaxoAuthError(
+                    "tokenlageret kunne ikke leses",
+                    status="TOKEN_STORE_INVALID",
+                ) from exc
+
+    def save(self, record: SaxoTokenRecord) -> None:
+        if record.environment != self.environment:
+            raise SaxoAuthError(
+                "tokenet tilhører et annet Saxo-miljø",
+                status="TOKEN_ENVIRONMENT_MISMATCH",
+            )
+        with self._lock, self._connection() as db:
+            db.execute(
+                """
+                INSERT INTO saxo_oauth_tokens (
+                    environment, access_token, refresh_token, token_type,
+                    access_expires_at, refresh_expires_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(environment) DO UPDATE SET
+                    access_token = excluded.access_token,
+                    refresh_token = excluded.refresh_token,
+                    token_type = excluded.token_type,
+                    access_expires_at = excluded.access_expires_at,
+                    refresh_expires_at = excluded.refresh_expires_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    record.environment,
+                    record.access_token,
+                    record.refresh_token,
+                    record.token_type,
+                    record.access_expires_at,
+                    record.refresh_expires_at,
+                    record.updated_at,
+                ),
+            )
+
+    def clear(self) -> None:
+        with self._lock, self._connection() as db:
+            db.execute(
+                "DELETE FROM saxo_oauth_tokens WHERE environment = ?",
+                (self.environment,),
+            )
+
+    @contextmanager
+    def refresh_guard(self) -> Iterator[None]:
+        with self._lock:
+            active = getattr(self._local, "connection", None)
+            if active is not None:
+                yield
+                return
+            with self._connection_factory() as db:
+                self._ensure_schema(db)
+                if getattr(db, "is_postgres", False):
+                    lock_key = self._POSTGRES_REFRESH_LOCK + (1 if self.environment == "live" else 0)
+                    db.execute("SELECT pg_advisory_xact_lock(?)", (lock_key,))
+                self._local.connection = db
+                try:
+                    yield
+                finally:
+                    del self._local.connection
+
 
 class SaxoOAuthClient:
     def __init__(
         self,
         config: SaxoOAuthConfig,
         *,
-        store: SaxoTokenStore | None = None,
+        store: SaxoTokenStoreProtocol | None = None,
         session: requests.Session | None = None,
     ) -> None:
         self.config = config
@@ -173,16 +319,17 @@ class SaxoOAuthClient:
     def exchange_code(self, code: str) -> SaxoTokenRecord:
         if not code.strip():
             raise SaxoAuthError("authorization code mangler", status="CODE_MISSING")
-        return self._request_token(
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": self.config.redirect_uri,
-            }
-        )
+        with self._refresh_lock, self.store.refresh_guard():
+            return self._request_token(
+                {
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": self.config.redirect_uri,
+                }
+            )
 
     def refresh(self, refresh_token: str | None = None) -> SaxoTokenRecord:
-        with self._refresh_lock:
+        with self._refresh_lock, self.store.refresh_guard():
             current = self.store.load()
             token = refresh_token or (current.refresh_token if current else "")
             if not token:
@@ -206,7 +353,23 @@ class SaxoOAuthClient:
                 raise SaxoAuthError("tokenet tilhører et annet Saxo-miljø", status="TOKEN_ENVIRONMENT_MISMATCH")
             if not force_refresh and current.access_is_valid():
                 return current.access_token
-            return self.refresh(current.refresh_token).access_token
+            with self.store.refresh_guard():
+                # Another Railway service may have refreshed while this process
+                # waited for the advisory lock. Re-read before rotating again.
+                current = self.store.load()
+                if current is None:
+                    raise SaxoAuthError("Saxo er ikke koblet til", status="REAUTH_REQUIRED")
+                if not force_refresh and current.access_is_valid():
+                    return current.access_token
+                if not current.refresh_is_valid():
+                    raise SaxoAuthError("refresh-token er utløpt", status="REAUTH_REQUIRED")
+                return self._request_token(
+                    {
+                        "grant_type": "refresh_token",
+                        "refresh_token": current.refresh_token,
+                        "redirect_uri": self.config.redirect_uri,
+                    }
+                ).access_token
 
     def status(self) -> dict[str, Any]:
         current = self.store.load()
@@ -232,7 +395,8 @@ class SaxoOAuthClient:
         }
 
     def disconnect(self) -> None:
-        self.store.clear()
+        with self._refresh_lock, self.store.refresh_guard():
+            self.store.clear()
 
     def _request_token(self, form: dict[str, str]) -> SaxoTokenRecord:
         try:
@@ -306,7 +470,14 @@ def configured_oauth_client(secret_getter=None) -> SaxoOAuthClient | None:
         auth_base_url=auth_base_url,
         token_path=token_path,
     )
-    return SaxoOAuthClient(config)
+    from database import using_postgres
+
+    store: SaxoTokenStoreProtocol
+    if using_postgres():
+        store = SaxoDatabaseTokenStore(environment)
+    else:
+        store = SaxoTokenStore(config.token_path)
+    return SaxoOAuthClient(config, store=store)
 
 
 def _secret(name: str) -> str:
