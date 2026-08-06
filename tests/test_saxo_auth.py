@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from saxo_auth import SaxoOAuthClient, SaxoOAuthConfig, SaxoTokenRecord, SaxoTokenStore
+from database import connect
+from saxo_auth import (
+    SaxoDatabaseTokenStore,
+    SaxoOAuthClient,
+    SaxoOAuthConfig,
+    SaxoTokenRecord,
+    SaxoTokenStore,
+    configured_oauth_client,
+)
 
 
 class FakeResponse:
@@ -33,6 +41,19 @@ def config(tmp_path):
         redirect_uri="http://localhost:8501/Saxo_OpenAPI",
         environment="sim",
         token_path=str(tmp_path / "tokens.json"),
+    )
+
+
+def token_record(*, access_token="access", refresh_token="refresh", environment="sim"):
+    now = datetime.now(timezone.utc)
+    return SaxoTokenRecord(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="Bearer",
+        access_expires_at=(now + timedelta(minutes=10)).isoformat(),
+        refresh_expires_at=(now + timedelta(hours=1)).isoformat(),
+        environment=environment,
+        updated_at=now.isoformat(),
     )
 
 
@@ -111,3 +132,46 @@ def test_valid_access_token_does_not_call_token_endpoint(tmp_path):
 
     assert client.access_token() == "still-valid"
     assert session.calls == []
+
+
+def test_database_token_store_is_shared_and_supports_rotating_tokens(tmp_path):
+    db_path = tmp_path / "shared-tokens.sqlite3"
+    factory = lambda: connect(db_path, force_sqlite=True)
+    web_store = SaxoDatabaseTokenStore("sim", connection_factory=factory)
+    worker_store = SaxoDatabaseTokenStore("sim", connection_factory=factory)
+
+    web_store.save(token_record(access_token="web-access", refresh_token="refresh-1"))
+    assert worker_store.load().access_token == "web-access"
+
+    worker_store.save(token_record(access_token="worker-access", refresh_token="refresh-2"))
+    assert web_store.load().refresh_token == "refresh-2"
+
+    web_store.clear()
+    assert worker_store.load() is None
+
+
+def test_database_token_store_keeps_sim_and_live_separate(tmp_path):
+    db_path = tmp_path / "environment-tokens.sqlite3"
+    factory = lambda: connect(db_path, force_sqlite=True)
+    sim_store = SaxoDatabaseTokenStore("sim", connection_factory=factory)
+    live_store = SaxoDatabaseTokenStore("live", connection_factory=factory)
+
+    sim_store.save(token_record(access_token="sim-access"))
+    live_store.save(token_record(access_token="live-access", environment="live"))
+
+    assert sim_store.load().access_token == "sim-access"
+    assert live_store.load().access_token == "live-access"
+
+
+def test_configured_client_uses_database_store_when_database_url_exists(monkeypatch):
+    values = {
+        "SAXO_APP_KEY": "app-key",
+        "SAXO_APP_SECRET": "app-secret",
+        "SAXO_REDIRECT_URI": "https://example.test/Saxo_OpenAPI",
+        "SAXO_ENVIRONMENT": "sim",
+    }
+    monkeypatch.setenv("DATABASE_URL", "postgresql://configured-but-not-opened")
+
+    client = configured_oauth_client(lambda name: values.get(name, ""))
+
+    assert isinstance(client.store, SaxoDatabaseTokenStore)
