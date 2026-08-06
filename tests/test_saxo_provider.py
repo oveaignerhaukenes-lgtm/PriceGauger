@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from market_data import MarketRequest
-from saxo_provider import SaxoClient, SaxoInstrument, SaxoPriceProvider, instrument_is_unexpired
+import pandas as pd
+
+from saxo_provider import (
+    SaxoClient,
+    SaxoInstrument,
+    SaxoPriceProvider,
+    instrument_candidates,
+    instrument_config_payload,
+    instrument_is_unexpired,
+    latest_gold_silver_ratio,
+)
 
 
 class FakeResponse:
@@ -105,3 +115,48 @@ def test_expiry_filter():
     now = datetime(2026, 7, 23, tzinfo=timezone.utc)
     assert instrument_is_unexpired(SaxoInstrument("Brent", 1, "ContractFutures", expiry="2026-08-01"), now)
     assert not instrument_is_unexpired(SaxoInstrument("Brent", 1, "ContractFutures", expiry="2026-07-01"), now)
+
+
+def test_discovery_includes_us_10y_candidate():
+    keywords, asset_types = instrument_candidates()["US10Y"]
+
+    assert "10" in keywords
+    assert "ContractFutures" in asset_types
+
+
+def test_instrument_config_payload_is_ready_for_environment_json():
+    payload = instrument_config_payload(
+        {"Silver": SaxoInstrument("Silver", 42, "ContractFutures", symbol="SILVER", expiry="2026-09-01")},
+        price_multipliers={"Silver": 0.01},
+    )
+
+    assert payload == {
+        "Silver": {
+            "uic": 42,
+            "asset_type": "ContractFutures",
+            "symbol": "SILVER",
+            "description": "",
+            "expiry": "2026-09-01",
+            "price_multiplier": 0.01,
+        }
+    }
+
+
+def test_latest_gold_silver_ratio_uses_synchronized_prices():
+    gold = pd.DataFrame(
+        {
+            "timestamp": ["2026-08-06T10:00:00Z", "2026-08-06T10:05:00Z"],
+            "close": [4000.0, 4020.0],
+        }
+    )
+    silver = pd.DataFrame(
+        {
+            "timestamp": ["2026-08-06T10:01:00Z", "2026-08-06T10:06:00Z"],
+            "close": [50.0, 50.25],
+        }
+    )
+
+    result = latest_gold_silver_ratio(gold, silver)
+
+    assert result["timestamp"] == pd.Timestamp("2026-08-06T10:05:00Z")
+    assert result["ratio"] == 80.0
