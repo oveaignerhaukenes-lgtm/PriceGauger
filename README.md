@@ -86,9 +86,12 @@ Ved deploy:
    `/railway.worker.toml` for workeren.
 4. Gjør PostgreSQL-variabelen `DATABASE_URL` tilgjengelig i begge tjenestene.
    Begge må peke til den samme databasen.
-5. Legg `OPENAI_API_KEY`, `OPENAI_MARKET_MODEL` og nødvendige Telegram-/Saxo-
-   variabler på workeren. Legg også modellvariablene på webtjenesten dersom UI-et
-   bruker dem direkte.
+5. Legg `OPENAI_API_KEY`, `OPENAI_MARKET_MODEL` og nødvendige Telegram-variabler
+   på workeren. Saxo-variablene `SAXO_APP_KEY`, `SAXO_APP_SECRET`,
+   `SAXO_REDIRECT_URI` og `SAXO_ENVIRONMENT` må være identiske på web og worker.
+   Når `DATABASE_URL` er satt, lagres det roterende Saxo-tokenparet i PostgreSQL
+   og deles av de to tjenestene. Legg også modellvariablene på webtjenesten dersom
+   UI-et bruker dem direkte.
 6. Deploy begge tjenester. Webtjenestens healthcheck er
    `/_stcore/health`; workerloggen skal vise `cycle complete` hvert 60. sekund.
 
