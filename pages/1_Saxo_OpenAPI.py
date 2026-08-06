@@ -61,7 +61,7 @@ else:
     with right:
         if st.button("Koble fra", use_container_width=True):
             oauth.disconnect()
-            st.success("Lokale Saxo-token er fjernet.")
+            st.success("Saxo-token er fjernet fra det delte lageret.")
             st.rerun()
 
 st.subheader("Konfigurerte instrumenter")
