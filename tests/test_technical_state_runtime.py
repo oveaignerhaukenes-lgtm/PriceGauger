@@ -51,3 +51,17 @@ def test_runtime_isolates_market_failures():
 
     assert "Brent" in states
     assert errors == {"Gold": "no chart entitlement"}
+
+
+def test_runtime_accepts_provider_configured_market_without_symbol_mapping():
+    def fetcher(request):
+        assert request.asset_name == "Natural Gas"
+        assert request.symbols == {}
+        return MarketResult(_frame(), "Saxo OpenAPI")
+
+    states, errors = build_technical_market_states(
+        ["Natural Gas"], fetcher=fetcher, now=datetime(2026, 8, 4, 20, 0, tzinfo=timezone.utc)
+    )
+
+    assert errors == {}
+    assert states["Natural Gas"].component.provider == "Saxo OpenAPI"

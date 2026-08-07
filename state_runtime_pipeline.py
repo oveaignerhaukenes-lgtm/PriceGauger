@@ -26,7 +26,7 @@ from state_runtime_service import (
 from state_runtime_store import StateRuntimeStore
 from saxo_provider import SaxoPriceProvider
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
-from technical_state_runtime import build_technical_market_states
+from technical_state_runtime import build_technical_market_states, supported_technical_markets
 from worker_probe import record_worker_probe
 
 
@@ -118,6 +118,11 @@ def process_flow_snapshot(
     twelve_key = twelve_data_api_key()
     if twelve_key:
         providers.append(TwelveDataProvider(twelve_key))
+    analysis_markets = [item.asset for item in assessment.assets]
+    technical_markets = supported_technical_markets(analysis_markets, providers)
+    technical_unavailable_detail = (
+        "Ingen av analysemarkedene har aktiv instrumentkonfigurasjon hos en prisleverandør."
+    )
     if not providers:
         if saxo.client is not None and not saxo.instruments:
             technical_unavailable_detail = (
@@ -137,9 +142,9 @@ def process_flow_snapshot(
         if runtime_store.load_latest_decision_state(market=item.asset) is None
     ]
     missing_market_states = [
-        item.asset
-        for item in assessment.assets
-        if providers and runtime_store.load_latest_market_state(market=item.asset) is None
+        market
+        for market in technical_markets
+        if runtime_store.load_latest_market_state(market=market) is None
     ]
     if (
         not new_posts
@@ -191,7 +196,7 @@ def process_flow_snapshot(
             return fetch_market_data(request, providers)
 
         market_states, technical_errors = build_technical_market_states(
-            [item.asset for item in assessment.assets], fetcher=fetcher
+            technical_markets, fetcher=fetcher
         )
     else:
         market_states, technical_errors = {}, {}
