@@ -121,13 +121,30 @@ if discovered:
             selected_discovered,
             price_multipliers=selected_multipliers,
         )
-        st.caption("Kopier hele énlinjeverdien til SAXO_INSTRUMENTS_JSON i Railway-web og workeren.")
-        st.code(json.dumps(generated, ensure_ascii=False, separators=(",", ":")), language="json")
+        generated_json = json.dumps(generated, ensure_ascii=False, indent=2) + "\n"
+        st.caption(
+            "Lagre dette som config/saxo_instruments.json i repoet. Filen brukes automatisk av både web og worker."
+        )
+        st.code(generated_json, language="json")
+        st.download_button(
+            "Last ned saxo_instruments.json",
+            data=generated_json,
+            file_name="saxo_instruments.json",
+            mime="application/json",
+            use_container_width=True,
+        )
 
 st.subheader("Konfigurerte instrumenter")
-instruments = configured_instruments()
+st.caption(
+    "Standardkilde: config/saxo_instruments.json. SAXO_INSTRUMENTS_JSON er kun en valgfri overstyring."
+)
+try:
+    instruments = configured_instruments()
+except ValueError as exc:
+    st.error(f"Instrumentkonfigurasjonen er ugyldig: {exc}")
+    instruments = {}
 if not instruments:
-    st.warning("Ingen instrumenter er konfigurert i SAXO_INSTRUMENTS_JSON.")
+    st.warning("Ingen instrumenter er konfigurert i config/saxo_instruments.json.")
 else:
     st.dataframe(
         [

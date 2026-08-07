@@ -9,6 +9,7 @@ from saxo_provider import (
     SaxoClient,
     SaxoInstrument,
     SaxoPriceProvider,
+    configured_instruments,
     instrument_candidates,
     instrument_config_payload,
     instrument_is_unexpired,
@@ -140,6 +141,50 @@ def test_instrument_config_payload_is_ready_for_environment_json():
             "price_multiplier": 0.01,
         }
     }
+
+
+def test_configured_instruments_reads_shared_json_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("saxo_provider._secret", lambda name: "")
+    config_path = tmp_path / "saxo_instruments.json"
+    config_path.write_text(
+        '{"Gold":{"uic":7,"asset_type":"ContractFutures","price_multiplier":1.0}}',
+        encoding="utf-8",
+    )
+
+    instruments = configured_instruments(config_path)
+
+    assert instruments["Gold"].uic == 7
+
+
+def test_environment_json_overrides_shared_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "saxo_provider._secret",
+        lambda name: '{"Silver":{"uic":9,"asset_type":"ContractFutures","price_multiplier":0.01}}',
+    )
+    config_path = tmp_path / "saxo_instruments.json"
+    config_path.write_text(
+        '{"Gold":{"uic":7,"asset_type":"ContractFutures"}}',
+        encoding="utf-8",
+    )
+
+    instruments = configured_instruments(config_path)
+
+    assert set(instruments) == {"Silver"}
+    assert instruments["Silver"].price_multiplier == 0.01
+
+
+def test_invalid_shared_json_has_actionable_error(tmp_path, monkeypatch):
+    monkeypatch.setattr("saxo_provider._secret", lambda name: "")
+    config_path = tmp_path / "saxo_instruments.json"
+    config_path.write_text('{"Gold": {...}}', encoding="utf-8")
+
+    try:
+        configured_instruments(config_path)
+    except ValueError as exc:
+        assert "linje 1, kolonne" in str(exc)
+        assert str(config_path) in str(exc)
+    else:
+        raise AssertionError("Ugyldig JSON skulle ha gitt ValueError")
 
 
 def test_latest_gold_silver_ratio_uses_synchronized_prices():

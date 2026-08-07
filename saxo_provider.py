@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 import pandas as pd
@@ -14,6 +15,7 @@ from market_data import MarketProvider, MarketRequest
 
 SIM_BASE_URL = "https://gateway.saxobank.com/sim/openapi"
 LIVE_BASE_URL = "https://gateway.saxobank.com/openapi"
+INSTRUMENT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "saxo_instruments.json"
 
 
 class SaxoError(RuntimeError):
@@ -319,14 +321,43 @@ def _secret(name: str) -> str:
         return ""
 
 
-def configured_instruments() -> dict[str, SaxoInstrument]:
-    raw = _secret("SAXO_INSTRUMENTS_JSON")
-    if not raw:
-        return {}
-    payload = json.loads(raw)
+def _parse_instrument_config(raw: str, *, source: str) -> dict[str, SaxoInstrument]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Ugyldig JSON i {source}: {exc.msg} (linje {exc.lineno}, kolonne {exc.colno})"
+        ) from exc
     if not isinstance(payload, dict):
-        raise ValueError("SAXO_INSTRUMENTS_JSON må være et JSON-objekt")
-    return {asset: SaxoInstrument.from_mapping(asset, value) for asset, value in payload.items()}
+        raise ValueError(f"{source} må inneholde et JSON-objekt")
+
+    instruments: dict[str, SaxoInstrument] = {}
+    for asset, value in payload.items():
+        if not isinstance(value, dict):
+            raise ValueError(f"Instrumentet {asset!r} i {source} må være et JSON-objekt")
+        try:
+            instruments[str(asset)] = SaxoInstrument.from_mapping(str(asset), value)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Ugyldig instrument {asset!r} i {source}: {exc}") from exc
+    return instruments
+
+
+def configured_instruments(config_path: str | Path | None = None) -> dict[str, SaxoInstrument]:
+    """Load shared instruments from file, with an optional environment override."""
+    raw_override = _secret("SAXO_INSTRUMENTS_JSON")
+    if raw_override:
+        return _parse_instrument_config(raw_override, source="SAXO_INSTRUMENTS_JSON")
+
+    path = Path(config_path) if config_path is not None else INSTRUMENT_CONFIG_PATH
+    if not path.exists():
+        return {}
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Kunne ikke lese instrumentfilen {path}: {exc}") from exc
+    if not raw.strip():
+        return {}
+    return _parse_instrument_config(raw, source=str(path))
 
 
 def configured_client() -> SaxoClient | None:
@@ -425,7 +456,7 @@ def instrument_config_payload(
     *,
     price_multipliers: dict[str, float] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Build the non-secret JSON payload expected by SAXO_INSTRUMENTS_JSON."""
+    """Build the non-secret JSON payload stored in the shared instrument config."""
     multipliers = price_multipliers or {}
     payload: dict[str, dict[str, Any]] = {}
     for asset, instrument in instruments.items():
