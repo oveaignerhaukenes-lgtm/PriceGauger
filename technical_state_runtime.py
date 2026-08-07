@@ -5,7 +5,7 @@ from hashlib import sha256
 import json
 from typing import Callable
 
-from market_data import MarketRequest, MarketResult
+from market_data import MarketProvider, MarketRequest, MarketResult
 from state_contracts import ComponentStatus, MarketStateSnapshot
 from technical_analysis import TechnicalSnapshot, build_multi_timeframe_snapshot
 from technical_regime import TechnicalRegime, build_technical_regime
@@ -18,6 +18,19 @@ ASSET_SYMBOLS = {
     "Gold": {"twelve": "XAU/USD", "yahoo": "GC=F"},
     "DXY": {"yahoo": "DX-Y.NYB"},
 }
+
+
+def supported_technical_markets(
+    markets: list[str] | tuple[str, ...],
+    providers: list[MarketProvider],
+) -> list[str]:
+    """Return analysis markets covered by at least one active price provider."""
+    supported: list[str] = []
+    for market in markets:
+        request = MarketRequest(market, "5min", 1, ASSET_SYMBOLS.get(market, {}))
+        if any(provider.supports(request) for provider in providers):
+            supported.append(market)
+    return supported
 
 
 def _stable_id(payload: dict) -> str:
@@ -100,10 +113,7 @@ def build_technical_market_states(
     states: dict[str, MarketStateSnapshot] = {}
     errors: dict[str, str] = {}
     for market in markets:
-        symbols = ASSET_SYMBOLS.get(market)
-        if symbols is None:
-            errors[market] = "Markedet mangler instrumentmapping."
-            continue
+        symbols = ASSET_SYMBOLS.get(market, {})
         frames: dict = {}
         providers: dict[str, str] = {}
         try:

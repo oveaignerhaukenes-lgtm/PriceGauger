@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 
 from analysis_status import AnalysisStatusStore
 from database import connect
@@ -208,6 +209,9 @@ def test_missing_technical_market_state_is_bootstrapped_without_new_post(tmp_pat
         client = object()
         instruments = {"Brent": object()}
 
+        def supports(self, request):
+            return request.asset_name in self.instruments
+
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(pipeline, "SaxoPriceProvider", ConfiguredSaxo)
 
@@ -221,6 +225,37 @@ def test_missing_technical_market_state_is_bootstrapped_without_new_post(tmp_pat
 
     assert calls == [("Brent",)]
     assert _counts(db_path) == (first_counts[0] + 1, first_counts[1] + 1)
+
+
+def test_unconfigured_analysis_market_does_not_force_reprocessing(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    monkeypatch.setattr(pipeline, "_heartbeat_due", lambda latest: False)
+    db_path = tmp_path / "state.sqlite3"
+    natural_gas = replace(_assessment().assets[0], asset="Natural Gas")
+    assessment = replace(_assessment(), assets=(natural_gas,))
+
+    class ConfiguredSaxo:
+        client = object()
+        instruments = {"Brent": object()}
+
+        def supports(self, request):
+            return request.asset_name in self.instruments
+
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(pipeline, "SaxoPriceProvider", ConfiguredSaxo)
+
+    def build_states(markets, *, fetcher):
+        calls.append(tuple(markets))
+        return {}, {}
+
+    monkeypatch.setattr(pipeline, "build_technical_market_states", build_states)
+
+    process_flow_snapshot(db_path=db_path, assessment=assessment, posts=[_post()])
+    first_counts = _counts(db_path)
+    process_flow_snapshot(db_path=db_path, assessment=assessment, posts=[_post()])
+
+    assert calls == [()]
+    assert _counts(db_path) == first_counts
 
 
 def test_technical_status_is_not_left_pending_when_saxo_has_no_instruments(tmp_path, monkeypatch):
