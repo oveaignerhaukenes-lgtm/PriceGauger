@@ -2,6 +2,8 @@
 
 Mobilvennlig Streamlit-prototype som kobler offentlige meldinger fra Middle East Spectator (MES) mot prisutviklingen i Brent, sølv, gull og DXY.
 
+Se [prosjektoverleveringen](docs/PROJECT_HANDOFF.md) for gjeldende produksjonsarkitektur, stabiliseringssjekk og bevisst utsatt arbeid.
+
 ## Kjør lokalt
 
 ```bash
@@ -45,6 +47,7 @@ Workeren:
 
 - sjekker Telegram hvert 60. sekund
 - behandler bare nye meldinger
+- oppdaterer og lagrer rullerende nyhetskontekst over 1t/4t/12t/24t/7d
 - bruker OpenAI når nøkkel er konfigurert, ellers mock-interpreter
 - lagrer Market State, anbefalinger og utfall i PostgreSQL når `DATABASE_URL` er satt, ellers SQLite lokalt
 - oppdaterer 1t/4t-resultater og MFE/MAE i hver syklus
