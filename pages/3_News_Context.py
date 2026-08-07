@@ -7,6 +7,7 @@ import streamlit as st
 
 from engine_sidebar import render_engine_sidebar
 from news_context_engine import OpenAINewsContextEngine
+from news_context_store import NewsContextStore
 from telegram_query_builder import fetch_search_plans
 
 
@@ -50,14 +51,18 @@ if st.button("Analyser nyhetskontekst", type="primary", use_container_width=True
                 channel=channel,
                 as_of=as_of,
             )
+            NewsContextStore().save(assessment)
         st.session_state[result_key] = assessment.to_record()
     except Exception as exc:
         st.error(f"Nyhetsmotoren kunne ikke fullføres: {exc}")
 
-record = st.session_state.get(result_key)
+persisted = NewsContextStore().load_latest()
+record = st.session_state.get(result_key) or (persisted.to_record() if persisted is not None else None)
 if record is None:
-    st.info("Ingen nyhetskontekst er analysert i denne økten.")
+    st.info("Ingen nyhetskontekst er lagret ennå.")
 else:
+    if result_key not in st.session_state:
+        st.success("Viser siste nyhetskontekst lagret av produksjonsworkeren.")
     if record.get("coverage_warning"):
         st.warning(record["coverage_warning"])
 

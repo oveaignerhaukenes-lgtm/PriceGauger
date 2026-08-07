@@ -19,7 +19,7 @@ def test_analysis_status_defaults_and_round_trip(tmp_path):
     assert loaded["decision_state"].status == "FAILED"
 
 
-def test_begin_cycle_preserves_explicit_pending_components(tmp_path):
+def test_begin_cycle_marks_all_components_ready_for_worker(tmp_path):
     store = AnalysisStatusStore(tmp_path / "status.sqlite3")
     store.complete("decision_state", "ferdig")
 
@@ -29,7 +29,7 @@ def test_begin_cycle_preserves_explicit_pending_components(tmp_path):
     assert loaded["decision_state"].status == "PENDING"
     assert loaded["technical_state"].status == "PENDING"
     assert "Venter på workeren" in loaded["technical_state"].detail
-    assert "Ikke koblet" in loaded["context_state"].detail
+    assert "Venter på workeren" in loaded["context_state"].detail
 
 
 def test_unknown_step_and_status_are_rejected(tmp_path):

@@ -71,6 +71,8 @@ class InformationStateSnapshot:
     state_change: dict[str, float] | None = None
     processed_event_ids: tuple[str, ...] = ()
     active_cluster_ids: tuple[str, ...] = ()
+    context_as_of: str = ""
+    context_engine_version: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "as_of", _utc_iso(self.as_of))
