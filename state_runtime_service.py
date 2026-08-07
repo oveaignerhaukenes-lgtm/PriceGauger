@@ -11,6 +11,7 @@ from market_interpretation import MarketInterpretation
 from market_interpretation import STATE_NAMES
 from asset_state_mapping import ASSET_WEIGHTS
 from market_state import interpretation_weight
+from news_context_engine import NewsContextAssessment
 from state_contracts import (
     ComponentStatus,
     DecisionStateSnapshot,
@@ -73,6 +74,7 @@ def build_information_state(
     interpretations: Iterable[MarketInterpretation],
     *,
     previous: InformationStateSnapshot | None = None,
+    news_context: NewsContextAssessment | None = None,
     as_of: datetime | None = None,
 ) -> InformationStateSnapshot:
     now = _utc_now(as_of)
@@ -146,11 +148,40 @@ def build_information_state(
     prior_quality = previous.confirmation_quality if previous else 0.35
     confirmation_quality = prior_quality if new_confirmation_quality is None else (0.6 * prior_quality + 0.4 * new_confirmation_quality)
     supply_risk = max(0.0, values["energy_supply_risk"])
+    context_as_of = ""
+    context_engine_version = ""
+    if news_context is not None:
+        # The context engine sees the same source posts as Telegram Flow. It owns
+        # regime-level fields, but never adds another directional contribution.
+        # This keeps one source from being counted twice in Decision State.
+        saturation = news_context.narrative_saturation
+        confirmation_quality = news_context.confirmation_quality
+        supply_risk = news_context.physical_supply_risk
+        context_as_of = news_context.as_of
+        context_engine_version = news_context.engine_version
+        direction = news_context.escalation_direction
+        level = news_context.conflict_level
+        if ceasefire_active:
+            regime = "CEASEFIRE"
+        elif direction == "de-escalating" and level < 0.75:
+            regime = "DEESCALATING"
+        elif level >= 0.75:
+            regime = "HIGH_INTENSITY_WAR"
+        elif level >= 0.35 or direction == "escalating":
+            regime = "ACTIVE_WAR"
+        elif direction in {"mixed", "unclear"}:
+            regime = "MIXED"
+        else:
+            regime = "CALM"
     component = ComponentStatus(
         observed_at=flow.as_of,
         age_seconds=max(0, int((now - datetime.fromisoformat(flow.as_of.replace("Z", "+00:00"))).total_seconds())),
         freshness="FRESH",
-        provider="telegram-flow+market-interpretations",
+        provider=(
+            "telegram-flow+market-interpretations+news-context"
+            if news_context is not None
+            else "telegram-flow+market-interpretations"
+        ),
         instrument="selected-markets",
         engine_version=ENGINE_VERSION,
     )
@@ -176,6 +207,8 @@ def build_information_state(
         state_change={name: round(state_change[name], 6) for name in STATE_NAMES},
         processed_event_ids=tuple(sorted(processed)),
         active_cluster_ids=tuple(sorted(active_clusters)),
+        context_as_of=context_as_of,
+        context_engine_version=context_engine_version,
     )
 
 
