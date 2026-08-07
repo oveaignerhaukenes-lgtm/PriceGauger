@@ -7,6 +7,8 @@ from state_runtime_pipeline import process_flow_snapshot
 from state_runtime_store import StateRuntimeStore
 from market_interpretation import MarketInterpretation
 from market_state_store import MarketStateStore
+from news_context_engine import NewsContextAssessment, NewsWindow
+from news_context_store import NewsContextStore
 from telegram_flow_engine import (
     AssetFlowAssessment,
     AssetPostScore,
@@ -68,6 +70,32 @@ def _assessment() -> TelegramFlowAssessment:
     )
 
 
+def _news_context() -> NewsContextAssessment:
+    return NewsContextAssessment(
+        as_of=NOW,
+        engine_version="news-context-v1",
+        source_channel="Middle_East_Spectator",
+        source_post_count=1,
+        coverage_start=NOW,
+        coverage_end=NOW,
+        coverage_warning="",
+        conflict_level=0.82,
+        fear_level=0.7,
+        escalation_direction="escalating",
+        physical_supply_risk=0.63,
+        narrative_saturation=0.41,
+        confirmation_quality=0.76,
+        regime_label="high escalation",
+        active_drivers=("shipping risk",),
+        counter_signals=(),
+        unresolved_questions=(),
+        summary="Escalation remains elevated.",
+        confidence=0.74,
+        model="test-model",
+        windows=(NewsWindow(1, 1, NOW, NOW, ("update",)),),
+    )
+
+
 def _counts(db_path) -> tuple[int, int]:
     with connect(db_path) as db:
         information = db.execute("SELECT COUNT(*) AS count FROM information_state_snapshots").fetchone()["count"]
@@ -113,6 +141,26 @@ def test_flow_snapshot_persists_information_contributions_and_alert(tmp_path, mo
     assert alert is not None
     assert alert.market == "Brent"
     assert alert.expected_direction == "UP"
+
+
+def test_persisted_news_context_sets_regime_fields_without_directional_double_counting(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PRICEGAUGER_ALERT_MIN_SEVERITY", "CRITICAL")
+    db_path = tmp_path / "state.sqlite3"
+    NewsContextStore(db_path).save(_news_context())
+
+    process_flow_snapshot(db_path=db_path, assessment=_assessment(), posts=[_post()])
+
+    information = StateRuntimeStore(db_path).load_latest_information_snapshot()
+    assert information is not None
+    assert information.conflict_regime == "HIGH_INTENSITY_WAR"
+    assert information.supply_risk == 0.63
+    assert information.narrative_saturation == 0.41
+    assert information.confirmation_quality == 0.76
+    assert information.context_as_of == NOW
+    assert information.context_engine_version == "news-context-v1"
+    assert information.state_values["conflict_pressure"] == 0.0
 
 
 def test_same_post_is_not_reprocessed_or_persisted_each_cycle(tmp_path, monkeypatch):
