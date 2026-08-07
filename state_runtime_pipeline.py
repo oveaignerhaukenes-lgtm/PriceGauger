@@ -9,6 +9,7 @@ from analysis_status import AnalysisStatusStore
 from config import twelve_data_api_key
 from market_data import TwelveDataProvider, fetch_market_data
 from market_state_store import MarketStateStore
+from news_context_store import NewsContextStore
 from notification_service import (
     NotificationConfig,
     NotificationStore,
@@ -107,6 +108,11 @@ def process_flow_snapshot(
 
     latest_information = runtime_store.load_latest_information_state()
     heartbeat_due = _heartbeat_due(latest_information)
+    news_context = NewsContextStore(db_path).load_latest()
+    context_changed = bool(
+        news_context is not None
+        and str((latest_information or {}).get("context_as_of") or "") != news_context.as_of
+    )
     saxo = SaxoPriceProvider()
     providers = [saxo] if saxo.client is not None and saxo.instruments else []
     twelve_key = twelve_data_api_key()
@@ -135,7 +141,13 @@ def process_flow_snapshot(
         for item in assessment.assets
         if providers and runtime_store.load_latest_market_state(market=item.asset) is None
     ]
-    if not new_posts and not heartbeat_due and not missing_decisions and not missing_market_states:
+    if (
+        not new_posts
+        and not heartbeat_due
+        and not context_changed
+        and not missing_decisions
+        and not missing_market_states
+    ):
         try:
             from overview_summary_store import OverviewSummaryStore
 
@@ -164,6 +176,7 @@ def process_flow_snapshot(
         assessment,
         interpretations,
         previous=previous_information,
+        news_context=news_context,
     )
     runtime_store.save_information_state(information)
     status_store.complete("information_state", "Information State kontrollert og oppdatert.")
