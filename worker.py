@@ -17,6 +17,8 @@ from event_resolution import CanonicalEvent, canonical_event_from_plan
 from market_interpreter import MockMarketInterpreter, StructuredMarketInterpreter
 from market_state_service import process_market_event
 from market_state_store import MarketStateStore
+from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
+from news_context_store import NewsContextStore
 from openai_market_provider import OpenAIJsonProvider
 from signal_outcomes import SignalOutcomeStore, refresh_signal_outcomes, register_recommendations
 from state_runtime_pipeline import process_flow_snapshot
@@ -182,6 +184,56 @@ def _snapshot_is_informative(
     return False, "no_material_change"
 
 
+def _refresh_news_context(
+    *,
+    db_path: str | Path,
+    channel: str,
+    plans: list[TelegramSearchPlan],
+) -> NewsContextAssessment | None:
+    store = NewsContextStore(db_path)
+    status = AnalysisStatusStore(db_path)
+    latest = store.load_latest()
+    selected = [plan for plan in plans if plan.signal_score >= 1 and plan.published_at]
+    key = openai_api_key()
+
+    if not selected:
+        if latest is None:
+            status.skipped("context_state", "Ingen relevante, tidsstemplete poster å analysere.")
+        else:
+            status.complete("context_state", "Ingen nye kildeposter; siste gyldige nyhetskontekst beholdes.")
+        return latest
+    if not key:
+        status.skipped("context_state", "OPENAI_API_KEY mangler; nyhetskontekst ble ikke oppdatert.")
+        return latest
+    if not store.should_refresh(selected):
+        status.complete("context_state", "Ingen ny kontekst nødvendig; siste vurdering beholdes.")
+        return latest
+
+    status.running("context_state", "Vurderer nyhetsregime over 1t / 4t / 12t / 24t / 7d.")
+    try:
+        context = OpenAINewsContextEngine(api_key=key).assess(selected, channel=channel)
+        store.save(context)
+        status.complete(
+            "context_state",
+            f"Nyhetskontekst oppdatert fra {context.source_post_count} poster: {context.regime_label}.",
+        )
+        LOGGER.info(
+            "news context updated as_of=%s posts=%s regime=%s model=%s",
+            context.as_of,
+            context.source_post_count,
+            context.regime_label,
+            context.model,
+        )
+        return context
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        if latest is not None:
+            detail += "; siste gyldige kontekst beholdes"
+        status.failed("context_state", detail)
+        LOGGER.exception("news context refresh failed; continuing with last valid context")
+        return latest
+
+
 def _refresh_telegram_flow(
     *,
     db_path: str | Path,
@@ -213,9 +265,12 @@ def _refresh_telegram_flow(
     status.complete("semantic_filter", f"{len(stored)} lagrede poster kontrollert for relevans og promo-innhold.")
     if not stored:
         status.skipped("event_clustering", "Ingen godkjente poster å gruppere.")
+        status.skipped("context_state", "Ingen godkjente poster å bygge nyhetskontekst fra.")
         for step in ("information_state", "technical_state", "decision_state", "recommendation"):
             status.skipped(step, "Ingen godkjente poster å analysere.")
         return
+
+    _refresh_news_context(db_path=db_path, channel=channel, plans=plans)
 
     status.running("event_clustering", "Grupperer poster i hendelser og bygger samlet Telegram Flow.")
     assessment = aggregate_scored_posts(stored, as_of=datetime.now(timezone.utc))
