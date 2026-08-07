@@ -58,6 +58,24 @@ class NewsContextAssessment:
         return record
 
 
+def news_context_from_record(record: dict[str, Any]) -> NewsContextAssessment:
+    """Rehydrate a persisted assessment without coupling callers to its schema."""
+    payload = dict(record)
+    payload["active_drivers"] = tuple(payload.get("active_drivers") or ())
+    payload["counter_signals"] = tuple(payload.get("counter_signals") or ())
+    payload["unresolved_questions"] = tuple(payload.get("unresolved_questions") or ())
+    windows: list[NewsWindow] = []
+    for item in payload.get("windows") or ():
+        if isinstance(item, NewsWindow):
+            windows.append(item)
+            continue
+        window = dict(item)
+        window["posts"] = tuple(window.get("posts") or ())
+        windows.append(NewsWindow(**window))
+    payload["windows"] = tuple(windows)
+    return NewsContextAssessment(**payload)
+
+
 def _as_utc(value: str | datetime | pd.Timestamp | None) -> pd.Timestamp:
     if value is None:
         return pd.Timestamp.now(tz="UTC")
