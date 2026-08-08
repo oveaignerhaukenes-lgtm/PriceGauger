@@ -32,6 +32,7 @@ DEFAULT_DB_PATH = "pricegauger.db"
 DEFAULT_INTERVAL_SECONDS = 60
 FLOW_HEARTBEAT_SECONDS = 600
 FLOW_SCORE_DELTA = 0.02
+LEGACY_MAX_PER_CYCLE = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,10 +251,16 @@ def _refresh_telegram_flow(
         status.running("telegram_scoring", f"AI-vurderer {min(8, len(new_plans))} nye poster.")
         # Newest visible posts are scored first; older backlog is picked up later.
         selected = new_plans[-8:]
-        scorer = OpenAITelegramFlowScorer(api_key=key)
-        scored = scorer.score([(channel, plan) for plan in selected])
-        scored_count = store.save_posts(scored)
-        LOGGER.info("telegram flow scored posts=%s model=%s", scored_count, scorer.model)
+        try:
+            scorer = OpenAITelegramFlowScorer(api_key=key)
+            scored = scorer.score([(channel, plan) for plan in selected])
+            scored_count = store.save_posts(scored)
+            status.complete("telegram_scoring", f"{scored_count} nye poster AI-vurdert.")
+            LOGGER.info("telegram flow scored posts=%s model=%s", scored_count, scorer.model)
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}; fortsetter med tidligere lagrede poster"
+            status.failed("telegram_scoring", detail)
+            LOGGER.exception("telegram scoring failed; continuing with stored posts")
     elif new_plans:
         status.skipped("telegram_scoring", "OPENAI_API_KEY mangler; nye poster ble ikke AI-vurdert.")
         LOGGER.warning("telegram flow skipped new_posts=%s because OPENAI_API_KEY is missing", len(new_plans))
@@ -355,6 +362,7 @@ def run_once(
         if interpreter is not None
         else build_interpreter()
     )
+    LOGGER.info("cycle started channel=%s", channel)
 
     try:
         # Fetch every text post for Telegram Flow. The old rule-based path still
@@ -366,45 +374,74 @@ def run_once(
         LOGGER.warning("telegram fetch failed; continuing with stored data: %s", exc)
         all_plans = []
 
+    # Fresh aggregate state is the production-critical path. It must run before
+    # slower legacy per-event outcome work so the web UI remains a view into a
+    # continuously maintained state rather than a trigger for catch-up work.
+    try:
+        _refresh_telegram_flow(db_path=db_path, channel=channel, plans=all_plans)
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        status.fail_running(detail)
+        LOGGER.exception("telegram flow refresh failed; continuing with legacy/outcome maintenance")
+
     legacy_plans = [plan for plan in all_plans if plan.signal_score >= minimum_signal]
     pending, bootstrap_ignored = _pending_plans(legacy_plans, state)
+    legacy_batch = pending[-LEGACY_MAX_PER_CYCLE:]
     processed = 0
+    failed_legacy = 0
 
-    for plan in pending:
-        event = _ensure_event_timestamp(canonical_event_from_plan(plan))
-        result = process_market_event(
-            event,
-            interpreter=chosen_interpreter,
-            store=market_store,
-        )
-        register_recommendations(
-            result.interpretation,
-            result.recommendations,
-            store=outcome_store,
-        )
-        state.mark(plan.message_id, "processed")
-        processed += 1
+    if len(pending) > len(legacy_batch):
         LOGGER.info(
-            "processed telegram=%s event=%s recommendations=%s protocol=%s",
-            plan.message_id,
-            event.event_id,
-            len(result.recommendations),
-            PAPER_TEST_PROTOCOL.version,
+            "legacy backlog pending=%s processing=%s deferred=%s",
+            len(pending),
+            len(legacy_batch),
+            len(pending) - len(legacy_batch),
         )
 
-    if not state.is_initialized() and (processed or not legacy_plans):
+    for plan in legacy_batch:
+        try:
+            event = _ensure_event_timestamp(canonical_event_from_plan(plan))
+            result = process_market_event(
+                event,
+                interpreter=chosen_interpreter,
+                store=market_store,
+            )
+            register_recommendations(
+                result.interpretation,
+                result.recommendations,
+                store=outcome_store,
+            )
+            state.mark(plan.message_id, "processed")
+            processed += 1
+            LOGGER.info(
+                "processed telegram=%s event=%s recommendations=%s protocol=%s",
+                plan.message_id,
+                event.event_id,
+                len(result.recommendations),
+                PAPER_TEST_PROTOCOL.version,
+            )
+        except Exception:
+            # The aggregate Telegram Flow / Decision State pipeline above is
+            # authoritative. A malformed or transiently failing legacy event must
+            # never keep the daemon stuck on the same post forever.
+            state.mark(plan.message_id, "failed")
+            failed_legacy += 1
+            LOGGER.exception("legacy event processing failed telegram=%s; continuing", plan.message_id)
+
+    if not state.is_initialized() and (processed or failed_legacy or not legacy_plans):
         for plan in bootstrap_ignored:
             state.mark(plan.message_id, "bootstrap_ignored")
         state.mark_initialized()
 
-    _refresh_telegram_flow(db_path=db_path, channel=channel, plans=all_plans)
     status.running("outcome_refresh", "Oppdaterer resultatene for tidligere anbefalinger.")
     try:
         refreshed = refresh_signal_outcomes(store=outcome_store)
         status.complete("outcome_refresh", f"{len(refreshed)} resultater kontrollert eller oppdatert.")
     except Exception as exc:
+        refreshed = []
         status.failed("outcome_refresh", f"{type(exc).__name__}: {exc}")
-        raise
+        LOGGER.exception("outcome refresh failed; next cycle will retry")
+
     summary = WorkerRunSummary(
         fetched=len(all_plans),
         pending=len(pending),
@@ -414,11 +451,12 @@ def run_once(
         interpreter=str(interpreter_name),
     )
     LOGGER.info(
-        "cycle complete fetched=%s relevant=%s pending=%s processed=%s bootstrap_skipped=%s outcomes=%s interpreter=%s",
+        "cycle complete fetched=%s relevant=%s pending=%s processed=%s legacy_failed=%s bootstrap_skipped=%s outcomes=%s interpreter=%s",
         summary.fetched,
         len(legacy_plans),
         summary.pending,
         summary.processed,
+        failed_legacy,
         summary.skipped_bootstrap,
         summary.outcomes_refreshed,
         summary.interpreter,
