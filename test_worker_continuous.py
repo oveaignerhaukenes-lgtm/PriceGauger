@@ -105,3 +105,44 @@ def test_outcome_refresh_failure_does_not_fail_cycle(tmp_path, monkeypatch):
     statuses = {item.step_key: item for item in worker.AnalysisStatusStore(db_path).load()}
     assert statuses["outcome_refresh"].status == "FAILED"
     assert "TimeoutError" in statuses["outcome_refresh"].detail
+
+
+def test_scoring_failure_is_marked_and_pipeline_continues(tmp_path, monkeypatch):
+    db_path = tmp_path / "scoring.db"
+    plan = _plan("201")
+
+    class FakeFlowStore:
+        def __init__(self, path):
+            pass
+
+        def has_post(self, message_id):
+            return False
+
+        def load_posts(self, limit=500):
+            return []
+
+        def save_posts(self, scored):
+            raise AssertionError("save_posts should not run after scoring failure")
+
+    class FailingScorer:
+        def __init__(self, api_key):
+            pass
+
+        def score(self, items):
+            raise TimeoutError("scoring unavailable")
+
+    monkeypatch.setattr(worker, "openai_api_key", lambda: "test-key")
+    monkeypatch.setattr(worker, "TelegramFlowStore", FakeFlowStore)
+    monkeypatch.setattr(worker, "OpenAITelegramFlowScorer", FailingScorer)
+
+    worker._refresh_telegram_flow(
+        db_path=db_path,
+        channel="Middle_East_Spectator",
+        plans=[plan],
+    )
+
+    statuses = {item.step_key: item for item in worker.AnalysisStatusStore(db_path).load()}
+    assert statuses["telegram_scoring"].status == "FAILED"
+    assert "fortsetter med tidligere lagrede poster" in statuses["telegram_scoring"].detail
+    assert statuses["semantic_filter"].status == "COMPLETE"
+    assert statuses["event_clustering"].status == "SKIPPED"
