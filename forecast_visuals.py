@@ -170,11 +170,15 @@ def render_forecast_svg(
     horizon = f"{forecast.horizon_hours:g}t"
     interval = f"{forecast.expected_move_low_pct:+.2f}%…{forecast.expected_move_high_pct:+.2f}%"
     degradation = f" · mangler {missing}" if missing else ""
-    gap_label = '<span class="pg-gap-label">ingen nye prisdata</span>' if series.history_gap else ""
+    gap_label = (
+        '<span style="position:absolute;left:47.5%;top:.05rem;transform:translateX(-50%);font-size:.58rem;opacity:.58;white-space:nowrap">ingen nye prisdata</span>'
+        if series.history_gap
+        else ""
+    )
 
-    return f'''<div class="pg-forecast-wrap">
+    return f'''<div class="pg-forecast-wrap" style="overflow:hidden">
       <div class="pg-forecast-head"><span>FORVENTET BANE</span><span>{series.profile.replace('_', ' ')}</span></div>
-      <div class="pg-forecast-canvas">
+      <div style="position:relative;min-width:0;overflow:hidden">
         {gap_label}
         <svg class="pg-forecast-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Historikk og prognose">
           <line x1="0" y1="{zero_y:.1f}" x2="100" y2="{zero_y:.1f}" class="pg-zero" />
@@ -186,6 +190,6 @@ def render_forecast_svg(
           <polyline points="{base}" class="pg-base" style="stroke:{color};stroke-width:2.0" />
         </svg>
       </div>
-      <div class="pg-forecast-axis"><span>historikk</span><span>prognose</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;font-size:.58rem;opacity:.58;margin-top:-.2rem"><span style="text-align:right;padding-right:.35rem">historikk</span><span style="padding-left:.35rem">prognose</span></div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {status}{degradation}</div>
     </div>'''
