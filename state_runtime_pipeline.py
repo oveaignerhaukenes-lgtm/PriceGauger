@@ -7,6 +7,8 @@ from pathlib import Path
 
 from analysis_status import AnalysisStatusStore
 from config import twelve_data_api_key
+from forecast_contracts import forecast_from_decision
+from forecast_store import ForecastStore
 from market_data import TwelveDataProvider, fetch_market_data
 from market_state_store import MarketStateStore
 from news_context_store import NewsContextStore
@@ -96,6 +98,7 @@ def process_flow_snapshot(
         probe.database_identity,
     )
     runtime_store = StateRuntimeStore(db_path)
+    forecast_store = ForecastStore(db_path)
     status_store = AnalysisStatusStore(db_path)
 
     new_posts: list[ScoredTelegramPost] = []
@@ -141,6 +144,11 @@ def process_flow_snapshot(
         for item in assessment.assets
         if runtime_store.load_latest_decision_state(market=item.asset) is None
     ]
+    missing_forecasts = [
+        item.asset
+        for item in assessment.assets
+        if forecast_store.load_latest(market=item.asset) is None
+    ]
     missing_market_states = [
         market
         for market in technical_markets
@@ -151,6 +159,7 @@ def process_flow_snapshot(
         and not heartbeat_due
         and not context_changed
         and not missing_decisions
+        and not missing_forecasts
         and not missing_market_states
     ):
         try:
@@ -217,12 +226,42 @@ def process_flow_snapshot(
     )
     runtime_store.save_decision_states(decisions)
     status_store.complete("decision_state", f"Decision State oppdatert for {len(decisions)} markeder.")
-    status_store.complete("recommendation", "Foreløpige anbefalinger regenerert fra siste Decision State.")
+
+    forecasts = []
+    for decision in decisions:
+        missing_inputs: list[str] = []
+        if news_context is None:
+            missing_inputs.append("news_context")
+        if decision.market in technical_errors or decision.market not in market_states:
+            missing_inputs.append("technical_market_state")
+        forecasts.append(
+            forecast_from_decision(
+                decision,
+                market_state=market_states.get(decision.market),
+                additional_missing_inputs=tuple(missing_inputs),
+            )
+        )
+    forecast_store.save_all(forecasts)
+    degraded = sum(item.status != "READY" for item in forecasts)
+    recommendation_detail = f"{len(forecasts)} prognoser lagret fra siste Decision State."
+    if degraded:
+        recommendation_detail += f" {degraded} har eksplisitt redusert datagrunnlag."
+    status_store.complete("recommendation", recommendation_detail)
+    LOGGER.info(
+        "forecast snapshots persisted count=%s degraded=%s",
+        len(forecasts),
+        degraded,
+    )
 
     if missing_decisions:
         LOGGER.info(
             "state runtime bootstrapped missing_decisions=%s",
             ",".join(missing_decisions),
+        )
+    if missing_forecasts:
+        LOGGER.info(
+            "state runtime bootstrapped missing_forecasts=%s",
+            ",".join(missing_forecasts),
         )
     if missing_market_states:
         LOGGER.info(
@@ -232,9 +271,10 @@ def process_flow_snapshot(
 
     if not new_posts:
         LOGGER.info(
-            "state runtime heartbeat information=%s decisions=%s new_posts=0 alerts=0",
+            "state runtime heartbeat information=%s decisions=%s forecasts=%s new_posts=0 alerts=0",
             information.snapshot_id,
             len(decisions),
+            len(forecasts),
         )
         return
 
@@ -289,9 +329,10 @@ def process_flow_snapshot(
         as_of=information.as_of,
     )
     LOGGER.info(
-        "state runtime updated information=%s decisions=%s new_posts=%s contributions=%s alerts=%s",
+        "state runtime updated information=%s decisions=%s forecasts=%s new_posts=%s contributions=%s alerts=%s",
         information.snapshot_id,
         len(decisions),
+        len(forecasts),
         len(new_posts),
         len(contributions),
         len(alerts),
