@@ -39,10 +39,27 @@ def test_trajectory_uses_equal_history_and_forecast_halves():
 
     assert series.history[0][0] == 0.0
     assert series.history[-1][0] == 50.0
+    assert series.history_gap is False
     assert series.base[0] == (50.0, 0.0)
     assert series.base[-1][0] == 100.0
     assert series.bull[-1][1] == 1.5
     assert series.bear[-1][1] == 0.5
+
+
+def test_stale_history_stops_before_now_and_marks_price_gap():
+    forecast = _forecast(as_of="2026-08-09T22:00:00+00:00")
+    history = (
+        ("2026-08-07T18:00:00+00:00", 4160.0),
+        ("2026-08-07T20:00:00+00:00", 4200.0),
+    )
+
+    series = build_trajectory(forecast, history_prices=history)
+    svg = render_forecast_svg(forecast, history_prices=history)
+
+    assert series.history_gap is True
+    assert series.history[-1][0] == 45.0
+    assert series.base[0][0] == 50.0
+    assert "ingen nye prisdata" in svg
 
 
 def test_unstable_regime_selects_impulse_reversal_profile():
