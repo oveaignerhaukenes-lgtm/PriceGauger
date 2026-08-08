@@ -77,6 +77,16 @@ def _market(
             as_of=forecast.as_of,
             horizon_hours=forecast.horizon_hours,
         )
+    move_low = item.expected_move_low_pct
+    move_high = item.expected_move_high_pct
+    horizon = item.horizon_hours
+    if forecast is not None:
+        if move_low is None:
+            move_low = forecast.expected_move_low_pct
+        if move_high is None:
+            move_high = forecast.expected_move_high_pct
+        if horizon is None:
+            horizon = forecast.horizon_hours
     return OverviewMarket(
         market=item.market,
         direction=item.direction,
@@ -86,9 +96,9 @@ def _market(
         top_driver=(flow_item.top_drivers[0] if flow_item is not None and flow_item.top_drivers else "Ingen tydelig hoveddriver."),
         change_from_previous=float(item.change_from_previous),
         status_reason=item.status_reason,
-        expected_move_low_pct=item.expected_move_low_pct,
-        expected_move_high_pct=item.expected_move_high_pct,
-        horizon_hours=item.horizon_hours,
+        expected_move_low_pct=move_low,
+        expected_move_high_pct=move_high,
+        horizon_hours=horizon,
         recommendation_status=_recommendation_status(item),
         forecast=forecast,
         price_history=history,
