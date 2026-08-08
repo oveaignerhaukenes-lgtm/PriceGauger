@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Iterable
 
 from database import connect
-from forecast_contracts import ForecastSnapshot
+from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot
 
 
 class ForecastStore:
@@ -64,42 +64,43 @@ class ForecastStore:
             self.save(snapshot)
         return len(rows)
 
+    @staticmethod
+    def _from_payload(payload_json: str) -> ForecastSnapshot | None:
+        record = json.loads(payload_json)
+        if str(record.get("engine_version") or "") != FORECAST_ENGINE_VERSION:
+            return None
+        record["missing_inputs"] = tuple(record.get("missing_inputs") or ())
+        return ForecastSnapshot(**record)
+
     def load_latest(self, *, market: str) -> ForecastSnapshot | None:
         with self._connect() as db:
-            row = db.execute(
+            rows = db.execute(
                 """
                 SELECT payload_json
                 FROM forecast_snapshots
                 WHERE market=?
                 ORDER BY as_of DESC
-                LIMIT 1
                 """,
                 (market,),
-            ).fetchone()
-        if row is None:
-            return None
-        record = json.loads(row["payload_json"])
-        record["missing_inputs"] = tuple(record.get("missing_inputs") or ())
-        return ForecastSnapshot(**record)
+            ).fetchall()
+        for row in rows:
+            snapshot = self._from_payload(row["payload_json"])
+            if snapshot is not None:
+                return snapshot
+        return None
 
     def load_latest_all(self) -> list[ForecastSnapshot]:
         with self._connect() as db:
             rows = db.execute(
                 """
-                SELECT f.payload_json
-                FROM forecast_snapshots f
-                INNER JOIN (
-                    SELECT market, MAX(as_of) AS max_as_of
-                    FROM forecast_snapshots
-                    GROUP BY market
-                ) latest
-                ON f.market=latest.market AND f.as_of=latest.max_as_of
-                ORDER BY f.market
+                SELECT payload_json
+                FROM forecast_snapshots
+                ORDER BY market, as_of DESC
                 """
             ).fetchall()
-        result: list[ForecastSnapshot] = []
+        latest: dict[str, ForecastSnapshot] = {}
         for row in rows:
-            record = json.loads(row["payload_json"])
-            record["missing_inputs"] = tuple(record.get("missing_inputs") or ())
-            result.append(ForecastSnapshot(**record))
-        return result
+            snapshot = self._from_payload(row["payload_json"])
+            if snapshot is not None and snapshot.market not in latest:
+                latest[snapshot.market] = snapshot
+        return [latest[market] for market in sorted(latest)]
