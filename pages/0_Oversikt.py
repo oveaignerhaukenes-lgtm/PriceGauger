@@ -8,6 +8,7 @@ import streamlit as st
 from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from analysis_status import AnalysisStatusStore
 from build_info import render_build_badge
+from forecast_visuals import render_forecast_svg
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
 from overview_visuals import asset_color, bipolar_fill, visual_direction_score
@@ -61,9 +62,10 @@ st.markdown(
     .pg-alert-stat strong {font-size:.82rem;}
 
     .pg-market-card {padding:0; overflow:hidden; border-left:4px solid var(--market-color);}
-    .pg-market-layout {display:grid; grid-template-columns:minmax(0,7fr) minmax(15rem,3fr);}
+    .pg-market-layout {display:grid; grid-template-columns:minmax(0,5fr) minmax(12rem,2.2fr) minmax(16rem,3fr);}
     .pg-analysis {padding:.9rem 1rem 1rem;}
     .pg-recommendation {padding:.9rem 1rem 1rem; border-left:1px solid rgba(128,128,128,.22); background:rgba(128,128,128,.035);}
+    .pg-forecast {padding:.75rem .8rem .7rem; border-left:1px solid rgba(128,128,128,.22); background:rgba(128,128,128,.018); min-width:0;}
     .pg-state-top {display:flex; justify-content:space-between; gap:.8rem; align-items:flex-start;}
     .pg-market {font-size:1.05rem; font-weight:780; color:var(--market-color);}
     .pg-direction {font-weight:750; letter-spacing:.02em; color:var(--market-color);}
@@ -88,16 +90,30 @@ st.markdown(
     .pg-rec-row {border-top:1px solid rgba(128,128,128,.18); padding-top:.4rem; font-size:.76rem; line-height:1.3;}
     .pg-rec-row strong {display:block; font-size:.82rem; margin-bottom:.08rem;}
     .pg-rec-status {display:inline-block; margin-top:.62rem; border:1px solid rgba(128,128,128,.28); border-radius:999px; padding:.28rem .55rem; font-size:.69rem; font-weight:780; letter-spacing:.05em;}
+    .pg-forecast-wrap {height:100%; display:flex; flex-direction:column; justify-content:center;}
+    .pg-forecast-head {display:flex; justify-content:space-between; gap:.5rem; font-size:.62rem; font-weight:780; letter-spacing:.06em; opacity:.72;}
+    .pg-forecast-svg {width:100%; height:8.6rem; margin:.15rem 0 .05rem; overflow:visible;}
+    .pg-zero {stroke:rgba(128,128,128,.22); stroke-width:.45; stroke-dasharray:2 2; vector-effect:non-scaling-stroke;}
+    .pg-now {stroke:rgba(128,128,128,.62); stroke-width:.7; stroke-dasharray:2 1.5; vector-effect:non-scaling-stroke;}
+    .pg-fan {fill:rgba(128,128,128,.2); stroke:none;}
+    .pg-history {fill:none; stroke:rgba(90,90,90,.78); stroke-width:1.2; vector-effect:non-scaling-stroke;}
+    .pg-base {fill:none; stroke-width:1.8; vector-effect:non-scaling-stroke;}
+    .pg-alt {fill:none; stroke:rgba(128,128,128,.62); stroke-width:.75; stroke-dasharray:2 1.5; vector-effect:non-scaling-stroke;}
+    .pg-axis-label {font-size:4px; fill:rgba(128,128,128,.72);}
+    .pg-forecast-meta {font-size:.67rem; line-height:1.3; opacity:.78; overflow-wrap:anywhere;}
+    .pg-forecast-empty {height:100%; min-height:7rem; display:flex; align-items:center; justify-content:center; text-align:center; font-size:.75rem; opacity:.62; padding:.8rem;}
 
     .pg-news-card {padding:.75rem .9rem;}
     .pg-news-head {display:flex; justify-content:space-between; gap:.75rem; font-size:.76rem; opacity:.76;}
     .pg-news-text {font-size:.88rem; line-height:1.4; margin-top:.35rem; overflow-wrap:anywhere;}
     .pg-news-impact {font-size:.78rem; margin-top:.45rem; font-weight:650;}
 
-    @media(max-width:1000px){
+    @media(max-width:1100px){
       .pg-alert-row {grid-template-columns:1fr 2fr repeat(2,1fr);}
       .pg-alert-stat:nth-last-child(-n+2) {margin-top:.15rem;}
-      .pg-market-layout {grid-template-columns:minmax(0,2fr) minmax(14rem,1fr);}
+      .pg-market-layout {grid-template-columns:minmax(0,3fr) minmax(13rem,1.4fr);}
+      .pg-forecast {grid-column:1 / -1; border-left:0; border-top:1px solid rgba(128,128,128,.22);}
+      .pg-forecast-svg {height:7.5rem;}
     }
     @media(max-width:700px){
       .pg-summary-top {display:block;}
@@ -106,7 +122,7 @@ st.markdown(
       .pg-alert-main,.pg-alert-summary {grid-column:1 / -1;}
       .pg-alert-stat {border-left:0; border-top:1px solid rgba(128,128,128,.22); padding:.45rem 0 0;}
       .pg-market-layout {grid-template-columns:1fr;}
-      .pg-recommendation {border-left:0; border-top:1px solid rgba(128,128,128,.22);}
+      .pg-recommendation,.pg-forecast {border-left:0; border-top:1px solid rgba(128,128,128,.22); grid-column:auto;}
     }
     </style>
     """,
@@ -177,6 +193,20 @@ def _move_interval(item) -> str:
     return f"{item.expected_move_low_pct:+.2f}% til {item.expected_move_high_pct:+.2f}%"
 
 
+def _price_interval(item) -> str:
+    forecast = item.forecast
+    if (
+        forecast is None
+        or forecast.reference_price is None
+        or forecast.expected_move_low_pct is None
+        or forecast.expected_move_high_pct is None
+    ):
+        return "Ikke tilgjengelig"
+    low = forecast.reference_price * (1.0 + forecast.expected_move_low_pct / 100.0)
+    high = forecast.reference_price * (1.0 + forecast.expected_move_high_pct / 100.0)
+    return f"{low:.2f} til {high:.2f}"
+
+
 def _horizon(item) -> str:
     return "Ikke fastsatt" if item.horizon_hours is None else f"{item.horizon_hours:g} timer"
 
@@ -190,7 +220,15 @@ def _render_market_card(item) -> str:
     action = _recommendation_action(item)
     signal = _signal_action(item.direction)
     interval = _move_interval(item)
+    price_interval = _price_interval(item)
     horizon = _horizon(item)
+    forecast_svg = render_forecast_svg(
+        item.forecast,
+        history_prices=item.price_history,
+        market_regime=item.market_regime,
+        volatility_score=item.volatility_score,
+        color=color,
+    )
     return f"""
     <article class="pg-market-card" style="--market-color:{color}">
       <div class="pg-market-layout">
@@ -221,12 +259,13 @@ def _render_market_card(item) -> str:
           <div class="pg-rec-signal">Retningssignal: {html.escape(signal)}</div>
           <div class="pg-rec-grid">
             <div class="pg-rec-row"><strong>{html.escape(interval)}</strong>forventet prosentintervall</div>
-            <div class="pg-rec-row"><strong>Ikke tilgjengelig</strong>forventet prisintervall</div>
+            <div class="pg-rec-row"><strong>{html.escape(price_interval)}</strong>forventet prisintervall</div>
             <div class="pg-rec-row"><strong>{html.escape(horizon)}</strong>hovedhorisont</div>
             <div class="pg-rec-row"><strong>{item.confidence:.0%}</strong>modellkonfidens</div>
           </div>
           <div class="pg-rec-status">{html.escape(item.recommendation_status)}</div>
         </aside>
+        <section class="pg-forecast">{forecast_svg}</section>
       </div>
     </article>
     """
