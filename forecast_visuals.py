@@ -76,8 +76,6 @@ def build_trajectory(
         forecast_time = _as_utc(forecast.as_of)
         last_history_time = _as_utc(prices[-1][0])
         if forecast_time is not None and last_history_time is not None:
-            # Match the technical runtime's freshness rule. A larger gap means we
-            # have no observed trading/data into 'now' (for example a weekend).
             history_gap = (forecast_time - last_history_time).total_seconds() > 2 * 3600
         history_end_x = 45.0 if history_gap else 50.0
         count = max(1, len(prices) - 1)
@@ -104,7 +102,6 @@ def build_trajectory(
         base_y = _shape(p, base_end, profile)
         bull_y = _shape(p, high, profile)
         bear_y = _shape(p, low, profile)
-        # Forecast uncertainty starts narrow at now and opens toward the supplied interval.
         fan = p ** 0.8
         upper_y = base_y + max(0.0, high - base_end) * fan
         lower_y = base_y - max(0.0, base_end - low) * fan
@@ -173,25 +170,22 @@ def render_forecast_svg(
     horizon = f"{forecast.horizon_hours:g}t"
     interval = f"{forecast.expected_move_low_pct:+.2f}%…{forecast.expected_move_high_pct:+.2f}%"
     degradation = f" · mangler {missing}" if missing else ""
-    gap_label = (
-        '<text x="47.5" y="13" text-anchor="middle" class="pg-axis-label">ingen nye prisdata</text>'
-        if series.history_gap
-        else ""
-    )
+    gap_label = '<span class="pg-gap-label">ingen nye prisdata</span>' if series.history_gap else ""
 
     return f'''<div class="pg-forecast-wrap">
       <div class="pg-forecast-head"><span>FORVENTET BANE</span><span>{series.profile.replace('_', ' ')}</span></div>
-      <svg class="pg-forecast-svg" viewBox="0 0 100 108" preserveAspectRatio="none" role="img" aria-label="Historikk og prognose">
-        <line x1="0" y1="{zero_y:.1f}" x2="100" y2="{zero_y:.1f}" class="pg-zero" />
-        <line x1="50" y1="8" x2="50" y2="96" class="pg-now" style="stroke:#64748b;stroke-width:1.0" />
-        <polygon points="{fan_polygon}" class="pg-fan" style="fill:#7890b3;fill-opacity:.18" />
-        <polyline points="{history}" class="pg-history" style="stroke:#374151;stroke-width:1.45" />
-        <polyline points="{bull}" class="pg-alt pg-bull" style="stroke:#2f9e64;stroke-width:1.05;stroke-dasharray:2 1.4" />
-        <polyline points="{bear}" class="pg-alt pg-bear" style="stroke:#d15b5b;stroke-width:1.05;stroke-dasharray:2 1.4" />
-        <polyline points="{base}" class="pg-base" style="stroke:{color};stroke-width:2.0" />
+      <div class="pg-forecast-canvas">
         {gap_label}
-        <text x="48" y="104" text-anchor="end" class="pg-axis-label">historikk</text>
-        <text x="52" y="104" class="pg-axis-label">prognose</text>
-      </svg>
+        <svg class="pg-forecast-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Historikk og prognose">
+          <line x1="0" y1="{zero_y:.1f}" x2="100" y2="{zero_y:.1f}" class="pg-zero" />
+          <line x1="50" y1="8" x2="50" y2="96" class="pg-now" style="stroke:#64748b;stroke-width:1.0" />
+          <polygon points="{fan_polygon}" class="pg-fan" style="fill:#7890b3;fill-opacity:.18" />
+          <polyline points="{history}" class="pg-history" style="stroke:#374151;stroke-width:1.45" />
+          <polyline points="{bull}" class="pg-alt pg-bull" style="stroke:#2f9e64;stroke-width:1.05;stroke-dasharray:2 1.4" />
+          <polyline points="{bear}" class="pg-alt pg-bear" style="stroke:#d15b5b;stroke-width:1.05;stroke-dasharray:2 1.4" />
+          <polyline points="{base}" class="pg-base" style="stroke:{color};stroke-width:2.0" />
+        </svg>
+      </div>
+      <div class="pg-forecast-axis"><span>historikk</span><span>prognose</span></div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {status}{degradation}</div>
     </div>'''
