@@ -251,10 +251,16 @@ def _refresh_telegram_flow(
         status.running("telegram_scoring", f"AI-vurderer {min(8, len(new_plans))} nye poster.")
         # Newest visible posts are scored first; older backlog is picked up later.
         selected = new_plans[-8:]
-        scorer = OpenAITelegramFlowScorer(api_key=key)
-        scored = scorer.score([(channel, plan) for plan in selected])
-        scored_count = store.save_posts(scored)
-        LOGGER.info("telegram flow scored posts=%s model=%s", scored_count, scorer.model)
+        try:
+            scorer = OpenAITelegramFlowScorer(api_key=key)
+            scored = scorer.score([(channel, plan) for plan in selected])
+            scored_count = store.save_posts(scored)
+            status.complete("telegram_scoring", f"{scored_count} nye poster AI-vurdert.")
+            LOGGER.info("telegram flow scored posts=%s model=%s", scored_count, scorer.model)
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}; fortsetter med tidligere lagrede poster"
+            status.failed("telegram_scoring", detail)
+            LOGGER.exception("telegram scoring failed; continuing with stored posts")
     elif new_plans:
         status.skipped("telegram_scoring", "OPENAI_API_KEY mangler; nye poster ble ikke AI-vurdert.")
         LOGGER.warning("telegram flow skipped new_posts=%s because OPENAI_API_KEY is missing", len(new_plans))
