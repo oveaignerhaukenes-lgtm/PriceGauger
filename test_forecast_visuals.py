@@ -82,7 +82,7 @@ def test_neutral_low_volatility_selects_squeeze():
     assert series.profile == "SQUEEZE"
 
 
-def test_svg_marks_now_fan_and_scenarios():
+def test_svg_marks_now_fan_and_scenarios_without_svg_text_nodes():
     svg = render_forecast_svg(
         _forecast(status="DEGRADED", missing_inputs=("news_context",)),
         history_prices=(("2026-08-08T22:00:00+00:00", 4200.0),),
@@ -99,3 +99,6 @@ def test_svg_marks_now_fan_and_scenarios():
     assert "#374151" in svg
     assert "DEGRADED" in svg
     assert "news_context" in svg
+    assert "historikk" in svg
+    assert "prognose" in svg
+    assert "<text" not in svg
