@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from math import sin, pi
 from typing import Iterable
 
@@ -16,6 +17,7 @@ class TrajectorySeries:
     fan_upper: tuple[tuple[float, float], ...]
     fan_lower: tuple[tuple[float, float], ...]
     profile: str
+    history_gap: bool = False
 
 
 def _profile(forecast: ForecastSnapshot, *, market_regime: str = "", volatility_score: float | None = None) -> str:
@@ -44,6 +46,16 @@ def _shape(progress: float, endpoint: float, profile: str) -> float:
     return endpoint * (0.15 * p + 0.85 * (3 * p * p - 2 * p * p * p))
 
 
+def _as_utc(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def build_trajectory(
     forecast: ForecastSnapshot,
     *,
@@ -58,11 +70,19 @@ def build_trajectory(
         ref = prices[-1][1]
     ref = float(ref or 1.0)
 
+    history_gap = False
     history: list[tuple[float, float]] = []
     if prices:
+        forecast_time = _as_utc(forecast.as_of)
+        last_history_time = _as_utc(prices[-1][0])
+        if forecast_time is not None and last_history_time is not None:
+            # Match the technical runtime's freshness rule. A larger gap means we
+            # have no observed trading/data into 'now' (for example a weekend).
+            history_gap = (forecast_time - last_history_time).total_seconds() > 2 * 3600
+        history_end_x = 45.0 if history_gap else 50.0
         count = max(1, len(prices) - 1)
         for index, (_, price) in enumerate(prices):
-            x = 50.0 * index / count
+            x = history_end_x * index / count
             y = (price / ref - 1.0) * 100.0
             history.append((x, y))
     else:
@@ -102,6 +122,7 @@ def build_trajectory(
         fan_upper=tuple(upper),
         fan_lower=tuple(lower),
         profile=profile,
+        history_gap=history_gap,
     )
 
 
@@ -152,6 +173,11 @@ def render_forecast_svg(
     horizon = f"{forecast.horizon_hours:g}t"
     interval = f"{forecast.expected_move_low_pct:+.2f}%…{forecast.expected_move_high_pct:+.2f}%"
     degradation = f" · mangler {missing}" if missing else ""
+    gap_label = (
+        '<text x="47.5" y="13" text-anchor="middle" class="pg-axis-label">ingen nye prisdata</text>'
+        if series.history_gap
+        else ""
+    )
 
     return f'''<div class="pg-forecast-wrap">
       <div class="pg-forecast-head"><span>FORVENTET BANE</span><span>{series.profile.replace('_', ' ')}</span></div>
@@ -163,6 +189,7 @@ def render_forecast_svg(
         <polyline points="{bull}" class="pg-alt pg-bull" style="stroke:#2f9e64;stroke-width:1.05;stroke-dasharray:2 1.4" />
         <polyline points="{bear}" class="pg-alt pg-bear" style="stroke:#d15b5b;stroke-width:1.05;stroke-dasharray:2 1.4" />
         <polyline points="{base}" class="pg-base" style="stroke:{color};stroke-width:2.0" />
+        {gap_label}
         <text x="48" y="104" text-anchor="end" class="pg-axis-label">historikk</text>
         <text x="52" y="104" class="pg-axis-label">prognose</text>
       </svg>
