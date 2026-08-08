@@ -157,12 +157,12 @@ def render_forecast_svg(
       <div class="pg-forecast-head"><span>FORVENTET BANE</span><span>{series.profile.replace('_', ' ')}</span></div>
       <svg class="pg-forecast-svg" viewBox="0 0 100 108" preserveAspectRatio="none" role="img" aria-label="Historikk og prognose">
         <line x1="0" y1="{zero_y:.1f}" x2="100" y2="{zero_y:.1f}" class="pg-zero" />
-        <line x1="50" y1="8" x2="50" y2="96" class="pg-now" />
-        <polygon points="{fan_polygon}" class="pg-fan" />
-        <polyline points="{history}" class="pg-history" />
-        <polyline points="{bull}" class="pg-alt" />
-        <polyline points="{bear}" class="pg-alt" />
-        <polyline points="{base}" class="pg-base" style="stroke:{color}" />
+        <line x1="50" y1="8" x2="50" y2="96" class="pg-now" style="stroke:#64748b;stroke-width:1.0" />
+        <polygon points="{fan_polygon}" class="pg-fan" style="fill:#7890b3;fill-opacity:.18" />
+        <polyline points="{history}" class="pg-history" style="stroke:#374151;stroke-width:1.45" />
+        <polyline points="{bull}" class="pg-alt pg-bull" style="stroke:#2f9e64;stroke-width:1.05;stroke-dasharray:2 1.4" />
+        <polyline points="{bear}" class="pg-alt pg-bear" style="stroke:#d15b5b;stroke-width:1.05;stroke-dasharray:2 1.4" />
+        <polyline points="{base}" class="pg-base" style="stroke:{color};stroke-width:2.0" />
         <text x="48" y="104" text-anchor="end" class="pg-axis-label">historikk</text>
         <text x="52" y="104" class="pg-axis-label">prognose</text>
       </svg>

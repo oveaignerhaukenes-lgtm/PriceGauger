@@ -73,7 +73,12 @@ def test_svg_marks_now_fan_and_scenarios():
 
     assert 'class="pg-now"' in svg
     assert 'class="pg-fan"' in svg
-    assert svg.count('class="pg-alt"') == 2
+    assert svg.count('class="pg-alt ') == 2
     assert 'class="pg-base"' in svg
+    assert 'class="pg-alt pg-bull"' in svg
+    assert 'class="pg-alt pg-bear"' in svg
+    assert "#2f9e64" in svg
+    assert "#d15b5b" in svg
+    assert "#374151" in svg
     assert "DEGRADED" in svg
     assert "news_context" in svg
