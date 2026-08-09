@@ -80,9 +80,9 @@ def test_market_history_merges_legacy_snapshots_and_prefers_realtime_overlap(tmp
 
 def test_forecast_learning_uses_realtime_bars_without_technical_snapshots(tmp_path):
     path = tmp_path / "learning.db"
-    _bar(path, market="Gold", stamp="2026-08-09T10:01:00+00:00", price=101.0)
-    _bar(path, market="Gold", stamp="2026-08-09T10:02:00+00:00", price=102.0)
-    _bar(path, market="Gold", stamp="2026-08-09T10:03:00+00:00", price=103.0)
+    _bar(path, market="Gold", stamp="2026-08-09T10:05:00+00:00", price=101.0)
+    _bar(path, market="Gold", stamp="2026-08-09T10:10:00+00:00", price=102.0)
+    _bar(path, market="Gold", stamp="2026-08-09T10:15:00+00:00", price=103.0)
 
     forecast = ForecastSnapshot(
         forecast_id="forecast:test",
@@ -94,7 +94,7 @@ def test_forecast_learning_uses_realtime_bars_without_technical_snapshots(tmp_pa
         confidence=0.8,
         expected_move_low_pct=1.0,
         expected_move_high_pct=4.0,
-        horizon_hours=0.04,
+        horizon_hours=0.25,
         time_scale="MINUTES",
         decision_snapshot_id="decision:test",
         information_snapshot_id="information:test",
@@ -108,7 +108,7 @@ def test_forecast_learning_uses_realtime_bars_without_technical_snapshots(tmp_pa
 
     assert outcome.status == "COMPLETE"
     assert outcome.sample_count == 3
-    assert outcome.last_observed_at == "2026-08-09T10:03:00+00:00"
+    assert outcome.last_observed_at == "2026-08-09T10:15:00+00:00"
     assert outcome.last_price == 103.0
     assert outcome.realized_move_pct == 3.0
     assert outcome.direction_hit is True
