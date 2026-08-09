@@ -10,11 +10,12 @@ import uuid
 from typing import Any, Callable
 
 from realtime_market_data import MinuteBarAggregator, RealtimeMarketDataStore, RealtimeQuote, StreamStatus
-from saxo_provider import LIVE_BASE_URL, SIM_BASE_URL, SaxoClient, SaxoInstrument, configured_client, configured_instruments
+from saxo_provider import LIVE_BASE_URL, SaxoClient, SaxoInstrument, configured_client, configured_instruments
 
 
 LOGGER = logging.getLogger("pricegauger.saxo_stream")
 DEFAULT_REFRESH_MS = 1000
+STATUS_HEARTBEAT_SECONDS = 15.0
 
 
 class SaxoStreamError(RuntimeError):
@@ -101,13 +102,22 @@ def _find_value(payload: Any, names: tuple[str, ...]) -> Any:
     return None
 
 
-def quote_from_snapshot(*, market: str, instrument: SaxoInstrument, payload: dict[str, Any], observed_at: str | None = None) -> RealtimeQuote | None:
+def quote_from_snapshot(
+    *,
+    market: str,
+    instrument: SaxoInstrument,
+    payload: dict[str, Any],
+    observed_at: str | None = None,
+) -> RealtimeQuote | None:
     bid = _find_value(payload, ("Bid", "BidPrice"))
     ask = _find_value(payload, ("Ask", "AskPrice"))
     last = _find_value(payload, ("LastTraded", "LastTradedPrice", "Price"))
     if bid is None and ask is None and last is None:
         return None
-    stamp = observed_at or str(_find_value(payload, ("Timestamp", "LastUpdated")) or datetime.now(timezone.utc).isoformat())
+    stamp = observed_at or str(
+        _find_value(payload, ("Timestamp", "LastUpdated"))
+        or datetime.now(timezone.utc).isoformat()
+    )
     multiplier = float(instrument.price_multiplier)
     return RealtimeQuote(
         market=market,
@@ -168,9 +178,13 @@ def create_price_subscription(
     try:
         payload = response.json()
     except ValueError as exc:
-        raise SaxoStreamError(f"subscription returned non-JSON HTTP {response.status_code}") from exc
+        raise SaxoStreamError(
+            f"subscription returned non-JSON HTTP {response.status_code}"
+        ) from exc
     if not response.ok:
-        raise SaxoStreamError(f"subscription rejected HTTP {response.status_code}: {payload}")
+        raise SaxoStreamError(
+            f"subscription rejected HTTP {response.status_code}: {payload}"
+        )
     return payload
 
 
@@ -192,22 +206,40 @@ class SaxoRealtimeService:
         self.aggregators = {market: MinuteBarAggregator() for market in self.instruments}
         self.reference_to_market: dict[str, str] = {}
         self.snapshots: dict[str, dict[str, Any]] = {}
+        self._status_cache: dict[str, StreamStatus] = {
+            item.market: item for item in self.store.load_statuses()
+        }
+        self._last_status_write: dict[str, float] = {}
 
-    def _status(self, market: str, state: str, **kwargs: Any) -> None:
-        previous = next((item for item in self.store.load_statuses() if item.market == market), None)
-        self.store.save_status(
-            StreamStatus(
-                market=market,
-                updated_at=datetime.now(timezone.utc).isoformat(),
-                state=state,
-                reference_id=str(kwargs.get("reference_id") or (previous.reference_id if previous else "")),
-                requested_refresh_ms=self.refresh_ms,
-                actual_refresh_ms=kwargs.get("actual_refresh_ms", previous.actual_refresh_ms if previous else None),
-                delay_minutes=kwargs.get("delay_minutes", previous.delay_minutes if previous else None),
-                last_quote_at=kwargs.get("last_quote_at", previous.last_quote_at if previous else None),
-                detail=str(kwargs.get("detail") or ""),
-            )
+    def _status(self, market: str, state: str, *, force: bool = True, **kwargs: Any) -> None:
+        previous = self._status_cache.get(market)
+        status = StreamStatus(
+            market=market,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            state=state,
+            reference_id=str(
+                kwargs.get("reference_id")
+                if kwargs.get("reference_id") is not None
+                else (previous.reference_id if previous else "")
+            ),
+            requested_refresh_ms=self.refresh_ms,
+            actual_refresh_ms=kwargs.get(
+                "actual_refresh_ms", previous.actual_refresh_ms if previous else None
+            ),
+            delay_minutes=kwargs.get(
+                "delay_minutes", previous.delay_minutes if previous else None
+            ),
+            last_quote_at=kwargs.get(
+                "last_quote_at", previous.last_quote_at if previous else None
+            ),
+            detail=str(kwargs.get("detail") or ""),
         )
+        self._status_cache[market] = status
+        now_mono = time.monotonic()
+        last_write = self._last_status_write.get(market, 0.0)
+        if force or now_mono - last_write >= STATUS_HEARTBEAT_SECONDS:
+            self.store.save_status(status)
+            self._last_status_write[market] = now_mono
 
     def subscribe_all(self, context_id: str) -> None:
         self.reference_to_market.clear()
@@ -237,24 +269,27 @@ class SaxoRealtimeService:
                     delay_minutes=delay,
                     detail="subscription active",
                 )
-                quote = quote_from_snapshot(market=market, instrument=instrument, payload=snapshot)
+                quote = quote_from_snapshot(
+                    market=market, instrument=instrument, payload=snapshot
+                )
                 if quote is not None:
                     self._consume_quote(quote)
             except Exception as exc:
-                self._status(market, "FAILED", detail=f"{type(exc).__name__}: {exc}")
+                self._status(
+                    market,
+                    "FAILED",
+                    detail=f"{type(exc).__name__}: {exc}",
+                )
                 LOGGER.exception("Saxo subscription failed market=%s", market)
 
     def _consume_quote(self, quote: RealtimeQuote) -> None:
         completed = self.aggregators[quote.market].add(quote)
         if completed is not None:
             self.store.save_bar(completed)
-        prior = next((item for item in self.store.load_statuses() if item.market == quote.market), None)
         self._status(
             quote.market,
             "STREAMING",
-            reference_id=prior.reference_id if prior else "",
-            actual_refresh_ms=prior.actual_refresh_ms if prior else None,
-            delay_minutes=prior.delay_minutes if prior else None,
+            force=False,
             last_quote_at=quote.observed_at,
             detail="quote received",
         )
@@ -264,7 +299,9 @@ class SaxoRealtimeService:
         if ref.startswith("_"):
             payload = message.payload if isinstance(message.payload, dict) else {}
             if ref == "_RESETSUBSCRIPTIONS":
-                raise SaxoStreamReset(str(payload.get("TargetReferenceIds") or "all subscriptions"))
+                raise SaxoStreamReset(
+                    str(payload.get("TargetReferenceIds") or "all subscriptions")
+                )
             if ref == "_DISCONNECT":
                 raise SaxoStreamDisconnected("Saxo requested disconnect")
             return
@@ -275,11 +312,15 @@ class SaxoRealtimeService:
         merged = merge_delta(current, message.payload)
         self.snapshots[ref] = merged
         instrument = self.instruments[market]
-        quote = quote_from_snapshot(market=market, instrument=instrument, payload=merged)
+        quote = quote_from_snapshot(
+            market=market, instrument=instrument, payload=merged
+        )
         if quote is not None:
             self._consume_quote(quote)
 
-    def run_forever(self, *, stop_requested: Callable[[], bool] | None = None) -> None:
+    def run_forever(
+        self, *, stop_requested: Callable[[], bool] | None = None
+    ) -> None:
         try:
             from websockets.sync.client import connect
         except ImportError as exc:
@@ -296,7 +337,12 @@ class SaxoRealtimeService:
             try:
                 auth = _authorize(self.client, force_refresh=True)
                 url = _stream_url(self.client, context_id)
-                with connect(url, additional_headers={"Authorization": auth}, open_timeout=20, close_timeout=5) as socket:
+                with connect(
+                    url,
+                    additional_headers={"Authorization": auth},
+                    open_timeout=20,
+                    close_timeout=5,
+                ) as socket:
                     self.subscribe_all(context_id)
                     backoff = 1.0
                     while not stop():
@@ -308,7 +354,9 @@ class SaxoRealtimeService:
             except (SaxoStreamReset, SaxoStreamDisconnected) as exc:
                 LOGGER.warning("Saxo stream reset/reconnect: %s", exc)
             except Exception as exc:
-                LOGGER.exception("Saxo realtime stream failed; reconnecting: %s", exc)
+                LOGGER.exception(
+                    "Saxo realtime stream failed; reconnecting: %s", exc
+                )
             if stop():
                 break
             time.sleep(backoff)
