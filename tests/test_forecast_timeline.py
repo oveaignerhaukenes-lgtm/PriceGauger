@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from forecast_contracts import ForecastSnapshot
-from forecast_timeline import render_forecast_timeline_svg
+from forecast_timeline import _display_seconds, _timeline_gaps, render_forecast_timeline_svg
 
 
 def _forecast(*, suffix: str, as_of: str, low: float, high: float) -> ForecastSnapshot:
@@ -68,6 +68,51 @@ def test_timeline_has_taller_plot_and_right_price_scale():
     assert "høyre = pris" in svg
     assert 'x1="90"' in svg
     assert "4200" in svg
+
+
+def test_weekend_gap_is_compressed_and_actual_price_is_not_connected_across_it():
+    friday_a = datetime(2026, 8, 7, 20, 58, tzinfo=timezone.utc)
+    friday_b = datetime(2026, 8, 7, 20, 59, tzinfo=timezone.utc)
+    sunday_a = datetime(2026, 8, 9, 22, 0, tzinfo=timezone.utc)
+    sunday_b = datetime(2026, 8, 9, 22, 1, tzinfo=timezone.utc)
+    observed_dt = (
+        (friday_a, 4198.0),
+        (friday_b, 4200.0),
+        (sunday_a, 4220.0),
+        (sunday_b, 4222.0),
+    )
+    gaps = _timeline_gaps(observed_dt)
+
+    assert len(gaps) == 1
+    assert gaps[0].label == "WEEKEND GAP"
+    assert _display_seconds(sunday_a, axis_start=friday_a, gaps=gaps) < 20 * 60
+
+    forecast = _forecast(
+        suffix="weekend",
+        as_of="2026-08-09T22:00:00+00:00",
+        low=-0.2,
+        high=0.4,
+    )
+    svg = render_forecast_timeline_svg(
+        (forecast,),
+        observed_prices=tuple((stamp.isoformat(), price) for stamp, price in observed_dt),
+        now=sunday_b,
+    )
+
+    assert "WEEKEND GAP" in svg
+    assert svg.count('class="pg-realized"') == 2
+
+
+def test_large_non_weekend_data_gap_is_labeled_market_gap():
+    observed = (
+        (datetime(2026, 8, 10, 0, 0, tzinfo=timezone.utc), 4200.0),
+        (datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc), 4210.0),
+    )
+
+    gaps = _timeline_gaps(observed)
+
+    assert len(gaps) == 1
+    assert gaps[0].label == "MARKET GAP"
 
 
 def test_timeline_limits_old_layers_but_keeps_newest():

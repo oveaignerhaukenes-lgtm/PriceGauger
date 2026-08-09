@@ -16,6 +16,13 @@ class TimelineForecast:
     ends_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class TimelineGap:
+    start: datetime
+    end: datetime
+    label: str
+
+
 def _as_utc(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -87,6 +94,74 @@ def _missing_text(snapshot: ForecastSnapshot) -> str:
     )
 
 
+def _crosses_weekend(start: datetime, end: datetime) -> bool:
+    day = start.date()
+    last = end.date()
+    while day <= last:
+        if day.weekday() >= 5:
+            return True
+        day += timedelta(days=1)
+    return False
+
+
+def _timeline_gaps(
+    observed: Iterable[tuple[datetime, float]],
+    *,
+    threshold: timedelta = timedelta(hours=6),
+) -> tuple[TimelineGap, ...]:
+    points = tuple(observed)
+    gaps: list[TimelineGap] = []
+    for (previous_time, _), (current_time, _) in zip(points, points[1:]):
+        if current_time - previous_time <= threshold:
+            continue
+        label = "WEEKEND GAP" if _crosses_weekend(previous_time, current_time) else "MARKET GAP"
+        gaps.append(TimelineGap(previous_time, current_time, label))
+    return tuple(gaps)
+
+
+def _display_seconds(
+    stamp: datetime,
+    *,
+    axis_start: datetime,
+    gaps: Iterable[TimelineGap],
+    compressed_gap: timedelta = timedelta(minutes=15),
+) -> float:
+    cursor = axis_start
+    displayed = 0.0
+    compressed_seconds = max(1.0, compressed_gap.total_seconds())
+    for gap in gaps:
+        if gap.end <= axis_start:
+            continue
+        gap_start = max(axis_start, gap.start)
+        if stamp <= gap_start:
+            return displayed + max(0.0, (stamp - cursor).total_seconds())
+        displayed += max(0.0, (gap_start - cursor).total_seconds())
+        gap_duration = max(1.0, (gap.end - gap_start).total_seconds())
+        if stamp <= gap.end:
+            progress = max(0.0, min(1.0, (stamp - gap_start).total_seconds() / gap_duration))
+            return displayed + compressed_seconds * progress
+        displayed += compressed_seconds
+        cursor = gap.end
+    return displayed + max(0.0, (stamp - cursor).total_seconds())
+
+
+def _observed_segments(
+    observed: Iterable[tuple[datetime, float]],
+    *,
+    gap_threshold: timedelta = timedelta(hours=6),
+) -> tuple[tuple[tuple[datetime, float], ...], ...]:
+    points = tuple(observed)
+    if not points:
+        return ()
+    segments: list[list[tuple[datetime, float]]] = [[points[0]]]
+    for point in points[1:]:
+        if point[0] - segments[-1][-1][0] > gap_threshold:
+            segments.append([point])
+        else:
+            segments[-1].append(point)
+    return tuple(tuple(segment) for segment in segments)
+
+
 def _nice_tick_step(lower: float, upper: float, *, target_ticks: int = 4) -> float:
     span = max(0.01, float(upper) - float(lower))
     raw = max(1.0, span / max(2, int(target_ticks)))
@@ -150,11 +225,16 @@ def render_forecast_timeline_svg(
     axis_end = max(item.ends_at for item in layers)
     if observed and observed[-1][0] > axis_end:
         axis_end = observed[-1][0]
-    span_seconds = max(1.0, (axis_end - axis_start).total_seconds())
+    gaps = _timeline_gaps(observed)
+    display_span = max(
+        1.0,
+        _display_seconds(axis_end, axis_start=axis_start, gaps=gaps),
+    )
     plot_right = 90.0
 
     def xmap(stamp: datetime) -> float:
-        return max(0.0, min(plot_right, (stamp - axis_start).total_seconds() / span_seconds * plot_right))
+        displayed = _display_seconds(stamp, axis_start=axis_start, gaps=gaps)
+        return max(0.0, min(plot_right, displayed / display_span * plot_right))
 
     plotted_layers: list[dict[str, object]] = []
     all_prices: list[float] = [price for _, price in observed]
@@ -208,7 +288,7 @@ def render_forecast_timeline_svg(
     lower_price = min(all_prices)
     upper_price = max(all_prices)
     price_span = max(abs(upper_price) * 0.001, upper_price - lower_price, 0.01)
-    pad = price_span * 0.08
+    pad = price_span * 0.10
     lower_price -= pad
     upper_price += pad
 
@@ -231,6 +311,26 @@ def render_forecast_timeline_svg(
         '<line x1="90" y1="10" x2="90" y2="94" '
         'style="stroke:rgba(100,116,139,.25);stroke-width:.5;vector-effect:non-scaling-stroke" />'
     )
+
+    gap_markup: list[str] = []
+    for gap in gaps:
+        if gap.end < axis_start or gap.start > axis_end:
+            continue
+        left = xmap(max(axis_start, gap.start))
+        right = xmap(min(axis_end, gap.end))
+        width = max(1.6, right - left)
+        center = min(plot_right - width / 2.0, left + width / 2.0)
+        gap_markup.append(
+            f'<rect x="{center - width / 2.0:.1f}" y="8" width="{width:.1f}" height="88" rx=".8" '
+            'style="fill:rgba(100,116,139,.10);stroke:rgba(100,116,139,.38);stroke-width:.45;'
+            'stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke" />'
+        )
+        gap_markup.append(
+            f'<text x="{center:.1f}" y="14" text-anchor="middle" '
+            'style="font-size:2.7px;font-weight:700;letter-spacing:.08em;fill:rgba(71,85,105,.78);'
+            'font-family:system-ui,sans-serif">'
+            f'{gap.label}</text>'
+        )
 
     layer_markup: list[str] = []
     count = len(plotted_layers)
@@ -269,17 +369,30 @@ def render_forecast_timeline_svg(
         'style="fill:none;stroke:#d15b5b;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
     )
 
-    observed_in_axis = [(xmap(stamp), price) for stamp, price in observed if axis_start <= stamp <= axis_end]
+    observed_in_axis = [(stamp, price) for stamp, price in observed if axis_start <= stamp <= axis_end]
     actual_markup = ""
     if observed_in_axis:
-        actual_points = _points(observed_in_axis, ymap=ymap)
-        last_x, last_price = observed_in_axis[-1]
-        actual_markup = (
-            f'<polyline points="{actual_points}" class="pg-realized" '
-            'style="fill:none;stroke:#111827;stroke-width:1.8;vector-effect:non-scaling-stroke" />'
+        actual_parts: list[str] = []
+        for segment in _observed_segments(observed_in_axis):
+            segment_points = [(xmap(stamp), price) for stamp, price in segment]
+            if len(segment_points) >= 2:
+                actual_parts.append(
+                    f'<polyline points="{_points(segment_points, ymap=ymap)}" class="pg-realized" '
+                    'style="fill:none;stroke:#111827;stroke-width:1.8;vector-effect:non-scaling-stroke" />'
+                )
+            elif segment_points:
+                x, price = segment_points[0]
+                actual_parts.append(
+                    f'<circle cx="{x:.1f}" cy="{ymap(price):.1f}" r=".85" '
+                    'style="fill:#111827;stroke:none" />'
+                )
+        last_stamp, last_price = observed_in_axis[-1]
+        last_x = xmap(last_stamp)
+        actual_parts.append(
             f'<circle cx="{last_x:.1f}" cy="{ymap(last_price):.1f}" r="1.35" '
             'style="fill:#111827;stroke:white;stroke-width:.45;vector-effect:non-scaling-stroke" />'
         )
+        actual_markup = "".join(actual_parts)
 
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
@@ -304,6 +417,7 @@ def render_forecast_timeline_svg(
       <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} SNAPSHOT{'S' if len(layers) != 1 else ''}</span></div>
       <svg class="pg-forecast-svg" style="height:13.5rem" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Flere lagrede prognoser mot faktisk markedsutvikling med prisakse til høyre">
         {''.join(grid_markup)}
+        {''.join(gap_markup)}
         {''.join(layer_markup)}
         {actual_markup}
         {now_markup}
