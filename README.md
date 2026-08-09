@@ -54,6 +54,24 @@ Workeren:
 
 Den låste papirtesten bruker fortsatt 5-minutters prisbarer. Senere kan 1-minutts rådata lagres og aggregeres til 5 minutter uten å endre første testprotokoll.
 
+## Realtime stream
+
+Saxo realtime-kjernen kjøres separat fra analyseworkeren:
+
+```bash
+python realtime_worker.py --refresh-ms 1000
+```
+
+Streamtjenesten:
+
+- bruker Saxo WebSocket/subscriptions i stedet for høyfrekvent REST-polling
+- ber om 1000 ms refresh, men registrerer den faktiske raten Saxo tildeler
+- holder løpende quotes transient i minnet
+- aggregerer og lagrer ferdige 1-minutts OHLC-barer i PostgreSQL
+- lagrer UIC, asset type og symbol sammen med barene for kontraktssporbarhet
+- registrerer streamstatus og eventuell markedsdataforsinkelse uten å skrive til databasen hvert sekund
+- reconnecter etter reset/disconnect uten å påvirke analyseworkeren eller Streamlit-webben
+
 ## Secrets / miljøvariabler
 
 ```toml
@@ -72,31 +90,37 @@ GDELT behandles som sekundær evidens om sirkulasjon, repetisjon og historisk ma
 
 ## Railway
 
-Produksjonen bruker to Railway-tjenester fra samme repository og branch, koblet
+Produksjonen bruker tre Railway-tjenester fra samme repository og branch, koblet
 til samme Railway PostgreSQL-database:
 
 | Tjeneste | Config file path | Startkommando |
 | --- | --- | --- |
 | Streamlit | `/railway.streamlit.toml` | `streamlit run app.py ... --server.port $PORT` |
 | Worker | `/railway.worker.toml` | `python worker.py --interval 60` |
+| Realtime stream | `/railway.stream.toml` | `python realtime_worker.py --refresh-ms 1000` |
 
 Ved deploy:
 
 1. Opprett eller behold én PostgreSQL-tjeneste i Railway-prosjektet.
-2. Opprett to tjenester fra dette GitHub-repositoryet: `pricegauger-web` og
-   `pricegauger-worker`. Begge skal bruke `main`.
-3. Sett **Config File Path** til `/railway.streamlit.toml` for webtjenesten og
-   `/railway.worker.toml` for workeren.
-4. Gjør PostgreSQL-variabelen `DATABASE_URL` tilgjengelig i begge tjenestene.
-   Begge må peke til den samme databasen.
+2. Opprett tre tjenester fra dette GitHub-repositoryet: `pricegauger-web`,
+   `pricegauger-worker` og `pricegauger-stream`. Alle skal bruke `main`.
+3. Sett **Config File Path** til `/railway.streamlit.toml` for webtjenesten,
+   `/railway.worker.toml` for analyseworkeren og `/railway.stream.toml` for
+   realtime-tjenesten.
+4. Gjør PostgreSQL-variabelen `DATABASE_URL` tilgjengelig i alle tre tjenester.
+   Alle må peke til den samme databasen.
 5. Legg `OPENAI_API_KEY`, `OPENAI_MARKET_MODEL` og nødvendige Telegram-variabler
-   på workeren. Saxo-variablene `SAXO_APP_KEY`, `SAXO_APP_SECRET`,
-   `SAXO_REDIRECT_URI` og `SAXO_ENVIRONMENT` må være identiske på web og worker.
-   Når `DATABASE_URL` er satt, lagres det roterende Saxo-tokenparet i PostgreSQL
-   og deles av de to tjenestene. Legg også modellvariablene på webtjenesten dersom
-   UI-et bruker dem direkte.
-6. Deploy begge tjenester. Webtjenestens healthcheck er
-   `/_stcore/health`; workerloggen skal vise `cycle complete` hvert 60. sekund.
+   på analyseworkeren. Saxo-variablene `SAXO_APP_KEY`, `SAXO_APP_SECRET`,
+   `SAXO_REDIRECT_URI` og `SAXO_ENVIRONMENT` må være identiske på web, worker og
+   realtime stream. Når `DATABASE_URL` er satt, lagres det roterende
+   Saxo-tokenparet i PostgreSQL og deles av de tre tjenestene. Realtime-tjenesten
+   kan i tillegg bruke `PRICEGAUGER_STREAM_REFRESH_MS` dersom ønsket rate skal
+   overstyres; standard er 1000 ms. Legg også modellvariablene på webtjenesten
+   dersom UI-et bruker dem direkte.
+6. Deploy alle tre tjenester. Webtjenestens healthcheck er `/_stcore/health`;
+   workerloggen skal vise `cycle complete` hvert 60. sekund, mens
+   `pricegauger-stream` skal vise aktive Saxo subscriptions og løpende quotes
+   uten å restarte analyseworkeren.
 
 Det skal ikke monteres et SQLite-volum på `/data` i produksjon. Uten
 `DATABASE_URL` faller applikasjonen tilbake til lokal SQLite, som bare er ment
