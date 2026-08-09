@@ -59,6 +59,7 @@ class RealtimeBar1m:
     uic: int | None
     asset_type: str
     symbol: str
+    volume: float | None = None
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
@@ -105,6 +106,7 @@ class MinuteBarAggregator:
             uic=item.uic,
             asset_type=item.asset_type,
             symbol=item.symbol,
+            volume=None,
         )
 
     def add(self, quote: RealtimeQuote) -> RealtimeBar1m | None:
