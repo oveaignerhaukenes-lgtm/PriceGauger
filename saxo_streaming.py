@@ -17,6 +17,7 @@ LOGGER = logging.getLogger("pricegauger.saxo_stream")
 DEFAULT_REFRESH_MS = 1000
 STATUS_HEARTBEAT_SECONDS = 15.0
 STREAM_REAUTHORIZE_SECONDS = 15 * 60.0
+STREAM_REAUTHORIZE_RETRY_SECONDS = 60.0
 
 
 class SaxoStreamError(RuntimeError):
@@ -178,6 +179,26 @@ def reauthorize_stream(client: SaxoClient, *, context_id: str) -> None:
         raise SaxoStreamError(
             f"stream reauthorization rejected HTTP {response.status_code}"
         )
+
+
+def try_reauthorize_stream(client: SaxoClient, *, context_id: str) -> bool:
+    """Attempt reauthorization without sacrificing an otherwise healthy socket.
+
+    Token and REST endpoints can fail transiently even while the WebSocket remains
+    healthy. Keep receiving buffered/live stream data and retry shortly instead of
+    forcing an immediate reconnect on the first refresh failure.
+    """
+    try:
+        reauthorize_stream(client, context_id=context_id)
+    except Exception as exc:
+        LOGGER.warning(
+            "Saxo stream reauthorization failed; keeping socket open and retrying in %.0fs: %s",
+            STREAM_REAUTHORIZE_RETRY_SECONDS,
+            exc,
+            exc_info=True,
+        )
+        return False
+    return True
 
 
 def create_price_subscription(
@@ -370,12 +391,14 @@ class SaxoRealtimeService:
                 ) as socket:
                     self.subscribe_all(context_id)
                     backoff = 1.0
-                    last_authorized = time.monotonic()
+                    next_reauthorize = time.monotonic() + STREAM_REAUTHORIZE_SECONDS
                     while not stop():
-                        if time.monotonic() - last_authorized >= STREAM_REAUTHORIZE_SECONDS:
-                            reauthorize_stream(self.client, context_id=context_id)
-                            last_authorized = time.monotonic()
-                            LOGGER.info("Saxo stream reauthorized context=%s", context_id)
+                        if time.monotonic() >= next_reauthorize:
+                            if try_reauthorize_stream(self.client, context_id=context_id):
+                                next_reauthorize = time.monotonic() + STREAM_REAUTHORIZE_SECONDS
+                                LOGGER.info("Saxo stream reauthorized context=%s", context_id)
+                            else:
+                                next_reauthorize = time.monotonic() + STREAM_REAUTHORIZE_RETRY_SECONDS
                         frame = socket.recv(timeout=45)
                         if isinstance(frame, str):
                             continue
