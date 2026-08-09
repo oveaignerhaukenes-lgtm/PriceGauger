@@ -140,9 +140,13 @@ def delay_minutes(payload: Any) -> float | None:
 
 
 def _stream_url(client: SaxoClient, context_id: str) -> str:
+    """Return Saxo's current plain-WebSocket endpoint for the client's environment."""
     live = client.base_url.rstrip("/") == LIVE_BASE_URL.rstrip("/")
-    path = "openapi" if live else "sim/openapi"
-    return f"wss://streaming.saxobank.com/{path}/streamingws/connect?contextId={context_id}"
+    if live:
+        base = "wss://live-streaming.saxobank.com/oapi/streaming/ws"
+    else:
+        base = "wss://sim-streaming.saxobank.com/sim/oapi/streaming/ws"
+    return f"{base}/connect?contextId={context_id}"
 
 
 def _authorize(client: SaxoClient, *, force_refresh: bool = False) -> str:

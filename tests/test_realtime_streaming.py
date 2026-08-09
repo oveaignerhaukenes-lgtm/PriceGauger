@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import struct
+from types import SimpleNamespace
 
 from realtime_market_data import MinuteBarAggregator, RealtimeMarketDataStore, RealtimeQuote, StreamStatus
-from saxo_provider import SaxoInstrument
-from saxo_streaming import merge_delta, parse_stream_frame, quote_from_snapshot
+from saxo_provider import LIVE_BASE_URL, SIM_BASE_URL, SaxoInstrument
+from saxo_streaming import _stream_url, merge_delta, parse_stream_frame, quote_from_snapshot
 
 
 def _wire_message(message_id: int, reference_id: str, payload: dict) -> bytes:
@@ -21,6 +22,19 @@ def _wire_message(message_id: int, reference_id: str, payload: dict) -> bytes:
         + struct.pack("<I", len(raw))
         + raw
     )
+
+
+def test_stream_url_uses_current_saxo_environment_endpoints():
+    sim = SimpleNamespace(base_url=SIM_BASE_URL)
+    live = SimpleNamespace(base_url=LIVE_BASE_URL)
+
+    assert _stream_url(sim, "pg-test") == (
+        "wss://sim-streaming.saxobank.com/sim/oapi/streaming/ws/connect?contextId=pg-test"
+    )
+    assert _stream_url(live, "pg-test") == (
+        "wss://live-streaming.saxobank.com/oapi/streaming/ws/connect?contextId=pg-test"
+    )
+    assert "streaming.saxobank.com/sim/openapi/streamingws" not in _stream_url(sim, "pg-test")
 
 
 def test_parse_stream_frame_supports_multiple_saxo_messages():
