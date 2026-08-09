@@ -8,6 +8,7 @@ from pathlib import Path
 from analysis_status import AnalysisStatusStore
 from config import twelve_data_api_key
 from forecast_contracts import forecast_from_decision
+from forecast_learning import refresh_forecast_outcomes
 from forecast_store import ForecastStore
 from market_data import TwelveDataProvider, fetch_market_data
 from market_state_store import MarketStateStore
@@ -210,6 +211,22 @@ def process_flow_snapshot(
     else:
         market_states, technical_errors = {}, {}
     runtime_store.save_market_states(market_states.values())
+
+    # Learning is observational only: evaluate forecasts that already existed
+    # before these newly persisted market observations. A current-cycle forecast
+    # is saved later and therefore cannot score itself with same-cycle data.
+    try:
+        learned = refresh_forecast_outcomes(db_path)
+        if learned:
+            complete = sum(item.status == "COMPLETE" for item in learned)
+            LOGGER.info(
+                "forecast outcomes refreshed count=%s complete=%s",
+                len(learned),
+                complete,
+            )
+    except Exception:
+        LOGGER.exception("forecast outcome refresh failed; analysis continues")
+
     if market_states:
         detail = f"{len(market_states)} markeder oppdatert fra pris og teknisk regime."
         if technical_errors:
