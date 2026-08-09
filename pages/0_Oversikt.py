@@ -14,6 +14,7 @@ from market_history_store import MarketHistoryStore
 from market_mover_observation import format_elapsed, observe_market_mover
 from market_navigation import market_detail_href
 from overview_ai_summary import build_overview_summary
+from overview_recommendation_display import recommendation_action
 from overview_service import load_overview, load_overview_markets
 from overview_visuals import asset_color, bipolar_fill, visual_direction_score
 from realtime_market_data import RealtimeMarketDataStore
@@ -185,17 +186,11 @@ def _sensitivity_label(value: str) -> str:
 
 
 def _signal_action(direction: str) -> str:
-    return {
-        "LONG_BIAS": "LONG",
-        "SHORT_BIAS": "SHORT",
-        "NEUTRAL": "HOLD",
-    }.get(direction, "NO-TRADE")
+    return recommendation_action(direction)
 
 
 def _recommendation_action(item) -> str:
-    if item.recommendation_status != "ACTIONABLE":
-        return "NO-TRADE"
-    return _signal_action(item.direction)
+    return recommendation_action(item.direction)
 
 
 def _move_interval(item) -> str:
