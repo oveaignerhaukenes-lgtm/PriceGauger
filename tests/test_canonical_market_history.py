@@ -94,7 +94,7 @@ def test_forecast_learning_uses_realtime_bars_without_technical_snapshots(tmp_pa
         confidence=0.8,
         expected_move_low_pct=1.0,
         expected_move_high_pct=4.0,
-        horizon_hours=0.05,
+        horizon_hours=0.04,
         time_scale="MINUTES",
         decision_snapshot_id="decision:test",
         information_snapshot_id="information:test",
