@@ -8,6 +8,16 @@ from typing import Iterable
 from forecast_contracts import ForecastSnapshot
 
 
+MISSING_INPUT_LABELS = {
+    "calibrated_move_model": "bevegelsesmodell ikke kalibrert",
+    "technical_market_state": "tekniske prisdata mangler",
+    "reference_price": "referansepris mangler",
+    "forecast_horizon": "tidshorisont mangler",
+    "expected_move_interval": "forventet bevegelsesintervall mangler",
+    "news_context": "nyhetskontekst mangler",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class TrajectorySeries:
     history: tuple[tuple[float, float], ...]
@@ -54,6 +64,10 @@ def _as_utc(value: str) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _missing_input_text(items: Iterable[str]) -> str:
+    return " · ".join(MISSING_INPUT_LABELS.get(str(item), str(item).replace("_", " ")) for item in items)
 
 
 def build_trajectory(
@@ -138,7 +152,7 @@ def render_forecast_svg(
     if forecast is None:
         return '<div class="pg-forecast-empty">Ingen lagret prognose ennå.</div>'
     if forecast.horizon_hours is None or forecast.expected_move_low_pct is None or forecast.expected_move_high_pct is None:
-        missing = ", ".join(forecast.missing_inputs) or "prognoseparametre"
+        missing = _missing_input_text(forecast.missing_inputs) or "prognoseparametre"
         return f'<div class="pg-forecast-empty">Prognosen er foreløpig. Mangler: {missing}</div>'
 
     series = build_trajectory(
@@ -166,10 +180,10 @@ def render_forecast_svg(
     bull = _polyline(series.bull, ymap=ymap)
     bear = _polyline(series.bear, ymap=ymap)
     status = forecast.status
-    missing = " · ".join(forecast.missing_inputs)
+    missing = _missing_input_text(forecast.missing_inputs)
     horizon = f"{forecast.horizon_hours:g}t"
     interval = f"{forecast.expected_move_low_pct:+.2f}%…{forecast.expected_move_high_pct:+.2f}%"
-    degradation = f" · mangler {missing}" if missing else ""
+    degradation = f" · {missing}" if missing else ""
     gap_label = (
         '<span style="position:absolute;left:47.5%;top:.05rem;transform:translateX(-50%);font-size:.58rem;opacity:.58;white-space:nowrap">ingen nye prisdata</span>'
         if series.history_gap
