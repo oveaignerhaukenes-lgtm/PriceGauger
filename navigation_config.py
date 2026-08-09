@@ -44,6 +44,12 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "icon": "🧠",
             "url_path": "AI_Market_Assessment",
         },
+        {
+            "page": "pages/8_Macro_Calendar.py",
+            "title": "Makrokalender",
+            "icon": "🗓️",
+            "url_path": "Macro_Calendar",
+        },
     ),
     "Resultater": (
         {
