@@ -21,6 +21,7 @@ MISSING_INPUT_LABELS = {
 @dataclass(frozen=True, slots=True)
 class TrajectorySeries:
     history: tuple[tuple[float, float], ...]
+    realized: tuple[tuple[float, float], ...]
     base: tuple[tuple[float, float], ...]
     bull: tuple[tuple[float, float], ...]
     bear: tuple[tuple[float, float], ...]
@@ -74,20 +75,24 @@ def build_trajectory(
     forecast: ForecastSnapshot,
     *,
     history_prices: Iterable[tuple[str, float]] = (),
+    realized_prices: Iterable[tuple[str, float]] = (),
     market_regime: str = "",
     volatility_score: float | None = None,
     steps: int = 12,
 ) -> TrajectorySeries:
     ref = forecast.reference_price
     prices = [(stamp, float(price)) for stamp, price in history_prices if price is not None]
+    realized_input = [(stamp, float(price)) for stamp, price in realized_prices if price is not None]
     if ref is None and prices:
         ref = prices[-1][1]
+    if ref is None and realized_input:
+        ref = realized_input[0][1]
     ref = float(ref or 1.0)
 
+    forecast_time = _as_utc(forecast.as_of)
     history_gap = False
     history: list[tuple[float, float]] = []
     if prices:
-        forecast_time = _as_utc(forecast.as_of)
         last_history_time = _as_utc(prices[-1][0])
         if forecast_time is not None and last_history_time is not None:
             history_gap = (forecast_time - last_history_time).total_seconds() > 2 * 3600
@@ -99,6 +104,18 @@ def build_trajectory(
             history.append((x, y))
     else:
         history.append((50.0, 0.0))
+
+    realized: list[tuple[float, float]] = []
+    horizon_seconds = max(0.25, float(forecast.horizon_hours or 0.25)) * 3600.0
+    if forecast_time is not None:
+        for stamp, price in realized_input:
+            observed_at = _as_utc(stamp)
+            if observed_at is None or observed_at < forecast_time:
+                continue
+            progress = min(1.0, max(0.0, (observed_at - forecast_time).total_seconds() / horizon_seconds))
+            x = 50.0 + 50.0 * progress
+            y = (price / ref - 1.0) * 100.0
+            realized.append((x, y))
 
     low = float(forecast.expected_move_low_pct or 0.0)
     high = float(forecast.expected_move_high_pct or 0.0)
@@ -127,6 +144,7 @@ def build_trajectory(
 
     return TrajectorySeries(
         history=tuple(history),
+        realized=tuple(realized),
         base=tuple(base),
         bull=tuple(bull),
         bear=tuple(bear),
@@ -145,6 +163,7 @@ def render_forecast_svg(
     forecast: ForecastSnapshot | None,
     *,
     history_prices: Iterable[tuple[str, float]] = (),
+    realized_prices: Iterable[tuple[str, float]] = (),
     market_regime: str = "",
     volatility_score: float | None = None,
     color: str = "#5a6b7b",
@@ -158,10 +177,23 @@ def render_forecast_svg(
     series = build_trajectory(
         forecast,
         history_prices=history_prices,
+        realized_prices=realized_prices,
         market_regime=market_regime,
         volatility_score=volatility_score,
     )
-    ys = [y for collection in (series.history, series.base, series.bull, series.bear, series.fan_upper, series.fan_lower) for _, y in collection]
+    ys = [
+        y
+        for collection in (
+            series.history,
+            series.realized,
+            series.base,
+            series.bull,
+            series.bear,
+            series.fan_upper,
+            series.fan_lower,
+        )
+        for _, y in collection
+    ]
     lower = min(ys + [-0.25])
     upper = max(ys + [0.25])
     span = max(0.5, upper - lower)
@@ -176,6 +208,7 @@ def render_forecast_svg(
     fan_polygon = _polyline(tuple(fan_points), ymap=ymap)
     zero_y = ymap(0.0)
     history = _polyline(series.history, ymap=ymap)
+    realized = _polyline(series.realized, ymap=ymap)
     base = _polyline(series.base, ymap=ymap)
     bull = _polyline(series.bull, ymap=ymap)
     bear = _polyline(series.bear, ymap=ymap)
@@ -185,16 +218,22 @@ def render_forecast_svg(
     interval = f"{forecast.expected_move_low_pct:+.2f}%…{forecast.expected_move_high_pct:+.2f}%"
     degradation = f" · {missing}" if missing else ""
     gap_label = (
-        '<span style="position:absolute;left:47.5%;top:.05rem;transform:translateX(-50%);font-size:.58rem;opacity:.58;white-space:nowrap">ingen nye prisdata</span>'
+        '<span style="position:absolute;left:47.5%;top:.05rem;transform:translateX(-50%);font-size:.58rem;opacity:.58;white-space:nowrap">ingen nye prisdata før prognosen</span>'
         if series.history_gap
         else ""
     )
+    realized_line = (
+        f'<polyline points="{realized}" class="pg-realized" style="fill:none;stroke:#111827;stroke-width:1.8;vector-effect:non-scaling-stroke" />'
+        if series.realized
+        else ""
+    )
+    realized_label = " · faktisk pris følger prognosen" if series.realized else " · venter på faktisk pris"
 
     return f'''<div class="pg-forecast-wrap" style="overflow:hidden">
       <div class="pg-forecast-head"><span>FORVENTET BANE</span><span>{series.profile.replace('_', ' ')}</span></div>
       <div style="position:relative;min-width:0;overflow:hidden">
         {gap_label}
-        <svg class="pg-forecast-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Historikk og prognose">
+        <svg class="pg-forecast-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Historikk, prognose og faktisk utvikling">
           <line x1="0" y1="{zero_y:.1f}" x2="100" y2="{zero_y:.1f}" class="pg-zero" />
           <line x1="50" y1="8" x2="50" y2="96" class="pg-now" style="stroke:#64748b;stroke-width:1.0" />
           <polygon points="{fan_polygon}" class="pg-fan" style="fill:#7890b3;fill-opacity:.18" />
@@ -202,8 +241,9 @@ def render_forecast_svg(
           <polyline points="{bull}" class="pg-alt pg-bull" style="stroke:#2f9e64;stroke-width:1.05;stroke-dasharray:2 1.4" />
           <polyline points="{bear}" class="pg-alt pg-bear" style="stroke:#d15b5b;stroke-width:1.05;stroke-dasharray:2 1.4" />
           <polyline points="{base}" class="pg-base" style="stroke:{color};stroke-width:2.0" />
+          {realized_line}
         </svg>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;font-size:.58rem;opacity:.58;margin-top:-.2rem"><span style="text-align:right;padding-right:.35rem">historikk</span><span style="padding-left:.35rem">prognose</span></div>
-      <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {status}{degradation}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;font-size:.58rem;opacity:.58;margin-top:-.2rem"><span style="text-align:right;padding-right:.35rem">historikk</span><span style="padding-left:.35rem">prognose + faktisk</span></div>
+      <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {status}{degradation}{realized_label}</div>
     </div>'''
