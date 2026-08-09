@@ -98,7 +98,17 @@ def test_svg_marks_now_fan_and_scenarios_without_svg_text_nodes():
     assert "#d15b5b" in svg
     assert "#374151" in svg
     assert "DEGRADED" in svg
-    assert "news_context" in svg
+    assert "nyhetskontekst mangler" in svg
+    assert "news_context" not in svg
     assert "historikk" in svg
     assert "prognose" in svg
     assert "<text" not in svg
+
+
+def test_uncalibrated_move_model_is_presented_as_status_not_internal_error_name():
+    svg = render_forecast_svg(
+        _forecast(status="DEGRADED", missing_inputs=("calibrated_move_model",)),
+    )
+
+    assert "bevegelsesmodell ikke kalibrert" in svg
+    assert "calibrated_move_model" not in svg
