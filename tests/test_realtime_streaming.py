@@ -7,7 +7,14 @@ from types import SimpleNamespace
 
 from realtime_market_data import MinuteBarAggregator, RealtimeMarketDataStore, RealtimeQuote, StreamStatus
 from saxo_provider import LIVE_BASE_URL, SIM_BASE_URL, SaxoInstrument
-from saxo_streaming import _stream_url, merge_delta, parse_stream_frame, quote_from_snapshot
+from saxo_streaming import (
+    _stream_authorize_url,
+    _stream_url,
+    merge_delta,
+    parse_stream_frame,
+    quote_from_snapshot,
+    reauthorize_stream,
+)
 
 
 def _wire_message(message_id: int, reference_id: str, payload: dict) -> bytes:
@@ -34,7 +41,46 @@ def test_stream_url_uses_current_saxo_environment_endpoints():
     assert _stream_url(live, "pg-test") == (
         "wss://live-streaming.saxobank.com/oapi/streaming/ws/connect?contextId=pg-test"
     )
+    assert _stream_authorize_url(sim, "pg-test") == (
+        "https://sim-streaming.saxobank.com/sim/oapi/streaming/ws/authorize?contextid=pg-test"
+    )
+    assert _stream_authorize_url(live, "pg-test") == (
+        "https://live-streaming.saxobank.com/oapi/streaming/ws/authorize?contextid=pg-test"
+    )
     assert "streaming.saxobank.com/sim/openapi/streamingws" not in _stream_url(sim, "pg-test")
+
+
+def test_reauthorize_stream_refreshes_token_and_authorizes_existing_context():
+    calls: list[tuple[str, float]] = []
+
+    class Session:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+        def put(self, url: str, *, timeout: float):
+            calls.append((url, timeout))
+            return SimpleNamespace(status_code=202)
+
+    class Client:
+        base_url = SIM_BASE_URL
+        timeout = 12.0
+
+        def __init__(self) -> None:
+            self.session = Session()
+            self.forced: list[bool] = []
+
+        def _set_authorization(self, *, force_refresh: bool = False) -> None:
+            self.forced.append(force_refresh)
+            self.session.headers["Authorization"] = "Bearer refreshed"
+
+    client = Client()
+    reauthorize_stream(client, context_id="pg-test")
+
+    assert client.forced == [True]
+    assert calls == [(
+        "https://sim-streaming.saxobank.com/sim/oapi/streaming/ws/authorize?contextid=pg-test",
+        12.0,
+    )]
 
 
 def test_parse_stream_frame_supports_multiple_saxo_messages():

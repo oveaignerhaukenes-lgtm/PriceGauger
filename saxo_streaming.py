@@ -16,6 +16,7 @@ from saxo_provider import LIVE_BASE_URL, SaxoClient, SaxoInstrument, configured_
 LOGGER = logging.getLogger("pricegauger.saxo_stream")
 DEFAULT_REFRESH_MS = 1000
 STATUS_HEARTBEAT_SECONDS = 15.0
+STREAM_REAUTHORIZE_SECONDS = 15 * 60.0
 
 
 class SaxoStreamError(RuntimeError):
@@ -139,14 +140,21 @@ def delay_minutes(payload: Any) -> float | None:
         return None
 
 
-def _stream_url(client: SaxoClient, context_id: str) -> str:
-    """Return Saxo's current plain-WebSocket endpoint for the client's environment."""
+def _stream_base(client: SaxoClient) -> str:
     live = client.base_url.rstrip("/") == LIVE_BASE_URL.rstrip("/")
     if live:
-        base = "wss://live-streaming.saxobank.com/oapi/streaming/ws"
-    else:
-        base = "wss://sim-streaming.saxobank.com/sim/oapi/streaming/ws"
+        return "https://live-streaming.saxobank.com/oapi/streaming/ws"
+    return "https://sim-streaming.saxobank.com/sim/oapi/streaming/ws"
+
+
+def _stream_url(client: SaxoClient, context_id: str) -> str:
+    """Return Saxo's current plain-WebSocket endpoint for the client's environment."""
+    base = _stream_base(client).replace("https://", "wss://", 1)
     return f"{base}/connect?contextId={context_id}"
+
+
+def _stream_authorize_url(client: SaxoClient, context_id: str) -> str:
+    return f"{_stream_base(client)}/authorize?contextid={context_id}"
 
 
 def _authorize(client: SaxoClient, *, force_refresh: bool = False) -> str:
@@ -157,6 +165,19 @@ def _authorize(client: SaxoClient, *, force_refresh: bool = False) -> str:
     if not value:
         raise SaxoStreamError("Saxo authorization header unavailable")
     return value
+
+
+def reauthorize_stream(client: SaxoClient, *, context_id: str) -> None:
+    """Refresh OAuth and authorize an already-open Saxo WebSocket context."""
+    _authorize(client, force_refresh=True)
+    response = client.session.put(
+        _stream_authorize_url(client, context_id),
+        timeout=client.timeout,
+    )
+    if response.status_code != 202:
+        raise SaxoStreamError(
+            f"stream reauthorization rejected HTTP {response.status_code}"
+        )
 
 
 def create_price_subscription(
@@ -349,7 +370,12 @@ class SaxoRealtimeService:
                 ) as socket:
                     self.subscribe_all(context_id)
                     backoff = 1.0
+                    last_authorized = time.monotonic()
                     while not stop():
+                        if time.monotonic() - last_authorized >= STREAM_REAUTHORIZE_SECONDS:
+                            reauthorize_stream(self.client, context_id=context_id)
+                            last_authorized = time.monotonic()
+                            LOGGER.info("Saxo stream reauthorized context=%s", context_id)
                         frame = socket.recv(timeout=45)
                         if isinstance(frame, str):
                             continue
