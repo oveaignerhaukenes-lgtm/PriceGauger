@@ -11,9 +11,10 @@ class MarketMoverObservation:
     move_pct: float
     elapsed_minutes: int
     start_price: float
-    end_price: float
+    peak_price: float
     start_at: str
-    end_at: str
+    peak_at: str
+    observation_complete: bool
 
 
 def _utc(value: str) -> datetime:
@@ -24,12 +25,14 @@ def _utc(value: str) -> datetime:
 
 
 def observe_market_mover(alert, history_store: MarketHistoryStore, *, now: datetime | None = None) -> MarketMoverObservation | None:
-    """Measure realized price movement after a market-mover alert.
+    """Measure the strongest realized move within a market-mover horizon.
 
-    Uses persisted worker observations only. The observation window starts at the
-    alert timestamp and is capped at the alert's forecast horizon. At least two
-    observed market prices are required so the UI never presents an invented
-    realized move.
+    The baseline is the first persisted worker price at/after the alert. For an
+    UP alert, the strongest positive excursion is selected; for DOWN, the
+    strongest negative excursion; for UNCERTAIN, the largest absolute move.
+    Timing is therefore the time from the first observed price to the selected
+    peak/trough, not simply the age of the alert. The observation window is
+    capped at the alert's forecast horizon.
     """
     created_at = _utc(str(alert.created_at))
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -48,21 +51,38 @@ def observe_market_mover(alert, history_store: MarketHistoryStore, *, now: datet
         return None
 
     start_at_raw, start_price_raw = points[0]
-    end_at_raw, end_price_raw = points[-1]
     start_at = _utc(start_at_raw)
-    end_at = _utc(end_at_raw)
     start_price = float(start_price_raw)
-    end_price = float(end_price_raw)
-    if start_price == 0.0 or end_at <= start_at:
+    if start_price == 0.0:
         return None
 
-    move_pct = ((end_price / start_price) - 1.0) * 100.0
-    elapsed_minutes = max(1, int(round((end_at - start_at).total_seconds() / 60.0)))
+    candidates: list[tuple[float, datetime, float]] = []
+    for stamp_raw, price_raw in points[1:]:
+        stamp = _utc(stamp_raw)
+        price = float(price_raw)
+        if stamp <= start_at:
+            continue
+        move_pct = ((price / start_price) - 1.0) * 100.0
+        candidates.append((move_pct, stamp, price))
+    if not candidates:
+        return None
+
+    direction = str(getattr(alert, "expected_direction", "UNCERTAIN")).upper()
+    if direction == "UP":
+        selected = max(candidates, key=lambda item: item[0])
+    elif direction == "DOWN":
+        selected = min(candidates, key=lambda item: item[0])
+    else:
+        selected = max(candidates, key=lambda item: abs(item[0]))
+
+    move_pct, peak_at, peak_price = selected
+    elapsed_minutes = max(1, int(round((peak_at - start_at).total_seconds() / 60.0)))
     return MarketMoverObservation(
         move_pct=move_pct,
         elapsed_minutes=elapsed_minutes,
         start_price=start_price,
-        end_price=end_price,
+        peak_price=peak_price,
         start_at=start_at.isoformat(),
-        end_at=end_at.isoformat(),
+        peak_at=peak_at.isoformat(),
+        observation_complete=current >= horizon_end,
     )
