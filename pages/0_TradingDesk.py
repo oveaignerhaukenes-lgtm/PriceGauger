@@ -13,6 +13,7 @@ from trading_desk_chart import (
     OVERLAY_NORMALIZED,
     build_trading_desk_figure,
 )
+from trading_desk_product_panel import render_saxo_product_panel
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
@@ -184,3 +185,5 @@ else:
             "Volum vises bare der canonical bar har ekte Saxo chart-volume. "
             "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
         )
+
+render_saxo_product_panel(market)
