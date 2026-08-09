@@ -28,6 +28,52 @@ class MarketHistoryStore:
             observed = observed.replace(tzinfo=timezone.utc)
         return observed.astimezone(timezone.utc)
 
+    def load_range(
+        self,
+        *,
+        market: str,
+        start: str | datetime,
+        end: str | datetime,
+        limit: int = 5000,
+    ) -> tuple[tuple[str, float], ...]:
+        start_at = start if isinstance(start, datetime) else self._parse_stamp(str(start))
+        end_at = end if isinstance(end, datetime) else self._parse_stamp(str(end))
+        if start_at is None or end_at is None:
+            return ()
+        if start_at.tzinfo is None:
+            start_at = start_at.replace(tzinfo=timezone.utc)
+        if end_at.tzinfo is None:
+            end_at = end_at.replace(tzinfo=timezone.utc)
+        start_at = start_at.astimezone(timezone.utc)
+        end_at = end_at.astimezone(timezone.utc)
+        if end_at < start_at:
+            start_at, end_at = end_at, start_at
+
+        with connect(self.path) as db:
+            rows = db.execute(
+                """
+                SELECT payload_json
+                FROM technical_market_state_snapshots
+                WHERE market=? AND as_of>=? AND as_of<=?
+                ORDER BY as_of ASC
+                LIMIT ?
+                """,
+                (market, start_at.isoformat(), end_at.isoformat(), max(1, int(limit))),
+            ).fetchall()
+
+        points: list[tuple[datetime, float]] = []
+        seen: set[datetime] = set()
+        for row in rows:
+            record = json.loads(row["payload_json"])
+            price = record.get("price")
+            observed = self._parse_stamp(str(record.get("as_of") or ""))
+            if price is None or observed is None or observed in seen:
+                continue
+            seen.add(observed)
+            points.append((observed, float(price)))
+        points.sort(key=lambda item: item[0])
+        return tuple((stamp.isoformat(), price) for stamp, price in points)
+
     def load_window(
         self,
         *,
