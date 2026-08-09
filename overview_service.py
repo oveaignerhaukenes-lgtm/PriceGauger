@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
@@ -13,6 +14,9 @@ from state_contracts import DecisionStateSnapshot
 from state_runtime_store import StateRuntimeStore
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 from telegram_flow_store import TelegramFlowStore
+
+
+RECENT_FORECAST_LIMIT = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +34,7 @@ class OverviewMarket:
     horizon_hours: float | None = None
     recommendation_status: str = "PROVISIONAL"
     forecast: ForecastSnapshot | None = None
+    forecasts: tuple[ForecastSnapshot, ...] = ()
     price_history: tuple[tuple[str, float], ...] = ()
     market_regime: str = ""
     volatility_score: float | None = None
@@ -59,6 +64,64 @@ def _recommendation_status(item: DecisionStateSnapshot) -> str:
     return "PROVISIONAL"
 
 
+def _as_utc(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _forecast_timeline_prices(
+    history_store: MarketHistoryStore,
+    *,
+    market: str,
+    forecasts: tuple[ForecastSnapshot, ...],
+    now: datetime | None = None,
+) -> tuple[tuple[str, float], ...]:
+    usable: list[tuple[ForecastSnapshot, datetime, datetime]] = []
+    for forecast in forecasts:
+        as_of = _as_utc(forecast.as_of)
+        if as_of is None or forecast.horizon_hours is None:
+            continue
+        horizon_hours = max(0.25, float(forecast.horizon_hours))
+        usable.append((forecast, as_of, as_of + timedelta(hours=horizon_hours)))
+    if not usable:
+        return ()
+
+    usable.sort(key=lambda item: item[1])
+    earliest = usable[0][1]
+    max_horizon_hours = max(max(0.25, float(item[0].horizon_hours or 0.25)) for item in usable)
+    horizon_end = max(item[2] for item in usable)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    realized_end = min(current, horizon_end)
+
+    before = history_store.load_window(
+        market=market,
+        as_of=earliest.isoformat(),
+        horizon_hours=max_horizon_hours,
+        limit=4000,
+    )
+    after: tuple[tuple[str, float], ...] = ()
+    if realized_end >= earliest:
+        after = history_store.load_range(
+            market=market,
+            start=earliest,
+            end=realized_end,
+            limit=10000,
+        )
+
+    merged: dict[str, float] = {}
+    for stamp, price in (*before, *after):
+        merged[str(stamp)] = float(price)
+    return tuple(sorted(merged.items(), key=lambda item: item[0]))
+
+
 def _market(
     item: DecisionStateSnapshot,
     *,
@@ -68,15 +131,16 @@ def _market(
     history_store: MarketHistoryStore,
 ) -> OverviewMarket:
     flow_item = next((asset for asset in (flow.assets if flow is not None else ()) if asset.asset == item.market), None)
-    forecast = forecast_store.load_latest(market=item.market)
+    recent = forecast_store.load_all(market=item.market, limit=RECENT_FORECAST_LIMIT)
+    forecasts = tuple(reversed(recent))
+    forecast = forecasts[-1] if forecasts else None
     market_state = runtime_store.load_latest_market_state(market=item.market)
-    history: tuple[tuple[str, float], ...] = ()
-    if forecast is not None and forecast.horizon_hours is not None:
-        history = history_store.load_window(
-            market=item.market,
-            as_of=forecast.as_of,
-            horizon_hours=forecast.horizon_hours,
-        )
+    history = _forecast_timeline_prices(
+        history_store,
+        market=item.market,
+        forecasts=forecasts,
+    )
+
     move_low = item.expected_move_low_pct
     move_high = item.expected_move_high_pct
     horizon = item.horizon_hours
@@ -101,9 +165,43 @@ def _market(
         horizon_hours=horizon,
         recommendation_status=_recommendation_status(item),
         forecast=forecast,
+        forecasts=forecasts,
         price_history=history,
         market_regime="" if market_state is None else market_state.regime,
         volatility_score=None if market_state is None else market_state.volatility_score,
+    )
+
+
+def _load_markets(
+    *,
+    db_path: str | Path,
+    flow: TelegramFlowAssessment | None,
+    runtime_store: StateRuntimeStore,
+    forecast_store: ForecastStore,
+    history_store: MarketHistoryStore,
+) -> tuple[OverviewMarket, ...]:
+    decisions = runtime_store.load_latest_decision_states()
+    return tuple(
+        _market(
+            item,
+            flow=flow,
+            runtime_store=runtime_store,
+            forecast_store=forecast_store,
+            history_store=history_store,
+        )
+        for item in decisions
+    )
+
+
+def load_overview_markets(db_path: str | Path = "pricegauger.db") -> tuple[OverviewMarket, ...]:
+    """Read only the live market-card state; safe to call from a UI refresh fragment."""
+    flow = TelegramFlowStore(db_path).load_latest_snapshot()
+    return _load_markets(
+        db_path=db_path,
+        flow=flow,
+        runtime_store=StateRuntimeStore(db_path),
+        forecast_store=ForecastStore(db_path),
+        history_store=MarketHistoryStore(db_path),
     )
 
 
@@ -114,16 +212,12 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
     history_store = MarketHistoryStore(db_path)
     flow = flow_store.load_latest_snapshot()
     posts = tuple(reversed(flow_store.load_posts(limit=post_limit)))
-    decisions = runtime_store.load_latest_decision_states()
-    markets = tuple(
-        _market(
-            item,
-            flow=flow,
-            runtime_store=runtime_store,
-            forecast_store=forecast_store,
-            history_store=history_store,
-        )
-        for item in decisions
+    markets = _load_markets(
+        db_path=db_path,
+        flow=flow,
+        runtime_store=runtime_store,
+        forecast_store=forecast_store,
+        history_store=history_store,
     )
     return OverviewData(
         flow=flow,

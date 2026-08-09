@@ -8,13 +8,15 @@ import streamlit as st
 from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from analysis_status import AnalysisStatusStore
 from build_info import render_build_badge
-from forecast_visuals import render_forecast_svg
+from forecast_timeline import render_forecast_timeline_svg
+from market_data_freshness import classify_market_data_freshness
 from market_history_store import MarketHistoryStore
 from market_mover_observation import format_elapsed, observe_market_mover
 from market_navigation import market_detail_href
 from overview_ai_summary import build_overview_summary
-from overview_service import load_overview
+from overview_service import load_overview, load_overview_markets
 from overview_visuals import asset_color, bipolar_fill, visual_direction_score
+from realtime_market_data import RealtimeMarketDataStore
 from saxo_auth import configured_oauth_client
 
 
@@ -80,6 +82,7 @@ st.markdown(
     .pg-meta {font-size:.78rem; opacity:.76; margin-top:.35rem; line-height:1.35;}
     .pg-driver {font-size:.84rem; margin-top:.5rem; line-height:1.35; overflow-wrap:anywhere;}
     .pg-delta {font-size:.76rem; margin-top:.38rem; font-weight:650;}
+    .pg-data-health {font-size:.72rem; margin-top:.48rem; padding:.32rem .45rem; border-radius:.45rem; background:rgba(128,128,128,.08); line-height:1.3;}
     .pg-gauge-labels {display:grid; grid-template-columns:1fr auto 1fr; margin-top:.58rem; font-size:.66rem; opacity:.66;}
     .pg-gauge-labels span:last-child {text-align:right;}
     .pg-bipolar {position:relative; height:.52rem; margin-top:.18rem; border-radius:999px; background:rgba(128,128,128,.18); overflow:visible;}
@@ -219,7 +222,23 @@ def _horizon(item) -> str:
     return "Ikke fastsatt" if item.horizon_hours is None else f"{item.horizon_hours:g} timer"
 
 
-def _render_market_card(item) -> str:
+def _freshness_html(freshness) -> str:
+    if freshness is None:
+        return ""
+    icon = "●"
+    if freshness.state in {"STREAM_WARNING", "BAR_PIPELINE_WARNING", "NO_BARS"}:
+        icon = "⚠"
+    elif freshness.state == "QUIET_OR_STALE":
+        icon = "○"
+    return (
+        '<div class="pg-data-health">'
+        f'{html.escape(icon)} <strong>{html.escape(freshness.label)}</strong> · '
+        f'{html.escape(freshness.detail)}'
+        '</div>'
+    )
+
+
+def _render_market_card(item, freshness=None) -> str:
     color = asset_color(item.market)
     left_width, right_width, marker_position = bipolar_fill(item.score)
     display_score = visual_direction_score(item.score)
@@ -231,13 +250,14 @@ def _render_market_card(item) -> str:
     price_interval = _price_interval(item)
     horizon = _horizon(item)
     detail_href = market_detail_href(item.market)
-    forecast_svg = render_forecast_svg(
-        item.forecast,
-        history_prices=item.price_history,
+    forecast_svg = render_forecast_timeline_svg(
+        item.forecasts,
+        observed_prices=item.price_history,
         market_regime=item.market_regime,
         volatility_score=item.volatility_score,
         color=color,
     )
+    data_health = _freshness_html(freshness)
     return f"""
     <a class="pg-market-link" href="{html.escape(detail_href, quote=True)}" target="_self" aria-label="Åpne {html.escape(item.market)} i Markedsvisning">
       <article class="pg-market-card" style="--market-color:{color}">
@@ -262,6 +282,7 @@ def _render_market_card(item) -> str:
             <div class="pg-delta">{html.escape(delta_label)}</div>
             <div class="pg-driver">{html.escape(item.top_driver)}</div>
             <div class="pg-meta">{html.escape(item.status_reason)}</div>
+            {data_health}
           </section>
           <aside class="pg-recommendation">
             <div class="pg-rec-kicker">ANBEFALING</div>
@@ -280,6 +301,36 @@ def _render_market_card(item) -> str:
       </article>
     </a>
     """
+
+
+def _render_live_market_cards() -> None:
+    try:
+        markets = load_overview_markets()
+        realtime = RealtimeMarketDataStore()
+        statuses = {item.market: item for item in realtime.load_statuses()}
+    except Exception as exc:
+        st.warning(f"Kunne ikke oppdatere levende markedskort: {exc}")
+        return
+
+    if not markets:
+        st.info("Venter på første autoritative Decision State-snapshot fra workeren.")
+        return
+
+    for item in markets:
+        try:
+            bar = realtime.load_latest_bar(market=item.market)
+        except Exception:
+            bar = None
+        freshness = classify_market_data_freshness(
+            bar=bar,
+            status=statuses.get(item.market),
+        )
+        st.markdown(_render_market_card(item, freshness), unsafe_allow_html=True)
+
+    st.caption(
+        "Markeds- og forecastkort rereades hvert 5. sekund fra lagret state og canonical 1m-bars. "
+        "Dette utløser ikke ny analyse eller Saxo-kall."
+    )
 
 
 try:
@@ -368,15 +419,10 @@ else:
         st.write(f"Prisbekreftelse: {float(alert.price_confirmation):+.2f}")
 
 st.subheader("Analyse og anbefaling")
-if data.flow is None or not data.markets:
-    st.info("Venter på første autoritative Decision State-snapshot fra workeren.")
+if _fragment is not None:
+    _fragment(run_every="5s")(_render_live_market_cards)()
 else:
-    for item in data.markets:
-        st.markdown(_render_market_card(item), unsafe_allow_html=True)
-    st.caption(
-        f"Oppdatert {_fmt_time(data.flow.as_of)} · {data.flow.post_count} poster · "
-        f"{data.flow.event_cluster_count} hendelsesklynger · {data.flow.model or 'modell ukjent'}"
-    )
+    _render_live_market_cards()
 
 st.divider()
 st.subheader("Siste hendelser")
