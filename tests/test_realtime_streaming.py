@@ -5,6 +5,7 @@ import json
 import struct
 from types import SimpleNamespace
 
+from database import connect
 from realtime_market_data import MinuteBarAggregator, RealtimeMarketDataStore, RealtimeQuote, StreamStatus
 from saxo_provider import LIVE_BASE_URL, SIM_BASE_URL, SaxoInstrument
 from saxo_streaming import (
@@ -149,6 +150,7 @@ def test_minute_aggregator_emits_only_when_next_minute_arrives():
     assert completed.bar_time == "2026-08-09T10:00:00+00:00"
     assert (completed.open, completed.high, completed.low, completed.close) == (100.0, 103.0, 99.0, 99.0)
     assert completed.sample_count == 3
+    assert completed.volume is None
 
 
 def test_realtime_store_persists_one_minute_bars_and_status(tmp_path):
@@ -190,5 +192,42 @@ def test_realtime_store_persists_one_minute_bars_and_status(tmp_path):
     assert len(bars) == 1
     assert bars[0].close == 80.0
     assert bars[0].uic == 43660942
+    assert bars[0].volume is None
     assert statuses[0].market == "Brent"
     assert statuses[0].actual_refresh_ms == 1000
+
+
+def test_old_realtime_payload_without_volume_deserializes_as_none(tmp_path):
+    path = tmp_path / "legacy-realtime.db"
+    store = RealtimeMarketDataStore(path)
+    payload = {
+        "market": "Gold",
+        "bar_time": "2026-08-09T10:00:00+00:00",
+        "open": 100.0,
+        "high": 101.0,
+        "low": 99.0,
+        "close": 100.5,
+        "sample_count": 4,
+        "provider": "Saxo OpenAPI",
+        "uic": 123,
+        "asset_type": "ContractFutures",
+        "symbol": "GC",
+    }
+    with connect(path) as db:
+        db.execute(
+            """
+            INSERT INTO realtime_bars_1m(market, bar_time, provider, uic, payload_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Gold", payload["bar_time"], payload["provider"], payload["uic"], json.dumps(payload)),
+        )
+
+    bars = store.load_range(
+        market="Gold",
+        start="2026-08-09T09:59:00+00:00",
+        end="2026-08-09T10:01:00+00:00",
+    )
+
+    assert len(bars) == 1
+    assert bars[0].sample_count == 4
+    assert bars[0].volume is None
