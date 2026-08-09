@@ -68,9 +68,10 @@ def test_resample_supported_higher_timeframes(timeframe: str, expected_stamp: st
     assert len(result) == 1
     assert result[0].bar_time == expected_stamp
     assert result[0].close == 102
+    assert result[0].volume is None
 
 
-def test_missing_minutes_are_not_fabricated() -> None:
+def test_missing_minutes_are_not_fabricated_and_make_volume_unknown() -> None:
     result = resample_bars(
         [
             _bar("2026-08-09T10:00:00Z", volume=10),
@@ -84,7 +85,8 @@ def test_missing_minutes_are_not_fabricated() -> None:
         "2026-08-09T10:00:00+00:00",
         "2026-08-09T10:10:00+00:00",
     ]
-    assert result[0].volume == 30
+    assert result[0].volume is None
+    assert result[1].volume is None
 
 
 def test_resampled_volume_is_unknown_when_any_constituent_bar_lacks_true_volume() -> None:
@@ -92,6 +94,9 @@ def test_resampled_volume_is_unknown_when_any_constituent_bar_lacks_true_volume(
         [
             _bar("2026-08-09T10:00:00Z", volume=10),
             _bar("2026-08-09T10:01:00Z", volume=None),
+            _bar("2026-08-09T10:02:00Z", volume=30),
+            _bar("2026-08-09T10:03:00Z", volume=40),
+            _bar("2026-08-09T10:04:00Z", volume=50),
         ],
         timeframe="5m",
     )
