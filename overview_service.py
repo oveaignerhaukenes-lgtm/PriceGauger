@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
@@ -31,6 +32,7 @@ class OverviewMarket:
     recommendation_status: str = "PROVISIONAL"
     forecast: ForecastSnapshot | None = None
     price_history: tuple[tuple[str, float], ...] = ()
+    realized_prices: tuple[tuple[str, float], ...] = ()
     market_regime: str = ""
     volatility_score: float | None = None
 
@@ -59,6 +61,44 @@ def _recommendation_status(item: DecisionStateSnapshot) -> str:
     return "PROVISIONAL"
 
 
+def _as_utc(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _realized_price_path(
+    history_store: MarketHistoryStore,
+    *,
+    market: str,
+    forecast: ForecastSnapshot,
+    now: datetime | None = None,
+) -> tuple[tuple[str, float], ...]:
+    if forecast.horizon_hours is None:
+        return ()
+    start = _as_utc(forecast.as_of)
+    if start is None:
+        return ()
+    horizon_seconds = max(0.25, float(forecast.horizon_hours)) * 3600.0
+    horizon_end = start + timedelta(seconds=horizon_seconds)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    end = min(current.astimezone(timezone.utc), horizon_end)
+    if end < start:
+        return ()
+    return history_store.load_range(
+        market=market,
+        start=start,
+        end=end,
+        limit=5000,
+    )
+
+
 def _market(
     item: DecisionStateSnapshot,
     *,
@@ -71,11 +111,17 @@ def _market(
     forecast = forecast_store.load_latest(market=item.market)
     market_state = runtime_store.load_latest_market_state(market=item.market)
     history: tuple[tuple[str, float], ...] = ()
+    realized: tuple[tuple[str, float], ...] = ()
     if forecast is not None and forecast.horizon_hours is not None:
         history = history_store.load_window(
             market=item.market,
             as_of=forecast.as_of,
             horizon_hours=forecast.horizon_hours,
+        )
+        realized = _realized_price_path(
+            history_store,
+            market=item.market,
+            forecast=forecast,
         )
     move_low = item.expected_move_low_pct
     move_high = item.expected_move_high_pct
@@ -102,6 +148,7 @@ def _market(
         recommendation_status=_recommendation_status(item),
         forecast=forecast,
         price_history=history,
+        realized_prices=realized,
         market_regime="" if market_state is None else market_state.regime,
         volatility_score=None if market_state is None else market_state.volatility_score,
     )
