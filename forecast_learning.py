@@ -8,6 +8,7 @@ from typing import Any
 
 from database import connect
 from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot
+from market_history_store import MarketHistoryStore
 
 
 LEARNING_ENGINE_VERSION = "forecast-learning-v1"
@@ -135,38 +136,29 @@ def _market_points(
     path: str | Path,
     *,
     forecast: ForecastSnapshot,
-    limit: int = 2000,
+    limit: int = 10000,
 ) -> list[tuple[datetime, float]]:
+    """Load realized prices from the canonical market-history layer.
+
+    ``MarketHistoryStore`` prefers persisted realtime 1m bars and fills older or
+    missing periods with technical-state snapshots. This keeps learning aligned
+    with Markedsvisning and market-mover outcomes without discarding legacy data.
+    """
     try:
-        with connect(path) as db:
-            rows = db.execute(
-                """
-                SELECT payload_json
-                FROM technical_market_state_snapshots
-                WHERE market=? AND as_of>=?
-                ORDER BY as_of ASC
-                LIMIT ?
-                """,
-                (forecast.market, forecast.as_of, max(2, int(limit))),
-            ).fetchall()
+        rows = MarketHistoryStore(path).load_since(
+            market=forecast.market,
+            start=forecast.as_of,
+            limit=max(2, int(limit)),
+        )
     except Exception:
         return []
 
     points: list[tuple[datetime, float]] = []
-    seen: set[datetime] = set()
-    for row in rows:
-        record = json.loads(row["payload_json"])
-        price = record.get("price")
-        stamp = str(record.get("as_of") or "")
-        if price is None or not stamp:
-            continue
+    for stamp, price in rows:
         try:
             observed = _utc(stamp)
         except (TypeError, ValueError):
             continue
-        if observed in seen:
-            continue
-        seen.add(observed)
         points.append((observed, float(price)))
     return points
 
