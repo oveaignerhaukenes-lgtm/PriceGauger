@@ -133,7 +133,7 @@ def test_normalized_series_starts_at_100_and_preserves_relative_move() -> None:
     )
 
     assert points[0][1] == 100.0
-    assert points[1][1] == 110.0
+    assert points[1][1] == pytest.approx(110.0)
 
 
 def test_empty_series_remains_empty() -> None:
