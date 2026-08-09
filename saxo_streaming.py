@@ -252,6 +252,7 @@ def bars_from_chart_frame(
         open_price = _finite_float(record.get("open"))
         high_price = _finite_float(record.get("high"))
         low_price = _finite_float(record.get("low"))
+        volume = _finite_float(record.get("volume"))
         bars.append(
             RealtimeBar1m(
                 market=market,
@@ -265,6 +266,7 @@ def bars_from_chart_frame(
                 uic=instrument.uic,
                 asset_type=instrument.asset_type,
                 symbol=instrument.symbol,
+                volume=volume,
             )
         )
     return bars
