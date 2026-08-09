@@ -49,6 +49,25 @@ def timeframe_minutes(value: str | int) -> int:
     return minutes
 
 
+def last_available_window(
+    latest_bar_time: str | datetime,
+    *,
+    window_hours: int,
+) -> tuple[datetime, datetime]:
+    """Anchor a chart window to the latest completed canonical 1m bar.
+
+    The end is one minute after the latest completed bar so an inclusive range read
+    naturally contains that bar. This is used when the ordinary wall-clock window
+    is empty, for example over a weekend or market holiday.
+    """
+
+    hours = int(window_hours)
+    if hours <= 0:
+        raise ValueError("TradingDesk window must be positive")
+    end = utc(latest_bar_time) + timedelta(minutes=1)
+    return end - timedelta(hours=hours), end
+
+
 def _finite(value: float, *, field: str) -> float:
     number = float(value)
     if not math.isfinite(number):

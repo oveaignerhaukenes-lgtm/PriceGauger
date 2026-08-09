@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from realtime_market_data import RealtimeBar1m
-from trading_desk import canonical_chart_bars, normalized_close_series, resample_bars
+from trading_desk import (
+    canonical_chart_bars,
+    last_available_window,
+    normalized_close_series,
+    resample_bars,
+)
 
 
 def _bar(
@@ -111,6 +116,21 @@ def test_offset_timestamps_bucket_on_canonical_utc_axis() -> None:
     )
 
     assert result[0].bar_time == "2026-08-09T10:00:00+00:00"
+
+
+def test_last_available_window_ends_after_latest_completed_minute() -> None:
+    start, end = last_available_window(
+        "2026-08-07T20:59:00Z",
+        window_hours=24,
+    )
+
+    assert end.isoformat() == "2026-08-07T21:00:00+00:00"
+    assert start.isoformat() == "2026-08-06T21:00:00+00:00"
+
+
+def test_last_available_window_requires_positive_duration() -> None:
+    with pytest.raises(ValueError, match="positive"):
+        last_available_window("2026-08-07T20:59:00Z", window_hours=0)
 
 
 def test_exact_duplicate_bar_is_deduplicated() -> None:
