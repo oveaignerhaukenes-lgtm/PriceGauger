@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from forecast_contracts import ForecastSnapshot
 from forecast_learning import (
     ForecastOutcomeStore,
@@ -86,7 +88,7 @@ def test_forecast_learning_uses_active_market_time_across_weekend(tmp_path):
     assert outcome.mae_pct == -0.5
     assert overlay[0] == (0.0, 0.0)
     assert overlay[-1][0] == 1.0
-    assert overlay[-1][1] == 1.2
+    assert overlay[-1][1] == pytest.approx(1.2)
 
 
 def test_refresh_persists_partial_outcomes_and_realized_path(tmp_path):
