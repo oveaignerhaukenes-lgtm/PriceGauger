@@ -114,6 +114,59 @@ def test_chart_renders_bollinger_macd_and_rsi_on_owned_axes() -> None:
     assert fig.layout.xaxis4.title.text == "Tid · UTC"
 
 
+def test_chart_uses_two_axis_cursor_crosshair() -> None:
+    bars = _bars(60)
+    indicators = calculate_indicators(bars)
+    fig = build_trading_desk_figure(
+        market="Gold",
+        timeframe="5m",
+        window_hours=24,
+        primary=bars,
+        overlays={},
+        overlay_mode=OVERLAY_NORMALIZED,
+        indicators=indicators,
+        indicator_names=(INDICATOR_MACD, INDICATOR_RSI),
+    )
+
+    assert fig.layout.hovermode == "closest"
+    assert fig.layout.xaxis.showspikes is True
+    assert fig.layout.xaxis.spikesnap == "cursor"
+    assert "across" in fig.layout.xaxis.spikemode
+    assert fig.layout.yaxis.showspikes is True
+    assert fig.layout.yaxis.spikesnap == "cursor"
+    assert "across" in fig.layout.yaxis.spikemode
+    assert "toaxis" in fig.layout.yaxis.spikemode
+    assert fig.layout.yaxis.hoverformat == ".4~g"
+    assert fig.layout.yaxis4.showspikes is True
+    assert fig.layout.yaxis5.showspikes is True
+
+
+def test_indicator_lines_are_visually_subordinate_to_candles() -> None:
+    bars = _bars(60)
+    indicators = calculate_indicators(bars)
+    fig = build_trading_desk_figure(
+        market="Gold",
+        timeframe="5m",
+        window_hours=24,
+        primary=bars,
+        overlays={},
+        overlay_mode=OVERLAY_NORMALIZED,
+        indicators=indicators,
+        indicator_names=(INDICATOR_BOLLINGER, INDICATOR_MACD, INDICATOR_RSI),
+    )
+
+    traces = {trace.name: trace for trace in fig.data}
+    assert traces["Bollinger øvre (20,2)"].line.width < 1.0
+    assert traces["Bollinger nedre (20,2)"].line.width < 1.0
+    assert traces["Bollinger midt (20)"].opacity < 1.0
+    assert traces["MACD (12,26)"].line.width <= 1.1
+    assert traces["MACD (12,26)"].opacity < 1.0
+    assert traces["Signal (9)"].opacity < 1.0
+    assert traces["MACD histogram"].opacity < 1.0
+    assert traces["RSI (14)"].line.width <= 1.1
+    assert traces["RSI (14)"].opacity < 1.0
+
+
 def test_unknown_indicator_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unsupported TradingDesk indicators"):
         build_trading_desk_figure(
