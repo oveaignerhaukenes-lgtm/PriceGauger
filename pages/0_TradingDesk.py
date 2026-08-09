@@ -16,6 +16,9 @@ from trading_desk_chart import (
 from trading_desk_product_panel import render_saxo_product_panel
 
 
+LIVE_CHART_REFRESH_SECONDS = 5
+
+
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
 render_build_badge()
 
@@ -89,9 +92,10 @@ if unavailable_markets:
         + ", ".join(unavailable_markets)
     )
 
-now = datetime.now(timezone.utc)
-resolved_start = now - timedelta(hours=int(window_hours))
-resolved_end = now
+st.caption(
+    f"Chartet leser canonical bars på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
+    "Ferdige candles oppdateres når neste 1m-bar er lagret; ingen Telegram- eller forecastkriterier brukes."
+)
 
 
 def _load(name: str, *, range_start: datetime, range_end: datetime):
@@ -104,86 +108,98 @@ def _load(name: str, *, range_start: datetime, range_end: datetime):
     return resample_bars(raw, timeframe=timeframe)
 
 
-try:
-    primary = _load(market, range_start=resolved_start, range_end=resolved_end)
-except ValueError as exc:
-    st.error(f"Ugyldig canonical barserie for {market}: {exc}")
-    primary = ()
+def _render_live_chart() -> None:
+    now = datetime.now(timezone.utc)
+    resolved_start = now - timedelta(hours=int(window_hours))
+    resolved_end = now
 
-showing_last_available = False
-if not primary:
-    latest_primary = latest_by_market.get(market)
-    if latest_primary is not None:
-        resolved_start, resolved_end = last_available_window(
-            latest_primary.bar_time,
-            window_hours=int(window_hours),
+    try:
+        primary = _load(market, range_start=resolved_start, range_end=resolved_end)
+    except ValueError as exc:
+        st.error(f"Ugyldig canonical barserie for {market}: {exc}")
+        primary = ()
+
+    showing_last_available = False
+    if not primary:
+        latest_primary = store.load_latest_bar(market=market)
+        if latest_primary is not None:
+            resolved_start, resolved_end = last_available_window(
+                latest_primary.bar_time,
+                window_hours=int(window_hours),
+            )
+            try:
+                primary = _load(market, range_start=resolved_start, range_end=resolved_end)
+                showing_last_available = bool(primary)
+            except ValueError as exc:
+                st.error(f"Ugyldig canonical barserie for {market}: {exc}")
+                primary = ()
+
+    if showing_last_available:
+        latest_label = resolved_end - timedelta(minutes=1)
+        st.caption(
+            f"Markedet har ingen bars i siste {window_hours}t fra nå. Viser siste tilgjengelige "
+            f"{window_hours}t frem til {latest_label:%Y-%m-%d %H:%M} UTC."
         )
-        try:
-            primary = _load(market, range_start=resolved_start, range_end=resolved_end)
-            showing_last_available = bool(primary)
-        except ValueError as exc:
-            st.error(f"Ugyldig canonical barserie for {market}: {exc}")
-            primary = ()
 
-if showing_last_available:
-    latest_label = resolved_end - timedelta(minutes=1)
+    loaded_overlays: dict[str, tuple] = {}
+    for overlay_market in overlays:
+        try:
+            overlay_bars = _load(
+                overlay_market,
+                range_start=resolved_start,
+                range_end=resolved_end,
+            )
+        except ValueError as exc:
+            st.warning(f"Hopper over {overlay_market}: {exc}")
+            continue
+        if not overlay_bars:
+            st.warning(f"Ingen bars for {overlay_market} i vist tidsvindu.")
+            continue
+        loaded_overlays[overlay_market] = overlay_bars
+
+    latest_display = "ingen data"
+    if primary:
+        latest_display = f"{primary[-1].close:g} @ {utc(primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
+
     st.caption(
-        f"Markedet har ingen bars i siste {window_hours}t fra nå. Viser siste tilgjengelige "
-        f"{window_hours}t frem til {latest_label:%Y-%m-%d %H:%M} UTC."
+        f"**{market}** · {timeframe} · {window_hours}t · siste close {latest_display}  |  "
+        f"**høyre akse:** {market} pris  ·  **venstre akse:** overlay  ·  **nedre panel:** volum"
     )
 
-loaded_overlays: dict[str, tuple] = {}
-for overlay_market in overlays:
-    try:
-        overlay_bars = _load(
-            overlay_market,
-            range_start=resolved_start,
-            range_end=resolved_end,
-        )
-    except ValueError as exc:
-        st.warning(f"Hopper over {overlay_market}: {exc}")
-        continue
-    if not overlay_bars:
-        st.warning(f"Ingen bars for {overlay_market} i vist tidsvindu.")
-        continue
-    loaded_overlays[overlay_market] = overlay_bars
+    fig = build_trading_desk_figure(
+        market=market,
+        timeframe=timeframe,
+        window_hours=int(window_hours),
+        primary=primary,
+        overlays=loaded_overlays,
+        overlay_mode=overlay_mode,
+    )
 
-latest_display = "ingen data"
-if primary:
-    latest_display = f"{primary[-1].close:g} @ {utc(primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "scrollZoom": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        },
+    )
 
-st.caption(
-    f"**{market}** · {timeframe} · {window_hours}t · siste close {latest_display}  |  "
-    f"**høyre akse:** {market} pris  ·  **venstre akse:** overlay  ·  **nedre panel:** volum"
-)
+    if not primary:
+        st.info(f"Fant ingen ferdige 1m-bars for {market}, heller ikke rundt siste registrerte bar.")
+    else:
+        volume_points = sum(item.volume is not None for item in primary)
+        if volume_points < len(primary):
+            st.caption(
+                "Volum vises bare der canonical bar har ekte Saxo chart-volume. "
+                "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
+            )
 
-fig = build_trading_desk_figure(
-    market=market,
-    timeframe=timeframe,
-    window_hours=int(window_hours),
-    primary=primary,
-    overlays=loaded_overlays,
-    overlay_mode=overlay_mode,
-)
 
-st.plotly_chart(
-    fig,
-    use_container_width=True,
-    config={
-        "scrollZoom": True,
-        "displaylogo": False,
-        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-    },
-)
-
-if not primary:
-    st.info(f"Fant ingen ferdige 1m-bars for {market}, heller ikke rundt siste registrerte bar.")
+_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+if _fragment is not None:
+    _fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
 else:
-    volume_points = sum(item.volume is not None for item in primary)
-    if volume_points < len(primary):
-        st.caption(
-            "Volum vises bare der canonical bar har ekte Saxo chart-volume. "
-            "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
-        )
+    _render_live_chart()
 
 render_saxo_product_panel(market)
