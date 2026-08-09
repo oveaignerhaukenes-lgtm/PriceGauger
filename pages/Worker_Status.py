@@ -10,6 +10,7 @@ import streamlit as st
 
 from build_info import render_build_badge
 from database import connect, database_config_status, using_postgres
+from realtime_market_data import RealtimeMarketDataStore
 from signal_outcomes import SignalOutcomeStore
 from telegram_flow_store import TelegramFlowStore
 
@@ -26,6 +27,23 @@ def _compact_timestamp(value: object) -> str:
     if pd.isna(parsed):
         return str(value)
     return parsed.tz_convert(LOCAL_TIMEZONE).strftime("%d.%m.%y · %H:%M")
+
+
+def _refresh_label(value: int | None) -> str:
+    if value is None:
+        return "Ukjent"
+    if value < 1000:
+        return f"{value} ms"
+    seconds = value / 1000.0
+    return f"{seconds:g} s"
+
+
+def _delay_label(value: float | None) -> str:
+    if value is None:
+        return "Ukjent"
+    if value <= 0:
+        return "Realtime"
+    return f"{value:g} min forsinket"
 
 
 def _channel_code(channel: str) -> str:
@@ -102,6 +120,33 @@ c2.metric("Ferdige 1t", len(completed_1h))
 c3.metric("Ferdige 4t", len(completed_4h))
 c4.metric("Siste worker-hendelse", _compact_timestamp(latest_worker))
 c5.metric("Siste Telegram Flow", _compact_timestamp(flow_snapshot.as_of if flow_snapshot else None))
+
+st.subheader("Saxo realtime-stream")
+realtime_store = RealtimeMarketDataStore()
+stream_statuses = realtime_store.load_statuses()
+if stream_statuses:
+    stream_rows = []
+    for status in stream_statuses:
+        latest_bar = realtime_store.load_latest_bar(market=status.market)
+        stream_rows.append(
+            {
+                "marked": status.market,
+                "stream": status.state,
+                "tildelt refresh": _refresh_label(status.actual_refresh_ms),
+                "ønsket refresh": _refresh_label(status.requested_refresh_ms),
+                "delay": _delay_label(status.delay_minutes),
+                "siste quote": _compact_timestamp(status.last_quote_at),
+                "siste 1m-bar": _compact_timestamp(latest_bar.bar_time if latest_bar else None),
+                "kontrakt": latest_bar.symbol if latest_bar and latest_bar.symbol else "–",
+            }
+        )
+    st.dataframe(pd.DataFrame(stream_rows), width="stretch", hide_index=True)
+    st.caption(
+        "Tidsstemplene viser siste mottatte data og kan derfor stå stille når markedet er lukket. "
+        "Delay=Ukjent betyr at Saxo ikke har rapportert delay-metadata; det tolkes ikke som realtime."
+    )
+else:
+    st.info("Ingen Saxo realtime-streamstatus er lagret ennå.")
 
 if flow_snapshot:
     st.subheader("Telegram Flow-status")

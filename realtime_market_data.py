@@ -192,6 +192,21 @@ class RealtimeMarketDataStore:
             ).fetchall()
         return [StreamStatus(**json.loads(row["payload_json"])) for row in rows]
 
+    def load_latest_bar(self, *, market: str) -> RealtimeBar1m | None:
+        with connect(self.path) as db:
+            row = db.execute(
+                """
+                SELECT payload_json FROM realtime_bars_1m
+                WHERE market=?
+                ORDER BY bar_time DESC
+                LIMIT 1
+                """,
+                (market,),
+            ).fetchone()
+        if row is None:
+            return None
+        return RealtimeBar1m(**json.loads(row["payload_json"]))
+
     def load_range(self, *, market: str, start: str | datetime, end: str | datetime, limit: int = 10000) -> list[RealtimeBar1m]:
         start_at, end_at = utc(start), utc(end)
         with connect(self.path) as db:
