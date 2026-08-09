@@ -13,6 +13,7 @@ from trading_desk_chart import (
     OVERLAY_NORMALIZED,
     build_trading_desk_figure,
 )
+from trading_desk_clock import candle_countdown
 from trading_desk_product_panel import render_saxo_product_panel
 
 
@@ -63,7 +64,7 @@ if not available_markets:
     )
     st.stop()
 
-control_market, control_timeframe, control_window, control_mode = st.columns([2.2, 2.4, 1.6, 2.8])
+control_market, control_timeframe, control_window, control_mode = st.columns([2.2, 2.8, 1.6, 2.8])
 with control_market:
     market = st.selectbox("Marked", available_markets)
 with control_timeframe:
@@ -96,6 +97,26 @@ st.caption(
     f"Chartet leser canonical bars på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
     "Ferdige candles oppdateres når neste 1m-bar er lagret; ingen Telegram- eller forecastkriterier brukes."
 )
+
+
+_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+
+
+def _render_candle_clock() -> None:
+    countdown = candle_countdown(datetime.now(timezone.utc), timeframe=timeframe)
+    clock_col, boundary_col, note_col = st.columns([1.2, 1.5, 5])
+    clock_col.metric("Neste candlegrense", countdown.label)
+    boundary_col.metric("UTC", countdown.next_boundary.strftime("%H:%M:%S"))
+    note_col.caption(
+        "Nedtellingen følger canonical UTC-grenser. Ny ferdig candle vises først når markedet "
+        "har levert data og PriceGauger har lagret den."
+    )
+
+
+if _fragment is not None:
+    _fragment(run_every="1s")(_render_candle_clock)()
+else:
+    _render_candle_clock()
 
 
 def _load(name: str, *, range_start: datetime, range_end: datetime):
@@ -196,7 +217,6 @@ def _render_live_chart() -> None:
             )
 
 
-_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
 if _fragment is not None:
     _fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
 else:
