@@ -203,6 +203,42 @@ def realized_path(
     return tuple((stamp.isoformat(), price) for stamp, price in selected)
 
 
+def realized_progress_path(
+    path: str | Path,
+    forecast: ForecastSnapshot,
+    *,
+    max_active_gap_minutes: float = 30.0,
+) -> tuple[tuple[float, float], ...]:
+    """Return realized move as active-horizon progress for forecast overlays.
+
+    X is 0..1 through the forecast horizon using active trading time; Y is the
+    realized percentage move from the frozen reference price. Closed-market gaps
+    do not stretch the overlay horizontally.
+    """
+    if forecast.reference_price is None or forecast.horizon_hours is None:
+        return ()
+    points = _market_points(path, forecast=forecast)
+    if not points:
+        return ()
+    target_seconds = max(0.25, float(forecast.horizon_hours)) * 3600.0
+    max_gap = max(60.0, float(max_active_gap_minutes) * 60.0)
+    cursor = _utc(forecast.as_of)
+    active_seconds = 0.0
+    ref = float(forecast.reference_price)
+    result: list[tuple[float, float]] = [(0.0, 0.0)]
+    for observed, price in points:
+        gap = max(0.0, (observed - cursor).total_seconds())
+        if gap <= max_gap:
+            active_seconds += gap
+        progress = min(1.0, active_seconds / target_seconds)
+        move = ((float(price) / ref) - 1.0) * 100.0
+        result.append((progress, move))
+        cursor = observed
+        if active_seconds >= target_seconds:
+            break
+    return tuple(result)
+
+
 def evaluate_forecast(
     path: str | Path,
     forecast: ForecastSnapshot,
