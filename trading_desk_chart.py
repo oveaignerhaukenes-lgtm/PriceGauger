@@ -16,6 +16,9 @@ from trading_desk_indicators import (
 
 OVERLAY_NORMALIZED = "Normalisert (100)"
 OVERLAY_ACTUAL = "Faktisk pris"
+CROSSHAIR_COLOR = "rgba(71,85,105,0.55)"
+INDICATOR_OPACITY = 0.62
+REFERENCE_OPACITY = 0.42
 
 
 def overlay_axis_title(mode: str) -> str:
@@ -24,6 +27,18 @@ def overlay_axis_title(mode: str) -> str:
     if mode == OVERLAY_ACTUAL:
         return "Overlay · faktisk pris"
     raise ValueError(f"Unsupported TradingDesk overlay mode: {mode}")
+
+
+def _crosshair_yaxis_kwargs() -> dict[str, object]:
+    return {
+        "showspikes": True,
+        "spikemode": "across+toaxis",
+        "spikesnap": "cursor",
+        "spikedash": "dot",
+        "spikecolor": CROSSHAIR_COLOR,
+        "spikethickness": 1,
+        "hoverformat": ".4~g",
+    }
 
 
 def build_trading_desk_figure(
@@ -92,6 +107,8 @@ def build_trading_desk_figure(
                     y=[value for _, value in indexed],
                     mode="lines",
                     name=f"{market} · indeks",
+                    line={"width": 1.0},
+                    opacity=0.55,
                     hovertemplate=f"{market} indeks<br>%{{x|%d.%m %H:%M}} UTC<br>%{{y:.2f}}<extra></extra>",
                 ),
                 row=1,
@@ -100,10 +117,10 @@ def build_trading_desk_figure(
             )
 
         if indicators is not None and INDICATOR_BOLLINGER in selected:
-            for name, points, dash in (
-                ("Bollinger øvre (20,2)", indicators.bollinger_upper, "dot"),
-                ("Bollinger midt (20)", indicators.bollinger_middle, "solid"),
-                ("Bollinger nedre (20,2)", indicators.bollinger_lower, "dot"),
+            for name, points, dash, width in (
+                ("Bollinger øvre (20,2)", indicators.bollinger_upper, "dot", 0.8),
+                ("Bollinger midt (20)", indicators.bollinger_middle, "solid", 0.9),
+                ("Bollinger nedre (20,2)", indicators.bollinger_lower, "dot", 0.8),
             ):
                 fig.add_trace(
                     go.Scatter(
@@ -111,7 +128,8 @@ def build_trading_desk_figure(
                         y=[point.value for point in points],
                         mode="lines",
                         name=name,
-                        line={"dash": dash, "width": 1},
+                        line={"dash": dash, "width": width},
+                        opacity=INDICATOR_OPACITY,
                         hovertemplate=f"{name}<br>%{{x|%d.%m %H:%M}} UTC<br>%{{y:.4g}}<extra></extra>",
                     ),
                     row=1,
@@ -124,6 +142,7 @@ def build_trading_desk_figure(
                 x=[item.bar_time for item in primary],
                 y=[item.volume for item in primary],
                 name=f"{market} · volum",
+                opacity=0.72,
                 hovertemplate="Volum<br>%{x|%d.%m %H:%M} UTC<br>%{y}<extra></extra>",
             ),
             row=2,
@@ -136,6 +155,7 @@ def build_trading_desk_figure(
                     x=[point.bar_time for point in indicators.macd_histogram],
                     y=[point.value for point in indicators.macd_histogram],
                     name="MACD histogram",
+                    opacity=0.52,
                     hovertemplate="MACD histogram<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
                 ),
                 row=macd_row,
@@ -147,6 +167,8 @@ def build_trading_desk_figure(
                     y=[point.value for point in indicators.macd],
                     mode="lines",
                     name="MACD (12,26)",
+                    line={"width": 1.1},
+                    opacity=INDICATOR_OPACITY,
                     hovertemplate="MACD<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
                 ),
                 row=macd_row,
@@ -158,12 +180,21 @@ def build_trading_desk_figure(
                     y=[point.value for point in indicators.macd_signal],
                     mode="lines",
                     name="Signal (9)",
+                    line={"width": 1.1},
+                    opacity=INDICATOR_OPACITY,
                     hovertemplate="MACD signal<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
                 ),
                 row=macd_row,
                 col=1,
             )
-            fig.add_hline(y=0, line_width=1, line_dash="dot", row=macd_row, col=1)
+            fig.add_hline(
+                y=0,
+                line_width=0.8,
+                line_dash="dot",
+                opacity=REFERENCE_OPACITY,
+                row=macd_row,
+                col=1,
+            )
 
         if indicators is not None and rsi_row is not None:
             fig.add_trace(
@@ -172,19 +203,36 @@ def build_trading_desk_figure(
                     y=[point.value for point in indicators.rsi],
                     mode="lines",
                     name="RSI (14)",
+                    line={"width": 1.1},
+                    opacity=INDICATOR_OPACITY,
                     hovertemplate="RSI (14)<br>%{x|%d.%m %H:%M} UTC<br>%{y:.2f}<extra></extra>",
                 ),
                 row=rsi_row,
                 col=1,
             )
-            fig.add_hline(y=70, line_width=1, line_dash="dot", row=rsi_row, col=1)
-            fig.add_hline(y=30, line_width=1, line_dash="dot", row=rsi_row, col=1)
+            fig.add_hline(
+                y=70,
+                line_width=0.8,
+                line_dash="dot",
+                opacity=REFERENCE_OPACITY,
+                row=rsi_row,
+                col=1,
+            )
+            fig.add_hline(
+                y=30,
+                line_width=0.8,
+                line_dash="dot",
+                opacity=REFERENCE_OPACITY,
+                row=rsi_row,
+                col=1,
+            )
 
         last_close = float(primary[-1].close)
         fig.add_hline(
             y=last_close,
-            line_width=1,
+            line_width=0.8,
             line_dash="dot",
+            opacity=0.6,
             annotation_text=f"Siste {last_close:g}",
             annotation_position="top right",
             row=1,
@@ -214,6 +262,8 @@ def build_trading_desk_figure(
                 y=[value for _, value in points],
                 mode="lines",
                 name=overlay_market,
+                line={"width": 1.0},
+                opacity=0.58,
                 hovertemplate=f"{overlay_market}<br>%{{x|%d.%m %H:%M}} UTC<br>%{{y:.4g}}<extra></extra>",
             ),
             row=1,
@@ -229,6 +279,7 @@ def build_trading_desk_figure(
         row=1,
         col=1,
         secondary_y=False,
+        **_crosshair_yaxis_kwargs(),
     )
     fig.update_yaxes(
         title_text=overlay_title,
@@ -248,7 +299,14 @@ def build_trading_desk_figure(
         col=1,
     )
     if macd_row is not None:
-        fig.update_yaxes(title_text="MACD", showgrid=True, zeroline=False, row=macd_row, col=1)
+        fig.update_yaxes(
+            title_text="MACD",
+            showgrid=True,
+            zeroline=False,
+            row=macd_row,
+            col=1,
+            **_crosshair_yaxis_kwargs(),
+        )
     if rsi_row is not None:
         fig.update_yaxes(
             title_text="RSI",
@@ -258,6 +316,7 @@ def build_trading_desk_figure(
             zeroline=False,
             row=rsi_row,
             col=1,
+            **_crosshair_yaxis_kwargs(),
         )
 
     for row in range(1, row_count + 1):
@@ -265,9 +324,11 @@ def build_trading_desk_figure(
             rangeslider_visible=False if row == 1 else None,
             showgrid=True,
             showspikes=True,
-            spikemode="across",
+            spikemode="across+toaxis",
             spikesnap="cursor",
             spikedash="dot",
+            spikecolor=CROSSHAIR_COLOR,
+            spikethickness=1,
             tickformat="%d %b\n%H:%M",
             row=row,
             col=1,
@@ -290,7 +351,7 @@ def build_trading_desk_figure(
             "xanchor": "left",
             "x": 0,
         },
-        hovermode="x",
+        hovermode="closest",
         dragmode="pan",
         uirevision=f"TradingDesk:{market}:{timeframe}:{int(window_hours)}:{','.join(sorted(selected))}",
     )
