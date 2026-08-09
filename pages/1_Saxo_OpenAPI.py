@@ -8,10 +8,10 @@ import streamlit as st
 from build_info import render_build_badge
 from saxo_auth import SaxoAuthError, configured_oauth_client
 from saxo_auth_ui import handle_saxo_oauth_callback, render_saxo_auth_panel
+from saxo_discover import discover_pricegauger_instruments
 from saxo_provider import (
     configured_client,
     configured_instruments,
-    discover_instruments,
     instrument_config_payload,
     instrument_is_unexpired,
     latest_gold_silver_ratio,
@@ -78,13 +78,13 @@ st.caption(
 )
 if not connected:
     st.info("Koble til Saxo før instrumentsøket kjøres.")
-elif st.button("Søk etter Brent, gull, sølv, DXY og US 10Y", use_container_width=True):
+elif st.button("Søk etter Brent, gull, sølv, DXY, Natural Gas og US 10Y", use_container_width=True):
     try:
         discovery_client = configured_client()
         if discovery_client is None:
             raise RuntimeError("Saxo-klienten kunne ikke opprettes.")
         with st.spinner("Søker i Saxos instrumentkatalog …"):
-            st.session_state["saxo_discovered_instruments"] = discover_instruments(discovery_client)
+            st.session_state["saxo_discovered_instruments"] = discover_pricegauger_instruments(discovery_client)
     except Exception as exc:
         st.error(f"Instrumentsøket feilet: {exc}")
 
