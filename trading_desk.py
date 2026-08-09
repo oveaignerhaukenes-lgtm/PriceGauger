@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import math
 from typing import Iterable
 
@@ -110,6 +110,12 @@ def _bucket_start(stamp: datetime, minutes: int) -> datetime:
     )
 
 
+def _has_complete_minute_coverage(items: list[ChartBar], *, bucket: datetime, minutes: int) -> bool:
+    observed = {utc(item.bar_time) for item in items}
+    expected = {bucket + timedelta(minutes=offset) for offset in range(minutes)}
+    return observed == expected
+
+
 def resample_bars(
     bars: Iterable[RealtimeBar1m | ChartBar],
     *,
@@ -117,9 +123,10 @@ def resample_bars(
 ) -> tuple[ChartBar, ...]:
     """Resample canonical completed 1m OHLCV without fabricating missing minutes.
 
-    Volume is only emitted when every observed constituent bar carries real market
-    volume. A missing constituent minute does not itself invalidate volume because
-    no synthetic minute is inserted; a constituent bar with ``volume=None`` does.
+    OHLC uses the observed completed bars only. Aggregated volume is stricter: it
+    is emitted only when the bucket has every expected 1m bar and every one of
+    those bars carries real market volume. Missing minutes therefore make volume
+    unknown instead of silently understating traded volume.
     """
 
     minutes = timeframe_minutes(timeframe)
@@ -136,7 +143,12 @@ def resample_bars(
     for bucket in sorted(buckets):
         items = buckets[bucket]
         volumes = [item.volume for item in items]
-        volume = None if any(value is None for value in volumes) else sum(float(value) for value in volumes if value is not None)
+        complete_coverage = _has_complete_minute_coverage(items, bucket=bucket, minutes=minutes)
+        volume = (
+            sum(float(value) for value in volumes if value is not None)
+            if complete_coverage and all(value is not None for value in volumes)
+            else None
+        )
         result.append(
             ChartBar(
                 market=items[0].market,
