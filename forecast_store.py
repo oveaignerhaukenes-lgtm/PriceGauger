@@ -72,21 +72,26 @@ class ForecastStore:
         record["missing_inputs"] = tuple(record.get("missing_inputs") or ())
         return ForecastSnapshot(**record)
 
-    def load_latest(self, *, market: str) -> ForecastSnapshot | None:
+    def load_all(self, *, market: str | None = None, limit: int = 500) -> list[ForecastSnapshot]:
+        query = "SELECT payload_json FROM forecast_snapshots"
+        params: list[object] = []
+        if market:
+            query += " WHERE market=?"
+            params.append(market)
+        query += " ORDER BY as_of DESC LIMIT ?"
+        params.append(max(1, int(limit)))
         with self._connect() as db:
-            rows = db.execute(
-                """
-                SELECT payload_json
-                FROM forecast_snapshots
-                WHERE market=?
-                ORDER BY as_of DESC
-                """,
-                (market,),
-            ).fetchall()
+            rows = db.execute(query, tuple(params)).fetchall()
+        snapshots: list[ForecastSnapshot] = []
         for row in rows:
             snapshot = self._from_payload(row["payload_json"])
             if snapshot is not None:
-                return snapshot
+                snapshots.append(snapshot)
+        return snapshots
+
+    def load_latest(self, *, market: str) -> ForecastSnapshot | None:
+        for snapshot in self.load_all(market=market, limit=1000):
+            return snapshot
         return None
 
     def load_latest_all(self) -> list[ForecastSnapshot]:
