@@ -13,6 +13,12 @@ from trading_desk_chart import (
     OVERLAY_NORMALIZED,
     build_trading_desk_figure,
 )
+from trading_desk_indicators import (
+    INDICATOR_OPTIONS,
+    INDICATOR_WARMUP_PERIODS,
+    calculate_indicators,
+    clip_indicators,
+)
 from trading_desk_product_panel import render_saxo_product_panel
 
 
@@ -26,8 +32,8 @@ header_left, header_right = st.columns([5, 1])
 with header_left:
     st.title("TradingDesk")
     st.caption(
-        "Operativ markedsflate for canonical OHLCV. Pris, overlays og volum har faste, "
-        "tydelig merkede akser; ingen ordre sendes fra foundation-visningen."
+        "Operativ markedsflate for canonical OHLCV. Pris, overlays, volum og tekniske indikatorer "
+        "bruker samme ferdige candles; Saxo-produktpanelet holdes separat fra chart-refresh."
     )
 with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
@@ -85,6 +91,12 @@ with control_mode:
 
 overlay_options = [item for item in available_markets if item != market]
 overlays = st.multiselect("Sammenlign med", overlay_options)
+indicator_names = st.multiselect(
+    "Indikatorer",
+    list(INDICATOR_OPTIONS),
+    default=list(INDICATOR_OPTIONS),
+    help="Bollinger (20,2) ligger på prisgrafen. MACD (12,26,9) og RSI (14) får egne paneler.",
+)
 
 if unavailable_markets:
     st.caption(
@@ -94,16 +106,16 @@ if unavailable_markets:
 
 st.caption(
     f"Chartet leser canonical bars på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
-    "Ferdige candles oppdateres når neste 1m-bar er lagret; ingen Telegram- eller forecastkriterier brukes."
+    "Ferdige candles og indikatorer oppdateres når neste 1m-bar er lagret; ingen Telegram- eller forecastkriterier brukes."
 )
 
 
-def _load(name: str, *, range_start: datetime, range_end: datetime):
+def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
     raw = store.load_range(
         market=name,
         start=range_start,
         end=range_end,
-        limit=10000,
+        limit=limit,
     )
     return resample_bars(raw, timeframe=timeframe)
 
@@ -157,13 +169,39 @@ def _render_live_chart() -> None:
             continue
         loaded_overlays[overlay_market] = overlay_bars
 
+    technical = None
+    if primary and indicator_names:
+        warmup_minutes = TIMEFRAME_MINUTES[timeframe] * INDICATOR_WARMUP_PERIODS
+        warmup_start = resolved_start - timedelta(minutes=warmup_minutes)
+        try:
+            indicator_source = _load(
+                market,
+                range_start=warmup_start,
+                range_end=resolved_end,
+                limit=20000,
+            )
+            technical = calculate_indicators(indicator_source)
+            technical = clip_indicators(
+                technical,
+                start=primary[0].bar_time,
+                end=primary[-1].bar_time,
+            )
+        except ValueError as exc:
+            st.warning(f"Kunne ikke beregne tekniske indikatorer for {market}: {exc}")
+
     latest_display = "ingen data"
     if primary:
         latest_display = f"{primary[-1].close:g} @ {utc(primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
 
+    panel_labels = ["volum"]
+    if "MACD" in indicator_names:
+        panel_labels.append("MACD")
+    if "RSI" in indicator_names:
+        panel_labels.append("RSI")
     st.caption(
         f"**{market}** · {timeframe} · {window_hours}t · siste close {latest_display}  |  "
-        f"**høyre akse:** {market} pris  ·  **venstre akse:** overlay  ·  **nedre panel:** volum"
+        f"**høyre akse:** {market} pris  ·  **venstre akse:** overlay  ·  "
+        f"**underpaneler:** {', '.join(panel_labels)}"
     )
 
     fig = build_trading_desk_figure(
@@ -173,6 +211,8 @@ def _render_live_chart() -> None:
         primary=primary,
         overlays=loaded_overlays,
         overlay_mode=overlay_mode,
+        indicators=technical,
+        indicator_names=indicator_names,
     )
 
     st.plotly_chart(
