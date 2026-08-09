@@ -9,13 +9,30 @@ DEFAULT_PRICE_MULTIPLIERS = {
     "Silver": 0.01,
 }
 
+NATURAL_GAS_SEARCH = ("Natural Gas", "ContractFutures,CfdOnFutures")
+
+
+def discover_pricegauger_instruments(client):
+    """Discover the configured core markets plus a Natural Gas price candidate.
+
+    Natural Gas is already part of the PriceGauger analysis universe, but it was
+    intentionally left without technical price coverage until a Saxo instrument
+    could be selected explicitly. Keep discovery separate from configuration: the
+    user still verifies symbol/UIC/contract before it is committed to the shared
+    instrument file.
+    """
+    discovered = discover_instruments(client)
+    keywords, asset_types = NATURAL_GAS_SEARCH
+    discovered["Natural Gas"] = client.search_instruments(keywords, asset_types=asset_types)
+    return discovered
+
 
 def main() -> None:
     client = configured_client()
     if client is None:
         raise SystemExit("SAXO_ACCESS_TOKEN mangler")
 
-    discovered = discover_instruments(client)
+    discovered = discover_pricegauger_instruments(client)
     selected: dict[str, dict[str, object]] = {}
 
     for asset, instruments in discovered.items():
