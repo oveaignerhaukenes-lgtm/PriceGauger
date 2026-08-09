@@ -4,5 +4,10 @@ from urllib.parse import quote
 
 
 def market_detail_href(market: str) -> str:
-    """Return the internal Markedsvisning route for one market."""
-    return f"/Forecast_Learning?market={quote(str(market), safe='')}"
+    """Route a market-card click through the app entrypoint.
+
+    The app shell then uses ``st.switch_page`` after registering the explicit
+    ``st.navigation`` tree. This prevents direct page loads from falling back
+    to Streamlit's legacy automatic pages menu.
+    """
+    return f"/?open_market={quote(str(market), safe='')}"
