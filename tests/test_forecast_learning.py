@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from forecast_contracts import ForecastSnapshot
-from forecast_learning import ForecastOutcomeStore, evaluate_forecast, realized_path, refresh_forecast_outcomes
+from forecast_learning import (
+    ForecastOutcomeStore,
+    evaluate_forecast,
+    realized_path,
+    realized_progress_path,
+    refresh_forecast_outcomes,
+)
 from forecast_store import ForecastStore
 from state_contracts import ComponentStatus, MarketStateSnapshot
 from state_runtime_store import StateRuntimeStore
@@ -68,6 +74,7 @@ def test_forecast_learning_uses_active_market_time_across_weekend(tmp_path):
     )
 
     outcome = evaluate_forecast(db, forecast)
+    overlay = realized_progress_path(db, forecast)
 
     assert outcome.status == "COMPLETE"
     assert outcome.progress == 1.0
@@ -77,6 +84,9 @@ def test_forecast_learning_uses_active_market_time_across_weekend(tmp_path):
     assert outcome.interval_hit is True
     assert outcome.mfe_pct == 1.2
     assert outcome.mae_pct == -0.5
+    assert overlay[0] == (0.0, 0.0)
+    assert overlay[-1][0] == 1.0
+    assert overlay[-1][1] == 1.2
 
 
 def test_refresh_persists_partial_outcomes_and_realized_path(tmp_path):
@@ -93,12 +103,14 @@ def test_refresh_persists_partial_outcomes_and_realized_path(tmp_path):
     refreshed = refresh_forecast_outcomes(db)
     stored = ForecastOutcomeStore(db).load_all(market="Gold")
     path = realized_path(db, forecast)
+    history = ForecastStore(db).load_all(market="Gold")
 
     assert len(refreshed) == 1
     assert refreshed[0].status == "PARTIAL"
     assert 0.0 < refreshed[0].progress < 1.0
     assert stored[0].forecast_id == forecast.forecast_id
     assert stored[0].interval_hit is None
+    assert history[0].forecast_id == forecast.forecast_id
     assert path == (
         ("2026-08-07T20:15:00+00:00", 100.2),
         ("2026-08-07T20:30:00+00:00", 100.4),
