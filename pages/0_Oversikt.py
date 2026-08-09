@@ -9,6 +9,7 @@ from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from analysis_status import AnalysisStatusStore
 from build_info import render_build_badge
 from forecast_visuals import render_forecast_svg
+from market_navigation import market_detail_href
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
 from overview_visuals import asset_color, bipolar_fill, visual_direction_score
@@ -61,6 +62,11 @@ st.markdown(
     .pg-alert-stat {border-left:1px solid rgba(128,128,128,.22); padding-left:.7rem; font-size:.74rem; line-height:1.25;}
     .pg-alert-stat strong {font-size:.82rem;}
 
+    .pg-market-link {display:block; color:inherit !important; text-decoration:none !important; border-radius:.8rem; cursor:pointer;}
+    .pg-market-link:visited {color:inherit !important;}
+    .pg-market-link .pg-market-card {transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;}
+    .pg-market-link:hover .pg-market-card {transform:translateY(-1px); box-shadow:0 .2rem .75rem rgba(15,23,42,.10); border-color:rgba(128,128,128,.38);}
+    .pg-market-link:focus-visible {outline:2px solid var(--market-color,#64748b); outline-offset:2px;}
     .pg-market-card {padding:0; overflow:hidden; border-left:4px solid var(--market-color);}
     .pg-market-layout {display:grid; grid-template-columns:minmax(0,5fr) minmax(12rem,2.2fr) minmax(16rem,3fr);}
     .pg-analysis {padding:.9rem 1rem 1rem;}
@@ -222,6 +228,7 @@ def _render_market_card(item) -> str:
     interval = _move_interval(item)
     price_interval = _price_interval(item)
     horizon = _horizon(item)
+    detail_href = market_detail_href(item.market)
     forecast_svg = render_forecast_svg(
         item.forecast,
         history_prices=item.price_history,
@@ -230,44 +237,46 @@ def _render_market_card(item) -> str:
         color=color,
     )
     return f"""
-    <article class="pg-market-card" style="--market-color:{color}">
-      <div class="pg-market-layout">
-        <section class="pg-analysis">
-          <div class="pg-state-top">
-            <div class="pg-market">{html.escape(item.market)}</div>
-            <div class="pg-direction">{html.escape(_direction_label(item.direction))}</div>
-          </div>
-          <div class="pg-gauge-labels"><span>Bearish</span><span>0</span><span>Bullish</span></div>
-          <div class="pg-bipolar">
-            <span class="pg-fill-left" style="width:{left_width:.2f}%"></span>
-            <span class="pg-fill-right" style="width:{right_width:.2f}%"></span>
-            <span class="pg-marker" style="left:{marker_position:.2f}%"></span>
-          </div>
-          <div class="pg-score-row">
-            <span>Retningsstyrke {display_score:+.2f}</span>
-            <span>Rå Decision State {item.score:+.2f}</span>
-          </div>
-          <div class="pg-meta">Konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser</div>
-          <div class="pg-confidence"><span style="width:{confidence_width:.1f}%"></span></div>
-          <div class="pg-delta">{html.escape(delta_label)}</div>
-          <div class="pg-driver">{html.escape(item.top_driver)}</div>
-          <div class="pg-meta">{html.escape(item.status_reason)}</div>
-        </section>
-        <aside class="pg-recommendation">
-          <div class="pg-rec-kicker">ANBEFALING</div>
-          <div class="pg-rec-action">{html.escape(action)}</div>
-          <div class="pg-rec-signal">Retningssignal: {html.escape(signal)}</div>
-          <div class="pg-rec-grid">
-            <div class="pg-rec-row"><strong>{html.escape(interval)}</strong>forventet prosentintervall</div>
-            <div class="pg-rec-row"><strong>{html.escape(price_interval)}</strong>forventet prisintervall</div>
-            <div class="pg-rec-row"><strong>{html.escape(horizon)}</strong>hovedhorisont</div>
-            <div class="pg-rec-row"><strong>{item.confidence:.0%}</strong>modellkonfidens</div>
-          </div>
-          <div class="pg-rec-status">{html.escape(item.recommendation_status)}</div>
-        </aside>
-        <section class="pg-forecast">{forecast_svg}</section>
-      </div>
-    </article>
+    <a class="pg-market-link" href="{html.escape(detail_href, quote=True)}" target="_self" aria-label="Åpne {html.escape(item.market)} i Markedsvisning">
+      <article class="pg-market-card" style="--market-color:{color}">
+        <div class="pg-market-layout">
+          <section class="pg-analysis">
+            <div class="pg-state-top">
+              <div class="pg-market">{html.escape(item.market)}</div>
+              <div class="pg-direction">{html.escape(_direction_label(item.direction))}</div>
+            </div>
+            <div class="pg-gauge-labels"><span>Bearish</span><span>0</span><span>Bullish</span></div>
+            <div class="pg-bipolar">
+              <span class="pg-fill-left" style="width:{left_width:.2f}%"></span>
+              <span class="pg-fill-right" style="width:{right_width:.2f}%"></span>
+              <span class="pg-marker" style="left:{marker_position:.2f}%"></span>
+            </div>
+            <div class="pg-score-row">
+              <span>Retningsstyrke {display_score:+.2f}</span>
+              <span>Rå Decision State {item.score:+.2f}</span>
+            </div>
+            <div class="pg-meta">Konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser</div>
+            <div class="pg-confidence"><span style="width:{confidence_width:.1f}%"></span></div>
+            <div class="pg-delta">{html.escape(delta_label)}</div>
+            <div class="pg-driver">{html.escape(item.top_driver)}</div>
+            <div class="pg-meta">{html.escape(item.status_reason)}</div>
+          </section>
+          <aside class="pg-recommendation">
+            <div class="pg-rec-kicker">ANBEFALING</div>
+            <div class="pg-rec-action">{html.escape(action)}</div>
+            <div class="pg-rec-signal">Retningssignal: {html.escape(signal)}</div>
+            <div class="pg-rec-grid">
+              <div class="pg-rec-row"><strong>{html.escape(interval)}</strong>forventet prosentintervall</div>
+              <div class="pg-rec-row"><strong>{html.escape(price_interval)}</strong>forventet prisintervall</div>
+              <div class="pg-rec-row"><strong>{html.escape(horizon)}</strong>hovedhorisont</div>
+              <div class="pg-rec-row"><strong>{item.confidence:.0%}</strong>modellkonfidens</div>
+            </div>
+            <div class="pg-rec-status">{html.escape(item.recommendation_status)}</div>
+          </aside>
+          <section class="pg-forecast">{forecast_svg}</section>
+        </div>
+      </article>
+    </a>
     """
 
 
