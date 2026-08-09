@@ -27,5 +27,13 @@ def test_worker_service_runs_without_sqlite_volume_path():
     assert "/data" not in deploy["startCommand"]
 
 
+def test_realtime_stream_service_is_isolated_and_requests_one_second_updates():
+    deploy = _load("railway.stream.toml")["deploy"]
+
+    assert deploy["startCommand"] == "python realtime_worker.py --refresh-ms 1000"
+    assert "/data" not in deploy["startCommand"]
+    assert deploy["restartPolicyType"] == "ON_FAILURE"
+
+
 def test_legacy_single_service_config_is_removed():
     assert not (ROOT / "railway.toml").exists()
