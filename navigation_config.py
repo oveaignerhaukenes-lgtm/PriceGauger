@@ -12,6 +12,12 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "icon": "📡",
             "default": True,
         },
+        {
+            "page": "pages/0_TradingDesk.py",
+            "title": "TradingDesk",
+            "icon": "📊",
+            "url_path": "TradingDesk",
+        },
     ),
     "Oppgaver": (
         {
