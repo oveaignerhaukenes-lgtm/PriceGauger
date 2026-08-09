@@ -127,7 +127,7 @@ def test_conflicting_duplicate_bar_is_rejected() -> None:
 def test_normalized_series_starts_at_100_and_preserves_relative_move() -> None:
     points = normalized_close_series(
         [
-            _bar("2026-08-09T10:00:00Z", close=50),
+            _bar("2026-08-09T10:00:00Z", open_price=50, high=51, low=49, close=50),
             _bar("2026-08-09T10:01:00Z", open_price=50, high=56, low=49, close=55),
         ]
     )
