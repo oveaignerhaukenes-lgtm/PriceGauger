@@ -57,8 +57,19 @@ def _label(item):
 forecast = st.selectbox("Forecast", market_forecasts, format_func=_label)
 outcome = outcomes.get(forecast.forecast_id)
 
-if forecast.reference_price is None or forecast.horizon_hours is None:
-    st.warning("Denne forecasten mangler referansepris eller horisont og kan ikke tegnes mot faktisk utvikling ennå.")
+missing_draw_inputs = []
+if forecast.reference_price is None:
+    missing_draw_inputs.append("referansepris")
+if forecast.horizon_hours is None:
+    missing_draw_inputs.append("tidshorisont")
+if forecast.expected_move_low_pct is None or forecast.expected_move_high_pct is None:
+    missing_draw_inputs.append("forventet bevegelsesintervall")
+if missing_draw_inputs:
+    st.warning(
+        "Denne forecasten kan ikke tegnes mot faktisk utvikling ennå. Mangler: "
+        + ", ".join(missing_draw_inputs)
+        + "."
+    )
     st.stop()
 
 series = build_trajectory(forecast)
