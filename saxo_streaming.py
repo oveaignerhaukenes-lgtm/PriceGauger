@@ -4,12 +4,22 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import logging
+import math
 import struct
+import threading
 import time
 import uuid
 from typing import Any, Callable
 
-from realtime_market_data import MinuteBarAggregator, RealtimeMarketDataStore, RealtimeQuote, StreamStatus
+from realtime_market_data import (
+    MinuteBarAggregator,
+    RealtimeBar1m,
+    RealtimeMarketDataStore,
+    RealtimeQuote,
+    StreamStatus,
+    minute_start,
+    utc,
+)
 from saxo_provider import LIVE_BASE_URL, SaxoClient, SaxoInstrument, configured_client, configured_instruments
 
 
@@ -18,6 +28,8 @@ DEFAULT_REFRESH_MS = 1000
 STATUS_HEARTBEAT_SECONDS = 15.0
 STREAM_REAUTHORIZE_SECONDS = 15 * 60.0
 STREAM_REAUTHORIZE_RETRY_SECONDS = 60.0
+BACKFILL_BAR_COUNT = 30
+BACKFILL_TIMEOUT_SECONDS = 5.0
 
 
 class SaxoStreamError(RuntimeError):
@@ -201,6 +213,75 @@ def try_reauthorize_stream(client: SaxoClient, *, context_id: str) -> bool:
     return True
 
 
+def _finite_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def bars_from_chart_frame(
+    frame: Any,
+    *,
+    market: str,
+    instrument: SaxoInstrument,
+    now: str | datetime | None = None,
+) -> list[RealtimeBar1m]:
+    """Convert Saxo chart rows to completed canonical 1m bars.
+
+    The current minute is deliberately excluded. It remains owned by the realtime
+    quote aggregator so a partially formed chart candle can never overwrite live
+    OHLC data.
+    """
+    if frame is None or getattr(frame, "empty", True):
+        return []
+    cutoff = minute_start(now or datetime.now(timezone.utc))
+    bars: list[RealtimeBar1m] = []
+    for record in frame.to_dict(orient="records"):
+        timestamp = record.get("timestamp")
+        close = _finite_float(record.get("close"))
+        if timestamp is None or close is None:
+            continue
+        try:
+            bar_time = minute_start(utc(timestamp))
+        except (TypeError, ValueError):
+            continue
+        if bar_time >= cutoff:
+            continue
+        open_price = _finite_float(record.get("open"))
+        high_price = _finite_float(record.get("high"))
+        low_price = _finite_float(record.get("low"))
+        bars.append(
+            RealtimeBar1m(
+                market=market,
+                bar_time=bar_time.isoformat(),
+                open=close if open_price is None else open_price,
+                high=close if high_price is None else high_price,
+                low=close if low_price is None else low_price,
+                close=close,
+                sample_count=0,
+                provider="Saxo OpenAPI",
+                uic=instrument.uic,
+                asset_type=instrument.asset_type,
+                symbol=instrument.symbol,
+            )
+        )
+    return bars
+
+
+def _backfill_client(client: SaxoClient) -> SaxoClient:
+    """Create an isolated short-timeout REST client for asynchronous backfill."""
+    static_token = str(getattr(client, "_static_access_token", "") or "").strip()  # noqa: SLF001
+    token_getter = getattr(client, "_access_token_getter", None)  # noqa: SLF001
+    return SaxoClient(
+        access_token=static_token or None,
+        access_token_getter=token_getter,
+        base_url=client.base_url,
+        timeout=min(float(client.timeout), BACKFILL_TIMEOUT_SECONDS),
+    )
+
+
 def create_price_subscription(
     client: SaxoClient,
     *,
@@ -256,6 +337,8 @@ class SaxoRealtimeService:
             item.market: item for item in self.store.load_statuses()
         }
         self._last_status_write: dict[str, float] = {}
+        self._backfill_lock = threading.Lock()
+        self._backfill_thread: threading.Thread | None = None
 
     def _status(self, market: str, state: str, *, force: bool = True, **kwargs: Any) -> None:
         previous = self._status_cache.get(market)
@@ -340,6 +423,50 @@ class SaxoRealtimeService:
             detail="quote received",
         )
 
+    def _run_backfill(self) -> None:
+        if not self._backfill_lock.acquire(blocking=False):
+            return
+        try:
+            client = _backfill_client(self.client)
+            total = 0
+            for market, instrument in self.instruments.items():
+                try:
+                    frame = client.chart(
+                        instrument,
+                        horizon_minutes=1,
+                        count=BACKFILL_BAR_COUNT,
+                    )
+                    bars = bars_from_chart_frame(
+                        frame,
+                        market=market,
+                        instrument=instrument,
+                    )
+                    for bar in bars:
+                        self.store.save_bar(bar)
+                    total += len(bars)
+                except Exception as exc:
+                    LOGGER.warning(
+                        "Saxo 1m backfill failed market=%s: %s",
+                        market,
+                        exc,
+                        exc_info=True,
+                    )
+            LOGGER.info("Saxo 1m backfill complete bars=%d", total)
+        finally:
+            self._backfill_lock.release()
+
+    def start_backfill(self) -> bool:
+        """Start one non-blocking recent-bar repair job after a successful connect."""
+        if self._backfill_thread is not None and self._backfill_thread.is_alive():
+            return False
+        self._backfill_thread = threading.Thread(
+            target=self._run_backfill,
+            name="pricegauger-saxo-backfill",
+            daemon=True,
+        )
+        self._backfill_thread.start()
+        return True
+
     def handle_message(self, message: SaxoStreamMessage) -> None:
         ref = message.reference_id.upper()
         if ref.startswith("_"):
@@ -390,6 +517,7 @@ class SaxoRealtimeService:
                     close_timeout=5,
                 ) as socket:
                     self.subscribe_all(context_id)
+                    self.start_backfill()
                     backoff = 1.0
                     next_reauthorize = time.monotonic() + STREAM_REAUTHORIZE_SECONDS
                     while not stop():
