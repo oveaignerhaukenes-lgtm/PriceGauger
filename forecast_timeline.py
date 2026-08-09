@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from math import pi, sin
+from math import ceil, floor, log10, pi, sin
 from typing import Iterable
 
 from forecast_contracts import ForecastSnapshot
@@ -26,7 +26,12 @@ def _as_utc(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _profile(forecast: ForecastSnapshot, *, market_regime: str = "", volatility_score: float | None = None) -> str:
+def _profile(
+    forecast: ForecastSnapshot,
+    *,
+    market_regime: str = "",
+    volatility_score: float | None = None,
+) -> str:
     regime = market_regime.lower()
     volatility = 0.0 if volatility_score is None else float(volatility_score)
     if forecast.direction in {"NEUTRAL", "CONFLICTED", "INSUFFICIENT_DATA"} and volatility <= 0.2:
@@ -82,6 +87,37 @@ def _missing_text(snapshot: ForecastSnapshot) -> str:
     )
 
 
+def _nice_tick_step(lower: float, upper: float, *, target_ticks: int = 4) -> float:
+    span = max(0.01, float(upper) - float(lower))
+    raw = max(1.0, span / max(2, int(target_ticks)))
+    magnitude = 10.0 ** floor(log10(raw))
+    normalized = raw / magnitude
+    if normalized <= 1.0:
+        nice = 1.0
+    elif normalized <= 2.0:
+        nice = 2.0
+    elif normalized <= 5.0:
+        nice = 5.0
+    else:
+        nice = 10.0
+    return max(1.0, nice * magnitude)
+
+
+def _price_ticks(lower: float, upper: float) -> tuple[float, ...]:
+    step = _nice_tick_step(lower, upper)
+    first = ceil(lower / step) * step
+    last = floor(upper / step) * step
+    if first > last:
+        midpoint = round((lower + upper) / 2.0)
+        return (float(midpoint),)
+    ticks: list[float] = []
+    value = first
+    while value <= last + step * 0.001 and len(ticks) < 8:
+        ticks.append(float(value))
+        value += step
+    return tuple(ticks)
+
+
 def render_forecast_timeline_svg(
     forecasts: Iterable[ForecastSnapshot],
     *,
@@ -115,9 +151,10 @@ def render_forecast_timeline_svg(
     if observed and observed[-1][0] > axis_end:
         axis_end = observed[-1][0]
     span_seconds = max(1.0, (axis_end - axis_start).total_seconds())
+    plot_right = 90.0
 
     def xmap(stamp: datetime) -> float:
-        return max(0.0, min(100.0, (stamp - axis_start).total_seconds() / span_seconds * 100.0))
+        return max(0.0, min(plot_right, (stamp - axis_start).total_seconds() / span_seconds * plot_right))
 
     plotted_layers: list[dict[str, object]] = []
     all_prices: list[float] = [price for _, price in observed]
@@ -171,12 +208,29 @@ def render_forecast_timeline_svg(
     lower_price = min(all_prices)
     upper_price = max(all_prices)
     price_span = max(abs(upper_price) * 0.001, upper_price - lower_price, 0.01)
-    pad = price_span * 0.14
+    pad = price_span * 0.08
     lower_price -= pad
     upper_price += pad
 
     def ymap(value: float) -> float:
-        return 92.0 - (value - lower_price) / (upper_price - lower_price) * 76.0
+        return 92.0 - (value - lower_price) / (upper_price - lower_price) * 80.0
+
+    grid_markup: list[str] = []
+    for tick in _price_ticks(lower_price, upper_price):
+        y = ymap(tick)
+        grid_markup.append(
+            f'<line x1="0" y1="{y:.1f}" x2="{plot_right:.1f}" y2="{y:.1f}" '
+            'style="stroke:rgba(100,116,139,.14);stroke-width:.45;vector-effect:non-scaling-stroke" />'
+        )
+        grid_markup.append(
+            f'<text x="92.0" y="{y + 1.5:.1f}" '
+            'style="font-size:4.5px;fill:rgba(71,85,105,.76);font-family:system-ui,sans-serif">'
+            f'{tick:.0f}</text>'
+        )
+    grid_markup.append(
+        '<line x1="90" y1="10" x2="90" y2="94" '
+        'style="stroke:rgba(100,116,139,.25);stroke-width:.5;vector-effect:non-scaling-stroke" />'
+    )
 
     layer_markup: list[str] = []
     count = len(plotted_layers)
@@ -248,13 +302,14 @@ def render_forecast_timeline_svg(
 
     return f'''<div class="pg-forecast-wrap" style="overflow:hidden">
       <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} SNAPSHOT{'S' if len(layers) != 1 else ''}</span></div>
-      <svg class="pg-forecast-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Flere lagrede prognoser mot faktisk markedsutvikling">
+      <svg class="pg-forecast-svg" style="height:13.5rem" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Flere lagrede prognoser mot faktisk markedsutvikling med prisakse til høyre">
+        {''.join(grid_markup)}
         {''.join(layer_markup)}
         {actual_markup}
         {now_markup}
       </svg>
       <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.62;margin-top:-.2rem">
-        <span>eldre prognoser lysere · nyeste tydeligst</span><span>svart = faktisk pris</span>
+        <span>eldre prognoser lysere · nyeste tydeligst</span><span>svart = faktisk pris · høyre = pris</span>
       </div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
