@@ -9,6 +9,8 @@ from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from analysis_status import AnalysisStatusStore
 from build_info import render_build_badge
 from forecast_visuals import render_forecast_svg
+from market_history_store import MarketHistoryStore
+from market_mover_observation import format_elapsed, observe_market_mover
 from market_navigation import market_detail_href
 from overview_ai_summary import build_overview_summary
 from overview_service import load_overview
@@ -329,6 +331,14 @@ if alert is None:
 else:
     move_low = float(getattr(alert, "expected_move_low_pct", 0.0))
     move_high = float(getattr(alert, "expected_move_high_pct", 0.0))
+    estimated_label = f"{move_low:+.2f}% til {move_high:+.2f}%".replace(".", ",")
+    observation = observe_market_mover(alert, MarketHistoryStore())
+    if observation is None:
+        observed_label = "Ikke observert ennå"
+    else:
+        observed_label = (
+            f"{observation.move_pct:+.2f}% i løpet av {format_elapsed(observation.elapsed_minutes)}"
+        ).replace(".", ",")
     st.markdown(
         f"""
         <article class="pg-alert-card">
@@ -339,7 +349,10 @@ else:
             </div>
             <div class="pg-alert-summary">{html.escape(str(alert.summary))}</div>
             <div class="pg-alert-stat"><strong>{html.escape(str(alert.market))}</strong><br>{html.escape(str(alert.expected_direction))}</div>
-            <div class="pg-alert-stat"><strong>{move_low:+.2f}% til {move_high:+.2f}%</strong><br>estimert bevegelse</div>
+            <div class="pg-alert-stat">
+              Estimert bevegelse:<br><strong>{html.escape(estimated_label)}</strong><br><br>
+              Observert bevegelse:<br><strong>{html.escape(observed_label)}</strong>
+            </div>
             <div class="pg-alert-stat"><strong>{float(alert.horizon_hours):g} t</strong><br>hovedhorisont</div>
             <div class="pg-alert-stat"><strong>{float(alert.source_quality):.0%}</strong><br>kildekvalitet</div>
           </div>
