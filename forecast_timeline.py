@@ -94,14 +94,19 @@ def _missing_text(snapshot: ForecastSnapshot) -> str:
     )
 
 
-def _crosses_weekend(start: datetime, end: datetime) -> bool:
-    day = start.date()
-    last = end.date()
-    while day <= last:
-        if day.weekday() >= 5:
-            return True
-        day += timedelta(days=1)
-    return False
+def _is_weekend_closure_gap(start: datetime, end: datetime) -> bool:
+    """Return true only for a gap that plausibly bridges the market weekend.
+
+    Merely touching a Saturday/Sunday is not enough: a sparse Sunday-only data
+    gap must remain a MARKET GAP instead of producing a second WEEKEND GAP.
+    """
+
+    duration = end - start
+    if duration < timedelta(hours=24):
+        return False
+    if start.weekday() >= 5:
+        return False
+    return end.weekday() in {6, 0}
 
 
 def _timeline_gaps(
@@ -114,7 +119,7 @@ def _timeline_gaps(
     for (previous_time, _), (current_time, _) in zip(points, points[1:]):
         if current_time - previous_time <= threshold:
             continue
-        label = "WEEKEND GAP" if _crosses_weekend(previous_time, current_time) else "MARKET GAP"
+        label = "WEEKEND GAP" if _is_weekend_closure_gap(previous_time, current_time) else "MARKET GAP"
         gaps.append(TimelineGap(previous_time, current_time, label))
     return tuple(gaps)
 
@@ -237,7 +242,6 @@ def render_forecast_timeline_svg(
         return max(0.0, min(plot_right, displayed / display_span * plot_right))
 
     plotted_layers: list[dict[str, object]] = []
-    all_prices: list[float] = [price for _, price in observed]
     for index, item in enumerate(layers):
         snapshot = item.snapshot
         ref = float(snapshot.reference_price)
@@ -270,7 +274,6 @@ def render_forecast_timeline_svg(
             bear.append((x, bear_price))
             upper.append((x, upper_price))
             lower.append((x, lower_price))
-            all_prices.extend((base_price, bull_price, bear_price, upper_price, lower_price))
         plotted_layers.append(
             {
                 "item": item,
@@ -283,10 +286,21 @@ def render_forecast_timeline_svg(
             }
         )
 
-    if not all_prices:
-        all_prices = [1.0]
-    lower_price = min(all_prices)
-    upper_price = max(all_prices)
+    scale_start = axis_start
+    if gaps:
+        scale_start = gaps[-1].end
+    scale_observed = [price for stamp, price in observed if scale_start <= stamp <= axis_end]
+    latest_layer = plotted_layers[-1]
+    latest_forecast_prices = [
+        price
+        for key in ("base", "bull", "bear", "upper", "lower")
+        for _, price in latest_layer[key]
+    ]
+    scale_prices = scale_observed + latest_forecast_prices
+    if not scale_prices:
+        scale_prices = [float(latest_forecast.snapshot.reference_price)]
+    lower_price = min(scale_prices)
+    upper_price = max(scale_prices)
     price_span = max(abs(upper_price) * 0.001, upper_price - lower_price, 0.01)
     pad = price_span * 0.10
     lower_price -= pad
@@ -303,8 +317,8 @@ def render_forecast_timeline_svg(
             'style="stroke:rgba(100,116,139,.14);stroke-width:.45;vector-effect:non-scaling-stroke" />'
         )
         grid_markup.append(
-            f'<text x="91.2" y="{y + 1.1:.1f}" '
-            'style="font-size:3.4px;fill:rgba(71,85,105,.76);font-family:system-ui,sans-serif">'
+            f'<text x="91.0" y="{y + 0.9:.1f}" '
+            'style="font-size:2.8px;fill:rgba(71,85,105,.76);font-family:system-ui,sans-serif">'
             f'{tick:.0f}</text>'
         )
     grid_markup.append(
@@ -321,7 +335,7 @@ def render_forecast_timeline_svg(
         width = max(1.6, right - left)
         center = min(plot_right - width / 2.0, left + width / 2.0)
         gap_markup.append(
-            f'<rect x="{center - width / 2.0:.1f}" y="8" width="{width:.1f}" height="88" rx=".8" '
+            f'<rect x="{center - width / 2.0:.1f}" y="14" width="{width:.1f}" height="82" rx=".8" '
             'style="fill:rgba(100,116,139,.10);stroke:rgba(100,116,139,.38);stroke-width:.45;'
             'stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke" />'
         )
@@ -329,11 +343,11 @@ def render_forecast_timeline_svg(
         label_top = label_parts[0]
         label_bottom = label_parts[1] if len(label_parts) > 1 else ""
         gap_markup.append(
-            f'<text x="{center:.1f}" y="12.4" text-anchor="middle" '
-            'style="font-size:2.1px;font-weight:700;letter-spacing:.035em;fill:rgba(71,85,105,.78);'
+            f'<text x="{center:.1f}" y="9.2" text-anchor="middle" '
+            'style="font-size:1.8px;font-weight:400;letter-spacing:0;fill:rgba(71,85,105,.78);'
             'font-family:system-ui,sans-serif">'
             f'<tspan x="{center:.1f}" dy="0">{label_top}</tspan>'
-            f'<tspan x="{center:.1f}" dy="2.3">{label_bottom}</tspan>'
+            f'<tspan x="{center:.1f}" dy="1.7">{label_bottom}</tspan>'
             '</text>'
         )
 
