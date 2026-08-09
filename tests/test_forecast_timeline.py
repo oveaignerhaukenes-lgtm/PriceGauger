@@ -67,6 +67,8 @@ def test_timeline_has_taller_plot_and_right_price_scale():
     assert 'style="height:13.5rem"' in svg
     assert "høyre = pris" in svg
     assert 'x1="90"' in svg
+    assert 'x="91.2"' in svg
+    assert "font-size:3.4px" in svg
     assert "4200" in svg
 
 
@@ -99,7 +101,10 @@ def test_weekend_gap_is_compressed_and_actual_price_is_not_connected_across_it()
         now=sunday_b,
     )
 
-    assert "WEEKEND GAP" in svg
+    assert ">WEEKEND</tspan>" in svg
+    assert ">GAP</tspan>" in svg
+    assert "font-size:2.1px" in svg
+    assert "letter-spacing:.035em" in svg
     assert svg.count('class="pg-realized"') == 2
 
 

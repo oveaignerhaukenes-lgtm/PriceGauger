@@ -303,8 +303,8 @@ def render_forecast_timeline_svg(
             'style="stroke:rgba(100,116,139,.14);stroke-width:.45;vector-effect:non-scaling-stroke" />'
         )
         grid_markup.append(
-            f'<text x="92.0" y="{y + 1.5:.1f}" '
-            'style="font-size:4.5px;fill:rgba(71,85,105,.76);font-family:system-ui,sans-serif">'
+            f'<text x="91.2" y="{y + 1.1:.1f}" '
+            'style="font-size:3.4px;fill:rgba(71,85,105,.76);font-family:system-ui,sans-serif">'
             f'{tick:.0f}</text>'
         )
     grid_markup.append(
@@ -325,11 +325,16 @@ def render_forecast_timeline_svg(
             'style="fill:rgba(100,116,139,.10);stroke:rgba(100,116,139,.38);stroke-width:.45;'
             'stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke" />'
         )
+        label_parts = gap.label.split(maxsplit=1)
+        label_top = label_parts[0]
+        label_bottom = label_parts[1] if len(label_parts) > 1 else ""
         gap_markup.append(
-            f'<text x="{center:.1f}" y="14" text-anchor="middle" '
-            'style="font-size:2.7px;font-weight:700;letter-spacing:.08em;fill:rgba(71,85,105,.78);'
+            f'<text x="{center:.1f}" y="12.4" text-anchor="middle" '
+            'style="font-size:2.1px;font-weight:700;letter-spacing:.035em;fill:rgba(71,85,105,.78);'
             'font-family:system-ui,sans-serif">'
-            f'{gap.label}</text>'
+            f'<tspan x="{center:.1f}" dy="0">{label_top}</tspan>'
+            f'<tspan x="{center:.1f}" dy="2.3">{label_bottom}</tspan>'
+            '</text>'
         )
 
     layer_markup: list[str] = []
