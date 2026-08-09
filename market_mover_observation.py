@@ -17,6 +17,19 @@ class MarketMoverObservation:
     observation_complete: bool
 
 
+def format_elapsed(minutes: int) -> str:
+    total = max(1, int(minutes))
+    if total < 60:
+        return f"{total} min"
+    hours, mins = divmod(total, 60)
+    if hours < 24:
+        return f"{hours} t" if mins == 0 else f"{hours} t {mins} min"
+    days, hours = divmod(hours, 24)
+    if hours == 0:
+        return f"{days} d"
+    return f"{days} d {hours} t"
+
+
 def _utc(value: str) -> datetime:
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if parsed.tzinfo is None:
