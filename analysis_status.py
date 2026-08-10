@@ -34,7 +34,7 @@ STEP_LABELS = {
     "outcome_refresh": "Resultatoppfølging",
 }
 
-VALID_STATUSES = {"PENDING", "RUNNING", "COMPLETE", "SKIPPED", "FAILED"}
+VALID_STATUSES = {"PENDING", "RUNNING", "COMPLETE", "REUSED", "SKIPPED", "FAILED"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +101,9 @@ class AnalysisStatusStore:
 
     def complete(self, step_key: str, detail: str = "") -> None:
         self.set(step_key, "COMPLETE", detail)
+
+    def reused(self, step_key: str, detail: str = "") -> None:
+        self.set(step_key, "REUSED", detail)
 
     def running(self, step_key: str, detail: str = "") -> None:
         self.set(step_key, "RUNNING", detail)
