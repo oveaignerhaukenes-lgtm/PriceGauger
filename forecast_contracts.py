@@ -93,6 +93,7 @@ class ForecastSnapshot:
     calibration_factor: float | None = None
     calibration_sample_count: int = 0
     calibration_version: str | None = None
+    training_recipe_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "as_of", _utc_iso(self.as_of))
@@ -125,6 +126,7 @@ def forecast_from_decision(
     calibration_factor: float | None = None,
     calibration_sample_count: int = 0,
     calibration_version: str | None = None,
+    training_recipe_id: str | None = None,
 ) -> ForecastSnapshot:
     missing: list[str] = list(additional_missing_inputs)
     if market_state is None or market_state.price is None:
@@ -183,4 +185,5 @@ def forecast_from_decision(
         calibration_factor=calibration_factor,
         calibration_sample_count=calibration_sample_count,
         calibration_version=calibration_version,
+        training_recipe_id=training_recipe_id,
     )
