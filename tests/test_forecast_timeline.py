@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from forecast_contracts import ForecastSnapshot
 from forecast_timeline import _display_seconds, _timeline_gaps, render_forecast_timeline_svg
@@ -101,12 +101,29 @@ def test_weekend_gap_is_compressed_and_actual_price_is_not_connected_across_it()
         now=sunday_b,
     )
 
-    assert ">WEEKEND</tspan>" in svg
-    assert ">GAP</tspan>" in svg
-    assert "font-size:1.8px" in svg
-    assert "font-weight:400" in svg
-    assert "letter-spacing:0" in svg
+    assert "<title>WEEKEND GAP</title>" in svg
     assert svg.count('class="pg-realized"') == 2
+
+
+def test_narrow_compressed_gap_does_not_render_cramped_ufo_label():
+    forecast = _forecast(
+        suffix="gap",
+        as_of="2026-08-10T08:00:00+00:00",
+        low=-0.2,
+        high=0.4,
+    )
+    observed = (
+        ("2026-08-10T00:00:00+00:00", 4200.0),
+        ("2026-08-10T00:01:00+00:00", 4201.0),
+        ("2026-08-10T08:00:00+00:00", 4210.0),
+        ("2026-08-10T08:01:00+00:00", 4211.0),
+    )
+
+    svg = render_forecast_timeline_svg((forecast,), observed_prices=observed)
+
+    assert "<title>MARKET GAP</title>" in svg
+    assert ">MARKET</tspan>" not in svg
+    assert ">GAP</tspan>" not in svg
 
 
 def test_large_non_weekend_data_gap_is_labeled_market_gap():
@@ -121,7 +138,26 @@ def test_large_non_weekend_data_gap_is_labeled_market_gap():
     assert gaps[0].label == "MARKET GAP"
 
 
-def test_timeline_limits_old_layers_but_keeps_newest():
+def test_timeline_default_keeps_twelve_persisted_layers():
+    start = datetime(2026, 8, 10, 0, 0, tzinfo=timezone.utc)
+    forecasts = tuple(
+        _forecast(
+            suffix=str(index),
+            as_of=(start + timedelta(minutes=15 * index)).isoformat(),
+            low=0.1 + 0.01 * index,
+            high=0.5 + 0.01 * index,
+        )
+        for index in range(14)
+    )
+
+    svg = render_forecast_timeline_svg(forecasts)
+
+    assert "12 SNAPSHOTS" in svg
+    assert svg.count("pg-forecast-fan") == 12
+    assert svg.count("pg-forecast-base") == 12
+
+
+def test_timeline_explicit_layer_limit_still_keeps_newest():
     forecasts = tuple(
         _forecast(
             suffix=str(index),
