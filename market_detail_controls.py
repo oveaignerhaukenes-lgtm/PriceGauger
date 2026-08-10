@@ -43,18 +43,25 @@ def update_preferences(
     )
 
 
-def render_market_detail_controls(st, *, markets: list[str], initial_market: str, resolution_choices, store=None):
-    """Render persisted Markedsvisning controls in the left sidebar.
+def render_market_detail_controls(
+    st,
+    *,
+    markets: list[str],
+    initial_market: str,
+    resolution_choices,
+    store=None,
+    container=None,
+):
+    """Render persisted Markedsvisning controls and market chat.
 
-    The controls own presentation preferences only. Runtime/forecast semantics are
-    deliberately supplied by the analysis layer rather than mutated by Streamlit.
-    The market chat is a separate read-only decision-support panel: it receives
-    the selected market here so its conversation follows the same routing choice.
+    ``container`` is a presentation surface only. Markedsvisning supplies its right
+    workspace column; callers that omit it retain the historical sidebar fallback.
+    Runtime/forecast semantics remain owned by the analysis layer rather than UI.
     """
     preference_store = store or AnalysisViewPreferenceStore()
-    sidebar = st.sidebar
-    sidebar.markdown("### Grafinnstillinger")
-    market = sidebar.selectbox("Marked", markets, index=markets.index(initial_market))
+    panel = container or st.sidebar
+    panel.markdown("### Arbeidsflate")
+    market = panel.selectbox("Marked", markets, index=markets.index(initial_market))
 
     saved = preference_store.load(market)
     resolution_key = f"market-detail-resolution-{market}"
@@ -63,8 +70,8 @@ def render_market_detail_controls(st, *, markets: list[str], initial_market: str
             saved.resolution if saved.resolution in resolution_choices else resolution_choices[0]
         )
 
-    sidebar.caption("Tidsoppløsning")
-    resolution_columns = sidebar.columns(len(resolution_choices))
+    panel.caption("Tidsoppløsning")
+    resolution_columns = panel.columns(len(resolution_choices))
     for column, choice in zip(resolution_columns, resolution_choices):
         if column.button(
             RESOLUTION_LABELS.get(choice, str(choice)),
@@ -75,17 +82,17 @@ def render_market_detail_controls(st, *, markets: list[str], initial_market: str
             st.session_state[resolution_key] = choice
     resolution = st.session_state[resolution_key]
 
-    show_learning = sidebar.toggle(
+    show_learning = panel.toggle(
         "Vis tidligere prognosespor",
         value=saved.show_learning,
         key=f"market-detail-learning-{market}",
         help="Viser tidligere lagrede forecasts som gradvis uttonede spor bak gjeldende prognose.",
     )
 
-    sidebar.markdown("**Motorer i analysevisningen**")
+    panel.markdown("**Motorer i analysevisningen**")
     enabled: list[str] = []
     for engine in ANALYSIS_ENGINES:
-        active = sidebar.checkbox(
+        active = panel.checkbox(
             ENGINE_LABELS[engine],
             value=saved.enabled(engine),
             key=f"market-detail-engine-{market}-{engine}",
@@ -93,8 +100,8 @@ def render_market_detail_controls(st, *, markets: list[str], initial_market: str
         if active:
             enabled.append(engine)
 
-    with sidebar.expander("Om grafen", expanded=False):
-        st.caption(
+    with panel.expander("Om grafen", expanded=False):
+        panel.caption(
             "Markedsvisning bruker lagret worker-data. Auto velger oppløsning etter forecast-horisonten; "
             "manuelt valg kan ikke skape finere data enn det som faktisk er lagret."
         )
@@ -108,5 +115,6 @@ def render_market_detail_controls(st, *, markets: list[str], initial_market: str
     if updated != saved:
         preference_store.save(updated)
 
-    render_market_chat_panel(st, market=market)
+    panel.divider()
+    render_market_chat_panel(st, market=market, container=panel)
     return market, resolution, show_learning, updated.enabled_engines
