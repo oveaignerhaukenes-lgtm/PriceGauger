@@ -35,6 +35,16 @@ def normalize_telegram_channel(value: str) -> str:
     return channel
 
 
+def telegram_message_key(channel: str, message_id: str) -> str:
+    """Return a globally unique persisted id for one channel-local Telegram id."""
+    normalized = normalize_telegram_channel(channel)
+    raw_id = str(message_id or "").strip()
+    if not raw_id:
+        raise ValueError("Telegram message id cannot be empty")
+    prefix = f"{normalized}:"
+    return raw_id if raw_id.startswith(prefix) else f"{normalized}:{raw_id}"
+
+
 class TelegramChannelStore:
     """Persistent list of enabled Telegram sources shared by UI and worker."""
 
