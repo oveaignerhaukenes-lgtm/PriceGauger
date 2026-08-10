@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 
 import pandas as pd
@@ -7,6 +8,7 @@ import streamlit as st
 
 from engine_sidebar import render_engine_sidebar
 from historical_engine_ui import compact_timestamp
+from telegram_channel_store import TelegramChannelStore, telegram_message_key
 from telegram_flow_engine import OpenAITelegramFlowScorer, aggregate_scored_posts
 from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import fetch_search_plans
@@ -20,13 +22,44 @@ st.caption(
 )
 render_engine_sidebar(active="telegram_flow")
 
+channel_store = TelegramChannelStore()
+
 with st.sidebar:
-    st.header("Valgt informasjonsbias")
-    channels_text = st.text_area(
-        "Telegram-kanaler · én per linje",
-        value="Middle_East_Spectator",
-        help="Kanalvalget er bevisst: strømmen skal kunne skreddersys til produkt og situasjon.",
+    st.header("Telegram-kilder")
+    active_channels = channel_store.list_enabled()
+    st.caption("Aktive: " + (", ".join(f"@{item}" for item in active_channels) if active_channels else "ingen"))
+
+    new_channel = st.text_input(
+        "Legg til kanal",
+        placeholder="@kanal eller https://t.me/kanal",
+        help="Lagres i databasen og plukkes opp av workeren i neste syklus.",
     )
+    if st.button("Legg til kanal", use_container_width=True):
+        try:
+            added = channel_store.add(new_channel)
+            st.success(f"@{added} lagt til.")
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+
+    removable = st.multiselect(
+        "Trekk fra kanaler",
+        options=active_channels,
+        format_func=lambda value: f"@{value}",
+        help="Historiske poster beholdes for revisjon; kanalen slutter bare å bli hentet inn fremover.",
+    )
+    if st.button("Fjern valgte", use_container_width=True, disabled=not removable):
+        remaining = [item for item in active_channels if item not in removable]
+        if not remaining:
+            st.error("Minst én Telegram-kanal må være aktiv.")
+        else:
+            for channel in removable:
+                channel_store.disable(channel)
+            st.success("Kanalvalg oppdatert.")
+            st.rerun()
+
+    st.divider()
+    st.header("Valgt informasjonsbias")
     posts_per_channel = st.number_input("Nyeste poster per kanal", min_value=2, max_value=20, value=8)
     half_life_hours = st.number_input("Halveringstid for signal", min_value=0.5, max_value=48.0, value=4.0, step=0.5)
     minimum_signal = st.number_input("Minste regelsignal ved innhenting", min_value=1, max_value=3, value=1)
@@ -46,7 +79,7 @@ if state_key not in st.session_state:
         }
 
 if run:
-    channels = [line.strip().lstrip("@") for line in channels_text.splitlines() if line.strip()]
+    channels = channel_store.list_enabled()
     if not channels:
         st.error("Legg inn minst én Telegram-kanal.")
     else:
@@ -57,7 +90,15 @@ if run:
                 for channel in channels:
                     plans = fetch_search_plans(channel, minimum_signal=int(minimum_signal), timeout=45)
                     for plan in plans[-int(posts_per_channel):]:
-                        collected.append((channel, plan))
+                        collected.append(
+                            (
+                                channel,
+                                replace(
+                                    plan,
+                                    message_id=telegram_message_key(channel, plan.message_id),
+                                ),
+                            )
+                        )
                     weights[channel] = 1.0
             collected.sort(key=lambda item: item[1].published_at)
             if not collected:

@@ -23,7 +23,7 @@ def test_streamlit_service_has_web_start_and_healthcheck():
 def test_worker_service_runs_without_sqlite_volume_path():
     deploy = _load("railway.worker.toml")["deploy"]
 
-    assert deploy["startCommand"] == "python worker.py --interval 60"
+    assert deploy["startCommand"] == "python telegram_multi_worker.py --interval 60"
     assert "/data" not in deploy["startCommand"]
 
 
