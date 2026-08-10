@@ -44,7 +44,7 @@ def test_only_actual_weekend_closure_is_labeled_weekend_gap():
     assert [gap.label for gap in gaps] == ["WEEKEND GAP", "MARKET GAP"]
 
 
-def test_gap_typography_is_plain_compact_and_separated_from_bar():
+def test_narrow_gap_keeps_tooltip_without_cramped_typography():
     svg = render_forecast_timeline_svg(
         (_forecast(),),
         observed_prices=(
@@ -55,12 +55,9 @@ def test_gap_typography_is_plain_compact_and_separated_from_bar():
         now=datetime(2026, 8, 9, 22, 5, tzinfo=timezone.utc),
     )
 
-    assert '>WEEKEND</tspan>' in svg
-    assert '>GAP</tspan>' in svg
-    assert 'font-size:1.8px' in svg
-    assert 'font-weight:400' in svg
-    assert 'letter-spacing:0' in svg
-    assert 'dy="1.7"' in svg
+    assert "<title>WEEKEND GAP</title>" in svg
+    assert ">WEEKEND</tspan>" not in svg
+    assert ">GAP</tspan>" not in svg
     assert 'y="14"' in svg
     assert 'x="91.0"' in svg
     assert 'font-size:2.8px' in svg
