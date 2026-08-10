@@ -444,7 +444,12 @@ def render_forecast_timeline_svg(
     degradation = f" · {missing}" if missing else ""
     actual_label = "faktisk pris oppdateres fra canonical 1m-bars" if observed_in_axis else "venter på faktisk pris"
 
-    return f'''<div class="pg-forecast-wrap" style="overflow:hidden">
+    # Streamlit sends this fragment through a Markdown parser even with
+    # unsafe_allow_html=True. Indented SVG child lines can therefore be
+    # interpreted as Markdown code blocks when the fragment grows large. Keep
+    # the generated card fragment on one logical line so every SVG element is
+    # parsed as HTML rather than displayed as literal <line>/<polyline> text.
+    fragment = f'''<div class="pg-forecast-wrap" style="overflow:hidden">
       <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} SNAPSHOT{'S' if len(layers) != 1 else ''}</span></div>
       <svg class="pg-forecast-svg" style="height:13.5rem" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Flere lagrede prognoser mot faktisk markedsutvikling med prisakse til høyre">
         {''.join(grid_markup)}
@@ -458,3 +463,4 @@ def render_forecast_timeline_svg(
       </div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
+    return "".join(line.strip() for line in fragment.splitlines())
