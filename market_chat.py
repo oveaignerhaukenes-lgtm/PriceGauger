@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping, Sequence
 import requests
 
 from config import openai_api_key, openai_market_model
+from database import connect
 from decision_engine_components import DecisionEngineComponentStore
 from forecast_learning import ForecastOutcomeStore
 from forecast_store import ForecastStore
@@ -16,6 +17,7 @@ from historical_signal_store import HistoricalRuntimeSignalStore
 from market_history_store import MarketHistoryStore
 from news_context_store import NewsContextStore
 from state_runtime_store import StateRuntimeStore
+from telegram_content_filter import classify_telegram_content
 from telegram_flow_store import TelegramFlowStore
 
 
@@ -90,6 +92,49 @@ def _learning_summary(outcomes: Iterable[Any]) -> dict[str, Any]:
     }
 
 
+def _recent_market_posts(
+    db_path: str | Path,
+    *,
+    market: str,
+    scan_limit: int = 120,
+) -> list[dict[str, Any]]:
+    """Read recent market-relevant Telegram rows without mutating worker status."""
+    try:
+        with connect(db_path) as db:
+            rows = db.execute(
+                """
+                SELECT payload_json
+                FROM telegram_flow_posts
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                (max(MAX_RECENT_POSTS, int(scan_limit)),),
+            ).fetchall()
+    except Exception:
+        return []
+
+    relevant: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            record = json.loads(row["payload_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not classify_telegram_content(str(record.get("text") or "")).eligible:
+            continue
+        scores = [
+            dict(score)
+            for score in record.get("scores", [])
+            if isinstance(score, Mapping) and str(score.get("asset") or "") == market
+        ]
+        if not scores:
+            continue
+        record["scores"] = scores
+        relevant.append(record)
+        if len(relevant) >= MAX_RECENT_POSTS:
+            break
+    return relevant
+
+
 def build_market_chat_context(
     market: str,
     *,
@@ -115,22 +160,10 @@ def build_market_chat_context(
             event_ids=decision.contributing_event_ids,
         )
 
-    flow_store = TelegramFlowStore(db_path)
-    flow = flow_store.load_latest_snapshot()
+    flow = TelegramFlowStore(db_path).load_latest_snapshot()
     flow_asset = None
     if flow is not None:
         flow_asset = next((item for item in flow.assets if item.asset == market_name), None)
-
-    relevant_posts: list[dict[str, Any]] = []
-    for post in reversed(flow_store.load_posts(limit=80)):
-        record = post.to_record()
-        scores = [score for score in record.get("scores", []) if str(score.get("asset")) == market_name]
-        if not scores:
-            continue
-        record["scores"] = scores
-        relevant_posts.append(record)
-        if len(relevant_posts) >= MAX_RECENT_POSTS:
-            break
 
     history_start = current - timedelta(days=7)
     history = MarketHistoryStore(db_path).load_range(
@@ -158,7 +191,7 @@ def build_market_chat_context(
         "historical_signal": _record(historical),
         "latest_market_mover": _record(alert),
         "telegram_flow_for_market": _record(flow_asset),
-        "recent_telegram_posts_for_market": relevant_posts,
+        "recent_telegram_posts_for_market": _recent_market_posts(db_path, market=market_name),
         "recent_forecasts": [_record(item) for item in forecasts],
         "learning_summary": _learning_summary(outcomes),
         "recent_outcomes": [_record(item) for item in outcomes[:40]],
