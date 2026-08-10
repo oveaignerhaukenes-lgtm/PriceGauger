@@ -5,11 +5,13 @@ from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 import streamlit as st
 
+from analysis_view_preferences import ANALYSIS_ENGINES
 from build_info import render_build_badge
 from forecast_learning import ForecastOutcomeStore
 from forecast_store import ForecastStore
 from market_detail import RESOLUTION_CHOICES, downsample_history, forecast_price_series, resolution_minutes
 from market_detail_controls import ENGINE_LABELS, render_market_detail_controls
+from market_detail_projection import load_market_detail_projection
 from market_history_store import MarketHistoryStore
 from overview_service import load_overview
 from overview_visuals import asset_color
@@ -84,8 +86,8 @@ def _market_item(market_name: str):
     return next((item for item in data.markets if item.market == market_name), None)
 
 
-def _current_metrics(item, latest_forecast):
-    if item is None:
+def _current_metrics(item, latest_forecast, *, projected: bool = False):
+    if projected or item is None:
         direction = latest_forecast.direction
         confidence = latest_forecast.confidence
         interval = (
@@ -94,7 +96,7 @@ def _current_metrics(item, latest_forecast):
             else f"{latest_forecast.expected_move_low_pct:+.2f}% … {latest_forecast.expected_move_high_pct:+.2f}%"
         )
         horizon = "—" if latest_forecast.horizon_hours is None else f"{latest_forecast.horizon_hours:g}t"
-        recommendation = latest_forecast.status
+        recommendation = "VISNINGSVARIANT" if projected else latest_forecast.status
     else:
         direction = item.direction
         confidence = item.confidence
@@ -112,6 +114,34 @@ def _current_metrics(item, latest_forecast):
     m3.metric("Forventet intervall", interval)
     m4.metric("Horisont", horizon)
     m5.metric("Status", recommendation)
+
+
+def _render_engine_breakdown(projection, engines: tuple[str, ...]) -> None:
+    components = projection.components
+    if components is None:
+        st.caption("Motorbidrag er ikke lagret ennå; neste worker-syklus bygger komponentvisningen.")
+        return
+    enabled = set(engines)
+    available = set(components.available_engines)
+    rows = []
+    for engine in ANALYSIS_ENGINES:
+        rows.append(
+            {
+                "Motor": ENGINE_LABELS[engine],
+                "Aktiv": engine in enabled,
+                "Tilgjengelig": engine in available,
+                "Score": round(float(components.scores.get(engine, 0.0)), 3) if engine in available else None,
+                "Autoritativ vekt": round(float(components.weights.get(engine, 0.0)), 3) if engine in available else None,
+            }
+        )
+    st.dataframe(rows, hide_index=True, use_container_width=True)
+    if projection.score is None:
+        st.caption(projection.reason)
+    else:
+        st.caption(
+            f"Valgt kombinasjon gir re-normalisert score {projection.score:+.3f} · {projection.direction.replace('_', '-')}. "
+            "Dette er en visningsvariant; lagret forecast og læringshistorikk endres ikke."
+        )
 
 
 def _add_forecast(fig: go.Figure, forecast, *, color: str, strong: bool, name: str, regime: str = "", volatility=None):
@@ -195,9 +225,13 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
 
     latest = market_forecasts[0]
     item = _market_item(market_name)
-    _current_metrics(item, latest)
+    projection = load_market_detail_projection(market_name, engines)
+    display_forecast = projection.forecast or latest
+    is_projected = projection.forecast is not None
+    _current_metrics(item, display_forecast, projected=is_projected)
+    _render_engine_breakdown(projection, engines)
 
-    horizon_hours = max(0.5, float(latest.horizon_hours or 4.0))
+    horizon_hours = max(0.5, float(display_forecast.horizon_hours or 4.0))
     window_hours = max(1.0, min(48.0, horizon_hours))
     now = datetime.now(timezone.utc)
     start = now - timedelta(hours=window_hours)
@@ -244,10 +278,10 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
 
     _add_forecast(
         fig,
-        latest,
+        display_forecast,
         color=color,
         strong=True,
-        name="Gjeldende base",
+        name="Valgt motor-kombinasjon" if is_projected else "Gjeldende base",
         regime=regime,
         volatility=volatility,
     )
