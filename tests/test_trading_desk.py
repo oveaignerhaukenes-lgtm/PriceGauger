@@ -56,15 +56,15 @@ def test_resample_five_minutes_preserves_ohlc_and_sums_true_volume() -> None:
 
 
 @pytest.mark.parametrize(
-    ("timeframe", "expected_stamp"),
+    ("timeframe", "expected_stamps"),
     [
-        ("10m", "2026-08-09T10:00:00+00:00"),
-        ("15m", "2026-08-09T10:00:00+00:00"),
-        ("30m", "2026-08-09T10:00:00+00:00"),
-        ("1h", "2026-08-09T10:00:00+00:00"),
+        ("10m", ("2026-08-09T10:00:00+00:00", "2026-08-09T10:10:00+00:00")),
+        ("15m", ("2026-08-09T10:00:00+00:00",)),
+        ("30m", ("2026-08-09T10:00:00+00:00",)),
+        ("1h", ("2026-08-09T10:00:00+00:00",)),
     ],
 )
-def test_resample_supported_higher_timeframes(timeframe: str, expected_stamp: str) -> None:
+def test_resample_supported_higher_timeframes(timeframe: str, expected_stamps: tuple[str, ...]) -> None:
     result = resample_bars(
         [
             _bar("2026-08-09T10:07:00Z", close=101),
@@ -73,10 +73,9 @@ def test_resample_supported_higher_timeframes(timeframe: str, expected_stamp: st
         timeframe=timeframe,
     )
 
-    assert len(result) == 1
-    assert result[0].bar_time == expected_stamp
-    assert result[0].close == 102
-    assert result[0].volume is None
+    assert tuple(item.bar_time for item in result) == expected_stamps
+    assert result[-1].close == 102
+    assert all(item.volume is None for item in result)
 
 
 def test_quick_timeframes_are_supported_by_canonical_resampler() -> None:
