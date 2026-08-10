@@ -8,6 +8,7 @@ _STATUS_ICON = {
     "COMPLETE": "✓",
     "RUNNING": "↻",
     "PENDING": "·",
+    "REUSED": "↺",
     "SKIPPED": "–",
     "FAILED": "×",
 }
@@ -16,6 +17,7 @@ _STATUS_LABEL = {
     "COMPLETE": "Ferdig",
     "RUNNING": "Arbeider",
     "PENDING": "Venter",
+    "REUSED": "Gjenbrukt",
     "SKIPPED": "Hoppet over",
     "FAILED": "Feilet",
 }
@@ -73,6 +75,9 @@ ANALYSIS_STATUS_CSS = """
 .pg-step-state {font-size:.61rem; opacity:.64; margin-top:.08rem;}
 .pg-step-time {font-size:.58rem; opacity:.52;}
 .pg-step-complete .pg-step-icon {background:rgba(46,139,87,.18); color:#2e8b57;}
+.pg-step-reused {border-color:rgba(46,139,87,.28); background:rgba(46,139,87,.035);}
+.pg-step-reused .pg-step-icon {background:rgba(46,139,87,.13); color:#2e8b57;}
+.pg-step-reused .pg-step-state {color:#2e8b57; opacity:.9; font-weight:700;}
 .pg-step-running {border-color:rgba(36,112,181,.5); background:rgba(36,112,181,.055);}
 .pg-step-running .pg-step-icon {background:rgba(36,112,181,.18); color:#2470b5;}
 .pg-step-running .pg-step-icon::before {content:""; width:.72rem; height:.72rem; border:.13rem solid rgba(36,112,181,.24); border-top-color:#2470b5; border-radius:50%; animation:pg-spin .9s linear infinite;}
