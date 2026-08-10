@@ -9,6 +9,7 @@ from build_info import render_build_badge
 from forecast_learning import ForecastOutcomeStore
 from forecast_store import ForecastStore
 from market_detail import RESOLUTION_CHOICES, downsample_history, forecast_price_series, resolution_minutes
+from market_detail_controls import ENGINE_LABELS, render_market_detail_controls
 from market_history_store import MarketHistoryStore
 from overview_service import load_overview
 from overview_visuals import asset_color
@@ -42,20 +43,25 @@ if isinstance(requested, list):
 requested = str(requested) if requested else None
 initial_market = requested if requested in markets else markets[0]
 
-control_market, control_resolution, control_learning = st.columns([2.2, 3.2, 2.2])
-with control_market:
-    market = st.selectbox("Marked", markets, index=markets.index(initial_market))
-with control_resolution:
-    resolution = st.radio("Tidsoppløsning", RESOLUTION_CHOICES, horizontal=True, index=0)
-with control_learning:
-    show_learning = st.toggle("Vis læring / gamle forecasts", value=True)
+market, resolution, show_learning, enabled_engines = render_market_detail_controls(
+    st,
+    markets=markets,
+    initial_market=initial_market,
+    resolution_choices=RESOLUTION_CHOICES,
+)
 
 if st.query_params.get("market") != market:
     st.query_params["market"] = market
 
+selected_labels = [ENGINE_LABELS[engine] for engine in enabled_engines]
 st.caption(
     "AUTO velger visningsoppløsning etter forecast-horisonten. Valgt oppløsning kan ikke bli finere "
-    "enn markedsdata som faktisk er lagret av workeren."
+    "enn markedsdata som faktisk er lagret av workeren. "
+    + (
+        "Valgt analysevisning: " + " · ".join(selected_labels) + "."
+        if selected_labels
+        else "Alle analysemotorer er slått av i visningen."
+    )
 )
 
 
@@ -106,7 +112,6 @@ def _current_metrics(item, latest_forecast):
     m3.metric("Forventet intervall", interval)
     m4.metric("Horisont", horizon)
     m5.metric("Status", recommendation)
-
 
 
 def _add_forecast(fig: go.Figure, forecast, *, color: str, strong: bool, name: str, regime: str = "", volatility=None):
@@ -182,8 +187,7 @@ def _add_forecast(fig: go.Figure, forecast, *, color: str, strong: bool, name: s
     )
 
 
-
-def _render_market_detail(market_name: str, resolution_choice: str, learning: bool) -> None:
+def _render_market_detail(market_name: str, resolution_choice: str, learning: bool, engines: tuple[str, ...]) -> None:
     market_forecasts = forecast_store.load_all(market=market_name, limit=500)
     if not market_forecasts:
         st.info("Ingen forecasts for dette markedet ennå.")
@@ -265,7 +269,11 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
         legend={"orientation": "h", "y": 1.08, "x": 0},
         hovermode="x unified",
     )
-    st.plotly_chart(fig, use_container_width=True, key=f"market-detail-{market_name}-{resolution_choice}-{learning}")
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key=f"market-detail-{market_name}-{resolution_choice}-{learning}-{'-'.join(engines) or 'none'}",
+    )
 
     if not history:
         st.caption(
@@ -321,6 +329,6 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
 
 _fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
 if _fragment is not None:
-    _fragment(run_every="60s")(_render_market_detail)(market, resolution, show_learning)
+    _fragment(run_every="60s")(_render_market_detail)(market, resolution, show_learning, enabled_engines)
 else:
-    _render_market_detail(market, resolution, show_learning)
+    _render_market_detail(market, resolution, show_learning, enabled_engines)
