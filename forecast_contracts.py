@@ -13,8 +13,8 @@ FORECAST_STATUSES = {"READY", "DEGRADED", "PROVISIONAL"}
 TIME_SCALES = {"MINUTES", "HOURS", "DAYS"}
 
 # Explicit v1 movement baselines by market. These are deliberately simple and
-# must be calibrated against realized outcomes; they are not presented as an
-# empirically calibrated price model.
+# become a starting point for outcome-based calibration rather than a permanent
+# fixed movement model.
 _MOVE_SCALE = {
     "Brent": 5.0,
     "Gold": 2.5,
@@ -47,12 +47,6 @@ def _time_scale(horizon_hours: float | None) -> str:
 
 
 def _baseline_move_interval(decision: DecisionStateSnapshot) -> tuple[float, float] | None:
-    """Translate Decision State strength into an explicit uncalibrated v1 interval.
-
-    This exists so PriceGauger can visualize and measure forecasts before enough
-    realized outcomes exist to fit a calibrated movement model. The missing-input
-    marker `calibrated_move_model` remains attached to every such forecast.
-    """
     if decision.direction not in {"LONG_BIAS", "SHORT_BIAS", "NEUTRAL"}:
         return None
     scale = float(_MOVE_SCALE.get(decision.market, 3.0))
@@ -63,6 +57,17 @@ def _baseline_move_interval(decision: DecisionStateSnapshot) -> tuple[float, flo
         return -magnitude, round(-magnitude * 0.35, 4)
     half = round(magnitude * 0.5, 4)
     return -half, half
+
+
+def _calibrated_interval(
+    low: float | None,
+    high: float | None,
+    factor: float | None,
+) -> tuple[float | None, float | None]:
+    if low is None or high is None or factor is None:
+        return low, high
+    bounded = max(0.25, min(4.0, float(factor)))
+    return round(float(low) * bounded, 4), round(float(high) * bounded, 4)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +90,10 @@ class ForecastSnapshot:
     missing_inputs: tuple[str, ...]
     status_reason: str
     engine_version: str = FORECAST_ENGINE_VERSION
+    calibration_factor: float | None = None
+    calibration_sample_count: int = 0
+    calibration_version: str | None = None
+    training_recipe_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "as_of", _utc_iso(self.as_of))
@@ -98,6 +107,9 @@ class ForecastSnapshot:
         if low is not None and high is not None and low > high:
             object.__setattr__(self, "expected_move_low_pct", high)
             object.__setattr__(self, "expected_move_high_pct", low)
+        if self.calibration_factor is not None and self.calibration_factor <= 0:
+            raise ValueError("calibration factor must be positive")
+        object.__setattr__(self, "calibration_sample_count", max(0, int(self.calibration_sample_count)))
         object.__setattr__(self, "missing_inputs", tuple(dict.fromkeys(str(item) for item in self.missing_inputs if str(item))))
 
     def to_record(self) -> dict[str, Any]:
@@ -111,6 +123,10 @@ def forecast_from_decision(
     *,
     market_state: MarketStateSnapshot | None = None,
     additional_missing_inputs: tuple[str, ...] = (),
+    calibration_factor: float | None = None,
+    calibration_sample_count: int = 0,
+    calibration_version: str | None = None,
+    training_recipe_id: str | None = None,
 ) -> ForecastSnapshot:
     missing: list[str] = list(additional_missing_inputs)
     if market_state is None or market_state.price is None:
@@ -120,13 +136,18 @@ def forecast_from_decision(
 
     move_low = decision.expected_move_low_pct
     move_high = decision.expected_move_high_pct
+    used_baseline = False
     if move_low is None or move_high is None:
         baseline = _baseline_move_interval(decision)
         if baseline is None:
             missing.append("expected_move_interval")
         else:
             move_low, move_high = baseline
-            missing.append("calibrated_move_model")
+            used_baseline = True
+
+    move_low, move_high = _calibrated_interval(move_low, move_high, calibration_factor)
+    if used_baseline and calibration_factor is None:
+        missing.append("calibrated_move_model")
 
     if decision.horizon_hours is None:
         missing.append("forecast_horizon")
@@ -161,4 +182,8 @@ def forecast_from_decision(
         status=status,
         missing_inputs=tuple(missing),
         status_reason=decision.status_reason,
+        calibration_factor=calibration_factor,
+        calibration_sample_count=calibration_sample_count,
+        calibration_version=calibration_version,
+        training_recipe_id=training_recipe_id,
     )

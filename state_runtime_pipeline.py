@@ -8,8 +8,9 @@ from pathlib import Path
 from analysis_status import AnalysisStatusStore
 from config import twelve_data_api_key
 from decision_engine_components import DecisionEngineComponentStore, apply_historical_confirmation
+from forecast_calibration import build_forecast_calibration
 from forecast_contracts import forecast_from_decision
-from forecast_learning import refresh_forecast_outcomes
+from forecast_learning import ForecastOutcomeStore, refresh_forecast_outcomes
 from forecast_store import ForecastStore
 from historical_signal_store import HistoricalRuntimeSignalStore
 from market_data import TwelveDataProvider, fetch_market_data
@@ -216,9 +217,9 @@ def process_flow_snapshot(
         market_states, technical_errors = {}, {}
     runtime_store.save_market_states(market_states.values())
 
-    # Learning is observational only: evaluate forecasts that already existed
-    # before these newly persisted market observations. A current-cycle forecast
-    # is saved later and therefore cannot score itself with same-cycle data.
+    # Evaluate forecasts that existed before the current forecast is generated.
+    # The resulting COMPLETE outcomes may calibrate the next movement interval,
+    # but a newly-created forecast can never score or train on itself.
     try:
         learned = refresh_forecast_outcomes(db_path)
         if learned:
@@ -230,6 +231,12 @@ def process_flow_snapshot(
             )
     except Exception:
         LOGGER.exception("forecast outcome refresh failed; analysis continues")
+
+    try:
+        calibration_outcomes = ForecastOutcomeStore(db_path).load_all(limit=500)
+    except Exception:
+        calibration_outcomes = []
+        LOGGER.exception("forecast calibration outcomes unavailable; using uncalibrated movement model")
 
     if market_states:
         detail = f"{len(market_states)} markeder oppdatert fra pris og teknisk regime."
@@ -268,29 +275,56 @@ def process_flow_snapshot(
     )
 
     forecasts = []
+    calibrated_count = 0
     for decision in decisions:
         missing_inputs: list[str] = []
         if news_context is None:
             missing_inputs.append("news_context")
         if decision.market in technical_errors or decision.market not in market_states:
             missing_inputs.append("technical_market_state")
+
+        calibration = None
+        if decision.horizon_hours is not None:
+            calibration = build_forecast_calibration(
+                calibration_outcomes,
+                market=decision.market,
+                horizon_hours=decision.horizon_hours,
+            )
+        if calibration is not None:
+            calibrated_count += 1
+            LOGGER.info(
+                "forecast calibration market=%s horizon=%sh samples=%s raw_factor=%.4f applied_factor=%.4f direction_hit_rate=%s",
+                decision.market,
+                decision.horizon_hours,
+                calibration.sample_count,
+                calibration.raw_factor,
+                calibration.applied_factor,
+                calibration.direction_hit_rate,
+            )
+
         forecasts.append(
             forecast_from_decision(
                 decision,
                 market_state=market_states.get(decision.market),
                 additional_missing_inputs=tuple(missing_inputs),
+                calibration_factor=None if calibration is None else calibration.applied_factor,
+                calibration_sample_count=0 if calibration is None else calibration.sample_count,
+                calibration_version=None if calibration is None else calibration.engine_version,
             )
         )
     forecast_store.save_all(forecasts)
     degraded = sum(item.status != "READY" for item in forecasts)
     recommendation_detail = f"{len(forecasts)} prognoser lagret fra siste Decision State."
+    if calibrated_count:
+        recommendation_detail += f" {calibrated_count} bruker outcome-basert bevegelseskalibrering."
     if degraded:
         recommendation_detail += f" {degraded} har eksplisitt redusert datagrunnlag."
     status_store.complete("recommendation", recommendation_detail)
     LOGGER.info(
-        "forecast snapshots persisted count=%s degraded=%s historical_confirmations=%s",
+        "forecast snapshots persisted count=%s degraded=%s calibrated=%s historical_confirmations=%s",
         len(forecasts),
         degraded,
+        calibrated_count,
         historical_count,
     )
 
