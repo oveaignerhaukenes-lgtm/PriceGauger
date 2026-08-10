@@ -9,7 +9,14 @@ from analysis_view_preferences import ANALYSIS_ENGINES
 from build_info import render_build_badge
 from forecast_learning import ForecastOutcomeStore
 from forecast_store import ForecastStore
-from market_detail import RESOLUTION_CHOICES, downsample_history, forecast_price_series, resolution_minutes
+from market_detail import (
+    RESOLUTION_CHOICES,
+    downsample_history,
+    fade_path_segments,
+    forecast_price_series,
+    ghost_forecast_opacities,
+    resolution_minutes,
+)
 from market_detail_controls import ENGINE_LABELS, render_market_detail_controls
 from market_detail_projection import load_market_detail_projection
 from market_history_store import MarketHistoryStore
@@ -25,7 +32,7 @@ with header_left:
     st.title("Markedsvisning")
     st.caption(
         "Levende markedsbilde med frosne forecasts og faktisk utvikling. "
-        "Grafen leser bare lagret worker-data; den sender ingen markedsdata- eller ordreforespørsler."
+        "Grafinnstillinger ligger i sidebaren; grafen leser bare lagret worker-data."
     )
 with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
@@ -57,13 +64,13 @@ if st.query_params.get("market") != market:
 
 selected_labels = [ENGINE_LABELS[engine] for engine in enabled_engines]
 st.caption(
-    "AUTO velger visningsoppløsning etter forecast-horisonten. Valgt oppløsning kan ikke bli finere "
-    "enn markedsdata som faktisk er lagret av workeren. "
+    f"**{market}** · {resolution}  |  "
     + (
-        "Valgt analysevisning: " + " · ".join(selected_labels) + "."
+        "analysevisning: " + " · ".join(selected_labels)
         if selected_labels
-        else "Alle analysemotorer er slått av i visningen."
+        else "alle analysemotorer skjult"
     )
+    + ("  |  tidligere prognosespor på" if show_learning else "  |  tidligere prognosespor av")
 )
 
 
@@ -144,7 +151,18 @@ def _render_engine_breakdown(projection, engines: tuple[str, ...]) -> None:
         )
 
 
-def _add_forecast(fig: go.Figure, forecast, *, color: str, strong: bool, name: str, regime: str = "", volatility=None):
+def _add_forecast(
+    fig: go.Figure,
+    forecast,
+    *,
+    color: str,
+    strong: bool,
+    name: str,
+    regime: str = "",
+    volatility=None,
+    ghost_peak_opacity: float = 0.26,
+    show_legend: bool = True,
+):
     series = forecast_price_series(
         forecast,
         market_regime=regime,
@@ -188,7 +206,7 @@ def _add_forecast(fig: go.Figure, forecast, *, color: str, strong: bool, name: s
                 y=bull_y,
                 mode="lines",
                 name="Bull",
-                line={"color": "#2f9e64", "dash": "dot", "width": 1.4},
+                line={"color": "#2f9e64", "dash": "dot", "width": 1.2},
             )
         )
         fig.add_trace(
@@ -197,24 +215,41 @@ def _add_forecast(fig: go.Figure, forecast, *, color: str, strong: bool, name: s
                 y=bear_y,
                 mode="lines",
                 name="Bear",
-                line={"color": "#d15b5b", "dash": "dot", "width": 1.4},
+                line={"color": "#d15b5b", "dash": "dot", "width": 1.2},
             )
         )
 
     base_x, base_y = _xy(series.base)
-    fig.add_trace(
-        go.Scatter(
-            x=base_x,
-            y=base_y,
-            mode="lines",
-            name=name,
-            line={"color": color, "width": 3.0 if strong else 1.2, "dash": "solid" if strong else "dot"},
-            opacity=1.0 if strong else 0.26,
-            hovertemplate=(
-                f"{name}<br>%{{x|%d.%m %H:%M}}<br>%{{y:.3f}}<extra></extra>"
-            ),
+    if strong:
+        fig.add_trace(
+            go.Scatter(
+                x=base_x,
+                y=base_y,
+                mode="lines",
+                name=name,
+                line={"color": color, "width": 2.6},
+                opacity=1.0,
+                hovertemplate=f"{name}<br>%{{x|%d.%m %H:%M}}<br>%{{y:.3f}}<extra></extra>",
+            )
         )
-    )
+        return
+
+    path = tuple(zip(base_x, base_y))
+    segments = fade_path_segments(path, peak_opacity=ghost_peak_opacity)
+    for segment_index, (segment, opacity) in enumerate(segments):
+        fig.add_trace(
+            go.Scatter(
+                x=[point[0] for point in segment],
+                y=[point[1] for point in segment],
+                mode="lines",
+                name=name,
+                legendgroup="historical-forecasts",
+                showlegend=show_legend and segment_index == len(segments) - 1,
+                line={"color": color, "width": 1.05, "dash": "dot"},
+                opacity=opacity,
+                hoverinfo="skip",
+            )
+        )
 
 
 def _render_market_detail(market_name: str, resolution_choice: str, learning: bool, engines: tuple[str, ...]) -> None:
@@ -255,7 +290,7 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
                 y=history_y,
                 mode="lines",
                 name="Faktisk pris",
-                line={"color": "#252b33", "width": 2.7},
+                line={"color": "#252b33", "width": 2.3},
                 hovertemplate="Faktisk<br>%{x|%d.%m %H:%M}<br>%{y:.3f}<extra></extra>",
             )
         )
@@ -265,15 +300,22 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
     volatility = None if item is None else item.volatility_score
 
     if learning:
-        historical = [forecast for forecast in market_forecasts[1:30] if _parse_stamp(forecast.as_of) >= start - timedelta(hours=window_hours)]
-        for index, forecast in enumerate(reversed(historical[-8:])):
-            label = f"Tidligere forecast {index + 1}" if index == 0 else f"_ghost_{index}"
+        historical = [
+            forecast
+            for forecast in market_forecasts[1:30]
+            if _parse_stamp(forecast.as_of) >= start - timedelta(hours=window_hours)
+        ]
+        visible_historical = list(reversed(historical[:8]))
+        ghost_opacities = ghost_forecast_opacities(len(visible_historical))
+        for index, (forecast, opacity) in enumerate(zip(visible_historical, ghost_opacities)):
             _add_forecast(
                 fig,
                 forecast,
                 color=color,
                 strong=False,
-                name=label,
+                name="Tidligere prognoser",
+                ghost_peak_opacity=opacity,
+                show_legend=index == len(visible_historical) - 1,
             )
 
     _add_forecast(
@@ -288,24 +330,53 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
 
     fig.add_vline(
         x=now,
-        line_width=1.5,
+        line_width=1.2,
         line_dash="dash",
         line_color="#64748b",
         annotation_text="NÅ",
         annotation_position="top",
     )
-    fig.update_xaxes(range=[start, end])
+    fig.update_xaxes(
+        range=[start, end],
+        title_text="Tid · nåtid holdes i sentrum",
+        showgrid=True,
+        showspikes=True,
+        spikemode="across+toaxis",
+        spikesnap="cursor",
+        spikedash="dot",
+        spikecolor="rgba(71,85,105,0.48)",
+        spikethickness=1,
+    )
+    fig.update_yaxes(
+        title_text=f"{market_name} · pris",
+        side="right",
+        showgrid=True,
+        zeroline=False,
+        showspikes=True,
+        spikemode="across+toaxis",
+        spikesnap="cursor",
+        spikedash="dot",
+        spikecolor="rgba(71,85,105,0.48)",
+        spikethickness=1,
+        hoverformat=".4~g",
+    )
     fig.update_layout(
-        height=620,
-        margin={"l": 20, "r": 20, "t": 40, "b": 20},
-        xaxis_title="Tid · nåtid holdes i sentrum",
-        yaxis_title="Pris",
-        legend={"orientation": "h", "y": 1.08, "x": 0},
-        hovermode="x unified",
+        template="plotly_white",
+        height=650,
+        margin={"l": 42, "r": 88, "t": 52, "b": 40},
+        legend={"orientation": "h", "y": 1.04, "x": 0},
+        hovermode="closest",
+        dragmode="pan",
+        uirevision=f"Markedsvisning:{market_name}:{resolution_choice}:{learning}",
     )
     st.plotly_chart(
         fig,
         use_container_width=True,
+        config={
+            "scrollZoom": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        },
         key=f"market-detail-{market_name}-{resolution_choice}-{learning}-{'-'.join(engines) or 'none'}",
     )
 
@@ -343,7 +414,7 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
     )
 
     if not learning:
-        st.caption("Historiske forecast-baner er skjult. Slå på «Vis læring / gamle forecasts» for overlay.")
+        st.caption("Historiske prognosespor er skjult. Slå dem på i sidebaren for å se forecast-historikken.")
     elif completed:
         recent = completed[:8]
         rows = []
