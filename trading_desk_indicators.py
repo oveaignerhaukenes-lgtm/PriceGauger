@@ -10,7 +10,22 @@ from trading_desk import ChartBar
 INDICATOR_BOLLINGER = "Bollinger"
 INDICATOR_MACD = "MACD"
 INDICATOR_RSI = "RSI"
-INDICATOR_OPTIONS = (INDICATOR_BOLLINGER, INDICATOR_MACD, INDICATOR_RSI)
+INDICATOR_EMA20 = "EMA 20"
+INDICATOR_EMA50 = "EMA 50"
+INDICATOR_SMA50 = "SMA 50"
+INDICATOR_STOCHASTIC = "Stochastic"
+INDICATOR_ATR = "ATR"
+INDICATOR_OPTIONS = (
+    INDICATOR_BOLLINGER,
+    INDICATOR_MACD,
+    INDICATOR_RSI,
+    INDICATOR_EMA20,
+    INDICATOR_EMA50,
+    INDICATOR_SMA50,
+    INDICATOR_STOCHASTIC,
+    INDICATOR_ATR,
+)
+DEFAULT_INDICATORS = (INDICATOR_BOLLINGER, INDICATOR_MACD, INDICATOR_RSI)
 INDICATOR_WARMUP_PERIODS = 120
 
 
@@ -29,6 +44,12 @@ class TechnicalIndicators:
     macd_signal: tuple[IndicatorPoint, ...] = ()
     macd_histogram: tuple[IndicatorPoint, ...] = ()
     rsi: tuple[IndicatorPoint, ...] = ()
+    ema20: tuple[IndicatorPoint, ...] = ()
+    ema50: tuple[IndicatorPoint, ...] = ()
+    sma50: tuple[IndicatorPoint, ...] = ()
+    stochastic_k: tuple[IndicatorPoint, ...] = ()
+    stochastic_d: tuple[IndicatorPoint, ...] = ()
+    atr: tuple[IndicatorPoint, ...] = ()
 
 
 def _sma(values: Sequence[float], period: int) -> list[float | None]:
@@ -66,6 +87,50 @@ def _points(bars: Sequence[ChartBar], values: Sequence[float | None]) -> tuple[I
         for bar, value in zip(bars, values)
         if value is not None
     )
+
+
+def _stochastic(
+    bars: Sequence[ChartBar],
+    *,
+    period: int = 14,
+    signal_period: int = 3,
+) -> tuple[list[float | None], list[float | None]]:
+    k_values: list[float | None] = [None] * len(bars)
+    for index in range(period - 1, len(bars)):
+        window = bars[index - period + 1 : index + 1]
+        highest = max(float(item.high) for item in window)
+        lowest = min(float(item.low) for item in window)
+        spread = highest - lowest
+        k_values[index] = 50.0 if spread == 0.0 else 100.0 * (float(bars[index].close) - lowest) / spread
+
+    d_values: list[float | None] = [None] * len(bars)
+    valid_indexes = [index for index, value in enumerate(k_values) if value is not None]
+    compact = [float(k_values[index]) for index in valid_indexes]
+    compact_signal = _sma(compact, signal_period)
+    for compact_index, original_index in enumerate(valid_indexes):
+        d_values[original_index] = compact_signal[compact_index]
+    return k_values, d_values
+
+
+def _atr(bars: Sequence[ChartBar], *, period: int = 14) -> list[float | None]:
+    result: list[float | None] = [None] * len(bars)
+    if len(bars) <= period:
+        return result
+
+    true_ranges: list[float] = []
+    for index in range(1, len(bars)):
+        current = bars[index]
+        previous_close = float(bars[index - 1].close)
+        high = float(current.high)
+        low = float(current.low)
+        true_ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
+
+    current_atr = sum(true_ranges[:period]) / period
+    result[period] = current_atr
+    for index in range(period + 1, len(bars)):
+        current_atr = ((current_atr * (period - 1)) + true_ranges[index - 1]) / period
+        result[index] = current_atr
+    return result
 
 
 def calculate_indicators(
@@ -144,6 +209,9 @@ def calculate_indicators(
             average_loss = ((average_loss * (rsi_period - 1)) + loss) / rsi_period
             rsi_values[index] = rsi_value(average_gain, average_loss)
 
+    stochastic_k, stochastic_d = _stochastic(bars)
+    atr_values = _atr(bars)
+
     return TechnicalIndicators(
         bollinger_middle=_points(bars, middle),
         bollinger_upper=_points(bars, upper),
@@ -152,6 +220,12 @@ def calculate_indicators(
         macd_signal=_points(bars, signal_values),
         macd_histogram=_points(bars, histogram),
         rsi=_points(bars, rsi_values),
+        ema20=_points(bars, _ema(closes, 20)),
+        ema50=_points(bars, _ema(closes, 50)),
+        sma50=_points(bars, _sma(closes, 50)),
+        stochastic_k=_points(bars, stochastic_k),
+        stochastic_d=_points(bars, stochastic_d),
+        atr=_points(bars, atr_values),
     )
 
 
@@ -172,4 +246,10 @@ def clip_indicators(
         macd_signal=clip(indicators.macd_signal),
         macd_histogram=clip(indicators.macd_histogram),
         rsi=clip(indicators.rsi),
+        ema20=clip(indicators.ema20),
+        ema50=clip(indicators.ema50),
+        sma50=clip(indicators.sma50),
+        stochastic_k=clip(indicators.stochastic_k),
+        stochastic_d=clip(indicators.stochastic_d),
+        atr=clip(indicators.atr),
     )
