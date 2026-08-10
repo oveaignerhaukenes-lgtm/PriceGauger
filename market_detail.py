@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from forecast_contracts import ForecastSnapshot
 from forecast_visuals import build_trajectory
@@ -51,6 +51,44 @@ def downsample_history(
         buckets[key] = (observed, float(price))
     ordered = [buckets[key] for key in sorted(buckets)]
     return tuple((stamp.isoformat(), price) for stamp, price in ordered)
+
+
+def ghost_forecast_opacities(count: int, *, minimum: float = 0.08, maximum: float = 0.34) -> tuple[float, ...]:
+    """Return oldest-to-newest opacity levels for historical forecast trails."""
+    total = max(0, int(count))
+    if total == 0:
+        return ()
+    if total == 1:
+        return (float(maximum),)
+    low = float(minimum)
+    high = float(maximum)
+    step = (high - low) / (total - 1)
+    return tuple(low + step * index for index in range(total))
+
+
+def fade_path_segments(
+    points: Sequence[tuple[datetime, float]],
+    *,
+    peak_opacity: float,
+    minimum_ratio: float = 0.18,
+) -> tuple[tuple[tuple[tuple[datetime, float], ...], float], ...]:
+    """Split a path into pairwise segments that fade from left to right.
+
+    Plotly line traces do not support per-vertex opacity. Pairwise segments let
+    Markedsvisning reproduce the forecast-card trail effect without altering the
+    underlying forecast trajectory.
+    """
+    if len(points) < 2:
+        return ()
+    peak = max(0.0, min(1.0, float(peak_opacity)))
+    floor = peak * max(0.0, min(1.0, float(minimum_ratio)))
+    segment_count = len(points) - 1
+    result: list[tuple[tuple[tuple[datetime, float], ...], float]] = []
+    for index in range(segment_count):
+        progress = (index + 1) / segment_count
+        opacity = floor + (peak - floor) * (progress ** 1.35)
+        result.append(((points[index], points[index + 1]), opacity))
+    return tuple(result)
 
 
 @dataclass(frozen=True, slots=True)
