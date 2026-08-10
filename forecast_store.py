@@ -78,7 +78,10 @@ class ForecastStore:
         if market:
             query += " WHERE market=?"
             params.append(market)
-        query += " ORDER BY as_of DESC LIMIT ?"
+        # Multiple snapshots can legitimately share one analysis timestamp. Keep
+        # LIMIT selection stable across process/page reloads by adding persisted
+        # insertion time and the immutable id as deterministic tie breakers.
+        query += " ORDER BY as_of DESC, recorded_at DESC, forecast_id DESC LIMIT ?"
         params.append(max(1, int(limit)))
         with self._connect() as db:
             rows = db.execute(query, tuple(params)).fetchall()
@@ -100,7 +103,7 @@ class ForecastStore:
                 """
                 SELECT payload_json
                 FROM forecast_snapshots
-                ORDER BY market, as_of DESC
+                ORDER BY market, as_of DESC, recorded_at DESC, forecast_id DESC
                 """
             ).fetchall()
         latest: dict[str, ForecastSnapshot] = {}
