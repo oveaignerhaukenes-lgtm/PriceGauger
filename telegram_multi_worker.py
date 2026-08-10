@@ -8,8 +8,10 @@ import time
 from typing import Callable
 
 from analysis_status import AnalysisStatusStore
+from historical_runtime_automation import schedule_historical_runtime
 from telegram_channel_store import TelegramChannelStore
 from telegram_flow_engine import OpenAITelegramFlowScorer
+from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
 import worker as worker_module
 
@@ -69,6 +71,19 @@ def collect_configured_search_plans(
     return sorted(collected, key=sort_key)
 
 
+def _schedule_historical_after_cycle(db_path: str | Path) -> bool:
+    """Start optional historical work only after the authoritative worker cycle."""
+    try:
+        posts = TelegramFlowStore(db_path).load_posts(limit=500)
+        scheduled = schedule_historical_runtime(posts, db_path=db_path)
+        if scheduled:
+            LOGGER.info("historical runtime scheduled after authoritative worker cycle")
+        return scheduled
+    except Exception:
+        LOGGER.exception("historical runtime scheduling failed; authoritative worker cycle remains valid")
+        return False
+
+
 def run_once(
     *,
     db_path: str | Path = worker_module.DEFAULT_DB_PATH,
@@ -88,7 +103,7 @@ def run_once(
     original_scorer = worker_module.OpenAITelegramFlowScorer
     worker_module.OpenAITelegramFlowScorer = SourceAwareTelegramFlowScorer
     try:
-        return worker_module.run_once(
+        summary = worker_module.run_once(
             db_path=db_path,
             channel="configured-sources",
             minimum_signal=minimum_signal,
@@ -96,6 +111,12 @@ def run_once(
         )
     finally:
         worker_module.OpenAITelegramFlowScorer = original_scorer
+
+    # Historical analogue work is deliberately subordinate. The normal worker has
+    # already persisted its current Information/Technical/Decision/Forecast state
+    # before this optional daemon task is allowed to start.
+    _schedule_historical_after_cycle(db_path)
+    return summary
 
 
 def run_forever(
