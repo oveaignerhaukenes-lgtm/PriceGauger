@@ -23,6 +23,8 @@ from trading_desk_product_panel import render_saxo_product_panel
 
 
 LIVE_CHART_REFRESH_SECONDS = 5
+QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m")
+TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
@@ -50,6 +52,9 @@ available_markets = [
 unavailable_markets = [market for market in configured_markets if market not in available_markets]
 
 if not available_markets:
+    with st.sidebar:
+        st.header("Graf")
+        st.info("Grafinnstillinger blir tilgjengelige når canonical markedsbarer finnes.")
     st.info("Ingen canonical 1m-markedsbarer er tilgjengelige for TradingDesk ennå.")
     if unavailable_markets:
         st.caption("Konfigurert uten tilgjengelige bars: " + ", ".join(unavailable_markets))
@@ -69,45 +74,73 @@ if not available_markets:
     )
     st.stop()
 
-control_market, control_timeframe, control_window, control_mode = st.columns([2.2, 2.4, 1.6, 2.8])
-with control_market:
+if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
+    st.session_state[TIMEFRAME_STATE_KEY] = "5m"
+
+
+def _select_timeframe(value: str) -> None:
+    st.session_state[TIMEFRAME_STATE_KEY] = value
+
+
+with st.sidebar:
+    st.header("Graf")
     market = st.selectbox("Marked", available_markets)
-with control_timeframe:
-    timeframe = st.radio("Timeframe", list(TIMEFRAME_MINUTES), horizontal=True, index=1)
-with control_window:
+
+    st.markdown("**Timeframe**")
+    quick_columns = st.columns(len(QUICK_TIMEFRAMES), gap="small")
+    for column, value in zip(quick_columns, QUICK_TIMEFRAMES):
+        with column:
+            st.button(
+                value.removesuffix("m"),
+                key=f"tradingdesk_tf_{value}",
+                help=f"Bytt direkte til {value}",
+                type="primary" if st.session_state[TIMEFRAME_STATE_KEY] == value else "secondary",
+                use_container_width=True,
+                on_click=_select_timeframe,
+                args=(value,),
+            )
+    st.caption("minutter")
+    st.button(
+        "1 time",
+        key="tradingdesk_tf_1h",
+        type="primary" if st.session_state[TIMEFRAME_STATE_KEY] == "1h" else "secondary",
+        use_container_width=True,
+        on_click=_select_timeframe,
+        args=("1h",),
+    )
+    timeframe = st.session_state[TIMEFRAME_STATE_KEY]
+
     window_hours = st.selectbox(
         "Vindu",
         [6, 12, 24, 48],
         index=2,
         format_func=lambda value: f"{value}t",
     )
-with control_mode:
     overlay_mode = st.radio(
         "Overlay-akse",
         [OVERLAY_NORMALIZED, OVERLAY_ACTUAL],
-        horizontal=True,
         index=0,
     )
 
-overlay_options = [item for item in available_markets if item != market]
-overlays = st.multiselect("Sammenlign med", overlay_options)
-indicator_names = st.multiselect(
-    "Indikatorer",
-    list(INDICATOR_OPTIONS),
-    default=list(INDICATOR_OPTIONS),
-    help="Bollinger (20,2) ligger på prisgrafen. MACD (12,26,9) og RSI (14) får egne paneler.",
-)
-
-if unavailable_markets:
-    st.caption(
-        "Konfigurerte markeder uten tilgjengelige canonical bars vises ikke i velgeren: "
-        + ", ".join(unavailable_markets)
+    overlay_options = [item for item in available_markets if item != market]
+    overlays = st.multiselect("Sammenlign med", overlay_options)
+    indicator_names = st.multiselect(
+        "Indikatorer",
+        list(INDICATOR_OPTIONS),
+        default=list(INDICATOR_OPTIONS),
+        help="Bollinger (20,2) ligger på prisgrafen. MACD (12,26,9) og RSI (14) får egne paneler.",
     )
 
-st.caption(
-    f"Chartet leser canonical bars på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
-    "Ferdige candles og indikatorer oppdateres når neste 1m-bar er lagret; ingen Telegram- eller forecastkriterier brukes."
-)
+    if unavailable_markets:
+        st.caption(
+            "Uten tilgjengelige canonical bars: " + ", ".join(unavailable_markets)
+        )
+
+    with st.expander("Om grafen"):
+        st.caption(
+            f"Canonical bars leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
+            "Ferdige candles og indikatorer oppdateres når neste 1m-bar er lagret."
+        )
 
 
 def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
