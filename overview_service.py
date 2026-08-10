@@ -16,7 +16,7 @@ from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 from telegram_flow_store import TelegramFlowStore
 
 
-RECENT_FORECAST_LIMIT = 4
+RECENT_FORECAST_LIMIT = 12
 
 
 @dataclass(frozen=True, slots=True)
