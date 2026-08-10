@@ -4,7 +4,7 @@ import argparse
 import logging
 import os
 
-from saxo_streaming import SaxoRealtimeService
+from realtime_gap_repair import GapRepairingSaxoRealtimeService
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -25,7 +25,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     args = _parser().parse_args()
-    service = SaxoRealtimeService(db_path=args.db, refresh_ms=args.refresh_ms)
+    service = GapRepairingSaxoRealtimeService(db_path=args.db, refresh_ms=args.refresh_ms)
     service.run_forever()
 
 
