@@ -10,6 +10,7 @@ from analysis_view_preferences import (
     AnalysisViewPreferenceStore,
     AnalysisViewPreferences,
 )
+from market_chat_panel import render_market_chat_panel
 
 
 ENGINE_LABELS = {
@@ -47,6 +48,8 @@ def render_market_detail_controls(st, *, markets: list[str], initial_market: str
 
     The controls own presentation preferences only. Runtime/forecast semantics are
     deliberately supplied by the analysis layer rather than mutated by Streamlit.
+    The market chat is a separate read-only decision-support panel: it receives
+    the selected market here so its conversation follows the same routing choice.
     """
     preference_store = store or AnalysisViewPreferenceStore()
     sidebar = st.sidebar
@@ -104,4 +107,6 @@ def render_market_detail_controls(st, *, markets: list[str], initial_market: str
     )
     if updated != saved:
         preference_store.save(updated)
+
+    render_market_chat_panel(st, market=market)
     return market, resolution, show_learning, updated.enabled_engines
