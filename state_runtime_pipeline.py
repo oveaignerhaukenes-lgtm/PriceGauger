@@ -7,9 +7,11 @@ from pathlib import Path
 
 from analysis_status import AnalysisStatusStore
 from config import twelve_data_api_key
+from decision_engine_components import DecisionEngineComponentStore, apply_historical_confirmation
 from forecast_contracts import forecast_from_decision
 from forecast_learning import refresh_forecast_outcomes
 from forecast_store import ForecastStore
+from historical_signal_store import HistoricalRuntimeSignalStore
 from market_data import TwelveDataProvider, fetch_market_data
 from market_state_store import MarketStateStore
 from news_context_store import NewsContextStore
@@ -100,6 +102,8 @@ def process_flow_snapshot(
     )
     runtime_store = StateRuntimeStore(db_path)
     forecast_store = ForecastStore(db_path)
+    historical_store = HistoricalRuntimeSignalStore(db_path)
+    component_store = DecisionEngineComponentStore(db_path)
     status_store = AnalysisStatusStore(db_path)
 
     new_posts: list[ScoredTelegramPost] = []
@@ -238,11 +242,30 @@ def process_flow_snapshot(
     else:
         status_store.skipped("technical_state", technical_unavailable_detail)
 
-    decisions = build_decision_states(
+    base_decisions = build_decision_states(
         assessment, information, previous=previous, market_states=market_states
     )
+    decisions = []
+    components = []
+    for decision in base_decisions:
+        historical = historical_store.load_latest_for_events(
+            market=decision.market,
+            event_ids=decision.contributing_event_ids,
+        )
+        adjusted, component = apply_historical_confirmation(
+            decision,
+            market_state=market_states.get(decision.market),
+            historical=historical,
+        )
+        decisions.append(adjusted)
+        components.append(component)
     runtime_store.save_decision_states(decisions)
-    status_store.complete("decision_state", f"Decision State oppdatert for {len(decisions)} markeder.")
+    component_store.save_all(components)
+    historical_count = sum(bool(item.historical_assessment_id) for item in components)
+    status_store.complete(
+        "decision_state",
+        f"Decision State oppdatert for {len(decisions)} markeder; historisk bekreftelse brukt i {historical_count}.",
+    )
 
     forecasts = []
     for decision in decisions:
@@ -265,9 +288,10 @@ def process_flow_snapshot(
         recommendation_detail += f" {degraded} har eksplisitt redusert datagrunnlag."
     status_store.complete("recommendation", recommendation_detail)
     LOGGER.info(
-        "forecast snapshots persisted count=%s degraded=%s",
+        "forecast snapshots persisted count=%s degraded=%s historical_confirmations=%s",
         len(forecasts),
         degraded,
+        historical_count,
     )
 
     if missing_decisions:
