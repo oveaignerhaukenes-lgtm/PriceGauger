@@ -32,7 +32,7 @@ with header_left:
     st.title("Markedsvisning")
     st.caption(
         "Levende markedsbilde med frosne forecasts og faktisk utvikling. "
-        "Grafinnstillinger ligger i sidebaren; grafen leser bare lagret worker-data."
+        "Graf, analyse og læring ligger til venstre; arbeidsflate og Markedschat til høyre."
     )
 with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
@@ -52,18 +52,20 @@ if isinstance(requested, list):
 requested = str(requested) if requested else None
 initial_market = requested if requested in markets else markets[0]
 
+analysis_column, workspace_column = st.columns([2.35, 1.0], gap="large")
 market, resolution, show_learning, enabled_engines = render_market_detail_controls(
     st,
     markets=markets,
     initial_market=initial_market,
     resolution_choices=RESOLUTION_CHOICES,
+    container=workspace_column,
 )
 
 if st.query_params.get("market") != market:
     st.query_params["market"] = market
 
 selected_labels = [ENGINE_LABELS[engine] for engine in enabled_engines]
-st.caption(
+analysis_column.caption(
     f"**{market}** · {resolution}  |  "
     + (
         "analysevisning: " + " · ".join(selected_labels)
@@ -414,7 +416,7 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
     )
 
     if not learning:
-        st.caption("Historiske prognosespor er skjult. Slå dem på i sidebaren for å se forecast-historikken.")
+        st.caption("Historiske prognosespor er skjult. Slå dem på i arbeidsflaten til høyre for å se forecast-historikken.")
     elif completed:
         recent = completed[:8]
         rows = []
@@ -433,7 +435,8 @@ def _render_market_detail(market_name: str, resolution_choice: str, learning: bo
 
 
 _fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-if _fragment is not None:
-    _fragment(run_every="60s")(_render_market_detail)(market, resolution, show_learning, enabled_engines)
-else:
-    _render_market_detail(market, resolution, show_learning, enabled_engines)
+with analysis_column:
+    if _fragment is not None:
+        _fragment(run_every="60s")(_render_market_detail)(market, resolution, show_learning, enabled_engines)
+    else:
+        _render_market_detail(market, resolution, show_learning, enabled_engines)
