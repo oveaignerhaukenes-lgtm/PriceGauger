@@ -14,6 +14,7 @@ from trading_desk_chart import (
     build_trading_desk_figure,
 )
 from trading_desk_indicators import (
+    DEFAULT_INDICATORS,
     INDICATOR_OPTIONS,
     INDICATOR_WARMUP_PERIODS,
     calculate_indicators,
@@ -30,6 +31,28 @@ TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
 render_build_badge()
 
+# Keep Plotly's graph operators accessible without covering the chart title/legend.
+st.markdown(
+    """
+    <style>
+    div[data-testid="stPlotlyChart"] .modebar {
+        top: 3.2rem !important;
+        right: .35rem !important;
+        flex-direction: column !important;
+        background: rgba(255,255,255,.94) !important;
+        border: 1px solid rgba(17,24,39,.16) !important;
+        border-radius: .45rem !important;
+        padding: .18rem !important;
+    }
+    div[data-testid="stPlotlyChart"] .modebar-group {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 header_left, header_right = st.columns([5, 1])
 with header_left:
     st.title("TradingDesk")
@@ -43,12 +66,8 @@ with header_right:
 store = RealtimeMarketDataStore()
 configured = configured_instruments()
 configured_markets = list(configured)
-latest_by_market = {
-    market: store.load_latest_bar(market=market) for market in configured_markets
-}
-available_markets = [
-    market for market in configured_markets if latest_by_market[market] is not None
-]
+latest_by_market = {market: store.load_latest_bar(market=market) for market in configured_markets}
+available_markets = [market for market in configured_markets if latest_by_market[market] is not None]
 unavailable_markets = [market for market in configured_markets if market not in available_markets]
 
 if not available_markets:
@@ -67,11 +86,7 @@ if not available_markets:
         overlay_mode=OVERLAY_NORMALIZED,
         empty_message="Grafen fylles automatisk når canonical 1m-bars blir tilgjengelige.",
     )
-    st.plotly_chart(
-        empty,
-        use_container_width=True,
-        config={"scrollZoom": True, "displaylogo": False},
-    )
+    st.plotly_chart(empty, use_container_width=True, config={"scrollZoom": True, "displaylogo": False})
     st.stop()
 
 if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
@@ -110,31 +125,41 @@ with st.sidebar:
     )
     timeframe = st.session_state[TIMEFRAME_STATE_KEY]
 
-    window_hours = st.selectbox(
-        "Vindu",
-        [6, 12, 24, 48],
-        index=2,
-        format_func=lambda value: f"{value}t",
-    )
-    overlay_mode = st.radio(
-        "Overlay-akse",
-        [OVERLAY_NORMALIZED, OVERLAY_ACTUAL],
-        index=0,
-    )
+    window_hours = st.selectbox("Vindu", [6, 12, 24, 48], index=2, format_func=lambda value: f"{value}t")
+    overlay_mode = st.radio("Overlay-akse", [OVERLAY_NORMALIZED, OVERLAY_ACTUAL], index=0)
 
     overlay_options = [item for item in available_markets if item != market]
     overlays = st.multiselect("Sammenlign med", overlay_options)
     indicator_names = st.multiselect(
         "Indikatorer",
         list(INDICATOR_OPTIONS),
-        default=list(INDICATOR_OPTIONS),
-        help="Bollinger (20,2) ligger på prisgrafen. MACD (12,26,9) og RSI (14) får egne paneler.",
+        default=list(DEFAULT_INDICATORS),
+        help=(
+            "Bollinger/EMA/SMA ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
+            "De tre opprinnelige indikatorene er valgt som standard."
+        ),
     )
 
-    if unavailable_markets:
-        st.caption(
-            "Uten tilgjengelige canonical bars: " + ", ".join(unavailable_markets)
+    with st.expander("Panelstørrelse", expanded=False):
+        chart_height = st.slider(
+            "Total grafhøyde",
+            min_value=620,
+            max_value=1100,
+            value=780,
+            step=20,
+            help="Squash eller strekk hele chart-stacken uten å endre data eller indikatorberegning.",
         )
+        price_panel_pct = st.slider(
+            "Hovedgrafens andel",
+            min_value=40,
+            max_value=65,
+            value=50,
+            step=5,
+            help="Fordeler mer eller mindre av høyden til candlestick-panelet. Resten deles mellom underpanelene.",
+        )
+
+    if unavailable_markets:
+        st.caption("Uten tilgjengelige canonical bars: " + ", ".join(unavailable_markets))
 
     with st.expander("Om grafen"):
         st.caption(
@@ -144,12 +169,7 @@ with st.sidebar:
 
 
 def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
-    raw = store.load_range(
-        market=name,
-        start=range_start,
-        end=range_end,
-        limit=limit,
-    )
+    raw = store.load_range(market=name, start=range_start, end=range_end, limit=limit)
     return resample_bars(raw, timeframe=timeframe)
 
 
@@ -168,10 +188,7 @@ def _render_live_chart() -> None:
     if not primary:
         latest_primary = store.load_latest_bar(market=market)
         if latest_primary is not None:
-            resolved_start, resolved_end = last_available_window(
-                latest_primary.bar_time,
-                window_hours=int(window_hours),
-            )
+            resolved_start, resolved_end = last_available_window(latest_primary.bar_time, window_hours=int(window_hours))
             try:
                 primary = _load(market, range_start=resolved_start, range_end=resolved_end)
                 showing_last_available = bool(primary)
@@ -189,11 +206,7 @@ def _render_live_chart() -> None:
     loaded_overlays: dict[str, tuple] = {}
     for overlay_market in overlays:
         try:
-            overlay_bars = _load(
-                overlay_market,
-                range_start=resolved_start,
-                range_end=resolved_end,
-            )
+            overlay_bars = _load(overlay_market, range_start=resolved_start, range_end=resolved_end)
         except ValueError as exc:
             st.warning(f"Hopper over {overlay_market}: {exc}")
             continue
@@ -207,18 +220,9 @@ def _render_live_chart() -> None:
         warmup_minutes = TIMEFRAME_MINUTES[timeframe] * INDICATOR_WARMUP_PERIODS
         warmup_start = resolved_start - timedelta(minutes=warmup_minutes)
         try:
-            indicator_source = _load(
-                market,
-                range_start=warmup_start,
-                range_end=resolved_end,
-                limit=20000,
-            )
+            indicator_source = _load(market, range_start=warmup_start, range_end=resolved_end, limit=20000)
             technical = calculate_indicators(indicator_source)
-            technical = clip_indicators(
-                technical,
-                start=primary[0].bar_time,
-                end=primary[-1].bar_time,
-            )
+            technical = clip_indicators(technical, start=primary[0].bar_time, end=primary[-1].bar_time)
         except ValueError as exc:
             st.warning(f"Kunne ikke beregne tekniske indikatorer for {market}: {exc}")
 
@@ -226,16 +230,7 @@ def _render_live_chart() -> None:
     if primary:
         latest_display = f"{primary[-1].close:g} @ {utc(primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
 
-    panel_labels = ["volum"]
-    if "MACD" in indicator_names:
-        panel_labels.append("MACD")
-    if "RSI" in indicator_names:
-        panel_labels.append("RSI")
-    st.caption(
-        f"**{market}** · {timeframe} · {window_hours}t · siste close {latest_display}  |  "
-        f"**høyre akse:** {market} pris  ·  **venstre akse:** overlay  ·  "
-        f"**underpaneler:** {', '.join(panel_labels)}"
-    )
+    st.caption(f"**{market}** · {timeframe} · {window_hours}t · siste close {latest_display}")
 
     fig = build_trading_desk_figure(
         market=market,
@@ -246,6 +241,8 @@ def _render_live_chart() -> None:
         overlay_mode=overlay_mode,
         indicators=technical,
         indicator_names=indicator_names,
+        chart_height=chart_height,
+        price_panel_share=price_panel_pct / 100.0,
     )
 
     st.plotly_chart(
