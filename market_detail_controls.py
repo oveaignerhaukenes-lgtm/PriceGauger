@@ -18,6 +18,14 @@ ENGINE_LABELS = {
     ENGINE_TECHNICAL: "Teknisk analyse",
 }
 
+RESOLUTION_LABELS = {
+    "AUTO": "Auto",
+    "1m": "1",
+    "5m": "5",
+    "15m": "15",
+    "1t": "1t",
+}
+
 
 def update_preferences(
     current: AnalysisViewPreferences,
@@ -35,49 +43,58 @@ def update_preferences(
 
 
 def render_market_detail_controls(st, *, markets: list[str], initial_market: str, resolution_choices, store=None):
-    """Render persisted controls for the enlarged market card.
+    """Render persisted Markedsvisning controls in the left sidebar.
 
     The controls own presentation preferences only. Runtime/forecast semantics are
     deliberately supplied by the analysis layer rather than mutated by Streamlit.
     """
     preference_store = store or AnalysisViewPreferenceStore()
-    control_market, control_resolution, control_learning = st.columns([2.2, 3.2, 2.2])
-    with control_market:
-        market = st.selectbox("Marked", markets, index=markets.index(initial_market))
+    sidebar = st.sidebar
+    sidebar.markdown("### Grafinnstillinger")
+    market = sidebar.selectbox("Marked", markets, index=markets.index(initial_market))
 
     saved = preference_store.load(market)
-    resolution_index = (
-        list(resolution_choices).index(saved.resolution)
-        if saved.resolution in resolution_choices
-        else 0
-    )
-    with control_resolution:
-        resolution = st.radio(
-            "Tidsoppløsning",
-            resolution_choices,
-            horizontal=True,
-            index=resolution_index,
-            key=f"market-detail-resolution-{market}",
-        )
-    with control_learning:
-        show_learning = st.toggle(
-            "Vis læring / gamle forecasts",
-            value=saved.show_learning,
-            key=f"market-detail-learning-{market}",
+    resolution_key = f"market-detail-resolution-{market}"
+    if resolution_key not in st.session_state:
+        st.session_state[resolution_key] = (
+            saved.resolution if saved.resolution in resolution_choices else resolution_choices[0]
         )
 
-    st.markdown("**Motorer i analysevisningen**")
-    engine_columns = st.columns(len(ANALYSIS_ENGINES))
+    sidebar.caption("Tidsoppløsning")
+    resolution_columns = sidebar.columns(len(resolution_choices))
+    for column, choice in zip(resolution_columns, resolution_choices):
+        if column.button(
+            RESOLUTION_LABELS.get(choice, str(choice)),
+            key=f"market-detail-resolution-button-{market}-{choice}",
+            type="primary" if st.session_state[resolution_key] == choice else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state[resolution_key] = choice
+    resolution = st.session_state[resolution_key]
+
+    show_learning = sidebar.toggle(
+        "Vis tidligere prognosespor",
+        value=saved.show_learning,
+        key=f"market-detail-learning-{market}",
+        help="Viser tidligere lagrede forecasts som gradvis uttonede spor bak gjeldende prognose.",
+    )
+
+    sidebar.markdown("**Motorer i analysevisningen**")
     enabled: list[str] = []
-    for column, engine in zip(engine_columns, ANALYSIS_ENGINES):
-        with column:
-            active = st.checkbox(
-                ENGINE_LABELS[engine],
-                value=saved.enabled(engine),
-                key=f"market-detail-engine-{market}-{engine}",
-            )
+    for engine in ANALYSIS_ENGINES:
+        active = sidebar.checkbox(
+            ENGINE_LABELS[engine],
+            value=saved.enabled(engine),
+            key=f"market-detail-engine-{market}-{engine}",
+        )
         if active:
             enabled.append(engine)
+
+    with sidebar.expander("Om grafen", expanded=False):
+        st.caption(
+            "Markedsvisning bruker lagret worker-data. Auto velger oppløsning etter forecast-horisonten; "
+            "manuelt valg kan ikke skape finere data enn det som faktisk er lagret."
+        )
 
     updated = AnalysisViewPreferences(
         market=market,
