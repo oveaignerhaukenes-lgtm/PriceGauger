@@ -35,6 +35,7 @@ STEP_LABELS = {
 }
 
 VALID_STATUSES = {"PENDING", "RUNNING", "COMPLETE", "REUSED", "SKIPPED", "FAILED"}
+_TECHNICAL_REUSE_DETAIL = "Ingen ny analyse nødvendig; siste tekniske state beholdes."
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +113,17 @@ class AnalysisStatusStore:
         self.set(step_key, "FAILED", detail)
 
     def skipped(self, step_key: str, detail: str = "") -> None:
+        # The runtime historically used SKIPPED both for a genuinely unavailable
+        # technical analysis and for a healthy no-change cycle that intentionally
+        # reuses the last persisted technical state. Preserve a real unavailable
+        # reason recorded earlier in the same cycle, otherwise expose reuse as a
+        # distinct status so the Overview does not imply that TA was omitted.
+        if step_key == "technical_state" and str(detail) == _TECHNICAL_REUSE_DETAIL:
+            current = next((item for item in self.load() if item.step_key == step_key), None)
+            if current is not None and current.status == "SKIPPED" and current.detail != detail:
+                return
+            self.reused(step_key, detail)
+            return
         self.set(step_key, "SKIPPED", detail)
 
     def load(self) -> tuple[AnalysisStepStatus, ...]:
