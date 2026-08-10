@@ -4,6 +4,7 @@ import pytest
 
 from realtime_market_data import RealtimeBar1m
 from trading_desk import (
+    TIMEFRAME_MINUTES,
     canonical_chart_bars,
     last_available_window,
     normalized_close_series,
@@ -57,7 +58,9 @@ def test_resample_five_minutes_preserves_ohlc_and_sums_true_volume() -> None:
 @pytest.mark.parametrize(
     ("timeframe", "expected_stamp"),
     [
+        ("10m", "2026-08-09T10:00:00+00:00"),
         ("15m", "2026-08-09T10:00:00+00:00"),
+        ("30m", "2026-08-09T10:00:00+00:00"),
         ("1h", "2026-08-09T10:00:00+00:00"),
     ],
 )
@@ -74,6 +77,10 @@ def test_resample_supported_higher_timeframes(timeframe: str, expected_stamp: st
     assert result[0].bar_time == expected_stamp
     assert result[0].close == 102
     assert result[0].volume is None
+
+
+def test_quick_timeframes_are_supported_by_canonical_resampler() -> None:
+    assert {"1m", "5m", "10m", "15m", "30m"}.issubset(TIMEFRAME_MINUTES)
 
 
 def test_missing_minutes_are_not_fabricated_and_make_volume_unknown() -> None:
