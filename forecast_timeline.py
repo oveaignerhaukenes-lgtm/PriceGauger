@@ -198,6 +198,16 @@ def _price_ticks(lower: float, upper: float) -> tuple[float, ...]:
     return tuple(ticks)
 
 
+def _layer_opacity(ordinal: int, count: int) -> tuple[float, float]:
+    """Fade an arbitrary number of immutable snapshots without hiding old trails."""
+    if count <= 1:
+        return 0.24, 0.95
+    progress = max(0.0, min(1.0, ordinal / (count - 1)))
+    fan = 0.045 + 0.195 * (progress ** 1.35)
+    line = 0.16 + 0.79 * (progress ** 1.15)
+    return fan, line
+
+
 def render_forecast_timeline_svg(
     forecasts: Iterable[ForecastSnapshot],
     *,
@@ -206,13 +216,13 @@ def render_forecast_timeline_svg(
     volatility_score: float | None = None,
     color: str = "#5a6b7b",
     now: datetime | None = None,
-    max_layers: int = 4,
+    max_layers: int = 12,
     steps: int = 12,
 ) -> str:
     """Render immutable forecast snapshots against one canonical observed price timeline."""
 
     candidates = [item for item in (_eligible(snapshot) for snapshot in forecasts) if item is not None]
-    candidates.sort(key=lambda item: item.as_of)
+    candidates.sort(key=lambda item: (item.as_of, item.snapshot.forecast_id))
     layers = candidates[-max(1, int(max_layers)) :]
     if not layers:
         return '<div class="pg-forecast-empty">Ingen komplett lagret prognose ennå.</div>'
@@ -337,31 +347,33 @@ def render_forecast_timeline_svg(
         gap_markup.append(
             f'<rect x="{center - width / 2.0:.1f}" y="14" width="{width:.1f}" height="82" rx=".8" '
             'style="fill:rgba(100,116,139,.10);stroke:rgba(100,116,139,.38);stroke-width:.45;'
-            'stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke" />'
+            'stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke">'
+            f'<title>{gap.label}</title></rect>'
         )
-        label_parts = gap.label.split(maxsplit=1)
-        label_top = label_parts[0]
-        label_bottom = label_parts[1] if len(label_parts) > 1 else ""
-        gap_markup.append(
-            f'<text x="{center:.1f}" y="9.2" text-anchor="middle" '
-            'style="font-size:1.8px;font-weight:400;letter-spacing:0;fill:rgba(71,85,105,.78);'
-            'font-family:system-ui,sans-serif">'
-            f'<tspan x="{center:.1f}" dy="0">{label_top}</tspan>'
-            f'<tspan x="{center:.1f}" dy="1.7">{label_bottom}</tspan>'
-            '</text>'
-        )
+        # A compressed gap can be only a couple of SVG units wide. Rendering a
+        # two-line label there stacks the glyphs into the small "UFO" artefact.
+        # Keep the tooltip for narrow gaps and show visible text only when it fits.
+        if width >= 7.0:
+            label_parts = gap.label.split(maxsplit=1)
+            label_top = label_parts[0]
+            label_bottom = label_parts[1] if len(label_parts) > 1 else ""
+            gap_markup.append(
+                f'<text x="{center:.1f}" y="9.2" text-anchor="middle" '
+                'style="font-size:1.8px;font-weight:400;letter-spacing:0;fill:rgba(71,85,105,.78);'
+                'font-family:system-ui,sans-serif">'
+                f'<tspan x="{center:.1f}" dy="0">{label_top}</tspan>'
+                f'<tspan x="{center:.1f}" dy="1.7">{label_bottom}</tspan>'
+                '</text>'
+            )
 
     layer_markup: list[str] = []
     count = len(plotted_layers)
-    fan_opacities = (0.08, 0.11, 0.16, 0.24)
-    line_opacities = (0.28, 0.42, 0.62, 0.95)
     for ordinal, layer in enumerate(plotted_layers):
         upper = layer["upper"]
         lower = layer["lower"]
         base = layer["base"]
         fan_polygon = _points(tuple(upper) + tuple(reversed(lower)), ymap=ymap)
-        fan_opacity = fan_opacities[min(ordinal + (4 - count), len(fan_opacities) - 1)]
-        line_opacity = line_opacities[min(ordinal + (4 - count), len(line_opacities) - 1)]
+        fan_opacity, line_opacity = _layer_opacity(ordinal, count)
         item = layer["item"]
         start_x = xmap(item.as_of)
         layer_markup.append(
