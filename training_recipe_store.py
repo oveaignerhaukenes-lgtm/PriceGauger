@@ -9,6 +9,7 @@ from database import connect
 
 
 DEFAULT_FORECAST_TRAINING_RECIPE = "forecast-training-v1-1m"
+DIRECTION_FORECAST_TRAINING_RECIPE = "forecast-training-v2-direction-1m"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,22 @@ DEFAULT_RECIPE = TrainingRecipe(
     ),
 )
 
+DIRECTION_RECIPE = TrainingRecipe(
+    recipe_id=DIRECTION_FORECAST_TRAINING_RECIPE,
+    sample_interval_seconds=60,
+    horizons_hours=(0.5, 1.0, 4.0, 12.0, 24.0),
+    min_complete_samples=8,
+    recent_sample_limit=60,
+    movement_learning=True,
+    direction_learning=True,
+    regime_learning=False,
+    description=(
+        "Adds conservative per-engine direction reliability learning to v1 movement calibration. "
+        "Uses only completed prior forecasts and their frozen News/Technical/Historical component "
+        "scores, with Bayesian shrinkage and capped weight multipliers. Regime learning remains disabled."
+    ),
+)
+
 
 class TrainingRecipeStore:
     """Append-only archive of the exact recipes used by adaptive forecast learning."""
@@ -62,6 +79,7 @@ class TrainingRecipeStore:
                 """
             )
         self.ensure(DEFAULT_RECIPE)
+        self.ensure(DIRECTION_RECIPE)
 
     def ensure(self, recipe: TrainingRecipe) -> None:
         payload = json.dumps(recipe.to_record(), ensure_ascii=False, sort_keys=True)
