@@ -88,7 +88,7 @@ def test_established_opposing_technical_trend_can_turn_new_decision_short() -> N
     assert adjusted.direction == "SHORT_BIAS"
     assert adjusted.direction_score < -0.10
     assert components.weights[ENGINE_TECHNICAL] == ESTABLISHED_TECHNICAL_WEIGHT
-    assert components.weights[ENGINE_NEWS_CONTEXT] == 1.0 - ESTABLISHED_TECHNICAL_WEIGHT
+    assert components.weights[ENGINE_NEWS_CONTEXT] == round(1.0 - ESTABLISHED_TECHNICAL_WEIGHT, 6)
     assert TECHNICAL_DIRECTION_PRIOR_VERSION in adjusted.status_reason
     assert components.decision_snapshot_id == adjusted.snapshot_id
 
