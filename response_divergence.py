@@ -263,9 +263,10 @@ def evaluate_response_divergence(
     if alignment_offset > _ALIGNMENT_TOLERANCES[window].total_seconds():
         return None
 
-    # The CrossMarket snapshot must be a later observation. This prevents a
-    # trailing return ending at t0 from being mistaken for the response after t0.
-    minimum_maturity = _utc(information.as_of) + _WINDOW_DELTAS[window] - _ALIGNMENT_TOLERANCES[window]
+    # Alignment tolerance governs how close the historical reference must be to t0;
+    # it must never shorten the response horizon itself. A 15m response is not
+    # mature until the CrossMarket observation is at least t0 + 15m.
+    minimum_maturity = _utc(information.as_of) + _WINDOW_DELTAS[window]
     if _utc(cross_market.as_of) < minimum_maturity:
         return None
 
