@@ -12,6 +12,10 @@ from state_contracts import DecisionStateSnapshot, MarketStateSnapshot
 
 
 VALID_DECISION_DIRECTIONS = {"LONG_BIAS", "SHORT_BIAS", "NEUTRAL"}
+ESTABLISHED_TECHNICAL_THRESHOLD = 0.75
+ESTABLISHED_TECHNICAL_WEIGHT = 0.70
+HISTORICAL_WEIGHT = 0.15
+TECHNICAL_DIRECTION_PRIOR_VERSION = "technical-direction-prior-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,26 +46,61 @@ def _information_score(decision: DecisionStateSnapshot, market_state: MarketStat
     return max(-1.0, min(1.0, information)), technical
 
 
+def _established_technical_conflict(*, information: float, technical: float, market_state: MarketStateSnapshot | None) -> bool:
+    """Return true only for a fresh, established technical trend opposing information.
+
+    Slight/low-quality technical states remain advisory. The prior is deliberately
+    reserved for a clearly established direction so ordinary noise cannot seize
+    control of the Decision State.
+    """
+    if market_state is None or market_state.component.freshness != "FRESH":
+        return False
+    if abs(float(technical)) < ESTABLISHED_TECHNICAL_THRESHOLD:
+        return False
+    if abs(float(information)) <= 0.10:
+        return True
+    return float(information) * float(technical) < 0.0
+
+
+def _weighted_score(scores: dict[str, float], weights: dict[str, float]) -> float:
+    score = sum(float(scores[key]) * float(weights.get(key, 0.0)) for key in scores)
+    return max(-1.0, min(1.0, score))
+
+
 def apply_historical_confirmation(
     decision: DecisionStateSnapshot,
     *,
     market_state: MarketStateSnapshot | None,
     historical: HistoricalRuntimeSignal | None,
 ) -> tuple[DecisionStateSnapshot, DecisionEngineComponents]:
-    """Blend an event-matched historical signal conservatively into Decision State.
+    """Build traceable engine weights, including bounded historical/technical priors.
 
-    Without a historical signal this returns the original Decision State unchanged.
-    Historical confirmation receives 15% of the final score; the existing
-    information/technical blend retains 85%. Special stale/insufficient directions
-    are never upgraded by historical data alone.
+    Normal operation keeps the existing 72/28 information/technical blend.
+    Historical confirmation, when present, receives 15% of the final score.
+    When a fresh technical state is clearly established (|score| >= 0.75) and
+    opposes the information engine, Technical temporarily receives 70% of the
+    non-historical weight. This lets *new* forecasts turn with an established
+    market direction while leaving prior Decision States and forecasts immutable.
     """
     information, technical = _information_score(decision, market_state)
     technical_available = market_state is not None and market_state.component.freshness == "FRESH"
-    base_weights = {
-        ENGINE_NEWS_CONTEXT: 0.72 if technical_available else 1.0,
-        ENGINE_TECHNICAL: 0.28 if technical_available else 0.0,
-        ENGINE_HISTORICAL: 0.0,
-    }
+    technical_prior = _established_technical_conflict(
+        information=information,
+        technical=technical,
+        market_state=market_state,
+    )
+
+    if technical_available and technical_prior:
+        non_historical_weights = {
+            ENGINE_NEWS_CONTEXT: 1.0 - ESTABLISHED_TECHNICAL_WEIGHT,
+            ENGINE_TECHNICAL: ESTABLISHED_TECHNICAL_WEIGHT,
+        }
+    else:
+        non_historical_weights = {
+            ENGINE_NEWS_CONTEXT: 0.72 if technical_available else 1.0,
+            ENGINE_TECHNICAL: 0.28 if technical_available else 0.0,
+        }
+
     scores = {
         ENGINE_NEWS_CONTEXT: information,
         ENGINE_TECHNICAL: technical,
@@ -71,34 +110,61 @@ def apply_historical_confirmation(
     if technical_available:
         available.append(ENGINE_TECHNICAL)
 
-    adjusted = decision
     historical_id = ""
-    weights = dict(base_weights)
     if historical is not None:
         historical_id = historical.assessment_id
         available.append(ENGINE_HISTORICAL)
         weights = {
-            ENGINE_NEWS_CONTEXT: base_weights[ENGINE_NEWS_CONTEXT] * 0.85,
-            ENGINE_TECHNICAL: base_weights[ENGINE_TECHNICAL] * 0.85,
-            ENGINE_HISTORICAL: 0.15,
+            ENGINE_NEWS_CONTEXT: non_historical_weights[ENGINE_NEWS_CONTEXT] * (1.0 - HISTORICAL_WEIGHT),
+            ENGINE_TECHNICAL: non_historical_weights[ENGINE_TECHNICAL] * (1.0 - HISTORICAL_WEIGHT),
+            ENGINE_HISTORICAL: HISTORICAL_WEIGHT,
         }
-        if decision.direction in VALID_DECISION_DIRECTIONS:
-            score = max(-1.0, min(1.0, 0.85 * float(decision.direction_score) + 0.15 * float(historical.direction_score)))
-            confidence = max(0.0, min(1.0, 0.90 * float(decision.confidence) + 0.10 * float(historical.confidence)))
-            identity = f"{decision.snapshot_id}|{historical.assessment_id}|{score:.6f}"
-            snapshot_id = "decision-state:" + sha256(identity.encode("utf-8")).hexdigest()[:24]
-            adjusted = replace(
-                decision,
-                snapshot_id=snapshot_id,
-                direction=_direction(score),
-                direction_score=round(score, 4),
-                confidence=confidence,
-                status_reason=(
-                    decision.status_reason
-                    + f" Historical confirmation {historical.direction_score:+.2f} "
-                    + f"from {historical.independent_analogues} analogue(s), weight 0.15."
-                ),
+    else:
+        weights = {
+            ENGINE_NEWS_CONTEXT: non_historical_weights[ENGINE_NEWS_CONTEXT],
+            ENGINE_TECHNICAL: non_historical_weights[ENGINE_TECHNICAL],
+            ENGINE_HISTORICAL: 0.0,
+        }
+
+    adjusted = decision
+    should_recompute = technical_prior or historical is not None
+    if should_recompute and decision.direction in VALID_DECISION_DIRECTIONS:
+        score = _weighted_score(scores, weights)
+        confidence = float(decision.confidence)
+        reasons: list[str] = []
+        identity_parts = [decision.snapshot_id]
+
+        if technical_prior:
+            reasons.append(
+                f"Established technical conflict {technical:+.2f}; "
+                f"Technical receives {weights[ENGINE_TECHNICAL]:.1%} final weight "
+                f"({TECHNICAL_DIRECTION_PRIOR_VERSION})."
             )
+            identity_parts.append(TECHNICAL_DIRECTION_PRIOR_VERSION)
+            identity_parts.append(f"{technical:.6f}")
+            identity_parts.append(f"{information:.6f}")
+
+        if historical is not None:
+            confidence = max(
+                0.0,
+                min(1.0, 0.90 * float(decision.confidence) + 0.10 * float(historical.confidence)),
+            )
+            reasons.append(
+                f"Historical confirmation {historical.direction_score:+.2f} "
+                f"from {historical.independent_analogues} analogue(s), weight {HISTORICAL_WEIGHT:.2f}."
+            )
+            identity_parts.append(historical.assessment_id)
+
+        identity_parts.append(f"{score:.6f}")
+        snapshot_id = "decision-state:" + sha256("|".join(identity_parts).encode("utf-8")).hexdigest()[:24]
+        adjusted = replace(
+            decision,
+            snapshot_id=snapshot_id,
+            direction=_direction(score),
+            direction_score=round(score, 4),
+            confidence=confidence,
+            status_reason=(decision.status_reason + " " + " ".join(reasons)).strip(),
+        )
 
     components = DecisionEngineComponents(
         decision_snapshot_id=adjusted.snapshot_id,
