@@ -224,7 +224,7 @@ def build_trading_desk_figure(
                     mode="lines",
                     name="MACD (12,26)",
                     line={"color": "#2563eb", "width": 1.8},
-                    hovertemplate="MACD<br>%{x|%d.%m %H:%M}} UTC<br>%{y:.4g}<extra></extra>",
+                    hovertemplate="MACD<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
                 ),
                 row=row,
                 col=1,
