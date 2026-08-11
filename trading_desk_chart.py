@@ -26,6 +26,8 @@ CROSSHAIR_COLOR = "rgba(31,41,55,0.62)"
 TEXT_COLOR = "#111111"
 GRID_COLOR = "rgba(17,24,39,0.12)"
 REFERENCE_COLOR = "rgba(17,24,39,0.48)"
+MACD_HIST_POSITIVE_COLOR = "#16a34a"
+MACD_HIST_NEGATIVE_COLOR = "#7c3aed"
 
 
 def overlay_axis_title(mode: str) -> str:
@@ -196,12 +198,20 @@ def build_trading_desk_figure(
 
         if indicators is not None and INDICATOR_MACD in panel_rows:
             row = panel_rows[INDICATOR_MACD]
+            histogram_values = [point.value for point in indicators.macd_histogram]
             fig.add_trace(
                 go.Bar(
                     x=[point.bar_time for point in indicators.macd_histogram],
-                    y=[point.value for point in indicators.macd_histogram],
+                    y=histogram_values,
                     name="MACD histogram",
-                    opacity=0.72,
+                    marker={
+                        "color": [
+                            MACD_HIST_POSITIVE_COLOR if value >= 0.0 else MACD_HIST_NEGATIVE_COLOR
+                            for value in histogram_values
+                        ],
+                        "line": {"width": 0},
+                    },
+                    opacity=0.92,
                     hovertemplate="MACD histogram<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
                 ),
                 row=row,
@@ -214,7 +224,7 @@ def build_trading_desk_figure(
                     mode="lines",
                     name="MACD (12,26)",
                     line={"color": "#2563eb", "width": 1.8},
-                    hovertemplate="MACD<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
+                    hovertemplate="MACD<br>%{x|%d.%m %H:%M}} UTC<br>%{y:.4g}<extra></extra>",
                 ),
                 row=row,
                 col=1,
