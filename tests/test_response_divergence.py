@@ -12,6 +12,7 @@ from state_runtime_store import StateRuntimeStore
 
 
 T0 = "2026-08-12T12:00:00+00:00"
+T13 = "2026-08-12T12:13:00+00:00"
 T15 = "2026-08-12T12:15:00+00:00"
 
 
@@ -124,6 +125,41 @@ def test_response_divergence_reports_aligned_response_without_causal_interpretat
     assert result.realized_direction == "UP"
     assert "cause" not in result.to_record()
     assert "transmission" not in result.to_record()
+
+
+def test_response_divergence_requires_full_window_maturity_despite_reference_tolerance(tmp_path):
+    path = tmp_path / "maturity.db"
+    reference = "2026-08-12T11:58:00+00:00"
+    _bar(path, market="Silver", stamp=reference, price=100.0)
+    _bar(path, market="Silver", stamp=T13, price=99.0)
+
+    early = build_cross_market_state(path=path, market="Silver", as_of=T13)
+    early_silver = next(item for item in early.observations if item.name == "Silver")
+    assert early_silver.window_coverage["15m"] == "VALID"
+    assert early_silver.window_reference_at["15m"] == reference
+
+    assert evaluate_response_divergence(
+        _information(),
+        early,
+        market="Silver",
+        window="15m",
+    ) is None
+
+    _bar(path, market="Silver", stamp=T15, price=98.0)
+    mature = build_cross_market_state(path=path, market="Silver", as_of=T15)
+    mature_silver = next(item for item in mature.observations if item.name == "Silver")
+    assert mature_silver.window_coverage["15m"] == "VALID"
+    assert mature_silver.window_reference_at["15m"] == reference
+
+    result = evaluate_response_divergence(
+        _information(),
+        mature,
+        market="Silver",
+        window="15m",
+    )
+    assert result is not None
+    assert result.status == "DIVERGENT"
+    assert result.alignment_offset_seconds == 120.0
 
 
 def test_response_divergence_rejects_pre_event_or_misaligned_window(tmp_path):
