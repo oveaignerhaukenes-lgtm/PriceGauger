@@ -409,20 +409,8 @@ def render_forecast_timeline_svg(
             if len(segment_points) >= 2:
                 actual_parts.append(
                     f'<polyline points="{_points(segment_points, ymap=ymap)}" class="pg-realized" '
-                    'style="fill:none;stroke:#111827;stroke-width:1.8;vector-effect:non-scaling-stroke" />'
+                    'style="fill:none;stroke:currentColor;stroke-width:1.9;vector-effect:non-scaling-stroke" />'
                 )
-            elif segment_points:
-                x, price = segment_points[0]
-                actual_parts.append(
-                    f'<circle cx="{x:.1f}" cy="{ymap(price):.1f}" r=".85" '
-                    'style="fill:#111827;stroke:none" />'
-                )
-        last_stamp, last_price = observed_in_axis[-1]
-        last_x = xmap(last_stamp)
-        actual_parts.append(
-            f'<circle cx="{last_x:.1f}" cy="{ymap(last_price):.1f}" r="1.35" '
-            'style="fill:#111827;stroke:white;stroke-width:.45;vector-effect:non-scaling-stroke" />'
-        )
         actual_markup = "".join(actual_parts)
 
     current = now or datetime.now(timezone.utc)
@@ -459,7 +447,7 @@ def render_forecast_timeline_svg(
         {now_markup}
       </svg>
       <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.62;margin-top:-.2rem">
-        <span>eldre prognoser lysere · nyeste tydeligst</span><span>svart = faktisk pris · høyre = pris</span>
+        <span>eldre prognoser lysere · nyeste tydeligst</span><span>kontrastlinje = faktisk pris · høyre = pris</span>
       </div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
