@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
@@ -20,6 +20,18 @@ _WINDOW_DELTAS = {
     "1h": timedelta(hours=1),
     "4h": timedelta(hours=4),
 }
+# Canonical realtime history is normally one-minute data. A current observation
+# older than five minutes is too old for a state that may later support 15m
+# response-divergence analysis, even if longer windows could still be computed.
+_LATEST_FRESHNESS = timedelta(minutes=5)
+# A return is valid only when the historical reference observation is genuinely
+# close to the requested horizon. These tolerances are explicit contract values,
+# not a silent "last point before target" fallback across session/data gaps.
+_WINDOW_TOLERANCES = {
+    "15m": timedelta(minutes=2),
+    "1h": timedelta(minutes=5),
+    "4h": timedelta(minutes=15),
+}
 
 
 def _utc(value: str | datetime) -> datetime:
@@ -34,6 +46,18 @@ def _stable_id(payload: dict[str, Any]) -> str:
     return "cross-market-state:" + sha256(canonical.encode("utf-8")).hexdigest()[:24]
 
 
+def _missing_window_status() -> dict[str, str]:
+    return {window: "MISSING" for window in WINDOWS}
+
+
+def _missing_window_references() -> dict[str, str | None]:
+    return {window: None for window in WINDOWS}
+
+
+def _missing_window_offsets() -> dict[str, float | None]:
+    return {window: None for window in WINDOWS}
+
+
 @dataclass(frozen=True, slots=True)
 class CrossMarketObservation:
     name: str
@@ -43,18 +67,45 @@ class CrossMarketObservation:
     change_15m: float | None
     change_1h: float | None
     change_4h: float | None
-    freshness: str
+    latest_observation_freshness: str
     provider: str
     instrument: str
+    latest_observation_age_seconds: float | None = None
+    window_coverage: dict[str, str] = field(default_factory=_missing_window_status)
+    window_reference_at: dict[str, str | None] = field(default_factory=_missing_window_references)
+    window_reference_offset_seconds: dict[str, float | None] = field(default_factory=_missing_window_offsets)
     detail: str = ""
 
     def __post_init__(self) -> None:
         if self.kind not in {"RETURN_PCT", "YIELD_PCT"}:
             raise ValueError("kind must be RETURN_PCT or YIELD_PCT")
-        if self.freshness not in {"FRESH", "STALE", "MISSING"}:
-            raise ValueError("freshness must be FRESH, STALE or MISSING")
+        if self.latest_observation_freshness not in {"FRESH", "STALE", "MISSING"}:
+            raise ValueError("latest_observation_freshness must be FRESH, STALE or MISSING")
         if self.observed_at is not None:
             object.__setattr__(self, "observed_at", _utc(self.observed_at).isoformat())
+        coverage = dict(self.window_coverage)
+        references = dict(self.window_reference_at)
+        offsets = dict(self.window_reference_offset_seconds)
+        if set(coverage) != set(WINDOWS):
+            raise ValueError(f"window_coverage must contain exactly {WINDOWS}")
+        if set(references) != set(WINDOWS):
+            raise ValueError(f"window_reference_at must contain exactly {WINDOWS}")
+        if set(offsets) != set(WINDOWS):
+            raise ValueError(f"window_reference_offset_seconds must contain exactly {WINDOWS}")
+        if any(status not in {"VALID", "MISSING"} for status in coverage.values()):
+            raise ValueError("window coverage must be VALID or MISSING")
+        normalized_references = {
+            key: None if value is None else _utc(value).isoformat()
+            for key, value in references.items()
+        }
+        object.__setattr__(self, "window_coverage", coverage)
+        object.__setattr__(self, "window_reference_at", normalized_references)
+        object.__setattr__(self, "window_reference_offset_seconds", offsets)
+
+    @property
+    def freshness(self) -> str:
+        """Compatibility alias for callers that only need latest-point freshness."""
+        return self.latest_observation_freshness
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
@@ -150,15 +201,14 @@ class CrossMarketStateStore:
         return CrossMarketStateSnapshot.from_record(json.loads(row["payload_json"]))
 
 
-def _nearest_at_or_before(points: tuple[tuple[str, float], ...], target: datetime) -> tuple[datetime, float] | None:
-    selected: tuple[datetime, float] | None = None
-    for stamp, value in points:
-        observed = _utc(stamp)
-        if observed <= target:
-            selected = (observed, float(value))
-        else:
-            break
-    return selected
+def _nearest_reference(
+    points: tuple[tuple[str, float], ...], target: datetime
+) -> tuple[datetime, float, float] | None:
+    candidates = [(_utc(stamp), float(value)) for stamp, value in points]
+    if not candidates:
+        return None
+    observed, value = min(candidates, key=lambda item: abs((item[0] - target).total_seconds()))
+    return observed, value, abs((observed - target).total_seconds())
 
 
 def _market_observation(history: MarketHistoryStore, market: str, *, as_of: datetime) -> CrossMarketObservation:
@@ -173,23 +223,44 @@ def _market_observation(history: MarketHistoryStore, market: str, *, as_of: date
             change_15m=None,
             change_1h=None,
             change_4h=None,
-            freshness="MISSING",
+            latest_observation_freshness="MISSING",
             provider="canonical-market-history",
             instrument=market,
             detail="No canonical price history available.",
         )
+
     latest_at = _utc(points[-1][0])
     latest = float(points[-1][1])
     age_seconds = max(0.0, (as_of - latest_at).total_seconds())
-    freshness = "FRESH" if age_seconds <= 2 * 3600 else "STALE"
+    latest_freshness = "FRESH" if age_seconds <= _LATEST_FRESHNESS.total_seconds() else "STALE"
 
     changes: dict[str, float | None] = {}
+    coverage = _missing_window_status()
+    references = _missing_window_references()
+    offsets = _missing_window_offsets()
     for label, delta in _WINDOW_DELTAS.items():
-        base = _nearest_at_or_before(points, as_of - delta)
-        if base is None or base[1] == 0:
-            changes[label] = None
+        target = as_of - delta
+        candidate = _nearest_reference(points, target)
+        if candidate is not None:
+            base_at, base_value, offset_seconds = candidate
+            references[label] = base_at.isoformat()
+            offsets[label] = offset_seconds
         else:
-            changes[label] = (latest / base[1] - 1.0) * 100.0
+            base_value = 0.0
+            offset_seconds = float("inf")
+        valid_reference = offset_seconds <= _WINDOW_TOLERANCES[label].total_seconds()
+        if latest_freshness == "FRESH" and valid_reference and base_value != 0:
+            changes[label] = (latest / base_value - 1.0) * 100.0
+            coverage[label] = "VALID"
+        else:
+            changes[label] = None
+
+    missing_labels = [label for label in WINDOWS if coverage[label] == "MISSING"]
+    detail = ""
+    if latest_freshness == "STALE":
+        detail = "Latest canonical observation is stale; all return windows are invalid."
+    elif missing_labels:
+        detail = "Missing temporally valid reference for: " + ", ".join(missing_labels) + "."
 
     return CrossMarketObservation(
         name=market,
@@ -199,9 +270,14 @@ def _market_observation(history: MarketHistoryStore, market: str, *, as_of: date
         change_15m=changes["15m"],
         change_1h=changes["1h"],
         change_4h=changes["4h"],
-        freshness=freshness,
+        latest_observation_freshness=latest_freshness,
         provider="canonical-market-history",
         instrument=market,
+        latest_observation_age_seconds=age_seconds,
+        window_coverage=coverage,
+        window_reference_at=references,
+        window_reference_offset_seconds=offsets,
+        detail=detail,
     )
 
 
@@ -214,7 +290,7 @@ def _missing_yield_observation(tenor: str) -> CrossMarketObservation:
         change_15m=None,
         change_1h=None,
         change_4h=None,
-        freshness="MISSING",
+        latest_observation_freshness="MISSING",
         provider="unconfigured",
         instrument=tenor,
         detail="Verified Treasury yield feed not configured; futures prices must not be treated as yields.",
@@ -234,7 +310,8 @@ def _curve_payload(observations: tuple[CrossMarketObservation, ...]) -> tuple[di
         for window, attr in (("15m", "change_15m"), ("1h", "change_1h"), ("4h", "change_4h")):
             short_change = getattr(short, attr)
             long_change = getattr(long, attr)
-            changes[label][window] = None if short_change is None or long_change is None else long_change - short_change
+            valid = short.window_coverage[window] == "VALID" and long.window_coverage[window] == "VALID"
+            changes[label][window] = None if not valid or short_change is None or long_change is None else long_change - short_change
     return spreads, changes
 
 
