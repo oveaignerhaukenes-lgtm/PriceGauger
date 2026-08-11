@@ -7,6 +7,7 @@ from pathlib import Path
 
 from analysis_status import AnalysisStatusStore
 from config import twelve_data_api_key
+from cross_market_runtime import produce_cross_market_state
 from decision_engine_components import DecisionEngineComponentStore, apply_historical_confirmation
 from forecast_calibration import build_forecast_calibration
 from forecast_contracts import forecast_from_decision
@@ -106,6 +107,11 @@ def process_flow_snapshot(
     historical_store = HistoricalRuntimeSignalStore(db_path)
     component_store = DecisionEngineComponentStore(db_path)
     status_store = AnalysisStatusStore(db_path)
+
+    # Cross-market observations are an independent descriptive runtime product.
+    # Produce them before any no-material-news early return so price/yield state can
+    # keep advancing even when Information/Decision State is intentionally reused.
+    produce_cross_market_state(db_path=db_path, status_store=status_store)
 
     new_posts: list[ScoredTelegramPost] = []
     for post in posts:
