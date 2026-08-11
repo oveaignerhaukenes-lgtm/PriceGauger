@@ -48,7 +48,7 @@ def test_timeline_keeps_multiple_forecasts_and_actual_price():
     assert svg.count("pg-forecast-fan") == 2
     assert svg.count("pg-forecast-base") == 2
     assert "pg-realized" in svg
-    assert "svart = faktisk pris" in svg
+    assert "kontrastlinje = faktisk pris" in svg
 
 
 def test_timeline_has_taller_plot_and_right_price_scale():
