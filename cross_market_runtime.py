@@ -46,6 +46,10 @@ def produce_cross_market_state(
             "response_divergence",
             "ResponseDivergence hoppet over fordi CrossMarketState ikke kunne produseres.",
         )
+        status.skipped(
+            "transmission_state",
+            "TransmissionState hoppet over fordi CrossMarketState ikke kunne produseres.",
+        )
         LOGGER.exception("cross-market state production failed; analysis continues")
         return None
 
@@ -80,9 +84,8 @@ def produce_cross_market_state(
     )
 
     # ResponseDivergence consumes the just-persisted observation and prior persisted
-    # Information State. This hook inherits CrossMarketState's placement before the
-    # no-material-change early return, so response windows can mature on quiet-news
-    # cycles without creating a parallel market-data path.
+    # Information State. TransmissionState then consumes only those mature response
+    # observations. This chain remains before the no-material-change early return.
     produce_response_divergences(
         db_path=db_path,
         cross_market=snapshot,
