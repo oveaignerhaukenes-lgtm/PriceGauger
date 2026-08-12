@@ -59,5 +59,6 @@ def test_narrow_gap_keeps_tooltip_without_cramped_typography():
     assert ">WEEKEND</tspan>" not in svg
     assert ">GAP</tspan>" not in svg
     assert 'y="14"' in svg
-    assert 'x="91.0"' in svg
-    assert 'font-size:2.8px' in svg
+    assert 'class="pg-price-axis"' in svg
+    assert 'font-size:.64rem' in svg
+    assert 'font-weight:400' in svg

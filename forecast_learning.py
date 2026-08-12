@@ -12,6 +12,7 @@ from market_history_store import MarketHistoryStore
 
 
 LEARNING_ENGINE_VERSION = "forecast-learning-v1"
+MIN_ACTIVE_HORIZON_HOURS = 1.0 / 60.0
 
 
 def _utc(value: str | datetime) -> datetime:
@@ -136,13 +137,15 @@ def _market_points(
     path: str | Path,
     *,
     forecast: ForecastSnapshot,
-    limit: int = 10000,
+    limit: int = 30000,
 ) -> list[tuple[datetime, float]]:
     """Load realized prices from the canonical market-history layer.
 
     ``MarketHistoryStore`` prefers persisted realtime 1m bars and fills older or
     missing periods with technical-state snapshots. This keeps learning aligned
     with Markedsvisning and market-mover outcomes without discarding legacy data.
+    The read budget exceeds seven days of 1m observations so the longest supported
+    forecast can reach COMPLETE even after closed-market gaps are excluded.
     """
     try:
         rows = MarketHistoryStore(path).load_since(
@@ -171,7 +174,7 @@ def _active_path(
 ) -> tuple[list[tuple[datetime, float]], float, bool]:
     if not points or forecast.horizon_hours is None:
         return [], 0.0, False
-    target_seconds = max(0.25, float(forecast.horizon_hours)) * 3600.0
+    target_seconds = max(MIN_ACTIVE_HORIZON_HOURS, float(forecast.horizon_hours)) * 3600.0
     max_gap = max(60.0, float(max_active_gap_minutes) * 60.0)
     cursor = _utc(forecast.as_of)
     active_seconds = 0.0
@@ -212,7 +215,7 @@ def realized_progress_path(
     points = _market_points(path, forecast=forecast)
     if not points:
         return ()
-    target_seconds = max(0.25, float(forecast.horizon_hours)) * 3600.0
+    target_seconds = max(MIN_ACTIVE_HORIZON_HOURS, float(forecast.horizon_hours)) * 3600.0
     max_gap = max(60.0, float(max_active_gap_minutes) * 60.0)
     cursor = _utc(forecast.as_of)
     active_seconds = 0.0
@@ -316,4 +319,11 @@ def refresh_forecast_outcomes(
         outcome = evaluate_forecast(path, forecast)
         store.save(outcome)
         outcomes.append(outcome)
+
+    # Freeze descriptive error observations at the same point an outcome becomes
+    # COMPLETE. The local import avoids a module-level cycle because forecast_error
+    # intentionally uses ForecastOutcome as its source contract.
+    from forecast_error import refresh_forecast_errors
+
+    refresh_forecast_errors(path, outcomes=outcomes)
     return outcomes

@@ -124,7 +124,7 @@ class ResponseDivergenceStore:
                 CREATE TABLE IF NOT EXISTS response_divergence_snapshots (
                     divergence_id TEXT PRIMARY KEY,
                     market TEXT NOT NULL,
-                    window TEXT NOT NULL,
+                    "window" TEXT NOT NULL,
                     as_of TEXT NOT NULL,
                     information_snapshot_id TEXT NOT NULL,
                     cross_market_snapshot_id TEXT NOT NULL,
@@ -142,7 +142,7 @@ class ResponseDivergenceStore:
             db.execute(
                 """
                 INSERT INTO response_divergence_snapshots(
-                    divergence_id, market, window, as_of,
+                    divergence_id, market, "window", as_of,
                     information_snapshot_id, cross_market_snapshot_id, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(divergence_id) DO NOTHING

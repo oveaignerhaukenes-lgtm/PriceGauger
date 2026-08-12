@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from math import ceil, floor, log10, pi, sin
+from math import ceil, floor, log10
 from typing import Iterable
 
 from forecast_contracts import ForecastSnapshot
 from forecast_visuals import MISSING_INPUT_LABELS
+
+
+MIN_FORECAST_HORIZON = timedelta(minutes=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,29 +42,26 @@ def _profile(
     market_regime: str = "",
     volatility_score: float | None = None,
 ) -> str:
+    """Choose only shapes justified by the persisted evidence."""
     regime = market_regime.lower()
-    volatility = 0.0 if volatility_score is None else float(volatility_score)
-    if forecast.direction in {"NEUTRAL", "CONFLICTED", "INSUFFICIENT_DATA"} and volatility <= 0.2:
-        return "SQUEEZE"
-    if forecast.direction in {"NEUTRAL", "CONFLICTED", "INSUFFICIENT_DATA"}:
-        return "RANGE"
-    if "skiftende" in regime or "ustabilt" in regime:
+    if (
+        forecast.status == "READY"
+        and float(forecast.confidence) >= 0.70
+        and forecast.direction in {"LONG_BIAS", "SHORT_BIAS"}
+        and ("skiftende" in regime or "ustabilt" in regime)
+    ):
         return "IMPULSE_REVERSAL"
     return "TREND"
 
 
 def _shape(progress: float, endpoint: float, profile: str) -> float:
     p = max(0.0, min(1.0, progress))
-    if profile == "SQUEEZE":
-        return endpoint * (p ** 2.2)
-    if profile == "RANGE":
-        return endpoint * 0.35 * p + 0.12 * sin(3.0 * pi * p)
     if profile == "IMPULSE_REVERSAL":
-        overshoot = endpoint * 1.45
+        overshoot = endpoint * 1.25
         if p <= 0.45:
-            return overshoot * (p / 0.45) ** 0.8
+            return overshoot * (p / 0.45)
         return overshoot + (endpoint - overshoot) * ((p - 0.45) / 0.55)
-    return endpoint * (0.15 * p + 0.85 * (3 * p * p - 2 * p * p * p))
+    return endpoint * p
 
 
 def _eligible(snapshot: ForecastSnapshot) -> TimelineForecast | None:
@@ -75,12 +75,8 @@ def _eligible(snapshot: ForecastSnapshot) -> TimelineForecast | None:
     as_of = _as_utc(snapshot.as_of)
     if as_of is None:
         return None
-    horizon = max(0.25, float(snapshot.horizon_hours))
-    return TimelineForecast(
-        snapshot=snapshot,
-        as_of=as_of,
-        ends_at=as_of + timedelta(hours=horizon),
-    )
+    horizon = max(MIN_FORECAST_HORIZON, timedelta(hours=float(snapshot.horizon_hours)))
+    return TimelineForecast(snapshot=snapshot, as_of=as_of, ends_at=as_of + horizon)
 
 
 def _points(points: Iterable[tuple[float, float]], *, ymap) -> str:
@@ -95,12 +91,7 @@ def _missing_text(snapshot: ForecastSnapshot) -> str:
 
 
 def _is_weekend_closure_gap(start: datetime, end: datetime) -> bool:
-    """Return true only for a gap that plausibly bridges the market weekend.
-
-    Merely touching a Saturday/Sunday is not enough: a sparse Sunday-only data
-    gap must remain a MARKET GAP instead of producing a second WEEKEND GAP.
-    """
-
+    """Return true only for a gap that plausibly bridges the market weekend."""
     duration = end - start
     if duration < timedelta(hours=24):
         return False
@@ -188,8 +179,7 @@ def _price_ticks(lower: float, upper: float) -> tuple[float, ...]:
     first = ceil(lower / step) * step
     last = floor(upper / step) * step
     if first > last:
-        midpoint = round((lower + upper) / 2.0)
-        return (float(midpoint),)
+        return (float(round((lower + upper) / 2.0)),)
     ticks: list[float] = []
     value = first
     while value <= last + step * 0.001 and len(ticks) < 8:
@@ -199,13 +189,40 @@ def _price_ticks(lower: float, upper: float) -> tuple[float, ...]:
 
 
 def _layer_opacity(ordinal: int, count: int) -> tuple[float, float]:
-    """Fade an arbitrary number of immutable snapshots without hiding old trails."""
+    """Fade every visible immutable snapshot while preserving a useful floor."""
     if count <= 1:
         return 0.24, 0.95
     progress = max(0.0, min(1.0, ordinal / (count - 1)))
-    fan = 0.045 + 0.195 * (progress ** 1.35)
-    line = 0.16 + 0.79 * (progress ** 1.15)
+    fan = 0.035 + 0.205 * (progress ** 1.35)
+    line = 0.12 + 0.83 * (progress ** 1.15)
     return fan, line
+
+
+def _visible_window(
+    candidates: tuple[TimelineForecast, ...],
+    observed: tuple[tuple[datetime, float], ...],
+) -> tuple[datetime, datetime]:
+    """Use all bounded chart history while retaining the latest forecast endpoint."""
+    latest = candidates[-1]
+    horizon = max(MIN_FORECAST_HORIZON, latest.ends_at - latest.as_of)
+    axis_end = latest.ends_at
+    if observed:
+        axis_end = max(axis_end, observed[-1][0])
+        axis_start = min(axis_end - 2 * horizon, observed[0][0])
+    else:
+        axis_start = axis_end - 2 * horizon
+    return axis_start, axis_end
+
+
+def _horizon_label(hours: float | None) -> str:
+    if hours is None:
+        return "?"
+    value = float(hours)
+    if value < 1.0:
+        return f"{round(value * 60):g}m"
+    if abs(value - 168.0) <= 1e-6:
+        return "7d"
+    return f"{value:g}t"
 
 
 def render_forecast_timeline_svg(
@@ -216,40 +233,49 @@ def render_forecast_timeline_svg(
     volatility_score: float | None = None,
     color: str = "#5a6b7b",
     now: datetime | None = None,
-    max_layers: int = 12,
+    max_layers: int | None = None,
     steps: int = 12,
 ) -> str:
     """Render immutable forecast snapshots against one canonical observed price timeline."""
-
-    candidates = [item for item in (_eligible(snapshot) for snapshot in forecasts) if item is not None]
-    candidates.sort(key=lambda item: (item.as_of, item.snapshot.forecast_id))
-    layers = candidates[-max(1, int(max_layers)) :]
-    if not layers:
+    candidates = tuple(
+        sorted(
+            (item for item in (_eligible(snapshot) for snapshot in forecasts) if item is not None),
+            key=lambda item: (item.as_of, item.snapshot.forecast_id),
+        )
+    )
+    if not candidates:
         return '<div class="pg-forecast-empty">Ingen komplett lagret prognose ennå.</div>'
 
-    observed: list[tuple[datetime, float]] = []
+    observed_list: list[tuple[datetime, float]] = []
     for stamp, price in observed_prices:
         parsed = _as_utc(stamp)
         if parsed is not None and price is not None:
-            observed.append((parsed, float(price)))
-    observed.sort(key=lambda item: item[0])
+            observed_list.append((parsed, float(price)))
+    observed_list.sort(key=lambda item: item[0])
+    observed = tuple(observed_list)
 
-    earliest_forecast = layers[0].as_of
-    latest_forecast = layers[-1]
-    axis_start = observed[0][0] if observed and observed[0][0] < earliest_forecast else earliest_forecast
-    axis_end = max(item.ends_at for item in layers)
-    if observed and observed[-1][0] > axis_end:
-        axis_end = observed[-1][0]
+    axis_start, axis_end = _visible_window(candidates, observed)
+    latest_forecast = candidates[-1]
+    horizon = max(MIN_FORECAST_HORIZON, latest_forecast.ends_at - latest_forecast.as_of)
+    trail_start = latest_forecast.as_of - 2 * horizon
+    layers = [item for item in candidates if item.ends_at >= trail_start and item.as_of <= axis_end]
+    if max_layers is not None:
+        layers = layers[-max(1, int(max_layers)) :]
+
+    observed_in_window = tuple(item for item in observed if axis_start <= item[0] <= axis_end)
     gaps = _timeline_gaps(observed)
-    display_span = max(
-        1.0,
-        _display_seconds(axis_end, axis_start=axis_start, gaps=gaps),
-    )
     plot_right = 90.0
+    split_x = 64.0
+    split_time = latest_forecast.as_of
+    history_span = max(1.0, _display_seconds(split_time, axis_start=axis_start, gaps=gaps))
+    future_span = max(1.0, _display_seconds(axis_end, axis_start=split_time, gaps=gaps))
 
     def xmap(stamp: datetime) -> float:
-        displayed = _display_seconds(stamp, axis_start=axis_start, gaps=gaps)
-        return max(0.0, min(plot_right, displayed / display_span * plot_right))
+        if stamp <= split_time:
+            displayed = _display_seconds(stamp, axis_start=axis_start, gaps=gaps)
+            return max(0.0, min(split_x, displayed / history_span * split_x))
+        displayed = _display_seconds(stamp, axis_start=split_time, gaps=gaps)
+        return max(split_x, min(plot_right, split_x + displayed / future_span * (plot_right - split_x)))
 
     plotted_layers: list[dict[str, object]] = []
     for index, item in enumerate(layers):
@@ -264,6 +290,8 @@ def render_forecast_timeline_svg(
         bear: list[tuple[float, float]] = []
         upper: list[tuple[float, float]] = []
         lower: list[tuple[float, float]] = []
+        low_evidence = snapshot.status != "READY" or float(snapshot.confidence) < 0.55
+        fan_exponent = 0.45 if low_evidence else 0.8
         for step in range(max(2, int(steps)) + 1):
             progress = step / max(2, int(steps))
             stamp = item.as_of + (item.ends_at - item.as_of) * progress
@@ -271,41 +299,27 @@ def render_forecast_timeline_svg(
             base_move = _shape(progress, base_end, profile)
             bull_move = _shape(progress, high, profile)
             bear_move = _shape(progress, low, profile)
-            fan = progress ** 0.8
+            fan = progress ** fan_exponent
             upper_move = base_move + max(0.0, high - base_end) * fan
             lower_move = base_move - max(0.0, base_end - low) * fan
-            base_price = ref * (1.0 + base_move / 100.0)
-            bull_price = ref * (1.0 + bull_move / 100.0)
-            bear_price = ref * (1.0 + bear_move / 100.0)
-            upper_price = ref * (1.0 + upper_move / 100.0)
-            lower_price = ref * (1.0 + lower_move / 100.0)
-            base.append((x, base_price))
-            bull.append((x, bull_price))
-            bear.append((x, bear_price))
-            upper.append((x, upper_price))
-            lower.append((x, lower_price))
+            base.append((x, ref * (1.0 + base_move / 100.0)))
+            bull.append((x, ref * (1.0 + bull_move / 100.0)))
+            bear.append((x, ref * (1.0 + bear_move / 100.0)))
+            upper.append((x, ref * (1.0 + upper_move / 100.0)))
+            lower.append((x, ref * (1.0 + lower_move / 100.0)))
         plotted_layers.append(
-            {
-                "item": item,
-                "index": index,
-                "base": tuple(base),
-                "bull": tuple(bull),
-                "bear": tuple(bear),
-                "upper": tuple(upper),
-                "lower": tuple(lower),
-            }
+            {"item": item, "index": index, "base": tuple(base), "bull": tuple(bull), "bear": tuple(bear), "upper": tuple(upper), "lower": tuple(lower)}
         )
 
-    scale_start = axis_start
-    if gaps:
-        scale_start = gaps[-1].end
-    scale_observed = [price for stamp, price in observed if scale_start <= stamp <= axis_end]
-    latest_layer = plotted_layers[-1]
-    latest_forecast_prices = [
-        price
-        for key in ("base", "bull", "bear", "upper", "lower")
-        for _, price in latest_layer[key]
-    ]
+    scale_observed = [price for _, price in observed_in_window]
+    latest_forecast_prices: list[float] = []
+    if plotted_layers:
+        latest_layer = plotted_layers[-1]
+        latest_forecast_prices = [
+            price
+            for key in ("base", "bull", "bear", "upper", "lower")
+            for _, price in latest_layer[key]
+        ]
     scale_prices = scale_observed + latest_forecast_prices
     if not scale_prices:
         scale_prices = [float(latest_forecast.snapshot.reference_price)]
@@ -320,20 +334,20 @@ def render_forecast_timeline_svg(
         return 92.0 - (value - lower_price) / (upper_price - lower_price) * 80.0
 
     grid_markup: list[str] = []
+    axis_labels: list[str] = []
     for tick in _price_ticks(lower_price, upper_price):
         y = ymap(tick)
         grid_markup.append(
-            f'<line x1="0" y1="{y:.1f}" x2="{plot_right:.1f}" y2="{y:.1f}" '
-            'style="stroke:rgba(100,116,139,.14);stroke-width:.45;vector-effect:non-scaling-stroke" />'
+            f'<line x1="0" y1="{y:.1f}" x2="{plot_right:.1f}" y2="{y:.1f}" style="stroke:rgba(100,116,139,.14);stroke-width:.45;vector-effect:non-scaling-stroke" />'
         )
-        grid_markup.append(
-            f'<text x="91.0" y="{y + 0.9:.1f}" '
-            'style="font-size:2.8px;fill:rgba(71,85,105,.76);font-family:system-ui,sans-serif">'
-            f'{tick:.0f}</text>'
+        axis_labels.append(
+            f'<span style="position:absolute;right:.12rem;top:{y:.1f}%;transform:translateY(-50%);font-size:.64rem;font-weight:400;line-height:1;color:inherit;opacity:.82;white-space:nowrap">{tick:g}</span>'
         )
     grid_markup.append(
-        '<line x1="90" y1="10" x2="90" y2="94" '
-        'style="stroke:rgba(100,116,139,.25);stroke-width:.5;vector-effect:non-scaling-stroke" />'
+        '<line x1="90" y1="10" x2="90" y2="94" style="stroke:rgba(100,116,139,.25);stroke-width:.5;vector-effect:non-scaling-stroke" />'
+    )
+    grid_markup.append(
+        f'<line x1="{split_x:.1f}" y1="8" x2="{split_x:.1f}" y2="96" style="stroke:rgba(100,116,139,.45);stroke-width:.55;stroke-dasharray:1.5 1.5;vector-effect:non-scaling-stroke"><title>Siste forecast-origin</title></line>'
     )
 
     gap_markup: list[str] = []
@@ -342,29 +356,11 @@ def render_forecast_timeline_svg(
             continue
         left = xmap(max(axis_start, gap.start))
         right = xmap(min(axis_end, gap.end))
-        width = max(1.6, right - left)
+        width = max(1.2, right - left)
         center = min(plot_right - width / 2.0, left + width / 2.0)
         gap_markup.append(
-            f'<rect x="{center - width / 2.0:.1f}" y="14" width="{width:.1f}" height="82" rx=".8" '
-            'style="fill:rgba(100,116,139,.10);stroke:rgba(100,116,139,.38);stroke-width:.45;'
-            'stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke">'
-            f'<title>{gap.label}</title></rect>'
+            f'<rect x="{center - width / 2.0:.1f}" y="14" width="{width:.1f}" height="82" rx=".8" style="fill:rgba(100,116,139,.08);stroke:rgba(100,116,139,.28);stroke-width:.35;stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke"><title>{gap.label}</title></rect>'
         )
-        # A compressed gap can be only a couple of SVG units wide. Rendering a
-        # two-line label there stacks the glyphs into the small "UFO" artefact.
-        # Keep the tooltip for narrow gaps and show visible text only when it fits.
-        if width >= 7.0:
-            label_parts = gap.label.split(maxsplit=1)
-            label_top = label_parts[0]
-            label_bottom = label_parts[1] if len(label_parts) > 1 else ""
-            gap_markup.append(
-                f'<text x="{center:.1f}" y="9.2" text-anchor="middle" '
-                'style="font-size:1.8px;font-weight:400;letter-spacing:0;fill:rgba(71,85,105,.78);'
-                'font-family:system-ui,sans-serif">'
-                f'<tspan x="{center:.1f}" dy="0">{label_top}</tspan>'
-                f'<tspan x="{center:.1f}" dy="1.7">{label_bottom}</tspan>'
-                '</text>'
-            )
 
     layer_markup: list[str] = []
     count = len(plotted_layers)
@@ -377,39 +373,32 @@ def render_forecast_timeline_svg(
         item = layer["item"]
         start_x = xmap(item.as_of)
         layer_markup.append(
-            f'<line x1="{start_x:.1f}" y1="8" x2="{start_x:.1f}" y2="96" '
-            f'style="stroke:{color};stroke-width:.45;stroke-opacity:{line_opacity:.2f};stroke-dasharray:1.5 2;vector-effect:non-scaling-stroke" />'
+            f'<line x1="{start_x:.1f}" y1="8" x2="{start_x:.1f}" y2="96" style="stroke:{color};stroke-width:.45;stroke-opacity:{line_opacity:.2f};stroke-dasharray:1.5 2;vector-effect:non-scaling-stroke" />'
         )
         layer_markup.append(
-            f'<polygon points="{fan_polygon}" class="pg-forecast-layer pg-forecast-fan" '
-            f'style="fill:{color};fill-opacity:{fan_opacity:.2f};stroke:none" />'
+            f'<polygon points="{fan_polygon}" class="pg-forecast-layer pg-forecast-fan" style="fill:{color};fill-opacity:{fan_opacity:.2f};stroke:none" />'
         )
         layer_markup.append(
-            f'<polyline points="{_points(base, ymap=ymap)}" class="pg-forecast-layer pg-forecast-base" '
-            f'style="fill:none;stroke:{color};stroke-width:{1.15 if ordinal < count - 1 else 2.0};'
-            f'stroke-opacity:{line_opacity:.2f};vector-effect:non-scaling-stroke" />'
+            f'<polyline points="{_points(base, ymap=ymap)}" class="pg-forecast-layer pg-forecast-base" style="fill:none;stroke:{color};stroke-width:{1.15 if ordinal < count - 1 else 2.0};stroke-opacity:{line_opacity:.2f};vector-effect:non-scaling-stroke" />'
         )
 
-    latest = plotted_layers[-1]
-    layer_markup.append(
-        f'<polyline points="{_points(latest["bull"], ymap=ymap)}" class="pg-alt pg-bull" '
-        'style="fill:none;stroke:#2f9e64;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
-    )
-    layer_markup.append(
-        f'<polyline points="{_points(latest["bear"], ymap=ymap)}" class="pg-alt pg-bear" '
-        'style="fill:none;stroke:#d15b5b;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
-    )
+    if plotted_layers:
+        latest = plotted_layers[-1]
+        layer_markup.append(
+            f'<polyline points="{_points(latest["bull"], ymap=ymap)}" class="pg-alt pg-bull" style="fill:none;stroke:#2f9e64;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
+        )
+        layer_markup.append(
+            f'<polyline points="{_points(latest["bear"], ymap=ymap)}" class="pg-alt pg-bear" style="fill:none;stroke:#d15b5b;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
+        )
 
-    observed_in_axis = [(stamp, price) for stamp, price in observed if axis_start <= stamp <= axis_end]
     actual_markup = ""
-    if observed_in_axis:
+    if observed_in_window:
         actual_parts: list[str] = []
-        for segment in _observed_segments(observed_in_axis):
+        for segment in _observed_segments(observed_in_window):
             segment_points = [(xmap(stamp), price) for stamp, price in segment]
             if len(segment_points) >= 2:
                 actual_parts.append(
-                    f'<polyline points="{_points(segment_points, ymap=ymap)}" class="pg-realized" '
-                    'style="fill:none;stroke:currentColor;stroke-width:1.9;vector-effect:non-scaling-stroke" />'
+                    f'<polyline points="{_points(segment_points, ymap=ymap)}" class="pg-realized" style="fill:none;stroke:currentColor;stroke-width:1.9;vector-effect:non-scaling-stroke" />'
                 )
         actual_markup = "".join(actual_parts)
 
@@ -421,34 +410,31 @@ def render_forecast_timeline_svg(
     if axis_start <= current <= axis_end:
         now_x = xmap(current)
         now_markup = (
-            f'<line x1="{now_x:.1f}" y1="8" x2="{now_x:.1f}" y2="96" class="pg-now" '
-            'style="stroke:#64748b;stroke-width:.8;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke" />'
+            f'<line x1="{now_x:.1f}" y1="8" x2="{now_x:.1f}" y2="96" class="pg-now" style="stroke:#64748b;stroke-width:.8;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke" />'
         )
 
     latest_snapshot = latest_forecast.snapshot
     interval = f"{latest_snapshot.expected_move_low_pct:+.2f}%…{latest_snapshot.expected_move_high_pct:+.2f}%"
-    horizon = f"{latest_snapshot.horizon_hours:g}t"
+    horizon_label = _horizon_label(latest_snapshot.horizon_hours)
     missing = _missing_text(latest_snapshot)
     degradation = f" · {missing}" if missing else ""
-    actual_label = "faktisk pris oppdateres fra canonical 1m-bars" if observed_in_axis else "venter på faktisk pris"
+    actual_label = "faktisk pris oppdateres fra canonical 1m-bars" if observed_in_window else "venter på faktisk pris"
 
-    # Streamlit sends this fragment through a Markdown parser even with
-    # unsafe_allow_html=True. Indented SVG child lines can therefore be
-    # interpreted as Markdown code blocks when the fragment grows large. Keep
-    # the generated card fragment on one logical line so every SVG element is
-    # parsed as HTML rather than displayed as literal <line>/<polyline> text.
     fragment = f'''<div class="pg-forecast-wrap" style="overflow:hidden">
-      <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} SNAPSHOT{'S' if len(layers) != 1 else ''}</span></div>
-      <svg class="pg-forecast-svg" style="height:13.5rem" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Flere lagrede prognoser mot faktisk markedsutvikling med prisakse til høyre">
-        {''.join(grid_markup)}
-        {''.join(gap_markup)}
-        {''.join(layer_markup)}
-        {actual_markup}
-        {now_markup}
-      </svg>
-      <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.62;margin-top:-.2rem">
-        <span>eldre prognoser lysere · nyeste tydeligst</span><span>kontrastlinje = faktisk pris · høyre = pris</span>
+      <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} AKTIVE SPOR</span></div>
+      <div class="pg-forecast-plot" style="position:relative;height:13.5rem">
+        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Lang markedshistorikk og siste lagrede prognoser mot faktisk utvikling">
+          {''.join(grid_markup)}
+          {''.join(gap_markup)}
+          {''.join(layer_markup)}
+          {actual_markup}
+          {now_markup}
+        </svg>
+        <div class="pg-price-axis" aria-hidden="true" style="position:absolute;inset:0;pointer-events:none">{''.join(axis_labels)}</div>
       </div>
-      <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {latest_snapshot.status}{degradation} · {actual_label}</div>
+      <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.72;margin-top:.08rem">
+        <span>venstre = regimehistorikk · høyre = siste forecastvindu</span><span>kontrastlinje = faktisk pris · høyre = pris</span>
+      </div>
+      <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon_label} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
     return "".join(line.strip() for line in fragment.splitlines())
