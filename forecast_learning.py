@@ -136,13 +136,15 @@ def _market_points(
     path: str | Path,
     *,
     forecast: ForecastSnapshot,
-    limit: int = 10000,
+    limit: int = 30000,
 ) -> list[tuple[datetime, float]]:
     """Load realized prices from the canonical market-history layer.
 
     ``MarketHistoryStore`` prefers persisted realtime 1m bars and fills older or
     missing periods with technical-state snapshots. This keeps learning aligned
     with Markedsvisning and market-mover outcomes without discarding legacy data.
+    The read budget exceeds seven days of 1m observations so the longest supported
+    forecast can reach COMPLETE even after closed-market gaps are excluded.
     """
     try:
         rows = MarketHistoryStore(path).load_since(
