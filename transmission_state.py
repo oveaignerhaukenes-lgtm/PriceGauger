@@ -22,6 +22,7 @@ CHANNELS = (
 _RESOLUTION_THRESHOLD = 0.60
 _RESOLUTION_MARGIN = 0.10
 _MARKET_DEAD_ZONE_PCT = 0.05
+_YIELD_DEAD_ZONE_PCT_POINTS = 0.01
 
 
 def _stable_id(payload: dict[str, Any]) -> str:
@@ -64,8 +65,10 @@ def _channel_evidence(divergence: ResponseDivergenceSnapshot) -> dict[str, dict[
 
     gold_pressure = _sign(gold_change)
     dxy_pressure = -_sign(dxy_change)
-    yield_pressures = {name: -_sign(value) for name, value in yield_changes.items()}
-    available_yield_pressures = [value for value in yield_pressures.values() if value != 0]
+    yield_pressures = {
+        name: -_sign(value, dead_zone=_YIELD_DEAD_ZONE_PCT_POINTS)
+        for name, value in yield_changes.items()
+    }
 
     evidence: dict[str, dict[str, Any]] = {}
 
@@ -91,29 +94,29 @@ def _channel_evidence(divergence: ResponseDivergenceSnapshot) -> dict[str, dict[
             rates_missing.append(name)
         elif pressure != 0:
             rates_score += (0.55 / 3.0) * pressure
-            rates_signals.append(f"{name} {change:+.4f} over {divergence.window}")
+            rates_signals.append(f"{name} {change:+.4f} pct-pt over {divergence.window}")
+    rates_score = max(-1.0, min(1.0, rates_score))
     evidence["RATES_FX"] = {
-        "score": round(max(-1.0, min(1.0, rates_score)), 3),
+        "score": round(rates_score, 3),
         "signals": rates_signals,
         "missing_inputs": rates_missing,
         "interpretation": "Higher DXY/yields imply negative Silver pressure; lower DXY/yields imply positive pressure.",
     }
 
     brent_sign = _sign(brent_change)
-    macro_pressure_values = ([dxy_pressure] if dxy_pressure else []) + available_yield_pressures
-    macro_pressure = 0.0
-    if macro_pressure_values:
-        macro_pressure = sum(macro_pressure_values) / len(macro_pressure_values)
     energy_score = 0.0
     energy_signals: list[str] = []
     if brent_change is not None:
         energy_signals.append(f"Brent {brent_change:+.3f}% over {divergence.window}")
-    if brent_sign > 0 and macro_pressure < 0:
-        energy_score = -min(0.85, 0.45 + 0.40 * abs(macro_pressure))
-    elif brent_sign < 0 and macro_pressure > 0:
-        energy_score = min(0.85, 0.45 + 0.40 * abs(macro_pressure))
+    # Oil only becomes meaningful as an energy-inflation transmission pattern when
+    # the observed rates/FX pressure points the corresponding way. Confirmation
+    # strength is deliberately bounded by the actual RATES_FX score: DXY alone can
+    # support a moderate classification, while yields are needed for full strength.
+    if brent_sign > 0 and rates_score < 0:
+        energy_score = -min(0.85, 0.45 + 0.40 * abs(rates_score))
+    elif brent_sign < 0 and rates_score > 0:
+        energy_score = min(0.85, 0.45 + 0.40 * abs(rates_score))
     elif brent_sign != 0:
-        # Oil alone is not enough to infer the inflation/rates transmission channel.
         energy_score = -0.20 if brent_sign > 0 else 0.20
     evidence["ENERGY_INFLATION"] = {
         "score": round(energy_score, 3),
