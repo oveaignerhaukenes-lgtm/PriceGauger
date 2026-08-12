@@ -7,13 +7,20 @@ from typing import Any
 from saxo_provider import SaxoClient, SaxoInstrument
 
 
-LEVERAGED_ASSET_TYPES = "MiniFuture,WarrantKnockOut,WarrantOpenEndKnockOut"
-MARKET_SEARCH_TERMS: dict[str, str] = {
-    "Gold": "Gold",
-    "Silver": "Silver",
-    "Brent": "Brent",
-    "Natural Gas": "Natural Gas",
-    "DXY": "US Dollar Index",
+LEVERAGED_ASSET_TYPE_NAMES = (
+    "MiniFuture",
+    "WarrantKnockOut",
+    "WarrantOpenEndKnockOut",
+    "WarrantOtherLeverageWithKnockOut",
+    "WarrantDoubleKnockOut",
+)
+LEVERAGED_ASSET_TYPES = ",".join(LEVERAGED_ASSET_TYPE_NAMES)
+MARKET_SEARCH_TERMS: dict[str, tuple[str, ...]] = {
+    "Gold": ("Gold", "XAU", "XAUUSD"),
+    "Silver": ("Silver", "XAG", "XAGUSD"),
+    "Brent": ("Brent", "Brent Crude", "ICE Brent"),
+    "Natural Gas": ("Natural Gas", "Nat Gas", "Henry Hub"),
+    "DXY": ("US Dollar Index", "Dollar Index", "DXY"),
 }
 
 
@@ -67,18 +74,26 @@ def _integer(value: Any) -> int | None:
 
 
 def discover_leveraged_products(client: SaxoClient, market: str) -> tuple[LeveragedProduct, ...]:
-    keywords = MARKET_SEARCH_TERMS.get(market)
-    if not keywords:
+    search_terms = MARKET_SEARCH_TERMS.get(market)
+    if not search_terms:
         return ()
-    instruments = client.search_instruments(keywords, asset_types=LEVERAGED_ASSET_TYPES)
-    products = [
-        LeveragedProduct(
-            instrument=instrument,
-            direction=_direction_from_text(instrument.description, instrument.symbol),
-        )
-        for instrument in instruments
-        if instrument.asset_type in set(LEVERAGED_ASSET_TYPES.split(","))
-    ]
+
+    allowed_types = set(LEVERAGED_ASSET_TYPE_NAMES)
+    by_identity: dict[tuple[int, str], LeveragedProduct] = {}
+    for keywords in search_terms:
+        instruments = client.search_instruments(keywords, asset_types=LEVERAGED_ASSET_TYPES)
+        for instrument in instruments:
+            if instrument.asset_type not in allowed_types:
+                continue
+            identity = (instrument.uic, instrument.asset_type)
+            if identity in by_identity:
+                continue
+            by_identity[identity] = LeveragedProduct(
+                instrument=instrument,
+                direction=_direction_from_text(instrument.description, instrument.symbol),
+            )
+
+    products = list(by_identity.values())
     products.sort(
         key=lambda item: (
             {"Long": 0, "Short": 1, None: 2}.get(item.direction, 2),
