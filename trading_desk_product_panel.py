@@ -9,6 +9,7 @@ from autotrader_manual_execution import (
     precheck_is_clear,
     validate_manual_intent,
 )
+from autotrader_product_sizing import SUPPORTED_INPUT_CURRENCIES, ProductSizingQuote, size_from_budget
 from saxo_provider import SaxoError
 from saxo_trading import SaxoTradingSafetyError, configured_trading_client
 from trading_desk_order_preview import build_order_preview
@@ -25,16 +26,20 @@ def _state_key(prefix: str, market: str) -> str:
 
 
 def _clear_execution_state(market: str) -> None:
-    for prefix in ("order_preview", "manual_intent", "precheck", "execution_result"):
+    for prefix in ("order_preview", "manual_intent", "precheck", "execution_result", "sizing"):
         st.session_state.pop(_state_key(prefix, market), None)
+
+
+def _money(value: float, currency: str) -> str:
+    return f"{value:,.2f} {currency}".replace(",", " ")
 
 
 def render_saxo_product_panel(market: str) -> None:
     st.divider()
     st.subheader("AutoTrader · Saxo SIM")
     st.caption(
-        "Manuell ordreplassering for markedet i TradingDesk. Hele execution-flyten ligger her under "
-        "AutoTrader; Saxo-siden brukes bare til OAuth/tilkobling. Ordren er hardlåst til SIM."
+        "Manuell ordreplassering for markedet i TradingDesk. AutoTrader prioriterer Mini/KO-produkter; "
+        "execution-flyten er hardlåst til Saxo SIM."
     )
 
     try:
@@ -56,12 +61,13 @@ def render_saxo_product_panel(market: str) -> None:
     intent_key = _state_key("manual_intent", market)
     precheck_key = _state_key("precheck", market)
     result_key = _state_key("execution_result", market)
+    sizing_key = _state_key("sizing", market)
     submitted_key = "autotrader_manual_submitted_intent_ids"
     submitted = st.session_state.setdefault(submitted_key, set())
 
     if st.button("Finn Mini/KO-produkter hos Saxo", key=f"product_search_{market}"):
         try:
-            with st.spinner(f"Søker Saxo SIM etter produkter relatert til {market} …"):
+            with st.spinner(f"Søker Saxo SIM etter gearede produkter relatert til {market} …"):
                 products = discover_leveraged_products(trading.client, market)
             st.session_state[products_key] = products
             st.session_state.pop(details_key, None)
@@ -84,15 +90,31 @@ def render_saxo_product_panel(market: str) -> None:
     known_short = sum(product.direction == "Short" for product in products)
     unknown = len(products) - known_long - known_short
     st.caption(
-        f"Fant {len(products)} produkter · Long {known_long} · Short {known_short}"
+        f"Fant {len(products)} produkter · LONG {known_long} · SHORT {known_short}"
         + (f" · retning ukjent {unknown}" if unknown else "")
     )
 
+    direction_filter = st.radio(
+        "Markedsretning",
+        ("LONG", "SHORT", "ALLE"),
+        horizontal=True,
+        key=f"product_direction_{market}",
+        help="Dette er retningen mot underliggende marked. Saxo Buy/Sell er en separat ordrehandling.",
+    )
+    filtered_products = tuple(
+        product
+        for product in products
+        if direction_filter == "ALLE" or (product.direction or "").upper() == direction_filter
+    )
+    if not filtered_products:
+        st.info(f"Ingen produkter med kjent {direction_filter}-retning i søkeresultatet.")
+        return
+
     selected: LeveragedProduct = st.selectbox(
         "Produkt",
-        products,
+        filtered_products,
         format_func=product_label,
-        key=f"product_select_{market}",
+        key=f"product_select_{market}_{direction_filter}",
     )
 
     selection_key = f"{selected.instrument.uic}:{selected.instrument.asset_type}"
@@ -113,12 +135,17 @@ def render_saxo_product_panel(market: str) -> None:
         details = cached.get("value")
 
     instrument = selected.instrument
+    market_direction = (details.direction if details is not None else selected.direction) or "Ukjent"
+    st.markdown(f"### {market_direction.upper()} {market}")
     st.write(f"**{instrument.description or instrument.symbol or 'Saxo-instrument'}**")
-    st.caption(f"{instrument.asset_type} · UIC {instrument.uic} · symbol {instrument.symbol or 'ikke oppgitt'}")
+    st.caption(
+        f"Produktretning {market_direction.upper()} · {instrument.asset_type} · UIC {instrument.uic} · "
+        f"symbol {instrument.symbol or 'ikke oppgitt'}"
+    )
 
     if details is not None:
         direction_col, barrier_col, financing_col, tradable_col = st.columns(4)
-        direction_col.metric("Retning", details.direction or "Ukjent")
+        direction_col.metric("Markedsretning", (details.direction or "Ukjent").upper())
         barrier_col.metric("KO / barrier", f"{details.barrier:g}" if details.barrier is not None else "Ikke oppgitt")
         financing_col.metric(
             "Finansieringsnivå",
@@ -133,19 +160,21 @@ def render_saxo_product_panel(market: str) -> None:
 
         extras: list[str] = []
         if details.currency:
-            extras.append(f"valuta {details.currency}")
+            extras.append(f"produktvaluta {details.currency}")
         if details.strike is not None:
             extras.append(f"strike {details.strike:g}")
-        if details.default_amount is not None:
-            extras.append(f"default amount {details.default_amount:g}")
+        if details.minimum_trade_size is not None:
+            extras.append(f"minste størrelse {details.minimum_trade_size:g}")
+        if details.increment_size is not None:
+            extras.append(f"steg {details.increment_size:g}")
         if extras:
             st.caption(" · ".join(extras))
 
     st.divider()
     st.subheader("Manuell ordre")
     st.caption(
-        "KJØP/SELG gjelder det konkrete produktet over. Et Mini Short-produkt kjøpes for short-eksponering; "
-        "SELG betyr salg av valgt produkt, ikke automatisk short av underliggende."
+        "Markedsretning beskriver produktets effekt mot underliggende. KJØP/SELG under er Saxo-ordrehandlingen. "
+        "Kjøp av et SHORT-produkt gir short-eksponering; salg av produktet er ikke det samme som å åpne short."
     )
 
     try:
@@ -164,17 +193,50 @@ def render_saxo_product_panel(market: str) -> None:
         format_func=lambda value: f"{value.account_id} · {value.currency or 'valuta ukjent'}",
         key=f"trade_account_{market}",
     )
-    default_amount = 1.0
-    if details is not None and details.default_amount is not None and details.default_amount > 0:
-        default_amount = float(details.default_amount)
-    amount = st.number_input(
-        "Antall",
-        min_value=0.000001,
-        value=float(default_amount),
-        step=1.0,
-        format="%.6f",
-        key=f"trade_amount_{market}",
+
+    sizing_mode = st.radio(
+        "Ordrestørrelse",
+        ("Beløp", "Antall · avansert"),
+        horizontal=True,
+        key=f"trade_sizing_mode_{market}",
     )
+    budget = None
+    input_currency = None
+    manual_amount = None
+    if sizing_mode == "Beløp":
+        default_currency = str(account.currency or "NOK").upper()
+        currencies = list(SUPPORTED_INPUT_CURRENCIES)
+        default_index = currencies.index(default_currency) if default_currency in currencies else 0
+        amount_col, currency_col = st.columns([2, 1])
+        budget = amount_col.number_input(
+            "Beløp jeg vil bruke",
+            min_value=1.0,
+            value=2000.0,
+            step=500.0,
+            key=f"trade_budget_{market}",
+        )
+        input_currency = currency_col.selectbox(
+            "Valuta",
+            currencies,
+            index=default_index,
+            key=f"trade_budget_currency_{market}",
+        )
+        st.caption(
+            "AutoTrader henter produktpris og eventuell FX-kurs fra Saxo og runder ned til en gyldig handelsstørrelse. "
+            "Saxo pre-check er fortsatt autoritativ for faktisk kapital-/marginkrav."
+        )
+    else:
+        default_amount = 1.0
+        if details is not None and details.default_amount is not None and details.default_amount > 0:
+            default_amount = float(details.default_amount)
+        manual_amount = st.number_input(
+            "Antall",
+            min_value=0.000001,
+            value=float(default_amount),
+            step=1.0,
+            format="%.6f",
+            key=f"trade_amount_{market}",
+        )
 
     buy_col, sell_col = st.columns(2)
     prepare_buy = buy_col.button("Forbered KJØP", type="primary", key=f"prepare_buy_{market}")
@@ -183,38 +245,71 @@ def render_saxo_product_panel(market: str) -> None:
     action = "Buy" if prepare_buy else "Sell" if prepare_sell else None
     if action is not None:
         try:
+            sizing: ProductSizingQuote | None = None
+            if sizing_mode == "Beløp":
+                if details is None:
+                    raise ValueError("produktdetaljer mangler; bruk Antall eller velg et annet produkt")
+                sizing = size_from_budget(
+                    trading.client,
+                    details,
+                    budget=float(budget),
+                    input_currency=str(input_currency),
+                    action=action,
+                )
+                order_amount = sizing.amount
+            else:
+                order_amount = float(manual_amount)
+
             preview = build_order_preview(
                 market=market,
                 product=selected,
                 account_key=account.account_key,
                 account_id=account.account_id,
                 action=action,
-                amount=float(amount),
+                amount=order_amount,
             )
             intent = build_manual_order_intent(preview)
             validate_manual_intent(intent, active_account_keys={item.account_key for item in accounts})
             st.session_state[preview_key] = preview
             st.session_state[intent_key] = intent
+            if sizing is not None:
+                st.session_state[sizing_key] = sizing
+            else:
+                st.session_state.pop(sizing_key, None)
             st.session_state.pop(precheck_key, None)
             st.session_state.pop(result_key, None)
-        except ValueError as exc:
+        except (ValueError, SaxoError) as exc:
             st.error(str(exc))
 
     preview = st.session_state.get(preview_key)
     intent = st.session_state.get(intent_key)
     if preview is None or intent is None:
-        st.info("Velg produkt, konto og antall, og forbered KJØP eller SELG. Ingenting sendes før pre-check og ny bekreftelse.")
+        st.info("Velg produkt og ordrestørrelse, og forbered KJØP eller SELG. Ingenting sendes før pre-check og ny bekreftelse.")
         return
 
     st.markdown("**Ordreintent**")
+    direction = (preview.product_direction or "ukjent").upper()
     st.write(
-        f"{preview.action_label} **{preview.amount:g} × "
+        f"**{direction} {preview.market}** · {preview.action_label} **{preview.amount:g} × "
         f"{preview.description or preview.symbol or 'Saxo-instrument'}**"
     )
     st.caption(
-        f"{preview.market} · {preview.asset_type} · UIC {preview.uic} · konto {preview.account_id} · "
-        f"{preview.exposure_label}"
+        f"Saxo-handling {preview.action} · produktretning {direction} · {preview.asset_type} · UIC {preview.uic} · "
+        f"konto {preview.account_id}"
     )
+
+    sizing = st.session_state.get(sizing_key)
+    if isinstance(sizing, ProductSizingQuote):
+        size_col, price_col, value_col = st.columns(3)
+        size_col.metric("Beregnet antall", f"{sizing.amount:g}")
+        price_col.metric("Saxo produktpris", _money(sizing.unit_price_product, sizing.product_currency))
+        value_col.metric("Estimert brukt beløp", _money(sizing.estimated_value_input, sizing.input_currency))
+        st.caption(
+            f"Budsjett {_money(sizing.budget_input, sizing.input_currency)} · estimert produktverdi "
+            f"{_money(sizing.estimated_value_product, sizing.product_currency)} · "
+            f"FX {sizing.fx_product_per_input:.6g} {sizing.product_currency}/{sizing.input_currency}."
+        )
+
     st.caption(f"Intent-ID: {intent.intent_id}")
 
     if st.button("Kjør Saxo pre-check", type="primary", key=f"manual_precheck_{market}"):
@@ -241,6 +336,12 @@ def render_saxo_product_panel(market: str) -> None:
         st.success("Saxo pre-check: OK")
     else:
         st.warning(f"Saxo pre-check: {precheck_result}")
+
+    estimated_cash = precheck.get("EstimatedCashRequired")
+    if isinstance(estimated_cash, (int, float)):
+        st.metric("Saxo estimert kapital-/cashkrav", f"{float(estimated_cash):,.2f}".replace(",", " "))
+        st.caption("Dette tallet kommer direkte fra Saxo pre-check og er autoritativt foran PriceGaugers størrelsesestimat.")
+
     with st.expander("Se pre-check-respons"):
         st.json(precheck)
 
@@ -258,7 +359,7 @@ def render_saxo_product_panel(market: str) -> None:
     st.markdown("**Eksplisitt bekreftelse**")
     st.warning(
         f"Neste knapp sender en faktisk ordre til Saxo SIM: {preview.action_label} {preview.amount:g} × "
-        f"{preview.description or preview.symbol or 'instrument'} på konto {preview.account_id}."
+        f"{preview.description or preview.symbol or 'instrument'} · markedsretning {direction} · konto {preview.account_id}."
     )
     confirmed = st.checkbox(
         "Jeg bekrefter denne eksakte Saxo SIM-ordren",
