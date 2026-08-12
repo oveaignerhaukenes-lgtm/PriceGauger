@@ -4,6 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 
+from autotrader_macd_mode import (
+    AUTOTRADER_MODE_MACD_30M,
+    AUTOTRADER_MODE_MANUAL,
+    AUTOTRADER_MODES,
+    latest_macd_crossover_intent,
+)
 from build_info import render_build_badge
 from realtime_market_data import RealtimeMarketDataStore
 from saxo_provider import configured_instruments
@@ -158,6 +164,24 @@ with st.sidebar:
             help="Fordeler mer eller mindre av høyden til candlestick-panelet. Resten deles mellom underpanelene.",
         )
 
+    st.divider()
+    st.header("AutoTrader")
+    autotrader_mode = st.selectbox(
+        "Modus",
+        AUTOTRADER_MODES,
+        index=0,
+        help="Prøvemodusen observerer 30m MACD-kryss og lager et position-intent. Den sender ikke ordre ennå.",
+    )
+    autotrader_amount = st.number_input(
+        "Steg per kryss",
+        min_value=0.000001,
+        value=1.0,
+        step=1.0,
+        format="%.6f",
+        disabled=autotrader_mode == AUTOTRADER_MODE_MANUAL,
+        help="Mengden som senere skal legges til ved oppkryss eller selges/reduseres ved nedkryss.",
+    )
+
     if unavailable_markets:
         st.caption("Uten tilgjengelige canonical bars: " + ", ".join(unavailable_markets))
 
@@ -168,9 +192,47 @@ with st.sidebar:
         )
 
 
-def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
+def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000, selected_timeframe: str | None = None):
     raw = store.load_range(market=name, start=range_start, end=range_end, limit=limit)
-    return resample_bars(raw, timeframe=timeframe)
+    return resample_bars(raw, timeframe=selected_timeframe or timeframe)
+
+
+def _render_autotrader_status() -> None:
+    with st.sidebar:
+        if autotrader_mode != AUTOTRADER_MODE_MACD_30M:
+            st.caption("Manuell modus: ingen automatiske signalintents aktive.")
+            return
+
+        now = datetime.now(timezone.utc)
+        source_start = now - timedelta(days=14)
+        try:
+            bars_30m = _load(
+                market,
+                range_start=source_start,
+                range_end=now,
+                limit=30000,
+                selected_timeframe="30m",
+            )
+            intent = latest_macd_crossover_intent(
+                bars_30m,
+                market=market,
+                amount=float(autotrader_amount),
+            )
+        except ValueError as exc:
+            st.warning(f"MACD 30m kunne ikke evalueres: {exc}")
+            return
+
+        st.caption("SIM/dry-run · kun lukkede 30m-candles · ingen ordre sendes")
+        if intent is None:
+            st.info("Ingen nytt 30m MACD-kryss på siste ferdige candle.")
+            return
+
+        action = "ØK LONG / KJØP" if intent.side == "Buy" else "REDUSER / SELG"
+        st.success(f"{action} {intent.amount:g} · {market}")
+        st.caption(
+            f"Kryss @ {intent.bar_time} · MACD {intent.macd:.6g} · signal {intent.signal:.6g}"
+        )
+        st.caption(f"Event key: {intent.event_key}")
 
 
 def _render_live_chart() -> None:
@@ -265,6 +327,8 @@ def _render_live_chart() -> None:
                 "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
             )
 
+
+_render_autotrader_status()
 
 _fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
 if _fragment is not None:
