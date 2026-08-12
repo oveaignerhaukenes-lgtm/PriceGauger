@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from forecast_contracts import ForecastSnapshot
-from forecast_timeline import _display_seconds, _timeline_gaps, render_forecast_timeline_svg
+from forecast_timeline import _display_seconds, _shape, _timeline_gaps, render_forecast_timeline_svg
 
 
 def _forecast(*, suffix: str, as_of: str, low: float, high: float) -> ForecastSnapshot:
@@ -44,14 +44,14 @@ def test_timeline_keeps_multiple_forecasts_and_actual_price():
         now=datetime(2026, 8, 10, 0, 40, tzinfo=timezone.utc),
     )
 
-    assert "2 SNAPSHOTS" in svg
+    assert "2 SYNLIGE" in svg
     assert svg.count("pg-forecast-fan") == 2
     assert svg.count("pg-forecast-base") == 2
     assert "pg-realized" in svg
     assert "kontrastlinje = faktisk pris" in svg
 
 
-def test_timeline_has_taller_plot_and_right_price_scale():
+def test_timeline_has_normal_html_right_price_scale():
     forecast = _forecast(
         suffix="axis",
         as_of="2026-08-10T00:00:00+00:00",
@@ -64,12 +64,19 @@ def test_timeline_has_taller_plot_and_right_price_scale():
         observed_prices=(("2026-08-10T00:05:00+00:00", 4205.0),),
     )
 
-    assert 'style="height:13.5rem"' in svg
+    assert 'style="height:13.5rem' in svg
     assert "høyre = pris" in svg
     assert 'x1="90"' in svg
-    assert 'x="91.0"' in svg
-    assert "font-size:2.8px" in svg
+    assert 'class="pg-price-axis"' in svg
+    assert "font-size:.64rem" in svg
+    assert "font-weight:400" in svg
     assert "4200" in svg
+
+
+def test_default_trend_shape_is_linear_without_invented_knee():
+    assert _shape(0.25, 1.0, "TREND") == 0.25
+    assert _shape(0.50, 1.0, "TREND") == 0.50
+    assert _shape(0.75, 1.0, "TREND") == 0.75
 
 
 def test_weekend_gap_is_compressed_and_actual_price_is_not_connected_across_it():
@@ -138,7 +145,7 @@ def test_large_non_weekend_data_gap_is_labeled_market_gap():
     assert gaps[0].label == "MARKET GAP"
 
 
-def test_timeline_default_keeps_twelve_persisted_layers():
+def test_timeline_default_keeps_all_forecasts_that_overlap_viewport():
     start = datetime(2026, 8, 10, 0, 0, tzinfo=timezone.utc)
     forecasts = tuple(
         _forecast(
@@ -152,9 +159,9 @@ def test_timeline_default_keeps_twelve_persisted_layers():
 
     svg = render_forecast_timeline_svg(forecasts)
 
-    assert "12 SNAPSHOTS" in svg
-    assert svg.count("pg-forecast-fan") == 12
-    assert svg.count("pg-forecast-base") == 12
+    assert "14 SYNLIGE" in svg
+    assert svg.count("pg-forecast-fan") == 14
+    assert svg.count("pg-forecast-base") == 14
 
 
 def test_timeline_explicit_layer_limit_still_keeps_newest():
@@ -170,9 +177,30 @@ def test_timeline_explicit_layer_limit_still_keeps_newest():
 
     svg = render_forecast_timeline_svg(forecasts, max_layers=4)
 
-    assert "4 SNAPSHOTS" in svg
+    assert "4 SYNLIGE" in svg
     assert svg.count("pg-forecast-fan") == 4
     assert svg.count("pg-forecast-base") == 4
+
+
+def test_forecast_layer_is_removed_only_after_its_horizon_rolls_left():
+    forecasts = (
+        _forecast(suffix="expired", as_of="2026-08-09T23:00:00+00:00", low=0.1, high=0.5),
+        _forecast(suffix="edge", as_of="2026-08-10T00:00:00+00:00", low=0.1, high=0.5),
+        _forecast(suffix="latest", as_of="2026-08-10T08:00:00+00:00", low=0.1, high=0.5),
+    )
+    observed = (
+        ("2026-08-10T11:59:00+00:00", 4210.0),
+        ("2026-08-10T12:00:00+00:00", 4211.0),
+    )
+
+    svg = render_forecast_timeline_svg(forecasts, observed_prices=observed)
+
+    # Latest 4h forecast ends at 12:00, so the rolling two-horizon viewport starts
+    # at 04:00. The 00:00 forecast ends exactly at 04:00 and remains visible; the
+    # 23:00 forecast ended at 03:00 and has physically rolled out.
+    assert "2 SYNLIGE" in svg
+    assert svg.count("pg-forecast-fan") == 2
+    assert svg.count("pg-forecast-base") == 2
 
 
 def test_incomplete_forecast_is_not_drawn_as_complete_layer():
@@ -204,5 +232,5 @@ def test_incomplete_forecast_is_not_drawn_as_complete_layer():
 
     svg = render_forecast_timeline_svg((complete, incomplete))
 
-    assert "1 SNAPSHOT" in svg
+    assert "1 SYNLIGE" in svg
     assert svg.count("pg-forecast-fan") == 1
