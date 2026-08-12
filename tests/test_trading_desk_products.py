@@ -93,10 +93,10 @@ def test_discovery_uses_market_aliases_supported_knockout_types_and_deduplicates
         ("XAUUSD", LEVERAGED_ASSET_TYPES),
     ]
     assert [(item.instrument.uic, item.direction) for item in products] == [
-        (14, "Long"),
         (11, "Long"),
-        (15, "Short"),
+        (14, "Long"),
         (12, "Short"),
+        (15, "Short"),
     ]
     assert "WarrantOtherLeverageWithKnockOut" in LEVERAGED_ASSET_TYPES
     assert "WarrantDoubleKnockOut" in LEVERAGED_ASSET_TYPES
