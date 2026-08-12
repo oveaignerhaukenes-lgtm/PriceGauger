@@ -24,7 +24,7 @@ from trading_desk_product_panel import render_saxo_product_panel
 
 
 LIVE_CHART_REFRESH_SECONDS = 5
-QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m")
+QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 
 
@@ -57,8 +57,8 @@ header_left, header_right = st.columns([5, 1])
 with header_left:
     st.title("TradingDesk")
     st.caption(
-        "Operativ markedsflate for canonical OHLCV. Pris, overlays, volum og tekniske indikatorer "
-        "bruker samme ferdige candles; AutoTrader-hurtighandel ligger i sidebaren og bruker samme execution-motor som AutoTrader-siden."
+        "Operativ markedsflate for canonical OHLCV. Venstre side er global navigasjon; "
+        "graf-, indikator- og AutoTrader-kontroller ligger samlet til høyre på bred skjerm."
     )
 with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
@@ -70,23 +70,26 @@ latest_by_market = {market: store.load_latest_bar(market=market) for market in c
 available_markets = [market for market in configured_markets if latest_by_market[market] is not None]
 unavailable_markets = [market for market in configured_markets if market not in available_markets]
 
+chart_column, controls_column = st.columns([4.8, 1.45], gap="large")
+
 if not available_markets:
-    with st.sidebar:
-        st.header("Graf")
+    with controls_column:
+        st.subheader("Kontroller")
         st.info("Grafinnstillinger blir tilgjengelige når canonical markedsbarer finnes.")
-    st.info("Ingen canonical 1m-markedsbarer er tilgjengelige for TradingDesk ennå.")
-    if unavailable_markets:
-        st.caption("Konfigurert uten tilgjengelige bars: " + ", ".join(unavailable_markets))
-    empty = build_trading_desk_figure(
-        market="Marked",
-        timeframe="5m",
-        window_hours=24,
-        primary=(),
-        overlays={},
-        overlay_mode=OVERLAY_NORMALIZED,
-        empty_message="Grafen fylles automatisk når canonical 1m-bars blir tilgjengelige.",
-    )
-    st.plotly_chart(empty, use_container_width=True, config={"scrollZoom": True, "displaylogo": False})
+    with chart_column:
+        st.info("Ingen canonical 1m-markedsbarer er tilgjengelige for TradingDesk ennå.")
+        if unavailable_markets:
+            st.caption("Konfigurert uten tilgjengelige bars: " + ", ".join(unavailable_markets))
+        empty = build_trading_desk_figure(
+            market="Marked",
+            timeframe="5m",
+            window_hours=24,
+            primary=(),
+            overlays={},
+            overlay_mode=OVERLAY_NORMALIZED,
+            empty_message="Grafen fylles automatisk når canonical 1m-bars blir tilgjengelige.",
+        )
+        st.plotly_chart(empty, use_container_width=True, config={"scrollZoom": True, "displaylogo": False})
     st.stop()
 
 if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
@@ -97,50 +100,47 @@ def _select_timeframe(value: str) -> None:
     st.session_state[TIMEFRAME_STATE_KEY] = value
 
 
-with st.sidebar:
-    st.header("Graf")
-    market = st.selectbox("Marked", available_markets)
+with controls_column:
+    st.subheader("Kontroller")
 
-    st.markdown("**Timeframe**")
-    quick_columns = st.columns(len(QUICK_TIMEFRAMES), gap="small")
-    for column, value in zip(quick_columns, QUICK_TIMEFRAMES):
-        with column:
-            st.button(
-                value.removesuffix("m"),
-                key=f"tradingdesk_tf_{value}",
-                help=f"Bytt direkte til {value}",
-                type="primary" if st.session_state[TIMEFRAME_STATE_KEY] == value else "secondary",
-                use_container_width=True,
-                on_click=_select_timeframe,
-                args=(value,),
-            )
-    st.caption("minutter")
-    st.button(
-        "1 time",
-        key="tradingdesk_tf_1h",
-        type="primary" if st.session_state[TIMEFRAME_STATE_KEY] == "1h" else "secondary",
-        use_container_width=True,
-        on_click=_select_timeframe,
-        args=("1h",),
-    )
-    timeframe = st.session_state[TIMEFRAME_STATE_KEY]
+    with st.expander("Graf", expanded=True):
+        market = st.selectbox("Marked", available_markets)
 
-    window_hours = st.selectbox("Vindu", [6, 12, 24, 48], index=2, format_func=lambda value: f"{value}t")
-    overlay_mode = st.radio("Overlay-akse", [OVERLAY_NORMALIZED, OVERLAY_ACTUAL], index=0)
+        st.markdown("**Timeframe**")
+        timeframe_rows = (QUICK_TIMEFRAMES[:3], QUICK_TIMEFRAMES[3:])
+        for row_index, values in enumerate(timeframe_rows):
+            quick_columns = st.columns(len(values), gap="small")
+            for column, value in zip(quick_columns, values):
+                with column:
+                    label = "1t" if value == "1h" else value
+                    st.button(
+                        label,
+                        key=f"tradingdesk_tf_{row_index}_{value}",
+                        help=f"Bytt direkte til {value}",
+                        type="primary" if st.session_state[TIMEFRAME_STATE_KEY] == value else "secondary",
+                        use_container_width=True,
+                        on_click=_select_timeframe,
+                        args=(value,),
+                    )
+        timeframe = st.session_state[TIMEFRAME_STATE_KEY]
 
-    overlay_options = [item for item in available_markets if item != market]
-    overlays = st.multiselect("Sammenlign med", overlay_options)
-    indicator_names = st.multiselect(
-        "Indikatorer",
-        list(INDICATOR_OPTIONS),
-        default=list(DEFAULT_INDICATORS),
-        help=(
-            "Bollinger/EMA/SMA ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
-            "De tre opprinnelige indikatorene er valgt som standard."
-        ),
-    )
+        window_hours = st.selectbox("Vindu", [6, 12, 24, 48], index=2, format_func=lambda value: f"{value}t")
+        overlay_mode = st.radio("Overlay-akse", [OVERLAY_NORMALIZED, OVERLAY_ACTUAL], index=0)
 
-    with st.expander("Panelstørrelse", expanded=False):
+        overlay_options = [item for item in available_markets if item != market]
+        overlays = st.multiselect("Sammenlign med", overlay_options)
+
+    with st.expander("Indikatorer", expanded=True):
+        indicator_names = st.multiselect(
+            "Vis indikatorer",
+            list(INDICATOR_OPTIONS),
+            default=list(DEFAULT_INDICATORS),
+            help=(
+                "Bollinger/EMA/SMA ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
+                "De tre opprinnelige indikatorene er valgt som standard."
+            ),
+        )
+
         chart_height = st.slider(
             "Total grafhøyde",
             min_value=620,
@@ -158,23 +158,22 @@ with st.sidebar:
             help="Fordeler mer eller mindre av høyden til candlestick-panelet. Resten deles mellom underpanelene.",
         )
 
-    if unavailable_markets:
-        st.caption("Uten tilgjengelige canonical bars: " + ", ".join(unavailable_markets))
+    with st.expander(f"Handel · {market}", expanded=False):
+        st.caption(
+            "Hurtighandel bruker samme Mini/KO-, sizing-, pre-check- og SIM-execution-motor som AutoTrader-siden. "
+            "Markedet følger grafen; TradingDesk har ingen separat ordrelogikk."
+        )
+        render_saxo_product_panel(market)
+        st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
 
-    with st.expander("Om grafen"):
+    if unavailable_markets:
+        st.caption("Uten canonical bars: " + ", ".join(unavailable_markets))
+
+    with st.expander("Status", expanded=False):
         st.caption(
             f"Canonical bars leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
             "Ferdige candles og indikatorer oppdateres når neste 1m-bar er lagret."
         )
-
-    st.divider()
-    with st.expander(f"AutoTrader · hurtighandel · {market}", expanded=False):
-        st.caption(
-            "Samme Mini/KO-, sizing-, pre-check- og SIM-execution-motor som på AutoTrader-siden. "
-            "Markedet følger grafen; ingen separat ordrelogikk finnes i TradingDesk."
-        )
-        render_saxo_product_panel(market)
-        st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
 
 
 def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
@@ -275,8 +274,9 @@ def _render_live_chart() -> None:
             )
 
 
-_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-if _fragment is not None:
-    _fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
-else:
-    _render_live_chart()
+with chart_column:
+    _fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+    if _fragment is not None:
+        _fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
+    else:
+        _render_live_chart()
