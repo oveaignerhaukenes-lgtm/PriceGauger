@@ -42,6 +42,10 @@ def produce_cross_market_state(
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         status.failed("cross_market_state", detail)
+        status.skipped(
+            "response_divergence",
+            "ResponseDivergence hoppet over fordi CrossMarketState ikke kunne produseres.",
+        )
         LOGGER.exception("cross-market state production failed; analysis continues")
         return None
 
