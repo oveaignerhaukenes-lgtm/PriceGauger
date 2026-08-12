@@ -16,7 +16,10 @@ from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 from telegram_flow_store import TelegramFlowStore
 
 
-RECENT_FORECAST_LIMIT = 12
+# Retrieval safety bound only. The renderer no longer uses snapshot count as the
+# visible-lifetime rule; it keeps every forecast whose horizon overlaps the
+# rolling chart viewport.
+RECENT_FORECAST_LIMIT = 200
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +84,14 @@ def _forecast_timeline_prices(
     forecasts: tuple[ForecastSnapshot, ...],
     now: datetime | None = None,
 ) -> tuple[tuple[str, float], ...]:
+    """Load enough canonical history for the rolling forecast viewport.
+
+    The UI now decides forecast lifetime by temporal overlap rather than by a
+    twelve-snapshot cap. Start one latest-forecast horizon before its creation and
+    read forward through all currently persisted canonical history so realized
+    price can push expired forecasts naturally off the left edge.
+    """
+
     usable: list[tuple[ForecastSnapshot, datetime, datetime]] = []
     for forecast in forecasts:
         as_of = _as_utc(forecast.as_of)
@@ -92,34 +103,14 @@ def _forecast_timeline_prices(
         return ()
 
     usable.sort(key=lambda item: item[1])
-    earliest = usable[0][1]
-    max_horizon_hours = max(max(0.25, float(item[0].horizon_hours or 0.25)) for item in usable)
-    horizon_end = max(item[2] for item in usable)
-    current = now or datetime.now(timezone.utc)
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
-    current = current.astimezone(timezone.utc)
-    realized_end = min(current, horizon_end)
-
-    before = history_store.load_window(
+    latest, latest_as_of, _ = usable[-1]
+    horizon_hours = max(0.25, float(latest.horizon_hours or 0.25))
+    start = latest_as_of - timedelta(hours=horizon_hours)
+    return history_store.load_since(
         market=market,
-        as_of=earliest.isoformat(),
-        horizon_hours=max_horizon_hours,
-        limit=4000,
+        start=start,
+        limit=10000,
     )
-    after: tuple[tuple[str, float], ...] = ()
-    if realized_end >= earliest:
-        after = history_store.load_range(
-            market=market,
-            start=earliest,
-            end=realized_end,
-            limit=10000,
-        )
-
-    merged: dict[str, float] = {}
-    for stamp, price in (*before, *after):
-        merged[str(stamp)] = float(price)
-    return tuple(sorted(merged.items(), key=lambda item: item[0]))
 
 
 def _market(
