@@ -8,6 +8,11 @@ import streamlit as st
 from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from analysis_status import AnalysisStatusStore
 from build_info import render_build_badge
+from forecast_horizon_selector import (
+    apply_horizon_query,
+    render_horizon_selector_html,
+    selected_horizons_from_session,
+)
 from forecast_timeline import render_forecast_timeline_svg
 from market_data_freshness import classify_market_data_freshness
 from market_history_store import MarketHistoryStore
@@ -22,6 +27,27 @@ from saxo_auth import configured_oauth_client
 
 
 st.set_page_config(page_title="Oversikt · PriceGauger", page_icon="📡", layout="wide")
+
+
+def _query_value(name: str) -> str | None:
+    try:
+        value = st.query_params.get(name)
+    except Exception:
+        return None
+    if isinstance(value, (list, tuple)):
+        return None if not value else str(value[-1])
+    return None if value is None else str(value)
+
+
+# Horizon links are ordinary one-click navigation controls. Persist the selection
+# in session state so the 5-second live fragment can reread only that forecast
+# family without triggering analysis or mutating the persisted forecast itself.
+apply_horizon_query(
+    st.session_state,
+    market=_query_value("forecast_market"),
+    token=_query_value("forecast_horizon"),
+)
+
 render_build_badge()
 title_col, saxo_col = st.columns([4, 1])
 with title_col:
@@ -67,18 +93,17 @@ st.markdown(
     .pg-alert-stat {border-left:1px solid rgba(128,128,128,.22); padding-left:.7rem; font-size:.74rem; line-height:1.25;}
     .pg-alert-stat strong {font-size:.82rem;}
 
-    .pg-market-link {display:block; color:inherit !important; text-decoration:none !important; border-radius:.8rem; cursor:pointer;}
-    .pg-market-link:visited {color:inherit !important;}
-    .pg-market-link .pg-market-card {transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;}
-    .pg-market-link:hover .pg-market-card {transform:translateY(-1px); box-shadow:0 .2rem .75rem rgba(15,23,42,.10); border-color:rgba(128,128,128,.38);}
-    .pg-market-link:focus-visible {outline:2px solid var(--market-color,#64748b); outline-offset:2px;}
-    .pg-market-card {padding:0; overflow:hidden; border-left:4px solid var(--market-color);}
+    .pg-market-card {padding:0; overflow:hidden; border-left:4px solid var(--market-color); transition:box-shadow .12s ease,border-color .12s ease;}
+    .pg-market-card:hover {box-shadow:0 .2rem .75rem rgba(15,23,42,.08); border-color:rgba(128,128,128,.38); border-left-color:var(--market-color);}
     .pg-market-layout {display:grid; grid-template-columns:minmax(0,5fr) minmax(12rem,2.2fr) minmax(16rem,3fr);}
     .pg-analysis {padding:.9rem 1rem 1rem;}
     .pg-recommendation {padding:.9rem 1rem 1rem; border-left:1px solid rgba(128,128,128,.22); background:rgba(128,128,128,.035);}
-    .pg-forecast {padding:.75rem .8rem .7rem; border-left:1px solid rgba(128,128,128,.22); background:rgba(128,128,128,.018); min-width:0;}
+    .pg-forecast {padding:.75rem .55rem .7rem .8rem; border-left:1px solid rgba(128,128,128,.22); background:rgba(128,128,128,.018); min-width:0;}
     .pg-state-top {display:flex; justify-content:space-between; gap:.8rem; align-items:flex-start;}
     .pg-market {font-size:1.05rem; font-weight:780; color:var(--market-color);}
+    .pg-market-title-link {color:var(--market-color)!important; text-decoration:none!important; border-radius:.2rem;}
+    .pg-market-title-link:hover {text-decoration:underline!important; text-underline-offset:.16rem;}
+    .pg-market-title-link:focus-visible {outline:2px solid var(--market-color); outline-offset:2px;}
     .pg-direction {font-weight:750; letter-spacing:.02em; color:var(--market-color);}
     .pg-meta {font-size:.78rem; opacity:.76; margin-top:.35rem; line-height:1.35;}
     .pg-driver {font-size:.84rem; margin-top:.5rem; line-height:1.35; overflow-wrap:anywhere;}
@@ -102,6 +127,13 @@ st.markdown(
     .pg-rec-row {border-top:1px solid rgba(128,128,128,.18); padding-top:.4rem; font-size:.76rem; line-height:1.3;}
     .pg-rec-row strong {display:block; font-size:.82rem; margin-bottom:.08rem;}
     .pg-rec-status {display:inline-block; margin-top:.62rem; border:1px solid rgba(128,128,128,.28); border-radius:999px; padding:.28rem .55rem; font-size:.69rem; font-weight:780; letter-spacing:.05em;}
+    .pg-forecast-shell {display:grid; grid-template-columns:minmax(0,1fr) 2.7rem; gap:.35rem; align-items:stretch; min-width:0;}
+    .pg-forecast-main {min-width:0;}
+    .pg-horizon-selector {display:flex; flex-direction:column; justify-content:center; gap:.18rem; padding-left:.32rem; border-left:1px solid rgba(128,128,128,.20);}
+    .pg-horizon-btn {display:flex; align-items:center; justify-content:center; min-height:1.28rem; padding:.05rem .12rem; border:1px solid rgba(128,128,128,.26); border-radius:.32rem; color:inherit!important; text-decoration:none!important; font-size:.57rem; font-weight:680; line-height:1; opacity:.72; background:rgba(128,128,128,.025); transition:border-color .1s ease,opacity .1s ease,background .1s ease;}
+    .pg-horizon-btn:hover {border-color:var(--market-color); opacity:1; background:rgba(128,128,128,.08);}
+    .pg-horizon-btn.is-active {border-color:var(--market-color); box-shadow:inset 2px 0 0 var(--market-color); opacity:1; font-weight:850; background:rgba(128,128,128,.10);}
+    .pg-horizon-btn:focus-visible {outline:2px solid var(--market-color); outline-offset:1px;}
     .pg-forecast-wrap {height:100%; display:flex; flex-direction:column; justify-content:center;}
     .pg-forecast-head {display:flex; justify-content:space-between; gap:.5rem; font-size:.62rem; font-weight:780; letter-spacing:.06em; opacity:.72;}
     .pg-forecast-svg {width:100%; height:8.6rem; margin:.15rem 0 .05rem; overflow:visible;}
@@ -135,6 +167,7 @@ st.markdown(
       .pg-alert-stat {border-left:0; border-top:1px solid rgba(128,128,128,.22); padding:.45rem 0 0;}
       .pg-market-layout {grid-template-columns:1fr;}
       .pg-recommendation,.pg-forecast {border-left:0; border-top:1px solid rgba(128,128,128,.22); grid-column:auto;}
+      .pg-forecast-shell {grid-template-columns:minmax(0,1fr) 2.55rem;}
     }
     </style>
     """,
@@ -214,7 +247,14 @@ def _price_interval(item) -> str:
 
 
 def _horizon(item) -> str:
-    return "Ikke fastsatt" if item.horizon_hours is None else f"{item.horizon_hours:g} timer"
+    if item.horizon_hours is None:
+        return "Ikke fastsatt"
+    hours = float(item.horizon_hours)
+    if hours < 1.0:
+        return f"{round(hours * 60):g} minutter"
+    if abs(hours - 168.0) < 1e-6:
+        return "7 dager"
+    return f"{hours:g} timer"
 
 
 def _freshness_html(freshness) -> str:
@@ -252,14 +292,14 @@ def _render_market_card(item, freshness=None) -> str:
         volatility_score=item.volatility_score,
         color=color,
     )
+    horizon_selector = render_horizon_selector_html(item.market, item.horizon_hours)
     data_health = _freshness_html(freshness)
     return f"""
-    <a class="pg-market-link" href="{html.escape(detail_href, quote=True)}" target="_self" aria-label="Åpne {html.escape(item.market)} i Markedsvisning">
       <article class="pg-market-card" style="--market-color:{color}">
         <div class="pg-market-layout">
           <section class="pg-analysis">
             <div class="pg-state-top">
-              <div class="pg-market">{html.escape(item.market)}</div>
+              <div class="pg-market"><a class="pg-market-title-link" href="{html.escape(detail_href, quote=True)}" target="_self" aria-label="Åpne {html.escape(item.market)} i Markedsvisning">{html.escape(item.market)}</a></div>
               <div class="pg-direction">{html.escape(_direction_label(item.direction))}</div>
             </div>
             <div class="pg-gauge-labels"><span>Bearish</span><span>0</span><span>Bullish</span></div>
@@ -286,21 +326,22 @@ def _render_market_card(item, freshness=None) -> str:
             <div class="pg-rec-grid">
               <div class="pg-rec-row"><strong>{html.escape(interval)}</strong>forventet prosentintervall</div>
               <div class="pg-rec-row"><strong>{html.escape(price_interval)}</strong>forventet prisintervall</div>
-              <div class="pg-rec-row"><strong>{html.escape(horizon)}</strong>hovedhorisont</div>
+              <div class="pg-rec-row"><strong>{html.escape(horizon)}</strong>valgt prognosehorisont</div>
               <div class="pg-rec-row"><strong>{item.confidence:.0%}</strong>modellkonfidens</div>
             </div>
             <div class="pg-rec-status">{html.escape(item.recommendation_status)}</div>
           </aside>
-          <section class="pg-forecast">{forecast_svg}</section>
+          <section class="pg-forecast"><div class="pg-forecast-shell"><div class="pg-forecast-main">{forecast_svg}</div>{horizon_selector}</div></section>
         </div>
       </article>
-    </a>
     """
 
 
 def _render_live_market_cards() -> None:
     try:
-        markets = load_overview_markets()
+        markets = load_overview_markets(
+            horizons_by_market=selected_horizons_from_session(st.session_state)
+        )
         realtime = RealtimeMarketDataStore()
         statuses = {item.market: item for item in realtime.load_statuses()}
     except Exception as exc:
@@ -324,7 +365,7 @@ def _render_live_market_cards() -> None:
 
     st.caption(
         "Markeds- og forecastkort rereades hvert 5. sekund fra lagret state og canonical 1m-bars. "
-        "Dette utløser ikke ny analyse eller Saxo-kall."
+        "Horisontknappene bytter kun lagret forecastfamilie og utløser ikke ny analyse eller Saxo-kall."
     )
 
 
