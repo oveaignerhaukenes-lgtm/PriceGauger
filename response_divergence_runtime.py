@@ -6,6 +6,7 @@ from pathlib import Path
 from analysis_status import AnalysisStatusStore
 from cross_market_state import CrossMarketStateSnapshot
 from response_divergence import ResponseDivergenceSnapshot, refresh_response_divergences
+from transmission_state_runtime import produce_transmission_states
 
 
 LOGGER = logging.getLogger("pricegauger.response_divergence_runtime")
@@ -22,7 +23,8 @@ def produce_response_divergences(
 
     A cycle with no mature/aligned response window is a healthy no-op. Unexpected
     evaluation/storage failures are degraded locally and never stop the authoritative
-    Information/Decision/forecast runtime.
+    Information/Decision/forecast runtime. TransmissionState consumes only the
+    successfully produced divergence observations from this stage.
     """
     status = status_store or AnalysisStatusStore(db_path)
     status.running(
@@ -38,6 +40,10 @@ def produce_response_divergences(
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         status.failed("response_divergence", detail)
+        status.skipped(
+            "transmission_state",
+            "TransmissionState hoppet over fordi ResponseDivergence-evalueringen feilet.",
+        )
         LOGGER.exception("response-divergence refresh failed; analysis continues")
         return ()
 
@@ -47,6 +53,11 @@ def produce_response_divergences(
             "Ingen moden, temporalt gyldig markedsrespons å evaluere i denne syklusen.",
         )
         LOGGER.info("response-divergence refresh complete market=%s evaluations=0", market)
+        produce_transmission_states(
+            db_path=db_path,
+            divergences=(),
+            status_store=status,
+        )
         return ()
 
     divergent = sum(item.status == "DIVERGENT" for item in snapshots)
@@ -66,5 +77,10 @@ def produce_response_divergences(
         divergent,
         aligned,
         unconfirmed,
+    )
+    produce_transmission_states(
+        db_path=db_path,
+        divergences=snapshots,
+        status_store=status,
     )
     return snapshots
