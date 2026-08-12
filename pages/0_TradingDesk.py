@@ -58,7 +58,7 @@ with header_left:
     st.title("TradingDesk")
     st.caption(
         "Operativ markedsflate for canonical OHLCV. Pris, overlays, volum og tekniske indikatorer "
-        "bruker samme ferdige candles; Saxo-produktpanelet holdes separat fra chart-refresh."
+        "bruker samme ferdige candles; AutoTrader-hurtighandel ligger i sidebaren og bruker samme execution-motor som AutoTrader-siden."
     )
 with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
@@ -167,6 +167,15 @@ with st.sidebar:
             "Ferdige candles og indikatorer oppdateres når neste 1m-bar er lagret."
         )
 
+    st.divider()
+    with st.expander(f"AutoTrader · hurtighandel · {market}", expanded=False):
+        st.caption(
+            "Samme Mini/KO-, sizing-, pre-check- og SIM-execution-motor som på AutoTrader-siden. "
+            "Markedet følger grafen; ingen separat ordrelogikk finnes i TradingDesk."
+        )
+        render_saxo_product_panel(market)
+        st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
+
 
 def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
     raw = store.load_range(market=name, start=range_start, end=range_end, limit=limit)
@@ -271,5 +280,3 @@ if _fragment is not None:
     _fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
 else:
     _render_live_chart()
-
-render_saxo_product_panel(market)
