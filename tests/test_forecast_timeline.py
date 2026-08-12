@@ -108,8 +108,10 @@ def test_weekend_gap_is_compressed_and_actual_price_is_not_connected_across_it()
         now=sunday_b,
     )
 
+    # Gap context is retained for compression/tooltip even though the Friday
+    # segment has physically rolled outside the current forecast viewport.
     assert "<title>WEEKEND GAP</title>" in svg
-    assert svg.count('class="pg-realized"') == 2
+    assert svg.count('class="pg-realized"') == 1
 
 
 def test_narrow_compressed_gap_does_not_render_cramped_ufo_label():
