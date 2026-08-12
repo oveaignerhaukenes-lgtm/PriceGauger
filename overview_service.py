@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
-from adaptation_diagnostics import ForecastAdaptationContext, load_adaptation_contexts
+from adaptation_diagnostics import (
+    ForecastAdaptationContext,
+    ForecastErrorDiagnosticView,
+    attach_adaptation_contexts,
+    load_adaptation_contexts,
+)
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
 from forecast_contracts import DEFAULT_FORECAST_HORIZON_HOURS, ForecastSnapshot
 from forecast_error import ForecastErrorObservation, ForecastErrorStore
@@ -40,7 +45,7 @@ class OverviewMarket:
     recommendation_status: str = "PROVISIONAL"
     forecast: ForecastSnapshot | None = None
     forecasts: tuple[ForecastSnapshot, ...] = ()
-    forecast_errors: tuple[ForecastErrorObservation, ...] = ()
+    forecast_errors: tuple[ForecastErrorObservation | ForecastErrorDiagnosticView, ...] = ()
     adaptation_contexts: Mapping[str, ForecastAdaptationContext] | None = None
     price_history: tuple[tuple[str, float], ...] = ()
     market_regime: str = ""
@@ -127,7 +132,7 @@ def _market(
     )
     forecasts = tuple(reversed(recent))
     forecast = forecasts[-1] if forecasts else None
-    errors = tuple(
+    raw_errors = tuple(
         reversed(
             error_store.load_all(
                 market=item.market,
@@ -136,7 +141,8 @@ def _market(
             )
         )
     )
-    adaptation_contexts = load_adaptation_contexts(db_path, errors)
+    adaptation_contexts = load_adaptation_contexts(db_path, raw_errors)
+    errors = attach_adaptation_contexts(raw_errors, adaptation_contexts)
     market_state = runtime_store.load_latest_market_state(market=item.market)
     history = _forecast_timeline_prices(
         db_path,
