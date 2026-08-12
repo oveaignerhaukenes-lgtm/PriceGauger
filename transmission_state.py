@@ -317,7 +317,7 @@ class TransmissionStateStore:
                 CREATE TABLE IF NOT EXISTS transmission_state_snapshots (
                     transmission_id TEXT PRIMARY KEY,
                     market TEXT NOT NULL,
-                    window TEXT NOT NULL,
+                    "window" TEXT NOT NULL,
                     as_of TEXT NOT NULL,
                     response_divergence_id TEXT NOT NULL,
                     resolution_status TEXT NOT NULL,
@@ -335,7 +335,7 @@ class TransmissionStateStore:
             db.execute(
                 """
                 INSERT INTO transmission_state_snapshots(
-                    transmission_id, market, window, as_of, response_divergence_id,
+                    transmission_id, market, "window", as_of, response_divergence_id,
                     resolution_status, dominant_channel, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(transmission_id) DO NOTHING
