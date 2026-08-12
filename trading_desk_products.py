@@ -33,6 +33,10 @@ class LeveragedProductDetails:
     financing_level: float | None
     strike: float | None
     default_amount: float | None
+    minimum_trade_size: float | None = None
+    minimum_order_value: float | None = None
+    increment_size: float | None = None
+    amount_decimals: int | None = None
 
 
 def _direction_from_text(*values: str) -> str | None:
@@ -49,6 +53,15 @@ def _number(value: Any) -> float | None:
         return None
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _integer(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
     except (TypeError, ValueError):
         return None
 
@@ -102,6 +115,10 @@ def product_details(client: SaxoClient, product: LeveragedProduct) -> LeveragedP
         financing_level=_number(raw.get("FinancingLevel")),
         strike=strike,
         default_amount=_number(raw.get("DefaultAmount")),
+        minimum_trade_size=_number(raw.get("MinimumTradeSize") or raw.get("MinimumLotSize")),
+        minimum_order_value=_number(raw.get("MinimumOrderValue")),
+        increment_size=_number(raw.get("IncrementSize")),
+        amount_decimals=_integer(raw.get("AmountDecimals")),
     )
 
 
