@@ -3,7 +3,15 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 
-from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot, _forecast_id, forecast_from_decision
+from forecast_contracts import (
+    DIRECTION_MODEL_VERSION,
+    FORECAST_ENGINE_VERSION,
+    FORECAST_HORIZONS_HOURS,
+    HORIZON_SCALE_MODEL_VERSION,
+    ForecastSnapshot,
+    _forecast_id,
+    forecast_from_decision,
+)
 from forecast_store import ForecastStore
 from state_contracts import ComponentStatus, DecisionStateSnapshot, MarketStateSnapshot
 
@@ -61,6 +69,8 @@ def test_ready_forecast_captures_reference_and_horizon():
     assert forecast.expected_move_low_pct == 0.6
     assert forecast.expected_move_high_pct == 1.4
     assert forecast.missing_inputs == ()
+    assert forecast.direction_model_version == DIRECTION_MODEL_VERSION
+    assert forecast.horizon_scale_model_version is None
 
 
 def test_four_hour_forecast_keeps_legacy_identity():
@@ -72,18 +82,35 @@ def test_four_hour_forecast_keeps_legacy_identity():
 
 def test_non_four_hour_forecasts_have_distinct_horizon_identity():
     decision_id = "decision:gold:multi"
-    ids = {
-        _forecast_id(decision_id, 5 / 60),
-        _forecast_id(decision_id, 0.25),
-        _forecast_id(decision_id, 0.5),
-        _forecast_id(decision_id, 1.0),
-        _forecast_id(decision_id, 4.0),
-        _forecast_id(decision_id, 12.0),
-        _forecast_id(decision_id, 24.0),
-        _forecast_id(decision_id, 168.0),
-    }
+    ids = {_forecast_id(decision_id, horizon) for horizon in FORECAST_HORIZONS_HOURS}
 
     assert len(ids) == 8
+
+
+def test_horizon_override_scales_movement_without_inventing_new_direction():
+    one_hour = forecast_from_decision(
+        _decision(),
+        market_state=_market_state(),
+        horizon_hours=1.0,
+    )
+    one_day = forecast_from_decision(
+        _decision(),
+        market_state=_market_state(),
+        horizon_hours=24.0,
+    )
+
+    assert one_hour.horizon_hours == 1.0
+    assert one_hour.expected_move_low_pct == 0.3
+    assert one_hour.expected_move_high_pct == 0.7
+    assert one_hour.direction == "LONG_BIAS"
+    assert one_hour.direction_score == 0.64
+    assert one_hour.horizon_scale_model_version == HORIZON_SCALE_MODEL_VERSION
+    assert one_hour.direction_model_version == DIRECTION_MODEL_VERSION
+
+    assert one_day.horizon_hours == 24.0
+    assert one_day.expected_move_low_pct == 1.4697
+    assert one_day.expected_move_high_pct == 3.4293
+    assert one_day.direction == one_hour.direction
 
 
 def test_degraded_forecast_records_missing_inputs_without_dropping_forecast():
@@ -172,23 +199,29 @@ def test_store_keeps_historical_snapshots_per_decision(tmp_path):
 
 def test_store_allows_multiple_horizons_for_same_decision(tmp_path):
     store = ForecastStore(tmp_path / "multi-horizon.db")
-    four_hour = forecast_from_decision(_decision(), market_state=_market_state())
-    one_hour = ForecastSnapshot(
-        **{
-            **four_hour.to_record(),
-            "forecast_id": _forecast_id(four_hour.decision_snapshot_id, 1.0),
-            "horizon_hours": 1.0,
-            "time_scale": "HOURS",
-            "missing_inputs": (),
-        }
+    forecasts = tuple(
+        forecast_from_decision(
+            _decision(),
+            market_state=_market_state(),
+            horizon_hours=horizon,
+        )
+        for horizon in FORECAST_HORIZONS_HOURS
     )
 
-    assert four_hour.decision_snapshot_id == one_hour.decision_snapshot_id
-    assert four_hour.forecast_id != one_hour.forecast_id
-    assert store.save_all((four_hour, one_hour)) == 2
+    assert len({item.forecast_id for item in forecasts}) == 8
+    assert store.save_all(forecasts) == 8
+    assert store.has_horizons(market="Gold", horizons_hours=FORECAST_HORIZONS_HOURS)
+
+    one_hour = store.load_all(market="Gold", horizon_hours=1.0, limit=10)
+    assert len(one_hour) == 1
+    assert one_hour[0].horizon_hours == 1.0
+
+    four_hour = store.load_latest(market="Gold", horizon_hours=4.0)
+    assert four_hour is not None
+    assert four_hour.horizon_hours == 4.0
 
     loaded = store.load_all(market="Gold", limit=10)
-    assert {item.horizon_hours for item in loaded} == {1.0, 4.0}
+    assert {item.horizon_hours for item in loaded} == set(FORECAST_HORIZONS_HOURS)
     with store._connect() as db:
         migration = db.execute(
             "SELECT migration_id FROM pricegauger_schema_migrations WHERE migration_id=?",
