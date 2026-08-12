@@ -65,6 +65,11 @@ def render_analysis_status(steps: Iterable[object]) -> str:
 
 
 ANALYSIS_STATUS_CSS = """
+/* Streamlit marks fragment output as stale while a periodic rerun is in flight.
+   Keep the previous authoritative rendering fully visible until the replacement
+   DOM is ready, so 2s/5s live refreshes swap in-place instead of visibly dimming
+   every market card. This changes presentation only; refresh cadence is unchanged. */
+[data-stale="true"] {opacity:1 !important;}
 .pg-progress-card {border:1px solid rgba(128,128,128,.24); border-radius:.8rem; padding:.72rem .85rem; margin:.15rem 0 .9rem; background:rgba(128,128,128,.025);}
 .pg-progress-head {display:flex; justify-content:space-between; gap:1rem; align-items:center; margin-bottom:.55rem; font-size:.78rem;}
 .pg-progress-head span {opacity:.62; font-size:.7rem;}

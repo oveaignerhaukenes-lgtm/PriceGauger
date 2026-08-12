@@ -202,13 +202,16 @@ def _visible_window(
     candidates: tuple[TimelineForecast, ...],
     observed: tuple[tuple[datetime, float], ...],
 ) -> tuple[datetime, datetime]:
-    """Use a rolling, count-independent viewport tied to the actual horizon."""
+    """Use all bounded chart history while retaining the latest forecast endpoint."""
     latest = candidates[-1]
     horizon = max(MIN_FORECAST_HORIZON, latest.ends_at - latest.as_of)
     axis_end = latest.ends_at
     if observed:
         axis_end = max(axis_end, observed[-1][0])
-    return axis_end - 2 * horizon, axis_end
+        axis_start = min(axis_end - 2 * horizon, observed[0][0])
+    else:
+        axis_start = axis_end - 2 * horizon
+    return axis_start, axis_end
 
 
 def _horizon_label(hours: float | None) -> str:
@@ -252,18 +255,27 @@ def render_forecast_timeline_svg(
     observed = tuple(observed_list)
 
     axis_start, axis_end = _visible_window(candidates, observed)
-    layers = [item for item in candidates if item.ends_at >= axis_start and item.as_of <= axis_end]
+    latest_forecast = candidates[-1]
+    horizon = max(MIN_FORECAST_HORIZON, latest_forecast.ends_at - latest_forecast.as_of)
+    trail_start = latest_forecast.as_of - 2 * horizon
+    layers = [item for item in candidates if item.ends_at >= trail_start and item.as_of <= axis_end]
     if max_layers is not None:
         layers = layers[-max(1, int(max_layers)) :]
 
     observed_in_window = tuple(item for item in observed if axis_start <= item[0] <= axis_end)
     gaps = _timeline_gaps(observed)
-    display_span = max(1.0, _display_seconds(axis_end, axis_start=axis_start, gaps=gaps))
     plot_right = 90.0
+    split_x = 64.0
+    split_time = latest_forecast.as_of
+    history_span = max(1.0, _display_seconds(split_time, axis_start=axis_start, gaps=gaps))
+    future_span = max(1.0, _display_seconds(axis_end, axis_start=split_time, gaps=gaps))
 
     def xmap(stamp: datetime) -> float:
-        displayed = _display_seconds(stamp, axis_start=axis_start, gaps=gaps)
-        return max(0.0, min(plot_right, displayed / display_span * plot_right))
+        if stamp <= split_time:
+            displayed = _display_seconds(stamp, axis_start=axis_start, gaps=gaps)
+            return max(0.0, min(split_x, displayed / history_span * split_x))
+        displayed = _display_seconds(stamp, axis_start=split_time, gaps=gaps)
+        return max(split_x, min(plot_right, split_x + displayed / future_span * (plot_right - split_x)))
 
     plotted_layers: list[dict[str, object]] = []
     for index, item in enumerate(layers):
@@ -299,13 +311,7 @@ def render_forecast_timeline_svg(
             {"item": item, "index": index, "base": tuple(base), "bull": tuple(bull), "bear": tuple(bear), "upper": tuple(upper), "lower": tuple(lower)}
         )
 
-    scale_start = axis_start
-    if gaps:
-        overlapping_gaps = [gap for gap in gaps if gap.end >= axis_start and gap.start <= axis_end]
-        if overlapping_gaps:
-            scale_start = max(axis_start, overlapping_gaps[-1].end)
-    scale_observed = [price for stamp, price in observed_in_window if scale_start <= stamp <= axis_end]
-    latest_forecast = candidates[-1]
+    scale_observed = [price for _, price in observed_in_window]
     latest_forecast_prices: list[float] = []
     if plotted_layers:
         latest_layer = plotted_layers[-1]
@@ -340,6 +346,9 @@ def render_forecast_timeline_svg(
     grid_markup.append(
         '<line x1="90" y1="10" x2="90" y2="94" style="stroke:rgba(100,116,139,.25);stroke-width:.5;vector-effect:non-scaling-stroke" />'
     )
+    grid_markup.append(
+        f'<line x1="{split_x:.1f}" y1="8" x2="{split_x:.1f}" y2="96" style="stroke:rgba(100,116,139,.45);stroke-width:.55;stroke-dasharray:1.5 1.5;vector-effect:non-scaling-stroke"><title>Siste forecast-origin</title></line>'
+    )
 
     gap_markup: list[str] = []
     for gap in gaps:
@@ -347,18 +356,11 @@ def render_forecast_timeline_svg(
             continue
         left = xmap(max(axis_start, gap.start))
         right = xmap(min(axis_end, gap.end))
-        width = max(1.6, right - left)
+        width = max(1.2, right - left)
         center = min(plot_right - width / 2.0, left + width / 2.0)
         gap_markup.append(
-            f'<rect x="{center - width / 2.0:.1f}" y="14" width="{width:.1f}" height="82" rx=".8" style="fill:rgba(100,116,139,.10);stroke:rgba(100,116,139,.38);stroke-width:.45;stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke"><title>{gap.label}</title></rect>'
+            f'<rect x="{center - width / 2.0:.1f}" y="14" width="{width:.1f}" height="82" rx=".8" style="fill:rgba(100,116,139,.08);stroke:rgba(100,116,139,.28);stroke-width:.35;stroke-dasharray:1.2 1.2;vector-effect:non-scaling-stroke"><title>{gap.label}</title></rect>'
         )
-        if width >= 7.0:
-            label_parts = gap.label.split(maxsplit=1)
-            label_top = label_parts[0]
-            label_bottom = label_parts[1] if len(label_parts) > 1 else ""
-            gap_markup.append(
-                f'<text x="{center:.1f}" y="9.2" text-anchor="middle" style="font-size:1.8px;font-weight:400;letter-spacing:0;fill:rgba(71,85,105,.78);font-family:system-ui,sans-serif"><tspan x="{center:.1f}" dy="0">{label_top}</tspan><tspan x="{center:.1f}" dy="1.7">{label_bottom}</tspan></text>'
-            )
 
     layer_markup: list[str] = []
     count = len(plotted_layers)
@@ -413,15 +415,15 @@ def render_forecast_timeline_svg(
 
     latest_snapshot = latest_forecast.snapshot
     interval = f"{latest_snapshot.expected_move_low_pct:+.2f}%…{latest_snapshot.expected_move_high_pct:+.2f}%"
-    horizon = _horizon_label(latest_snapshot.horizon_hours)
+    horizon_label = _horizon_label(latest_snapshot.horizon_hours)
     missing = _missing_text(latest_snapshot)
     degradation = f" · {missing}" if missing else ""
     actual_label = "faktisk pris oppdateres fra canonical 1m-bars" if observed_in_window else "venter på faktisk pris"
 
     fragment = f'''<div class="pg-forecast-wrap" style="overflow:hidden">
-      <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} SYNLIGE</span></div>
+      <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} AKTIVE SPOR</span></div>
       <div class="pg-forecast-plot" style="position:relative;height:13.5rem">
-        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Lagrede prognoser mot faktisk markedsutvikling med prisakse til høyre">
+        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Lang markedshistorikk og siste lagrede prognoser mot faktisk utvikling">
           {''.join(grid_markup)}
           {''.join(gap_markup)}
           {''.join(layer_markup)}
@@ -431,8 +433,8 @@ def render_forecast_timeline_svg(
         <div class="pg-price-axis" aria-hidden="true" style="position:absolute;inset:0;pointer-events:none">{''.join(axis_labels)}</div>
       </div>
       <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.72;margin-top:.08rem">
-        <span>eldre prognoser lysere · beholdes til de ruller ut</span><span>kontrastlinje = faktisk pris · høyre = pris</span>
+        <span>venstre = regimehistorikk · høyre = siste forecastvindu</span><span>kontrastlinje = faktisk pris · høyre = pris</span>
       </div>
-      <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon} · {latest_snapshot.status}{degradation} · {actual_label}</div>
+      <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon_label} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
     return "".join(line.strip() for line in fragment.splitlines())
