@@ -8,6 +8,9 @@ from database import connect
 from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot
 
 
+_MULTI_HORIZON_MIGRATION = "forecast-multi-horizon-identity-v1"
+
+
 class ForecastStore:
     def __init__(self, path: str | Path = "pricegauger.db") -> None:
         self.path = str(path)
@@ -25,10 +28,28 @@ class ForecastStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_forecast_market_as_of
                 ON forecast_snapshots(market, as_of);
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_forecast_decision_snapshot
-                ON forecast_snapshots(decision_snapshot_id);
+                CREATE TABLE IF NOT EXISTS pricegauger_schema_migrations (
+                    migration_id TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
+            migrated = db.execute(
+                "SELECT migration_id FROM pricegauger_schema_migrations WHERE migration_id=?",
+                (_MULTI_HORIZON_MIGRATION,),
+            ).fetchone()
+            if migrated is None:
+                # The old unique decision index encoded the one-forecast-per-
+                # Decision-State assumption. Forecast identity is now deterministic
+                # on decision × horizon, so that uniqueness must be removed once.
+                db.execute("DROP INDEX IF EXISTS idx_forecast_decision_snapshot")
+                db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_forecast_decision_lookup ON forecast_snapshots(decision_snapshot_id)"
+                )
+                db.execute(
+                    "INSERT INTO pricegauger_schema_migrations(migration_id) VALUES (?) ON CONFLICT(migration_id) DO NOTHING",
+                    (_MULTI_HORIZON_MIGRATION,),
+                )
 
     def _connect(self):
         return connect(self.path)
@@ -78,9 +99,6 @@ class ForecastStore:
         if market:
             query += " WHERE market=?"
             params.append(market)
-        # Multiple snapshots can legitimately share one analysis timestamp. Keep
-        # LIMIT selection stable across process/page reloads by adding persisted
-        # insertion time and the immutable id as deterministic tie breakers.
         query += " ORDER BY as_of DESC, recorded_at DESC, forecast_id DESC LIMIT ?"
         params.append(max(1, int(limit)))
         with self._connect() as db:

@@ -31,8 +31,25 @@ def _utc_iso(value: str | datetime) -> str:
     return parsed.astimezone(timezone.utc).isoformat()
 
 
-def _forecast_id(decision_snapshot_id: str) -> str:
-    digest = sha256(str(decision_snapshot_id).encode("utf-8")).hexdigest()[:24]
+def _horizon_identity(horizon_hours: float | None) -> str:
+    if horizon_hours is None:
+        return "unset"
+    minutes = round(float(horizon_hours) * 60.0, 6)
+    if abs(minutes - round(minutes)) <= 1e-6:
+        return f"{int(round(minutes))}m"
+    return f"{minutes:.6f}m".rstrip("0").rstrip(".")
+
+
+def _forecast_id(decision_snapshot_id: str, horizon_hours: float | None = 4.0) -> str:
+    """Return deterministic identity for one decision × horizon forecast.
+
+    Existing 4h forecasts deliberately retain the historical id recipe so the
+    schema evolution does not duplicate already-persisted production snapshots.
+    Every other horizon includes an explicit normalized horizon token.
+    """
+    decision_key = str(decision_snapshot_id)
+    identity = decision_key if _horizon_identity(horizon_hours) == "240m" else f"{decision_key}:{_horizon_identity(horizon_hours)}"
+    digest = sha256(identity.encode("utf-8")).hexdigest()[:24]
     return f"forecast:{digest}"
 
 
@@ -165,7 +182,7 @@ def forecast_from_decision(
         status = "READY"
 
     return ForecastSnapshot(
-        forecast_id=_forecast_id(decision.snapshot_id),
+        forecast_id=_forecast_id(decision.snapshot_id, decision.horizon_hours),
         market=decision.market,
         as_of=decision.as_of,
         reference_price=None if market_state is None else market_state.price,
