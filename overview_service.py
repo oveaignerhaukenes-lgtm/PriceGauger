@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Mapping
 
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
 from forecast_contracts import DEFAULT_FORECAST_HORIZON_HOURS, ForecastSnapshot
@@ -129,14 +130,12 @@ def _market(
     runtime_store: StateRuntimeStore,
     forecast_store: ForecastStore,
     history_store: MarketHistoryStore,
+    horizon_hours: float = DEFAULT_FORECAST_HORIZON_HOURS,
 ) -> OverviewMarket:
     flow_item = next((asset for asset in (flow.assets if flow is not None else ()) if asset.asset == item.market), None)
-    # Multi-horizon production is live before the selector UI. Keep the current
-    # Overview contract explicitly on the historical/default 4h family so the
-    # chart never mixes 5m, 4h and 7d trails in one viewport.
     recent = forecast_store.load_all(
         market=item.market,
-        horizon_hours=DEFAULT_FORECAST_HORIZON_HOURS,
+        horizon_hours=horizon_hours,
         limit=RECENT_FORECAST_LIMIT,
     )
     forecasts = tuple(reversed(recent))
@@ -148,16 +147,17 @@ def _market(
         forecasts=forecasts,
     )
 
-    move_low = item.expected_move_low_pct
-    move_high = item.expected_move_high_pct
-    horizon = item.horizon_hours
+    # The selected forecast family owns the interval and horizon shown in the
+    # recommendation column. Direction/confidence remain Decision State values in
+    # multi-horizon v1, but a 1h selection must never display the old 4h interval.
     if forecast is not None:
-        if move_low is None:
-            move_low = forecast.expected_move_low_pct
-        if move_high is None:
-            move_high = forecast.expected_move_high_pct
-        if horizon is None:
-            horizon = forecast.horizon_hours
+        move_low = forecast.expected_move_low_pct
+        move_high = forecast.expected_move_high_pct
+        horizon = forecast.horizon_hours
+    else:
+        move_low = item.expected_move_low_pct
+        move_high = item.expected_move_high_pct
+        horizon = horizon_hours
     return OverviewMarket(
         market=item.market,
         direction=item.direction,
@@ -186,8 +186,10 @@ def _load_markets(
     runtime_store: StateRuntimeStore,
     forecast_store: ForecastStore,
     history_store: MarketHistoryStore,
+    horizons_by_market: Mapping[str, float] | None = None,
 ) -> tuple[OverviewMarket, ...]:
     decisions = runtime_store.load_latest_decision_states()
+    selections = horizons_by_market or {}
     return tuple(
         _market(
             item,
@@ -195,13 +197,18 @@ def _load_markets(
             runtime_store=runtime_store,
             forecast_store=forecast_store,
             history_store=history_store,
+            horizon_hours=float(selections.get(item.market, DEFAULT_FORECAST_HORIZON_HOURS)),
         )
         for item in decisions
     )
 
 
-def load_overview_markets(db_path: str | Path = "pricegauger.db") -> tuple[OverviewMarket, ...]:
-    """Read only the live market-card state; safe to call from a UI refresh fragment."""
+def load_overview_markets(
+    db_path: str | Path = "pricegauger.db",
+    *,
+    horizons_by_market: Mapping[str, float] | None = None,
+) -> tuple[OverviewMarket, ...]:
+    """Read live cards with an optional independently selected horizon per market."""
     flow = TelegramFlowStore(db_path).load_latest_snapshot()
     return _load_markets(
         db_path=db_path,
@@ -209,6 +216,7 @@ def load_overview_markets(db_path: str | Path = "pricegauger.db") -> tuple[Overv
         runtime_store=StateRuntimeStore(db_path),
         forecast_store=ForecastStore(db_path),
         history_store=MarketHistoryStore(db_path),
+        horizons_by_market=horizons_by_market,
     )
 
 
@@ -219,6 +227,8 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
     history_store = MarketHistoryStore(db_path)
     flow = flow_store.load_latest_snapshot()
     posts = tuple(reversed(flow_store.load_posts(limit=post_limit)))
+    # Non-interactive Overview consumers intentionally retain the established 4h
+    # default. Only the live card fragment opts into per-market selector state.
     markets = _load_markets(
         db_path=db_path,
         flow=flow,
