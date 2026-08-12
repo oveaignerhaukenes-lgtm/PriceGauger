@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
+from adaptation_diagnostics import ForecastAdaptationContext, load_adaptation_contexts
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
 from forecast_contracts import DEFAULT_FORECAST_HORIZON_HOURS, ForecastSnapshot
 from forecast_error import ForecastErrorObservation, ForecastErrorStore
@@ -18,9 +19,6 @@ from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 from telegram_flow_store import TelegramFlowStore
 
 
-# Retrieval safety bound only. The renderer no longer uses snapshot count as the
-# visible-lifetime rule; it keeps every forecast whose horizon overlaps the
-# rolling chart viewport.
 RECENT_FORECAST_LIMIT = 200
 RECENT_FORECAST_ERROR_LIMIT = 1000
 
@@ -43,6 +41,7 @@ class OverviewMarket:
     forecast: ForecastSnapshot | None = None
     forecasts: tuple[ForecastSnapshot, ...] = ()
     forecast_errors: tuple[ForecastErrorObservation, ...] = ()
+    adaptation_contexts: Mapping[str, ForecastAdaptationContext] | None = None
     price_history: tuple[tuple[str, float], ...] = ()
     market_regime: str = ""
     volatility_score: float | None = None
@@ -137,6 +136,7 @@ def _market(
             )
         )
     )
+    adaptation_contexts = load_adaptation_contexts(db_path, errors)
     market_state = runtime_store.load_latest_market_state(market=item.market)
     history = _forecast_timeline_prices(
         db_path,
@@ -145,9 +145,6 @@ def _market(
         horizon_hours=horizon_hours,
     )
 
-    # The selected forecast family owns the interval and horizon shown in the
-    # recommendation column. Direction/confidence remain Decision State values in
-    # multi-horizon v1, but a 1h selection must never display the old 4h interval.
     if forecast is not None:
         move_low = forecast.expected_move_low_pct
         move_high = forecast.expected_move_high_pct
@@ -174,6 +171,7 @@ def _market(
         forecast=forecast,
         forecasts=forecasts,
         forecast_errors=errors,
+        adaptation_contexts=adaptation_contexts,
         price_history=history,
         market_regime="" if market_state is None else market_state.regime,
         volatility_score=None if market_state is None else market_state.volatility_score,
@@ -229,8 +227,6 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
     error_store = ForecastErrorStore(db_path)
     flow = flow_store.load_latest_snapshot()
     posts = tuple(reversed(flow_store.load_posts(limit=post_limit)))
-    # Non-interactive Overview consumers intentionally retain the established 4h
-    # default. Only the live card fragment opts into per-market selector state.
     markets = _load_markets(
         db_path=db_path,
         flow=flow,
