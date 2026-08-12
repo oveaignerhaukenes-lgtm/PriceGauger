@@ -26,6 +26,7 @@ class SaxoOrderRequest:
     instrument: SaxoInstrument
     amount: float
     buy_sell: str
+    external_reference: str | None = None
 
     def payload(self) -> dict[str, Any]:
         side = self.buy_sell.strip().title()
@@ -36,7 +37,7 @@ class SaxoOrderRequest:
             raise ValueError("amount må være større enn 0")
         if not self.account_key.strip():
             raise ValueError("account_key mangler")
-        return {
+        payload: dict[str, Any] = {
             "AccountKey": self.account_key,
             "Amount": amount,
             "AssetType": self.instrument.asset_type,
@@ -46,14 +47,21 @@ class SaxoOrderRequest:
             "OrderType": "Market",
             "Uic": self.instrument.uic,
         }
+        if self.external_reference:
+            reference = self.external_reference.strip()
+            if len(reference) > 50:
+                raise ValueError("ExternalReference kan ikke være lengre enn 50 tegn")
+            if reference:
+                payload["ExternalReference"] = reference
+        return payload
 
 
 class SaxoTradingClient:
-    """Deliberately SIM-only trading adapter for the AutoTrader proof of concept.
+    """Deliberately SIM-only trading adapter for AutoTrader.
 
-    This class is intentionally not connected to PriceGauger analysis or the worker.
-    Live trading is rejected in code, and order placement requires an explicit
-    confirmation argument in addition to the UI confirmation.
+    Live trading is rejected in code. Order placement requires explicit confirmation,
+    and portfolio reads are used to reconcile the state Saxo actually reports after a
+    request rather than treating UI state as execution truth.
     """
 
     def __init__(self, client: SaxoClient) -> None:
@@ -61,7 +69,7 @@ class SaxoTradingClient:
         normalized = self.client.base_url.rstrip("/").lower()
         if normalized != SIM_BASE_URL.lower():
             raise SaxoTradingSafetyError(
-                "AutoTrader POC er låst til Saxo SIM og nekter å bruke LIVE-endepunkt."
+                "AutoTrader er låst til Saxo SIM og nekter å bruke LIVE-endepunkt."
             )
 
     def accounts(self) -> tuple[SaxoAccount, ...]:
@@ -90,6 +98,37 @@ class SaxoTradingClient:
         if not confirm_sim:
             raise SaxoTradingSafetyError("SIM-ordre krever eksplisitt confirm_sim=True")
         return self._post("trade/v2/orders", order.payload())
+
+    def open_orders_me(self, *, account_key: str, uic: int) -> tuple[dict[str, Any], ...]:
+        payload = self.client._get("port/v1/orders/me", params={"$top": 1000})
+        rows = payload.get("Data") or []
+        if not isinstance(rows, list):
+            raise SaxoError("ordrelisten hadde ugyldig format", status="INVALID_RESPONSE")
+        return tuple(
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and str(row.get("AccountKey") or "") == str(account_key)
+            and int(row.get("Uic") or -1) == int(uic)
+        )
+
+    def net_positions_me(self, *, account_id: str, uic: int) -> tuple[dict[str, Any], ...]:
+        payload = self.client._get("port/v1/netpositions/me", params={"$top": 1000})
+        rows = payload.get("Data") or []
+        if not isinstance(rows, list):
+            raise SaxoError("nettoposisjonslisten hadde ugyldig format", status="INVALID_RESPONSE")
+        matches: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            base = row.get("NetPositionBase") if isinstance(row.get("NetPositionBase"), dict) else {}
+            if int(base.get("Uic") or -1) != int(uic):
+                continue
+            positions_account = str(base.get("PositionsAccount") or base.get("AccountId") or "")
+            if positions_account and positions_account != str(account_id):
+                continue
+            matches.append(row)
+        return tuple(matches)
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.client.base_url}/{path.lstrip('/')}"
