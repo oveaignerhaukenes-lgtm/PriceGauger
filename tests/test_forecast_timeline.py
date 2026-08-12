@@ -203,6 +203,26 @@ def test_forecast_layer_is_removed_only_after_its_horizon_rolls_left():
     assert svg.count("pg-forecast-base") == 2
 
 
+def test_all_expired_layers_can_leave_the_viewport_entirely():
+    forecast = _forecast(
+        suffix="old",
+        as_of="2026-08-10T00:00:00+00:00",
+        low=0.1,
+        high=0.5,
+    )
+    observed = (
+        ("2026-08-10T12:59:00+00:00", 4210.0),
+        ("2026-08-10T13:00:00+00:00", 4211.0),
+    )
+
+    svg = render_forecast_timeline_svg((forecast,), observed_prices=observed)
+
+    assert "0 SYNLIGE" in svg
+    assert "pg-forecast-fan" not in svg
+    assert "pg-forecast-base" not in svg
+    assert "pg-realized" in svg
+
+
 def test_incomplete_forecast_is_not_drawn_as_complete_layer():
     complete = _forecast(
         suffix="ok",
