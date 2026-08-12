@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
@@ -9,7 +9,7 @@ from analysis_status import AnalysisStatusStore, AnalysisStepStatus
 from forecast_contracts import DEFAULT_FORECAST_HORIZON_HOURS, ForecastSnapshot
 from forecast_error import ForecastErrorObservation, ForecastErrorStore
 from forecast_store import ForecastStore
-from market_history_store import MarketHistoryStore
+from overview_chart_history import history_days_for_horizon, load_overview_chart_history
 from overview_summary_contract import OverviewSummary
 from overview_summary_store import OverviewSummaryStore
 from state_contracts import DecisionStateSnapshot
@@ -38,6 +38,7 @@ class OverviewMarket:
     expected_move_low_pct: float | None = None
     expected_move_high_pct: float | None = None
     horizon_hours: float | None = None
+    history_days: int = 30
     recommendation_status: str = "PROVISIONAL"
     forecast: ForecastSnapshot | None = None
     forecasts: tuple[ForecastSnapshot, ...] = ()
@@ -82,58 +83,41 @@ def _as_utc(value: str) -> datetime | None:
 
 
 def _forecast_timeline_prices(
-    history_store: MarketHistoryStore,
+    db_path: str | Path,
     *,
     market: str,
     forecasts: tuple[ForecastSnapshot, ...],
+    horizon_hours: float,
     now: datetime | None = None,
 ) -> tuple[tuple[str, float], ...]:
-    """Load canonical history for a rolling forecast viewport.
-
-    Keep one *active-market* horizon before the newest forecast so a weekend or
-    provider gap still has a real point on both sides for gap classification, then
-    read forward from the forecast through all currently persisted observations.
-    Forecast lifetime itself remains a renderer concern based on temporal overlap.
-    """
-
-    usable: list[tuple[ForecastSnapshot, datetime, datetime]] = []
-    for forecast in forecasts:
-        as_of = _as_utc(forecast.as_of)
-        if as_of is None or forecast.horizon_hours is None:
-            continue
-        horizon_hours = max(0.25, float(forecast.horizon_hours))
-        usable.append((forecast, as_of, as_of + timedelta(hours=horizon_hours)))
+    """Load bounded long chart history without rereading months of raw 1m bars."""
+    usable = [
+        _as_utc(forecast.as_of)
+        for forecast in forecasts
+        if forecast.horizon_hours is not None
+    ]
+    usable = [stamp for stamp in usable if stamp is not None]
     if not usable:
         return ()
-
-    usable.sort(key=lambda item: item[1])
-    latest, latest_as_of, _ = usable[-1]
-    horizon_hours = max(0.25, float(latest.horizon_hours or 0.25))
-    before = history_store.load_window(
+    end = now or datetime.now(timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return load_overview_chart_history(
+        db_path,
         market=market,
-        as_of=latest_as_of.isoformat(),
+        as_of=end.astimezone(timezone.utc),
         horizon_hours=horizon_hours,
-        limit=4000,
     )
-    after = history_store.load_since(
-        market=market,
-        start=latest_as_of,
-        limit=10000,
-    )
-    merged: dict[str, float] = {}
-    for stamp, price in (*before, *after):
-        merged[str(stamp)] = float(price)
-    return tuple(sorted(merged.items(), key=lambda item: item[0]))
 
 
 def _market(
     item: DecisionStateSnapshot,
     *,
+    db_path: str | Path,
     flow: TelegramFlowAssessment | None,
     runtime_store: StateRuntimeStore,
     forecast_store: ForecastStore,
     error_store: ForecastErrorStore,
-    history_store: MarketHistoryStore,
     horizon_hours: float = DEFAULT_FORECAST_HORIZON_HOURS,
 ) -> OverviewMarket:
     flow_item = next((asset for asset in (flow.assets if flow is not None else ()) if asset.asset == item.market), None)
@@ -155,9 +139,10 @@ def _market(
     )
     market_state = runtime_store.load_latest_market_state(market=item.market)
     history = _forecast_timeline_prices(
-        history_store,
+        db_path,
         market=item.market,
         forecasts=forecasts,
+        horizon_hours=horizon_hours,
     )
 
     # The selected forecast family owns the interval and horizon shown in the
@@ -171,6 +156,7 @@ def _market(
         move_low = item.expected_move_low_pct
         move_high = item.expected_move_high_pct
         horizon = horizon_hours
+    history_days = history_days_for_horizon(float(horizon or horizon_hours))
     return OverviewMarket(
         market=item.market,
         direction=item.direction,
@@ -183,6 +169,7 @@ def _market(
         expected_move_low_pct=move_low,
         expected_move_high_pct=move_high,
         horizon_hours=horizon,
+        history_days=history_days,
         recommendation_status=_recommendation_status(item),
         forecast=forecast,
         forecasts=forecasts,
@@ -200,7 +187,6 @@ def _load_markets(
     runtime_store: StateRuntimeStore,
     forecast_store: ForecastStore,
     error_store: ForecastErrorStore,
-    history_store: MarketHistoryStore,
     horizons_by_market: Mapping[str, float] | None = None,
 ) -> tuple[OverviewMarket, ...]:
     decisions = runtime_store.load_latest_decision_states()
@@ -208,11 +194,11 @@ def _load_markets(
     return tuple(
         _market(
             item,
+            db_path=db_path,
             flow=flow,
             runtime_store=runtime_store,
             forecast_store=forecast_store,
             error_store=error_store,
-            history_store=history_store,
             horizon_hours=float(selections.get(item.market, DEFAULT_FORECAST_HORIZON_HOURS)),
         )
         for item in decisions
@@ -232,7 +218,6 @@ def load_overview_markets(
         runtime_store=StateRuntimeStore(db_path),
         forecast_store=ForecastStore(db_path),
         error_store=ForecastErrorStore(db_path),
-        history_store=MarketHistoryStore(db_path),
         horizons_by_market=horizons_by_market,
     )
 
@@ -242,7 +227,6 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
     runtime_store = StateRuntimeStore(db_path)
     forecast_store = ForecastStore(db_path)
     error_store = ForecastErrorStore(db_path)
-    history_store = MarketHistoryStore(db_path)
     flow = flow_store.load_latest_snapshot()
     posts = tuple(reversed(flow_store.load_posts(limit=post_limit)))
     # Non-interactive Overview consumers intentionally retain the established 4h
@@ -253,7 +237,6 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
         runtime_store=runtime_store,
         forecast_store=forecast_store,
         error_store=error_store,
-        history_store=history_store,
     )
     return OverviewData(
         flow=flow,
