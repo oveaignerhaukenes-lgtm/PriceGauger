@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from statistics import median
+from typing import Iterable
 
 from forecast_error import ForecastErrorObservation
 
@@ -23,23 +24,43 @@ def _clip(value: float, limit: float = VISUAL_ERROR_LIMIT) -> float:
     return max(-bound, min(bound, float(value)))
 
 
+def _context(item):
+    return getattr(item, "adaptation_context", None)
+
+
+def _context_text(item) -> str:
+    context = _context(item)
+    if context is None or not context.has_context:
+        return ""
+    parts: list[str] = []
+    if context.response_count:
+        parts.append(
+            f"response {context.response_count}: {context.divergent_count} divergent, "
+            f"{context.aligned_count} aligned"
+        )
+    if context.transmission_count:
+        parts.append(
+            f"transmission {context.transmission_count}: {context.resolved_count} resolved, "
+            f"{context.unresolved_count} unresolved"
+        )
+    if context.dominant_channels:
+        parts.append("kanaler " + ", ".join(context.dominant_channels))
+    return " · ".join(parts) + " · tidsmessig kontekst, ikke kausalitet"
+
+
 def render_forecast_error_track(
-    observations: tuple[ForecastErrorObservation, ...] | list[ForecastErrorObservation],
+    observations: Iterable[ForecastErrorObservation],
     *,
     smoothing_window: int = DEFAULT_SMOOTHING_WINDOW,
 ) -> str:
-    """Render a compact signed model-error track for one market × horizon family.
+    """Render signed model error plus descriptive adaptation context.
 
-    Raw completed forecast errors remain immutable and are drawn faintly. The solid
-    line is only a display-time rolling median; it is never persisted and never
-    feeds Decision State. Zero means the realized move landed at the frozen
-    interval centre, while +/-1 correspond to the frozen interval bounds.
+    Raw errors are immutable. The rolling median and all divergence/transmission
+    markers are display-only. Context means only that the persisted observation
+    occurred while that forecast was alive; it does not claim causation and does
+    not feed any forecast or learning weight.
     """
-    usable = [
-        item
-        for item in observations
-        if item.normalized_center_error is not None
-    ]
+    usable = [item for item in observations if item.normalized_center_error is not None]
     usable.sort(key=lambda item: (item.forecast_as_of, item.error_id))
     if not usable:
         return (
@@ -65,38 +86,67 @@ def render_forecast_error_track(
         return mid_y - _clip(value) * scale_y
 
     raw_dots: list[str] = []
+    context_markers: list[str] = []
     for index, (value, item) in enumerate(zip(raw, usable)):
-        title = (
-            f"{item.forecast_as_of} · feil {value:+.2f} intervallbredder · "
-            f"{item.classification}"
-        )
+        context_text = _context_text(item)
+        title = f"{item.forecast_as_of} · feil {value:+.2f} intervallbredder · {item.classification}"
+        if context_text:
+            title += " · " + context_text
+        x = x_at(index)
+        y = y_at(value)
         raw_dots.append(
-            f'<circle class="pg-error-dot" cx="{x_at(index):.3f}" cy="{y_at(value):.3f}" r="0.72">'
+            f'<circle class="pg-error-dot" cx="{x:.3f}" cy="{y:.3f}" r="0.72">'
             f'<title>{title}</title></circle>'
         )
+        context = _context(item)
+        if context is not None and context.saw_divergence:
+            context_markers.append(
+                f'<circle class="pg-error-context-divergent" cx="{x:.3f}" cy="{y:.3f}" r="1.55" '
+                'style="fill:none;stroke:currentColor;stroke-width:.48;stroke-opacity:.58;vector-effect:non-scaling-stroke">'
+                f'<title>Divergence observert mens forecastet var levende · {context_text}</title></circle>'
+            )
+        if context is not None and context.saw_unresolved_transmission:
+            size = 1.15
+            points = f"{x:.3f},{y-size:.3f} {x+size:.3f},{y:.3f} {x:.3f},{y+size:.3f} {x-size:.3f},{y:.3f}"
+            context_markers.append(
+                f'<polygon class="pg-error-context-unresolved" points="{points}" '
+                'style="fill:currentColor;fill-opacity:.28;stroke:none">'
+                f'<title>Uavklart transmisjon observert mens forecastet var levende · {context_text}</title></polygon>'
+            )
 
     smooth_points = " ".join(
         f"{x_at(index):.3f},{y_at(value):.3f}" for index, value in enumerate(smooth)
     )
+    contexts = [_context(item) for item in usable]
+    contexts_with_data = sum(context is not None and context.has_context for context in contexts)
+    divergence_linked = sum(context is not None and context.saw_divergence for context in contexts)
+    unresolved_linked = sum(context is not None and context.saw_unresolved_transmission for context in contexts)
     latest = raw[-1]
     latest_smooth = smooth[-1]
     latest_class = usable[-1].classification
+    context_summary = ""
+    if contexts_with_data:
+        context_summary = (
+            f" · kontekst {contexts_with_data} · divergence {divergence_linked} · "
+            f"uavklart transmisjon {unresolved_linked}"
+        )
     return f"""
       <div class="pg-error-track">
         <div class="pg-error-head">
           <span>MODELLFEIL · SIGNERT</span>
-          <span>{len(usable)} modne · median {smoothing_window} · siste {latest:+.2f}</span>
+          <span>{len(usable)} modne · median {smoothing_window} · siste {latest:+.2f}{context_summary}</span>
         </div>
-        <svg class="pg-error-svg" viewBox="0 0 100 36" preserveAspectRatio="none" role="img" aria-label="Historisk signert forecastfeil">
+        <svg class="pg-error-svg" viewBox="0 0 100 36" preserveAspectRatio="none" role="img" aria-label="Historisk signert forecastfeil med read-only adaptation context">
           <line class="pg-error-bound" x1="0" x2="100" y1="{y_at(1.0):.3f}" y2="{y_at(1.0):.3f}" />
           <line class="pg-error-zero" x1="0" x2="100" y1="{mid_y:.3f}" y2="{mid_y:.3f}" />
           <line class="pg-error-bound" x1="0" x2="100" y1="{y_at(-1.0):.3f}" y2="{y_at(-1.0):.3f}" />
           {''.join(raw_dots)}
+          {''.join(context_markers)}
           <polyline class="pg-error-median" points="{smooth_points}" />
         </svg>
         <div class="pg-error-foot">
           <span>−1 = nedre forecastgrense · 0 = intervalsentrum · +1 = øvre forecastgrense</span>
-          <span>median {latest_smooth:+.2f} · {latest_class}</span>
+          <span>ring = divergence · diamant = uavklart transmisjon · median {latest_smooth:+.2f} · {latest_class}</span>
         </div>
       </div>
     """
