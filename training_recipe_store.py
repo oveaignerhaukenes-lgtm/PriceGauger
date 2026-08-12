@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from database import connect
+from forecast_contracts import FORECAST_HORIZONS_HOURS
 
 
 DEFAULT_FORECAST_TRAINING_RECIPE = "forecast-training-v1-1m"
+ACTIVE_FORECAST_TRAINING_RECIPE = "forecast-training-v2-multi-horizon-1m"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +47,23 @@ DEFAULT_RECIPE = TrainingRecipe(
     ),
 )
 
+MULTI_HORIZON_RECIPE = TrainingRecipe(
+    recipe_id=ACTIVE_FORECAST_TRAINING_RECIPE,
+    sample_interval_seconds=60,
+    horizons_hours=FORECAST_HORIZONS_HOURS,
+    min_complete_samples=6,
+    recent_sample_limit=40,
+    movement_learning=True,
+    direction_learning=False,
+    regime_learning=False,
+    description=(
+        "Eight-horizon online calibration recipe for 5m, 15m, 30m, 1h, 4h, 12h, "
+        "24h and 7d forecasts. Movement magnitude learns independently per market and "
+        "horizon. Direction remains inherited from Decision State until a separately "
+        "versioned horizon-direction model is validated."
+    ),
+)
+
 
 class TrainingRecipeStore:
     """Append-only archive of the exact recipes used by adaptive forecast learning."""
@@ -62,6 +81,7 @@ class TrainingRecipeStore:
                 """
             )
         self.ensure(DEFAULT_RECIPE)
+        self.ensure(MULTI_HORIZON_RECIPE)
 
     def ensure(self, recipe: TrainingRecipe) -> None:
         payload = json.dumps(recipe.to_record(), ensure_ascii=False, sort_keys=True)

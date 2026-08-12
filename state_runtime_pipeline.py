@@ -10,7 +10,7 @@ from config import twelve_data_api_key
 from cross_market_runtime import produce_cross_market_state
 from decision_engine_components import DecisionEngineComponentStore, apply_historical_confirmation
 from forecast_calibration import build_forecast_calibration
-from forecast_contracts import forecast_from_decision
+from forecast_contracts import FORECAST_HORIZONS_HOURS, forecast_from_decision
 from forecast_learning import ForecastOutcomeStore, refresh_forecast_outcomes
 from forecast_store import ForecastStore
 from historical_signal_store import HistoricalRuntimeSignalStore
@@ -34,6 +34,7 @@ from state_runtime_store import StateRuntimeStore
 from saxo_provider import SaxoPriceProvider
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 from technical_state_runtime import build_technical_market_states, supported_technical_markets
+from training_recipe_store import ACTIVE_FORECAST_TRAINING_RECIPE, TrainingRecipeStore
 from worker_probe import record_worker_probe
 
 
@@ -104,6 +105,7 @@ def process_flow_snapshot(
     )
     runtime_store = StateRuntimeStore(db_path)
     forecast_store = ForecastStore(db_path)
+    TrainingRecipeStore(db_path)
     historical_store = HistoricalRuntimeSignalStore(db_path)
     component_store = DecisionEngineComponentStore(db_path)
     status_store = AnalysisStatusStore(db_path)
@@ -159,7 +161,10 @@ def process_flow_snapshot(
     missing_forecasts = [
         item.asset
         for item in assessment.assets
-        if forecast_store.load_latest(market=item.asset) is None
+        if not forecast_store.has_horizons(
+            market=item.asset,
+            horizons_hours=FORECAST_HORIZONS_HOURS,
+        )
     ]
     missing_market_states = [
         market
@@ -289,46 +294,51 @@ def process_flow_snapshot(
         if decision.market in technical_errors or decision.market not in market_states:
             missing_inputs.append("technical_market_state")
 
-        calibration = None
-        if decision.horizon_hours is not None:
+        for horizon_hours in FORECAST_HORIZONS_HOURS:
             calibration = build_forecast_calibration(
                 calibration_outcomes,
                 market=decision.market,
-                horizon_hours=decision.horizon_hours,
+                horizon_hours=horizon_hours,
             )
-        if calibration is not None:
-            calibrated_count += 1
-            LOGGER.info(
-                "forecast calibration market=%s horizon=%sh samples=%s raw_factor=%.4f applied_factor=%.4f direction_hit_rate=%s",
-                decision.market,
-                decision.horizon_hours,
-                calibration.sample_count,
-                calibration.raw_factor,
-                calibration.applied_factor,
-                calibration.direction_hit_rate,
-            )
+            if calibration is not None:
+                calibrated_count += 1
+                LOGGER.info(
+                    "forecast calibration market=%s horizon=%sh samples=%s raw_factor=%.4f applied_factor=%.4f direction_hit_rate=%s",
+                    decision.market,
+                    horizon_hours,
+                    calibration.sample_count,
+                    calibration.raw_factor,
+                    calibration.applied_factor,
+                    calibration.direction_hit_rate,
+                )
 
-        forecasts.append(
-            forecast_from_decision(
-                decision,
-                market_state=market_states.get(decision.market),
-                additional_missing_inputs=tuple(missing_inputs),
-                calibration_factor=None if calibration is None else calibration.applied_factor,
-                calibration_sample_count=0 if calibration is None else calibration.sample_count,
-                calibration_version=None if calibration is None else calibration.engine_version,
+            forecasts.append(
+                forecast_from_decision(
+                    decision,
+                    market_state=market_states.get(decision.market),
+                    horizon_hours=horizon_hours,
+                    additional_missing_inputs=tuple(missing_inputs),
+                    calibration_factor=None if calibration is None else calibration.applied_factor,
+                    calibration_sample_count=0 if calibration is None else calibration.sample_count,
+                    calibration_version=None if calibration is None else calibration.engine_version,
+                    training_recipe_id=ACTIVE_FORECAST_TRAINING_RECIPE,
+                )
             )
-        )
     forecast_store.save_all(forecasts)
     degraded = sum(item.status != "READY" for item in forecasts)
-    recommendation_detail = f"{len(forecasts)} prognoser lagret fra siste Decision State."
+    recommendation_detail = (
+        f"{len(forecasts)} prognoser lagret over {len(FORECAST_HORIZONS_HOURS)} tidshorisonter "
+        f"fra siste Decision State."
+    )
     if calibrated_count:
         recommendation_detail += f" {calibrated_count} bruker outcome-basert bevegelseskalibrering."
     if degraded:
         recommendation_detail += f" {degraded} har eksplisitt redusert datagrunnlag."
     status_store.complete("recommendation", recommendation_detail)
     LOGGER.info(
-        "forecast snapshots persisted count=%s degraded=%s calibrated=%s historical_confirmations=%s",
+        "forecast snapshots persisted count=%s horizons=%s degraded=%s calibrated=%s historical_confirmations=%s",
         len(forecasts),
+        len(FORECAST_HORIZONS_HOURS),
         degraded,
         calibrated_count,
         historical_count,

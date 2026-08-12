@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
-from forecast_contracts import ForecastSnapshot
+from forecast_contracts import DEFAULT_FORECAST_HORIZON_HOURS, ForecastSnapshot
 from forecast_store import ForecastStore
 from market_history_store import MarketHistoryStore
 from overview_summary_contract import OverviewSummary
@@ -131,7 +131,14 @@ def _market(
     history_store: MarketHistoryStore,
 ) -> OverviewMarket:
     flow_item = next((asset for asset in (flow.assets if flow is not None else ()) if asset.asset == item.market), None)
-    recent = forecast_store.load_all(market=item.market, limit=RECENT_FORECAST_LIMIT)
+    # Multi-horizon production is live before the selector UI. Keep the current
+    # Overview contract explicitly on the historical/default 4h family so the
+    # chart never mixes 5m, 4h and 7d trails in one viewport.
+    recent = forecast_store.load_all(
+        market=item.market,
+        horizon_hours=DEFAULT_FORECAST_HORIZON_HOURS,
+        limit=RECENT_FORECAST_LIMIT,
+    )
     forecasts = tuple(reversed(recent))
     forecast = forecasts[-1] if forecasts else None
     market_state = runtime_store.load_latest_market_state(market=item.market)

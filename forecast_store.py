@@ -11,6 +11,10 @@ from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot
 _MULTI_HORIZON_MIGRATION = "forecast-multi-horizon-identity-v1"
 
 
+def _same_horizon(left: float | None, right: float, *, tolerance: float = 1e-6) -> bool:
+    return left is not None and abs(float(left) - float(right)) <= tolerance
+
+
 class ForecastStore:
     def __init__(self, path: str | Path = "pricegauger.db") -> None:
         self.path = str(path)
@@ -93,29 +97,52 @@ class ForecastStore:
         record["missing_inputs"] = tuple(record.get("missing_inputs") or ())
         return ForecastSnapshot(**record)
 
-    def load_all(self, *, market: str | None = None, limit: int = 500) -> list[ForecastSnapshot]:
+    def load_all(
+        self,
+        *,
+        market: str | None = None,
+        horizon_hours: float | None = None,
+        limit: int = 500,
+    ) -> list[ForecastSnapshot]:
         query = "SELECT payload_json FROM forecast_snapshots"
         params: list[object] = []
         if market:
             query += " WHERE market=?"
             params.append(market)
         query += " ORDER BY as_of DESC, recorded_at DESC, forecast_id DESC LIMIT ?"
-        params.append(max(1, int(limit)))
+        # Horizon is stored inside the immutable payload. Read a wider bounded
+        # candidate set when filtering so one horizon is not crowded out by the
+        # seven siblings sharing each Decision State timestamp.
+        read_limit = max(1, int(limit)) * (8 if horizon_hours is not None else 1)
+        params.append(read_limit)
         with self._connect() as db:
             rows = db.execute(query, tuple(params)).fetchall()
         snapshots: list[ForecastSnapshot] = []
         for row in rows:
             snapshot = self._from_payload(row["payload_json"])
-            if snapshot is not None:
-                snapshots.append(snapshot)
+            if snapshot is None:
+                continue
+            if horizon_hours is not None and not _same_horizon(snapshot.horizon_hours, horizon_hours):
+                continue
+            snapshots.append(snapshot)
+            if len(snapshots) >= max(1, int(limit)):
+                break
         return snapshots
 
-    def load_latest(self, *, market: str) -> ForecastSnapshot | None:
-        for snapshot in self.load_all(market=market, limit=1000):
+    def load_latest(self, *, market: str, horizon_hours: float | None = None) -> ForecastSnapshot | None:
+        for snapshot in self.load_all(market=market, horizon_hours=horizon_hours, limit=1000):
             return snapshot
         return None
 
-    def load_latest_all(self) -> list[ForecastSnapshot]:
+    def has_horizons(self, *, market: str, horizons_hours: Iterable[float]) -> bool:
+        required = tuple(float(item) for item in horizons_hours)
+        if not required:
+            return True
+        recent = self.load_all(market=market, limit=max(64, len(required) * 8))
+        available = tuple(snapshot.horizon_hours for snapshot in recent)
+        return all(any(_same_horizon(value, target) for value in available) for target in required)
+
+    def load_latest_all(self, *, horizon_hours: float | None = None) -> list[ForecastSnapshot]:
         with self._connect() as db:
             rows = db.execute(
                 """
@@ -127,6 +154,10 @@ class ForecastStore:
         latest: dict[str, ForecastSnapshot] = {}
         for row in rows:
             snapshot = self._from_payload(row["payload_json"])
-            if snapshot is not None and snapshot.market not in latest:
+            if snapshot is None:
+                continue
+            if horizon_hours is not None and not _same_horizon(snapshot.horizon_hours, horizon_hours):
+                continue
+            if snapshot.market not in latest:
                 latest[snapshot.market] = snapshot
         return [latest[market] for market in sorted(latest)]
