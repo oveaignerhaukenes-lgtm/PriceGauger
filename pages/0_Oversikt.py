@@ -8,6 +8,7 @@ import streamlit as st
 from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from analysis_status import AnalysisStatusStore
 from build_info import render_build_badge
+from forecast_error_track import render_forecast_error_track
 from forecast_horizon_selector import (
     apply_horizon_query,
     render_horizon_selector_html,
@@ -146,6 +147,15 @@ st.markdown(
     .pg-axis-label {font-size:4px; fill:rgba(128,128,128,.72);}
     .pg-forecast-meta {font-size:.67rem; line-height:1.3; opacity:.78; overflow-wrap:anywhere;}
     .pg-forecast-empty {height:100%; min-height:7rem; display:flex; align-items:center; justify-content:center; text-align:center; font-size:.75rem; opacity:.62; padding:.8rem;}
+    .pg-error-track {margin:.32rem 0 .08rem; padding-top:.3rem; border-top:1px solid rgba(128,128,128,.16);}
+    .pg-error-head,.pg-error-foot {display:flex; justify-content:space-between; gap:.55rem; font-size:.55rem; line-height:1.25; opacity:.66;}
+    .pg-error-head span:first-child {font-weight:780; letter-spacing:.06em;}
+    .pg-error-svg {width:100%; height:2.25rem; display:block; margin:.08rem 0; overflow:visible;}
+    .pg-error-zero {stroke:rgba(128,128,128,.48); stroke-width:.65; vector-effect:non-scaling-stroke;}
+    .pg-error-bound {stroke:rgba(128,128,128,.18); stroke-width:.5; stroke-dasharray:2 2; vector-effect:non-scaling-stroke;}
+    .pg-error-dot {fill:var(--market-color); opacity:.18; vector-effect:non-scaling-stroke;}
+    .pg-error-median {fill:none; stroke:var(--market-color); stroke-width:1.15; vector-effect:non-scaling-stroke;}
+    .pg-error-empty {display:flex; justify-content:space-between; gap:.5rem; font-size:.57rem; opacity:.58;}
 
     .pg-news-card {padding:.75rem .9rem;}
     .pg-news-head {display:flex; justify-content:space-between; gap:.75rem; font-size:.76rem; opacity:.76;}
@@ -168,6 +178,7 @@ st.markdown(
       .pg-market-layout {grid-template-columns:1fr;}
       .pg-recommendation,.pg-forecast {border-left:0; border-top:1px solid rgba(128,128,128,.22); grid-column:auto;}
       .pg-forecast-shell {grid-template-columns:minmax(0,1fr) 2.55rem;}
+      .pg-error-head,.pg-error-foot {display:block;}
     }
     </style>
     """,
@@ -292,6 +303,7 @@ def _render_market_card(item, freshness=None) -> str:
         volatility_score=item.volatility_score,
         color=color,
     )
+    error_track = render_forecast_error_track(item.forecast_errors)
     horizon_selector = render_horizon_selector_html(item.market, item.horizon_hours)
     data_health = _freshness_html(freshness)
     return f"""
@@ -331,7 +343,7 @@ def _render_market_card(item, freshness=None) -> str:
             </div>
             <div class="pg-rec-status">{html.escape(item.recommendation_status)}</div>
           </aside>
-          <section class="pg-forecast"><div class="pg-forecast-shell"><div class="pg-forecast-main">{forecast_svg}</div>{horizon_selector}</div></section>
+          <section class="pg-forecast"><div class="pg-forecast-shell"><div class="pg-forecast-main">{forecast_svg}{error_track}</div>{horizon_selector}</div></section>
         </div>
       </article>
     """
@@ -365,7 +377,7 @@ def _render_live_market_cards() -> None:
 
     st.caption(
         "Markeds- og forecastkort rereades hvert 5. sekund fra lagret state og canonical 1m-bars. "
-        "Horisontknappene bytter kun lagret forecastfamilie og utløser ikke ny analyse eller Saxo-kall."
+        "Horisontknappene bytter lagret forecastfamilie og det signerte modellfeilsporet uten å utløse ny analyse eller Saxo-kall."
     )
 
 
