@@ -83,13 +83,13 @@ def test_track_marks_temporal_divergence_and_unresolved_transmission_without_res
     assert error.normalized_center_error == -2.25
 
 
-def test_track_without_context_keeps_clean_baseline_view():
+def test_track_without_context_keeps_clean_baseline_and_explicit_waiting_state():
     html = render_forecast_error_track(
         (_error(suffix="plain", as_of="2026-08-12T10:00:00+00:00", value=0.2),)
     )
     assert "pg-error-context-divergent" not in html
     assert "pg-error-context-unresolved" not in html
-    assert "kontekst" not in html
+    assert "venter på tidsmatchet response/transmission-kontekst" in html
 
 
 def test_track_sorts_by_forecast_time_before_smoothing():
