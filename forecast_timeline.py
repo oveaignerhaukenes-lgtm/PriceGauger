@@ -261,8 +261,6 @@ def render_forecast_timeline_svg(
     layers = [item for item in candidates if item.ends_at >= axis_start and item.as_of <= axis_end]
     if max_layers is not None:
         layers = layers[-max(1, int(max_layers)) :]
-    if not layers:
-        layers = [candidates[-1]]
 
     observed_in_window = tuple(item for item in observed if axis_start <= item[0] <= axis_end)
     gaps = _timeline_gaps(observed_in_window)
@@ -325,12 +323,14 @@ def render_forecast_timeline_svg(
         scale_start = gaps[-1].end
     scale_observed = [price for stamp, price in observed_in_window if scale_start <= stamp <= axis_end]
     latest_forecast = candidates[-1]
-    latest_layer = plotted_layers[-1]
-    latest_forecast_prices = [
-        price
-        for key in ("base", "bull", "bear", "upper", "lower")
-        for _, price in latest_layer[key]
-    ]
+    latest_forecast_prices: list[float] = []
+    if plotted_layers:
+        latest_layer = plotted_layers[-1]
+        latest_forecast_prices = [
+            price
+            for key in ("base", "bull", "bear", "upper", "lower")
+            for _, price in latest_layer[key]
+        ]
     scale_prices = scale_observed + latest_forecast_prices
     if not scale_prices:
         scale_prices = [float(latest_forecast.snapshot.reference_price)]
@@ -413,15 +413,16 @@ def render_forecast_timeline_svg(
             f'stroke-opacity:{line_opacity:.2f};vector-effect:non-scaling-stroke" />'
         )
 
-    latest = plotted_layers[-1]
-    layer_markup.append(
-        f'<polyline points="{_points(latest["bull"], ymap=ymap)}" class="pg-alt pg-bull" '
-        'style="fill:none;stroke:#2f9e64;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
-    )
-    layer_markup.append(
-        f'<polyline points="{_points(latest["bear"], ymap=ymap)}" class="pg-alt pg-bear" '
-        'style="fill:none;stroke:#d15b5b;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
-    )
+    if plotted_layers:
+        latest = plotted_layers[-1]
+        layer_markup.append(
+            f'<polyline points="{_points(latest["bull"], ymap=ymap)}" class="pg-alt pg-bull" '
+            'style="fill:none;stroke:#2f9e64;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
+        )
+        layer_markup.append(
+            f'<polyline points="{_points(latest["bear"], ymap=ymap)}" class="pg-alt pg-bear" '
+            'style="fill:none;stroke:#d15b5b;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
+        )
 
     actual_markup = ""
     if observed_in_window:
