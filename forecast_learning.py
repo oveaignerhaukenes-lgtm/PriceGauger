@@ -12,6 +12,7 @@ from market_history_store import MarketHistoryStore
 
 
 LEARNING_ENGINE_VERSION = "forecast-learning-v1"
+MIN_ACTIVE_HORIZON_HOURS = 1.0 / 60.0
 
 
 def _utc(value: str | datetime) -> datetime:
@@ -173,7 +174,7 @@ def _active_path(
 ) -> tuple[list[tuple[datetime, float]], float, bool]:
     if not points or forecast.horizon_hours is None:
         return [], 0.0, False
-    target_seconds = max(0.25, float(forecast.horizon_hours)) * 3600.0
+    target_seconds = max(MIN_ACTIVE_HORIZON_HOURS, float(forecast.horizon_hours)) * 3600.0
     max_gap = max(60.0, float(max_active_gap_minutes) * 60.0)
     cursor = _utc(forecast.as_of)
     active_seconds = 0.0
@@ -214,7 +215,7 @@ def realized_progress_path(
     points = _market_points(path, forecast=forecast)
     if not points:
         return ()
-    target_seconds = max(0.25, float(forecast.horizon_hours)) * 3600.0
+    target_seconds = max(MIN_ACTIVE_HORIZON_HOURS, float(forecast.horizon_hours)) * 3600.0
     max_gap = max(60.0, float(max_active_gap_minutes) * 60.0)
     cursor = _utc(forecast.as_of)
     active_seconds = 0.0
