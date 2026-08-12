@@ -14,11 +14,11 @@ def _divergence() -> ResponseDivergenceSnapshot:
     supporting = {
         "Silver": {"kind": "RETURN_PCT", "change": -1.0, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
         "Gold": {"kind": "RETURN_PCT", "change": 0.5, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
-        "Brent": {"kind": "RETURN_PCT", "change": 2.0, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
+        "Brent": {"kind": "RETURN_PCT", "change": 0.01, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
         "DXY": {"kind": "RETURN_PCT", "change": 0.4, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
-        "US2Y": {"kind": "YIELD_PCT", "change": None, "window_coverage": "MISSING", "latest_observation_freshness": "MISSING"},
-        "US10Y": {"kind": "YIELD_PCT", "change": None, "window_coverage": "MISSING", "latest_observation_freshness": "MISSING"},
-        "US30Y": {"kind": "YIELD_PCT", "change": None, "window_coverage": "MISSING", "latest_observation_freshness": "MISSING"},
+        "US2Y": {"kind": "YIELD_PCT", "change": 0.08, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
+        "US10Y": {"kind": "YIELD_PCT", "change": 0.10, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
+        "US30Y": {"kind": "YIELD_PCT", "change": 0.12, "window_coverage": "VALID", "latest_observation_freshness": "FRESH"},
     }
     return ResponseDivergenceSnapshot(
         divergence_id="divergence:runtime",
@@ -56,14 +56,15 @@ def test_transmission_runtime_persists_resolved_state_and_status(tmp_path):
     results = runtime.produce_transmission_states(db_path=path, divergences=(_divergence(),))
 
     assert len(results) == 1
-    assert results[0].dominant_channel == "ENERGY_INFLATION"
+    assert results[0].dominant_channel == "RATES_FX"
+    assert results[0].support_levels["RATES_FX"] == "SUPPORTED"
     persisted = TransmissionStateStore(path).load_latest(market="Silver")
     assert persisted is not None
     assert persisted.transmission_id == results[0].transmission_id
     status = {item.step_key: item for item in AnalysisStatusStore(path).load()}
     assert status["transmission_state"].status == "COMPLETE"
     assert "1 resolved" in status["transmission_state"].detail
-    assert "ENERGY_INFLATION=1" in status["transmission_state"].detail
+    assert "RATES_FX=1" in status["transmission_state"].detail
 
 
 def test_transmission_runtime_failure_is_degraded(tmp_path, monkeypatch):
