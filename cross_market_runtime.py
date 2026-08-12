@@ -13,6 +13,7 @@ from cross_market_state import (
     CrossMarketStateStore,
     build_cross_market_state,
 )
+from response_divergence_runtime import produce_response_divergences
 
 
 LOGGER = logging.getLogger("pricegauger.cross_market_runtime")
@@ -72,5 +73,15 @@ def produce_cross_market_state(
         fresh_markets,
         valid_windows,
         missing_yields,
+    )
+
+    # ResponseDivergence consumes the just-persisted observation and prior persisted
+    # Information State. This hook inherits CrossMarketState's placement before the
+    # no-material-change early return, so response windows can mature on quiet-news
+    # cycles without creating a parallel market-data path.
+    produce_response_divergences(
+        db_path=db_path,
+        cross_market=snapshot,
+        status_store=status,
     )
     return snapshot
