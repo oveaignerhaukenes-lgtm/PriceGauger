@@ -84,12 +84,12 @@ def _forecast_timeline_prices(
     forecasts: tuple[ForecastSnapshot, ...],
     now: datetime | None = None,
 ) -> tuple[tuple[str, float], ...]:
-    """Load enough canonical history for the rolling forecast viewport.
+    """Load canonical history for a rolling forecast viewport.
 
-    The UI now decides forecast lifetime by temporal overlap rather than by a
-    twelve-snapshot cap. Start one latest-forecast horizon before its creation and
-    read forward through all currently persisted canonical history so realized
-    price can push expired forecasts naturally off the left edge.
+    Keep one *active-market* horizon before the newest forecast so a weekend or
+    provider gap still has a real point on both sides for gap classification, then
+    read forward from the forecast through all currently persisted observations.
+    Forecast lifetime itself remains a renderer concern based on temporal overlap.
     """
 
     usable: list[tuple[ForecastSnapshot, datetime, datetime]] = []
@@ -105,12 +105,21 @@ def _forecast_timeline_prices(
     usable.sort(key=lambda item: item[1])
     latest, latest_as_of, _ = usable[-1]
     horizon_hours = max(0.25, float(latest.horizon_hours or 0.25))
-    start = latest_as_of - timedelta(hours=horizon_hours)
-    return history_store.load_since(
+    before = history_store.load_window(
         market=market,
-        start=start,
+        as_of=latest_as_of.isoformat(),
+        horizon_hours=horizon_hours,
+        limit=4000,
+    )
+    after = history_store.load_since(
+        market=market,
+        start=latest_as_of,
         limit=10000,
     )
+    merged: dict[str, float] = {}
+    for stamp, price in (*before, *after):
+        merged[str(stamp)] = float(price)
+    return tuple(sorted(merged.items(), key=lambda item: item[0]))
 
 
 def _market(
