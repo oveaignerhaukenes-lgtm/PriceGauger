@@ -263,7 +263,7 @@ def render_forecast_timeline_svg(
         layers = layers[-max(1, int(max_layers)) :]
 
     observed_in_window = tuple(item for item in observed if axis_start <= item[0] <= axis_end)
-    gaps = _timeline_gaps(observed_in_window)
+    gaps = _timeline_gaps(observed)
     display_span = max(1.0, _display_seconds(axis_end, axis_start=axis_start, gaps=gaps))
     plot_right = 90.0
 
@@ -320,7 +320,9 @@ def render_forecast_timeline_svg(
 
     scale_start = axis_start
     if gaps:
-        scale_start = gaps[-1].end
+        overlapping_gaps = [gap for gap in gaps if gap.end >= axis_start and gap.start <= axis_end]
+        if overlapping_gaps:
+            scale_start = max(axis_start, overlapping_gaps[-1].end)
     scale_observed = [price for stamp, price in observed_in_window if scale_start <= stamp <= axis_end]
     latest_forecast = candidates[-1]
     latest_forecast_prices: list[float] = []
