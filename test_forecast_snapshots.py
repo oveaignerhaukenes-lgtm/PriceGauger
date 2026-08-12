@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 
-from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot, forecast_from_decision
+from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot, _forecast_id, forecast_from_decision
 from forecast_store import ForecastStore
 from state_contracts import ComponentStatus, DecisionStateSnapshot, MarketStateSnapshot
 
@@ -60,6 +61,29 @@ def test_ready_forecast_captures_reference_and_horizon():
     assert forecast.expected_move_low_pct == 0.6
     assert forecast.expected_move_high_pct == 1.4
     assert forecast.missing_inputs == ()
+
+
+def test_four_hour_forecast_keeps_legacy_identity():
+    decision_id = "decision:gold:legacy"
+    expected = "forecast:" + sha256(decision_id.encode("utf-8")).hexdigest()[:24]
+
+    assert _forecast_id(decision_id, 4.0) == expected
+
+
+def test_non_four_hour_forecasts_have_distinct_horizon_identity():
+    decision_id = "decision:gold:multi"
+    ids = {
+        _forecast_id(decision_id, 5 / 60),
+        _forecast_id(decision_id, 0.25),
+        _forecast_id(decision_id, 0.5),
+        _forecast_id(decision_id, 1.0),
+        _forecast_id(decision_id, 4.0),
+        _forecast_id(decision_id, 12.0),
+        _forecast_id(decision_id, 24.0),
+        _forecast_id(decision_id, 168.0),
+    }
+
+    assert len(ids) == 8
 
 
 def test_degraded_forecast_records_missing_inputs_without_dropping_forecast():
@@ -144,6 +168,33 @@ def test_store_keeps_historical_snapshots_per_decision(tmp_path):
     assert latest is not None
     assert latest.forecast_id == "forecast:second"
     assert latest.confidence == 0.8
+
+
+def test_store_allows_multiple_horizons_for_same_decision(tmp_path):
+    store = ForecastStore(tmp_path / "multi-horizon.db")
+    four_hour = forecast_from_decision(_decision(), market_state=_market_state())
+    one_hour = ForecastSnapshot(
+        **{
+            **four_hour.to_record(),
+            "forecast_id": _forecast_id(four_hour.decision_snapshot_id, 1.0),
+            "horizon_hours": 1.0,
+            "time_scale": "HOURS",
+            "missing_inputs": (),
+        }
+    )
+
+    assert four_hour.decision_snapshot_id == one_hour.decision_snapshot_id
+    assert four_hour.forecast_id != one_hour.forecast_id
+    assert store.save_all((four_hour, one_hour)) == 2
+
+    loaded = store.load_all(market="Gold", limit=10)
+    assert {item.horizon_hours for item in loaded} == {1.0, 4.0}
+    with store._connect() as db:
+        migration = db.execute(
+            "SELECT migration_id FROM pricegauger_schema_migrations WHERE migration_id=?",
+            ("forecast-multi-horizon-identity-v1",),
+        ).fetchone()
+    assert migration is not None
 
 
 def test_store_ignores_old_engine_snapshots_so_worker_can_regenerate(tmp_path):
