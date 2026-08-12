@@ -319,4 +319,11 @@ def refresh_forecast_outcomes(
         outcome = evaluate_forecast(path, forecast)
         store.save(outcome)
         outcomes.append(outcome)
+
+    # Freeze descriptive error observations at the same point an outcome becomes
+    # COMPLETE. The local import avoids a module-level cycle because forecast_error
+    # intentionally uses ForecastOutcome as its source contract.
+    from forecast_error import refresh_forecast_errors
+
+    refresh_forecast_errors(path, outcomes=outcomes)
     return outcomes
