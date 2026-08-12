@@ -8,6 +8,9 @@ from database import connect
 from forecast_contracts import FORECAST_ENGINE_VERSION, ForecastSnapshot
 
 
+_MULTI_HORIZON_MIGRATION = "forecast-multi-horizon-identity-v1"
+
+
 class ForecastStore:
     def __init__(self, path: str | Path = "pricegauger.db") -> None:
         self.path = str(path)
@@ -25,11 +28,28 @@ class ForecastStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_forecast_market_as_of
                 ON forecast_snapshots(market, as_of);
-                DROP INDEX IF EXISTS idx_forecast_decision_snapshot;
-                CREATE INDEX IF NOT EXISTS idx_forecast_decision_snapshot
-                ON forecast_snapshots(decision_snapshot_id);
+                CREATE TABLE IF NOT EXISTS pricegauger_schema_migrations (
+                    migration_id TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
+            migrated = db.execute(
+                "SELECT migration_id FROM pricegauger_schema_migrations WHERE migration_id=?",
+                (_MULTI_HORIZON_MIGRATION,),
+            ).fetchone()
+            if migrated is None:
+                # The old unique decision index encoded the one-forecast-per-
+                # Decision-State assumption. Forecast identity is now deterministic
+                # on decision × horizon, so that uniqueness must be removed once.
+                db.execute("DROP INDEX IF EXISTS idx_forecast_decision_snapshot")
+                db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_forecast_decision_lookup ON forecast_snapshots(decision_snapshot_id)"
+                )
+                db.execute(
+                    "INSERT INTO pricegauger_schema_migrations(migration_id) VALUES (?) ON CONFLICT(migration_id) DO NOTHING",
+                    (_MULTI_HORIZON_MIGRATION,),
+                )
 
     def _connect(self):
         return connect(self.path)
@@ -73,13 +93,7 @@ class ForecastStore:
         record["missing_inputs"] = tuple(record.get("missing_inputs") or ())
         return ForecastSnapshot(**record)
 
-    def load_all(
-        self,
-        *,
-        market: str | None = None,
-        horizon_hours: float | None = None,
-        limit: int = 500,
-    ) -> list[ForecastSnapshot]:
+    def load_all(self, *, market: str | None = None, limit: int = 500) -> list[ForecastSnapshot]:
         query = "SELECT payload_json FROM forecast_snapshots"
         params: list[object] = []
         if market:
@@ -92,16 +106,12 @@ class ForecastStore:
         snapshots: list[ForecastSnapshot] = []
         for row in rows:
             snapshot = self._from_payload(row["payload_json"])
-            if snapshot is None:
-                continue
-            if horizon_hours is not None:
-                if snapshot.horizon_hours is None or abs(float(snapshot.horizon_hours) - float(horizon_hours)) > 1e-6:
-                    continue
-            snapshots.append(snapshot)
+            if snapshot is not None:
+                snapshots.append(snapshot)
         return snapshots
 
-    def load_latest(self, *, market: str, horizon_hours: float | None = None) -> ForecastSnapshot | None:
-        for snapshot in self.load_all(market=market, horizon_hours=horizon_hours, limit=1000):
+    def load_latest(self, *, market: str) -> ForecastSnapshot | None:
+        for snapshot in self.load_all(market=market, limit=1000):
             return snapshot
         return None
 
@@ -114,12 +124,9 @@ class ForecastStore:
                 ORDER BY market, as_of DESC, recorded_at DESC, forecast_id DESC
                 """
             ).fetchall()
-        latest: dict[tuple[str, float | None], ForecastSnapshot] = {}
+        latest: dict[str, ForecastSnapshot] = {}
         for row in rows:
             snapshot = self._from_payload(row["payload_json"])
-            if snapshot is None:
-                continue
-            key = (snapshot.market, snapshot.horizon_hours)
-            if key not in latest:
-                latest[key] = snapshot
-        return [latest[key] for key in sorted(latest, key=lambda item: (item[0], float("inf") if item[1] is None else item[1]))]
+            if snapshot is not None and snapshot.market not in latest:
+                latest[snapshot.market] = snapshot
+        return [latest[market] for market in sorted(latest)]
