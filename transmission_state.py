@@ -19,10 +19,11 @@ CHANNELS = (
     "INDUSTRIAL_GROWTH",
     "RISK_LIQUIDITY",
 )
-_RESOLUTION_THRESHOLD = 0.60
-_RESOLUTION_MARGIN = 0.10
+SUPPORT_LEVELS = ("SUPPORTED", "PARTIAL", "CONFLICTING", "INSUFFICIENT")
 _MARKET_DEAD_ZONE_PCT = 0.05
-_YIELD_DEAD_ZONE_PCT_POINTS = 0.01
+# Yield observations are expressed as percentage-point changes. This is only a
+# measurement/noise gate, not an epistemic channel weight.
+_YIELD_DEAD_ZONE_PCT = 0.01
 
 
 def _stable_id(payload: dict[str, Any]) -> str:
@@ -30,12 +31,28 @@ def _stable_id(payload: dict[str, Any]) -> str:
     return "transmission-state:" + sha256(canonical.encode("utf-8")).hexdigest()[:24]
 
 
-def _sign(value: float | None, *, dead_zone: float = _MARKET_DEAD_ZONE_PCT) -> int:
+def _sign(value: float | None, *, dead_zone: float) -> int:
     if value is None:
         return 0
     if value > dead_zone:
         return 1
     if value < -dead_zone:
+        return -1
+    return 0
+
+
+def _direction(sign: int) -> str:
+    if sign > 0:
+        return "UP"
+    if sign < 0:
+        return "DOWN"
+    return "NEUTRAL"
+
+
+def _direction_sign(direction: str) -> int:
+    if direction == "UP":
+        return 1
+    if direction == "DOWN":
         return -1
     return 0
 
@@ -48,12 +65,86 @@ def _change(divergence: ResponseDivergenceSnapshot, name: str) -> float | None:
     return None if value is None else float(value)
 
 
-def _direction_sign(direction: str) -> int:
-    if direction == "UP":
-        return 1
-    if direction == "DOWN":
-        return -1
-    return 0
+def _market_sign(divergence: ResponseDivergenceSnapshot, name: str) -> int:
+    return _sign(_change(divergence, name), dead_zone=_MARKET_DEAD_ZONE_PCT)
+
+
+def _yield_sign(divergence: ResponseDivergenceSnapshot, name: str) -> int:
+    return _sign(_change(divergence, name), dead_zone=_YIELD_DEAD_ZONE_PCT)
+
+
+def _evidence(
+    *,
+    support_level: str,
+    pressure_sign: int = 0,
+    signals: list[str] | None = None,
+    missing_inputs: list[str] | None = None,
+    interpretation: str,
+) -> dict[str, Any]:
+    if support_level not in SUPPORT_LEVELS:
+        raise ValueError(f"unsupported support level: {support_level}")
+    return {
+        "support_level": support_level,
+        "pressure_direction": _direction(pressure_sign),
+        "signals": list(signals or ()),
+        "missing_inputs": list(missing_inputs or ()),
+        "interpretation": interpretation,
+    }
+
+
+def _rates_fx_evidence(divergence: ResponseDivergenceSnapshot) -> dict[str, Any]:
+    dxy_change = _change(divergence, "DXY")
+    dxy_sign = _market_sign(divergence, "DXY")
+    # Stronger DXY implies downward Silver pressure; weaker DXY implies upward.
+    dxy_pressure = -dxy_sign
+
+    yield_names = ("US2Y", "US10Y", "US30Y")
+    yield_changes = {name: _change(divergence, name) for name in yield_names}
+    yield_pressures = {
+        name: -_yield_sign(divergence, name) for name in yield_names
+    }
+    meaningful_yields = [value for value in yield_pressures.values() if value != 0]
+    yield_conflict = len(set(meaningful_yields)) > 1
+    yield_pressure = meaningful_yields[0] if meaningful_yields and not yield_conflict else 0
+
+    signals: list[str] = []
+    if dxy_change is not None:
+        signals.append(f"DXY {dxy_change:+.3f}% over {divergence.window}")
+    for name in yield_names:
+        value = yield_changes[name]
+        if value is not None:
+            signals.append(f"{name} {value:+.4f} over {divergence.window}")
+    missing = [name for name in ("DXY",) + yield_names if _change(divergence, name) is None]
+
+    if yield_conflict or (dxy_pressure and yield_pressure and dxy_pressure != yield_pressure):
+        return _evidence(
+            support_level="CONFLICTING",
+            signals=signals,
+            missing_inputs=missing,
+            interpretation="Available DXY/yield observations imply conflicting Silver pressure.",
+        )
+    if dxy_pressure and yield_pressure and dxy_pressure == yield_pressure:
+        return _evidence(
+            support_level="SUPPORTED",
+            pressure_sign=dxy_pressure,
+            signals=signals,
+            missing_inputs=missing,
+            interpretation="DXY and at least one Treasury yield tenor independently imply the same Silver pressure.",
+        )
+    if dxy_pressure or yield_pressure:
+        return _evidence(
+            support_level="PARTIAL",
+            pressure_sign=dxy_pressure or yield_pressure,
+            signals=signals,
+            missing_inputs=missing,
+            interpretation="Only one of the FX/rates evidence families provides directional confirmation.",
+        )
+    return _evidence(
+        support_level="INSUFFICIENT",
+        signals=signals,
+        missing_inputs=missing,
+        interpretation="No meaningful directional FX/rates evidence is available.",
+    )
 
 
 def _channel_evidence(divergence: ResponseDivergenceSnapshot) -> dict[str, dict[str, Any]]:
@@ -61,99 +152,119 @@ def _channel_evidence(divergence: ResponseDivergenceSnapshot) -> dict[str, dict[
     gold_change = _change(divergence, "Gold")
     brent_change = _change(divergence, "Brent")
     dxy_change = _change(divergence, "DXY")
-    yield_changes = {name: _change(divergence, name) for name in ("US2Y", "US10Y", "US30Y")}
-
-    gold_pressure = _sign(gold_change)
-    dxy_pressure = -_sign(dxy_change)
-    yield_pressures = {
-        name: -_sign(value, dead_zone=_YIELD_DEAD_ZONE_PCT_POINTS)
-        for name, value in yield_changes.items()
-    }
+    gold_sign = _market_sign(divergence, "Gold")
+    brent_sign = _market_sign(divergence, "Brent")
+    dxy_sign = _market_sign(divergence, "DXY")
 
     evidence: dict[str, dict[str, Any]] = {}
 
-    safe_score = 0.0 if gold_pressure == 0 else 0.65 * gold_pressure
-    evidence["SAFE_HAVEN"] = {
-        "score": round(safe_score, 3),
-        "signals": [] if gold_change is None else [f"Gold {gold_change:+.3f}% over {divergence.window}"],
-        "missing_inputs": [] if gold_change is not None else ["Gold"],
-        "interpretation": "Gold is used only as a broad precious-metals/safe-haven confirmation signal.",
-    }
+    # Gold is useful descriptive confirmation, but v1 has no independent safe-haven
+    # basket. Therefore Gold alone can only provide PARTIAL evidence.
+    evidence["SAFE_HAVEN"] = _evidence(
+        support_level="PARTIAL" if gold_sign else "INSUFFICIENT",
+        pressure_sign=gold_sign,
+        signals=[] if gold_change is None else [f"Gold {gold_change:+.3f}% over {divergence.window}"],
+        missing_inputs=[] if gold_change is not None else ["Gold"],
+        interpretation="Gold supplies broad precious-metals confirmation only; v1 has no independent safe-haven basket.",
+    )
 
-    rates_score = 0.0
-    rates_signals: list[str] = []
-    rates_missing: list[str] = []
-    if dxy_pressure != 0:
-        rates_score += 0.45 * dxy_pressure
-        rates_signals.append(f"DXY {dxy_change:+.3f}% over {divergence.window}")
-    elif dxy_change is None:
-        rates_missing.append("DXY")
-    for name, pressure in yield_pressures.items():
-        change = yield_changes[name]
-        if change is None:
-            rates_missing.append(name)
-        elif pressure != 0:
-            rates_score += (0.55 / 3.0) * pressure
-            rates_signals.append(f"{name} {change:+.4f} pct-pt over {divergence.window}")
-    rates_score = max(-1.0, min(1.0, rates_score))
-    evidence["RATES_FX"] = {
-        "score": round(rates_score, 3),
-        "signals": rates_signals,
-        "missing_inputs": rates_missing,
-        "interpretation": "Higher DXY/yields imply negative Silver pressure; lower DXY/yields imply positive pressure.",
-    }
+    rates = _rates_fx_evidence(divergence)
+    evidence["RATES_FX"] = rates
 
-    brent_sign = _sign(brent_change)
-    energy_score = 0.0
-    energy_signals: list[str] = []
-    if brent_change is not None:
-        energy_signals.append(f"Brent {brent_change:+.3f}% over {divergence.window}")
-    # Oil only becomes meaningful as an energy-inflation transmission pattern when
-    # the observed rates/FX pressure points the corresponding way. Confirmation
-    # strength is deliberately bounded by the actual RATES_FX score: DXY alone can
-    # support a moderate classification, while yields are needed for full strength.
-    if brent_sign > 0 and rates_score < 0:
-        energy_score = -min(0.85, 0.45 + 0.40 * abs(rates_score))
-    elif brent_sign < 0 and rates_score > 0:
-        energy_score = min(0.85, 0.45 + 0.40 * abs(rates_score))
-    elif brent_sign != 0:
-        energy_score = -0.20 if brent_sign > 0 else 0.20
-    evidence["ENERGY_INFLATION"] = {
-        "score": round(energy_score, 3),
-        "signals": energy_signals + rates_signals,
-        "missing_inputs": (["Brent"] if brent_change is None else []) + rates_missing,
-        "interpretation": "Brent requires confirming FX/rate pressure before energy-inflation can resolve as dominant.",
-    }
+    # Energy-inflation requires both a meaningful Brent move and macro pressure in
+    # the direction conventionally associated with that oil move. Missing yields do
+    # not get replaced by numeric confidence penalties; they leave the mechanism
+    # PARTIAL until the rates/FX family is itself SUPPORTED.
+    energy_signals = [] if brent_change is None else [f"Brent {brent_change:+.3f}% over {divergence.window}"]
+    energy_signals += list(rates["signals"])
+    energy_missing = (["Brent"] if brent_change is None else []) + list(rates["missing_inputs"])
+    rates_pressure = _direction_sign(str(rates["pressure_direction"]))
+    energy_pressure = -1 if brent_sign > 0 else 1 if brent_sign < 0 else 0
+    expected_macro_pressure = energy_pressure
 
-    industrial_score = 0.0
-    industrial_signals: list[str] = []
-    if silver_sign < 0 and gold_pressure > 0:
-        industrial_score = -0.45
-        industrial_signals.append("Silver fell while Gold rose")
-    elif silver_sign > 0 and gold_pressure < 0:
-        industrial_score = 0.45
-        industrial_signals.append("Silver rose while Gold fell")
-    evidence["INDUSTRIAL_GROWTH"] = {
-        "score": industrial_score,
-        "signals": industrial_signals,
-        "missing_inputs": ["dedicated_growth_proxy"],
-        "interpretation": "Gold/Silver relative performance is weak evidence only; v1 has no dedicated growth proxy.",
-    }
+    if brent_sign == 0:
+        energy = _evidence(
+            support_level="INSUFFICIENT",
+            signals=energy_signals,
+            missing_inputs=energy_missing,
+            interpretation="No meaningful Brent move is available to identify an energy-inflation pattern.",
+        )
+    elif rates["support_level"] == "CONFLICTING" or (
+        rates_pressure and rates_pressure != expected_macro_pressure
+    ):
+        energy = _evidence(
+            support_level="CONFLICTING",
+            signals=energy_signals,
+            missing_inputs=energy_missing,
+            interpretation="Brent and the available FX/rates observations imply conflicting transmission directions.",
+        )
+    elif rates["support_level"] == "SUPPORTED" and rates_pressure == expected_macro_pressure:
+        energy = _evidence(
+            support_level="SUPPORTED",
+            pressure_sign=energy_pressure,
+            signals=energy_signals,
+            missing_inputs=energy_missing,
+            interpretation="Brent and independently confirmed FX/rates pressure form a coherent energy-inflation pattern.",
+        )
+    else:
+        energy = _evidence(
+            support_level="PARTIAL",
+            pressure_sign=energy_pressure,
+            signals=energy_signals,
+            missing_inputs=energy_missing,
+            interpretation="Brent is consistent with an energy-inflation pattern, but FX/rates confirmation is incomplete.",
+        )
+    evidence["ENERGY_INFLATION"] = energy
 
-    liquidity_score = 0.0
+    # Without a dedicated growth proxy, relative Gold/Silver behavior is only a
+    # hypothesis flag and can never resolve this mechanism in v1.
+    relative_metals = silver_sign != 0 and gold_sign != 0 and silver_sign != gold_sign
+    evidence["INDUSTRIAL_GROWTH"] = _evidence(
+        support_level="PARTIAL" if relative_metals else "INSUFFICIENT",
+        pressure_sign=silver_sign if relative_metals else 0,
+        signals=["Silver and Gold moved in opposite directions"] if relative_metals else [],
+        missing_inputs=["dedicated_growth_proxy"],
+        interpretation="Relative Gold/Silver behavior is hypothesis-level evidence only until a dedicated growth proxy exists.",
+    )
+
+    # Liquidity is represented as a discrete joint pattern, not a weighted blend.
     liquidity_signals: list[str] = []
-    if dxy_pressure < 0 and gold_pressure < 0 and silver_sign < 0:
-        liquidity_score = -0.75
-        liquidity_signals.append("DXY strengthened while Gold and Silver fell")
-    elif dxy_pressure > 0 and gold_pressure > 0 and silver_sign > 0:
-        liquidity_score = 0.65
-        liquidity_signals.append("DXY weakened while Gold and Silver rose")
-    evidence["RISK_LIQUIDITY"] = {
-        "score": liquidity_score,
-        "signals": liquidity_signals,
-        "missing_inputs": [name for name, value in (("DXY", dxy_change), ("Gold", gold_change)) if value is None],
-        "interpretation": "Broad dollar/metals co-movement is treated as liquidity-consistent, not as proof of causality.",
-    }
+    if dxy_change is not None:
+        liquidity_signals.append(f"DXY {dxy_change:+.3f}% over {divergence.window}")
+    if gold_change is not None:
+        liquidity_signals.append(f"Gold {gold_change:+.3f}% over {divergence.window}")
+    liquidity_missing = [name for name, value in (("DXY", dxy_change), ("Gold", gold_change)) if value is None]
+    if silver_sign and gold_sign and dxy_sign and silver_sign == gold_sign == -dxy_sign:
+        liquidity = _evidence(
+            support_level="SUPPORTED",
+            pressure_sign=silver_sign,
+            signals=liquidity_signals,
+            missing_inputs=liquidity_missing,
+            interpretation="Silver and Gold moved together against DXY, consistent with a broad liquidity/dollar pattern.",
+        )
+    elif silver_sign and ((gold_sign and gold_sign == silver_sign) or (dxy_sign and -dxy_sign == silver_sign)):
+        liquidity = _evidence(
+            support_level="PARTIAL",
+            pressure_sign=silver_sign,
+            signals=liquidity_signals,
+            missing_inputs=liquidity_missing,
+            interpretation="Part of the broad dollar/metals liquidity pattern is present, but full joint confirmation is absent.",
+        )
+    elif silver_sign and gold_sign and dxy_sign:
+        liquidity = _evidence(
+            support_level="CONFLICTING",
+            signals=liquidity_signals,
+            missing_inputs=liquidity_missing,
+            interpretation="DXY, Gold and Silver do not form a coherent broad liquidity pattern.",
+        )
+    else:
+        liquidity = _evidence(
+            support_level="INSUFFICIENT",
+            signals=liquidity_signals,
+            missing_inputs=liquidity_missing,
+            interpretation="Insufficient joint DXY/Gold/Silver movement is available for a liquidity pattern.",
+        )
+    evidence["RISK_LIQUIDITY"] = liquidity
 
     return evidence
 
@@ -172,8 +283,7 @@ class TransmissionStateSnapshot:
     realized_direction: str
     resolution_status: str
     dominant_channel: str | None
-    confidence: float
-    channel_scores: dict[str, float]
+    support_levels: dict[str, str]
     evidence: dict[str, dict[str, Any]]
     schema_version: str = SCHEMA_VERSION
     engine_version: str = ENGINE_VERSION
@@ -183,9 +293,11 @@ class TransmissionStateSnapshot:
             raise ValueError("resolution_status must be RESOLVED or UNRESOLVED")
         if self.dominant_channel is not None and self.dominant_channel not in CHANNELS:
             raise ValueError(f"unsupported dominant channel: {self.dominant_channel}")
-        if set(self.channel_scores) != set(CHANNELS):
-            raise ValueError("channel_scores must contain every TransmissionState channel")
-        object.__setattr__(self, "channel_scores", dict(self.channel_scores))
+        if set(self.support_levels) != set(CHANNELS):
+            raise ValueError("support_levels must contain every TransmissionState channel")
+        if any(level not in SUPPORT_LEVELS for level in self.support_levels.values()):
+            raise ValueError("unsupported TransmissionState support level")
+        object.__setattr__(self, "support_levels", dict(self.support_levels))
         object.__setattr__(self, "evidence", {name: dict(value) for name, value in self.evidence.items()})
 
     def to_record(self) -> dict[str, Any]:
@@ -258,37 +370,24 @@ class TransmissionStateStore:
 
 
 def build_transmission_state(divergence: ResponseDivergenceSnapshot) -> TransmissionStateSnapshot:
-    """Classify descriptive cross-market patterns without claiming causality.
+    """Describe mechanism support without assigning hand-written channel weights.
 
-    A channel may resolve only when its signed score supports the realized Silver
-    direction, exceeds the minimum evidence threshold, and clearly leads competing
-    channels. Otherwise the observation is persisted as UNRESOLVED.
+    A dominant channel is set only when exactly one mechanism has SUPPORTED evidence,
+    its implied pressure matches the realized Silver direction, and the response is
+    not UNCONFIRMED. Multiple supported stories remain explicitly UNRESOLVED.
     """
     evidence = _channel_evidence(divergence)
-    scores = {channel: float(evidence[channel]["score"]) for channel in CHANNELS}
+    support_levels = {channel: str(evidence[channel]["support_level"]) for channel in CHANNELS}
     realized_sign = _direction_sign(divergence.realized_direction)
 
-    candidates = sorted(
-        (
-            (channel, abs(score))
-            for channel, score in scores.items()
-            if realized_sign != 0 and _sign(score, dead_zone=0.0) == realized_sign
-        ),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-    top_channel = candidates[0][0] if candidates else None
-    top_score = candidates[0][1] if candidates else 0.0
-    second_score = candidates[1][1] if len(candidates) > 1 else 0.0
-
-    resolved = (
-        divergence.status != "UNCONFIRMED"
-        and top_channel is not None
-        and top_score >= _RESOLUTION_THRESHOLD
-        and (top_score - second_score) >= _RESOLUTION_MARGIN
-    )
-    resolution_status = "RESOLVED" if resolved else "UNRESOLVED"
-    dominant = top_channel if resolved else None
+    supported = [
+        channel
+        for channel in CHANNELS
+        if support_levels[channel] == "SUPPORTED"
+        and _direction_sign(str(evidence[channel]["pressure_direction"])) == realized_sign
+    ]
+    resolved = divergence.status != "UNCONFIRMED" and realized_sign != 0 and len(supported) == 1
+    dominant = supported[0] if resolved else None
 
     payload = {
         "response_divergence_id": divergence.divergence_id,
@@ -305,9 +404,8 @@ def build_transmission_state(divergence: ResponseDivergenceSnapshot) -> Transmis
         response_status=divergence.status,
         expected_direction=divergence.expected_direction,
         realized_direction=divergence.realized_direction,
-        resolution_status=resolution_status,
+        resolution_status="RESOLVED" if resolved else "UNRESOLVED",
         dominant_channel=dominant,
-        confidence=round(top_score, 3),
-        channel_scores={channel: round(scores[channel], 3) for channel in CHANNELS},
+        support_levels=support_levels,
         evidence=evidence,
     )
