@@ -3,6 +3,7 @@ from __future__ import annotations
 from statistics import median
 from typing import Iterable
 
+from adaptation_statistics import summarize_adaptation_diagnostics
 from forecast_error import ForecastErrorObservation
 
 
@@ -48,18 +49,54 @@ def _context_text(item) -> str:
     return " · ".join(parts) + " · tidsmessig kontekst, ikke kausalitet"
 
 
+def _diagnostic_summary_html(usable: list[object]) -> str:
+    summary = summarize_adaptation_diagnostics(usable)
+    if summary.context_count == 0:
+        return '<div class="pg-error-diagnostic">Adaptation diagnostics: venter på tidsmatchet response/transmission-kontekst.</div>'
+
+    pieces: list[str] = []
+    if summary.divergence_comparison_ready:
+        delta = summary.divergence_error_delta
+        assert delta is not None
+        pieces.append(
+            f"divergence median |feil| {summary.median_abs_error_divergence:.2f} "
+            f"vs uten divergence {summary.median_abs_error_nondivergence:.2f} "
+            f"(Δ {delta:+.2f}; n={summary.divergence_count}/{summary.nondivergence_count})"
+        )
+    else:
+        pieces.append(
+            f"divergence-sammenligning: for lite data "
+            f"(n={summary.divergence_count}/{summary.nondivergence_count}, trenger minst {summary.min_group_size}/{summary.min_group_size})"
+        )
+
+    if summary.transmission_comparison_ready:
+        delta = summary.transmission_error_delta
+        assert delta is not None
+        pieces.append(
+            f"uavklart transmisjon median |feil| {summary.median_abs_error_unresolved:.2f} "
+            f"vs resolved {summary.median_abs_error_resolved:.2f} "
+            f"(Δ {delta:+.2f}; n={summary.unresolved_count}/{summary.resolved_count})"
+        )
+    else:
+        pieces.append(
+            f"transmisjonssammenligning: for lite data "
+            f"(n={summary.unresolved_count}/{summary.resolved_count}, trenger minst {summary.min_group_size}/{summary.min_group_size})"
+        )
+
+    return (
+        '<div class="pg-error-diagnostic">'
+        + " · ".join(pieces)
+        + " · deskriptivt, ingen kausalitet eller læringsvekt"
+        + "</div>"
+    )
+
+
 def render_forecast_error_track(
     observations: Iterable[ForecastErrorObservation],
     *,
     smoothing_window: int = DEFAULT_SMOOTHING_WINDOW,
 ) -> str:
-    """Render signed model error plus descriptive adaptation context.
-
-    Raw errors are immutable. The rolling median and all divergence/transmission
-    markers are display-only. Context means only that the persisted observation
-    occurred while that forecast was alive; it does not claim causation and does
-    not feed any forecast or learning weight.
-    """
+    """Render signed model error plus descriptive adaptation context."""
     usable = [item for item in observations if item.normalized_center_error is not None]
     usable.sort(key=lambda item: (item.forecast_as_of, item.error_id))
     if not usable:
@@ -130,6 +167,7 @@ def render_forecast_error_track(
             f" · kontekst {contexts_with_data} · divergence {divergence_linked} · "
             f"uavklart transmisjon {unresolved_linked}"
         )
+    diagnostic_html = _diagnostic_summary_html(usable)
     return f"""
       <div class="pg-error-track">
         <div class="pg-error-head">
@@ -148,5 +186,6 @@ def render_forecast_error_track(
           <span>−1 = nedre forecastgrense · 0 = intervalsentrum · +1 = øvre forecastgrense</span>
           <span>ring = divergence · diamant = uavklart transmisjon · median {latest_smooth:+.2f} · {latest_class}</span>
         </div>
+        {diagnostic_html}
       </div>
     """
