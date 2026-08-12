@@ -19,13 +19,7 @@ def _utc(value: str) -> datetime:
 
 @dataclass(frozen=True, slots=True)
 class ForecastAdaptationContext:
-    """Descriptive context observed while one immutable forecast was alive.
-
-    This is deliberately not a score and is never written back into forecast,
-    Decision State, confidence, calibration or TransmissionState. It only answers
-    whether already-persisted response/transmission observations occurred between
-    forecast origin and outcome evaluation.
-    """
+    """Descriptive context observed while one immutable forecast was alive."""
 
     error_id: str
     response_count: int
@@ -48,6 +42,30 @@ class ForecastAdaptationContext:
     @property
     def has_context(self) -> bool:
         return self.response_count > 0 or self.transmission_count > 0
+
+
+@dataclass(frozen=True, slots=True)
+class ForecastErrorDiagnosticView:
+    """Display-only wrapper; the persisted ForecastErrorObservation stays untouched."""
+
+    observation: ForecastErrorObservation
+    adaptation_context: ForecastAdaptationContext | None = None
+
+    def __getattr__(self, name: str):
+        return getattr(self.observation, name)
+
+
+def attach_adaptation_contexts(
+    observations: Iterable[ForecastErrorObservation],
+    contexts: dict[str, ForecastAdaptationContext],
+) -> tuple[ForecastErrorDiagnosticView, ...]:
+    return tuple(
+        ForecastErrorDiagnosticView(
+            observation=item,
+            adaptation_context=contexts.get(item.error_id),
+        )
+        for item in observations
+    )
 
 
 def _load_payloads(
