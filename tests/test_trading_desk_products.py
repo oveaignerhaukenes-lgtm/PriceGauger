@@ -17,29 +17,58 @@ class _FakeClient:
 
     def search_instruments(self, keywords: str, *, asset_types: str):
         self.search_calls.append((keywords, asset_types))
-        return [
-            SaxoInstrument(
-                asset=keywords,
-                uic=11,
-                asset_type="WarrantOpenEndKnockOut",
-                symbol="GOLD LONG",
-                description="Gold Mini Long",
-            ),
-            SaxoInstrument(
-                asset=keywords,
-                uic=12,
-                asset_type="MiniFuture",
-                symbol="GOLD SHORT",
-                description="Gold Mini Short",
-            ),
-            SaxoInstrument(
-                asset=keywords,
-                uic=13,
-                asset_type="Stock",
-                symbol="GOLD",
-                description="Gold stock",
-            ),
-        ]
+        if keywords == "Gold":
+            return [
+                SaxoInstrument(
+                    asset=keywords,
+                    uic=11,
+                    asset_type="WarrantOpenEndKnockOut",
+                    symbol="GOLD LONG",
+                    description="Gold Mini Long",
+                ),
+                SaxoInstrument(
+                    asset=keywords,
+                    uic=12,
+                    asset_type="MiniFuture",
+                    symbol="GOLD SHORT",
+                    description="Gold Mini Short",
+                ),
+                SaxoInstrument(
+                    asset=keywords,
+                    uic=13,
+                    asset_type="Stock",
+                    symbol="GOLD",
+                    description="Gold stock",
+                ),
+            ]
+        if keywords == "XAU":
+            return [
+                SaxoInstrument(
+                    asset=keywords,
+                    uic=11,
+                    asset_type="WarrantOpenEndKnockOut",
+                    symbol="GOLD LONG",
+                    description="Gold Mini Long",
+                ),
+                SaxoInstrument(
+                    asset=keywords,
+                    uic=14,
+                    asset_type="WarrantOtherLeverageWithKnockOut",
+                    symbol="XAU TURBO BULL",
+                    description="XAU Turbo Bull",
+                ),
+            ]
+        if keywords == "XAUUSD":
+            return [
+                SaxoInstrument(
+                    asset=keywords,
+                    uic=15,
+                    asset_type="WarrantDoubleKnockOut",
+                    symbol="XAU DKO BEAR",
+                    description="XAU Double KnockOut Bear",
+                )
+            ]
+        return []
 
     def instrument_details(self, instrument: SaxoInstrument):
         self.details_calls.append((instrument.uic, instrument.asset_type))
@@ -53,16 +82,24 @@ class _FakeClient:
         }
 
 
-def test_discovery_uses_only_leveraged_asset_types_and_market_keyword() -> None:
+def test_discovery_uses_market_aliases_supported_knockout_types_and_deduplicates() -> None:
     client = _FakeClient()
 
     products = discover_leveraged_products(client, "Gold")
 
-    assert client.search_calls == [("Gold", LEVERAGED_ASSET_TYPES)]
+    assert client.search_calls == [
+        ("Gold", LEVERAGED_ASSET_TYPES),
+        ("XAU", LEVERAGED_ASSET_TYPES),
+        ("XAUUSD", LEVERAGED_ASSET_TYPES),
+    ]
     assert [(item.instrument.uic, item.direction) for item in products] == [
         (11, "Long"),
+        (14, "Long"),
         (12, "Short"),
+        (15, "Short"),
     ]
+    assert "WarrantOtherLeverageWithKnockOut" in LEVERAGED_ASSET_TYPES
+    assert "WarrantDoubleKnockOut" in LEVERAGED_ASSET_TYPES
 
 
 def test_unknown_market_does_not_call_saxo() -> None:
