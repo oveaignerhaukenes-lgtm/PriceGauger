@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import streamlit as st
 
+from autotrader_manual_execution import (
+    ManualExecutionResult,
+    build_manual_order_intent,
+    execute_confirmed_manual_order,
+    precheck_is_clear,
+    validate_manual_intent,
+)
 from saxo_provider import SaxoError
 from saxo_trading import SaxoTradingSafetyError, configured_trading_client
 from trading_desk_order_preview import build_order_preview
@@ -17,13 +24,17 @@ def _state_key(prefix: str, market: str) -> str:
     return f"tradingdesk_products_{prefix}_{market}"
 
 
+def _clear_execution_state(market: str) -> None:
+    for prefix in ("order_preview", "manual_intent", "precheck", "execution_result"):
+        st.session_state.pop(_state_key(prefix, market), None)
+
+
 def render_saxo_product_panel(market: str) -> None:
     st.divider()
-    st.subheader("Saxo-produkter")
+    st.subheader("AutoTrader · Saxo SIM")
     st.caption(
-        "Produktvalg og ordregrensesnitt for markedet i grafen. Mini Futures og KO-produkter "
-        "hentes fra Saxo SIM. Ordregrensesnittet er foreløpig kun en lokal forhåndsvisning: "
-        "ingen pre-check eller ordre kan sendes her ennå."
+        "Manuell ordreplassering for markedet i TradingDesk. Hele execution-flyten ligger her under "
+        "AutoTrader; Saxo-siden brukes bare til OAuth/tilkobling. Ordren er hardlåst til SIM."
     )
 
     try:
@@ -32,16 +43,21 @@ def render_saxo_product_panel(market: str) -> None:
         st.error(str(exc))
         return
     except Exception as exc:
-        st.warning(f"Kunne ikke initialisere Saxo SIM for instrumentsøk: {exc}")
+        st.warning(f"Kunne ikke initialisere Saxo SIM for AutoTrader: {exc}")
         return
 
     if trading is None:
-        st.info("Koble til Saxo SIM for å søke etter handlebare produkter.")
+        st.info("Koble til Saxo SIM fra Saxo-siden først. AutoTrader bruker den delte OAuth-tilkoblingen.")
         return
 
     products_key = _state_key("list", market)
     details_key = _state_key("details", market)
     preview_key = _state_key("order_preview", market)
+    intent_key = _state_key("manual_intent", market)
+    precheck_key = _state_key("precheck", market)
+    result_key = _state_key("execution_result", market)
+    submitted_key = "autotrader_manual_submitted_intent_ids"
+    submitted = st.session_state.setdefault(submitted_key, set())
 
     if st.button("Finn Mini/KO-produkter hos Saxo", key=f"product_search_{market}"):
         try:
@@ -49,7 +65,7 @@ def render_saxo_product_panel(market: str) -> None:
                 products = discover_leveraged_products(trading.client, market)
             st.session_state[products_key] = products
             st.session_state.pop(details_key, None)
-            st.session_state.pop(preview_key, None)
+            _clear_execution_state(market)
         except SaxoError as exc:
             st.error(str(exc))
             return
@@ -86,7 +102,7 @@ def render_saxo_product_panel(market: str) -> None:
             with st.spinner("Henter Saxo-instrumentdetaljer …"):
                 details = product_details(trading.client, selected)
             st.session_state[details_key] = {"selection": selection_key, "value": details}
-            st.session_state.pop(preview_key, None)
+            _clear_execution_state(market)
         except SaxoError as exc:
             st.warning(f"Fant produktet, men kunne ikke hente detaljene: {exc}")
             details = None
@@ -126,20 +142,20 @@ def render_saxo_product_panel(market: str) -> None:
             st.caption(" · ".join(extras))
 
     st.divider()
-    st.subheader("Handel · grensesnittskisse")
+    st.subheader("Manuell ordre")
     st.caption(
-        "Produktet over er det konkrete Saxo-instrumentet som skal handles. Et Mini Short-produkt "
-        "kjøpes for short-eksponering; SELG betyr salg av det valgte produktet, ikke automatisk short av underliggende."
+        "KJØP/SELG gjelder det konkrete produktet over. Et Mini Short-produkt kjøpes for short-eksponering; "
+        "SELG betyr salg av valgt produkt, ikke automatisk short av underliggende."
     )
 
     try:
         accounts = tuple(account for account in trading.accounts() if account.active)
     except Exception as exc:
         accounts = ()
-        st.warning(f"Kunne ikke hente SIM-kontoer til ordregrensesnittet: {exc}")
+        st.warning(f"Kunne ikke hente SIM-kontoer: {exc}")
 
     if not accounts:
-        st.info("Ingen aktiv Saxo SIM-konto er tilgjengelig for ordre-forhåndsvisning.")
+        st.info("Ingen aktiv Saxo SIM-konto er tilgjengelig.")
         return
 
     account = st.selectbox(
@@ -167,7 +183,7 @@ def render_saxo_product_panel(market: str) -> None:
     action = "Buy" if prepare_buy else "Sell" if prepare_sell else None
     if action is not None:
         try:
-            st.session_state[preview_key] = build_order_preview(
+            preview = build_order_preview(
                 market=market,
                 product=selected,
                 account_key=account.account_key,
@@ -175,36 +191,130 @@ def render_saxo_product_panel(market: str) -> None:
                 action=action,
                 amount=float(amount),
             )
+            intent = build_manual_order_intent(preview)
+            validate_manual_intent(intent, active_account_keys={item.account_key for item in accounts})
+            st.session_state[preview_key] = preview
+            st.session_state[intent_key] = intent
+            st.session_state.pop(precheck_key, None)
+            st.session_state.pop(result_key, None)
         except ValueError as exc:
             st.error(str(exc))
 
     preview = st.session_state.get(preview_key)
-    if preview is None:
-        st.info("KJØP/SELG bygger foreløpig bare en lokal ordre-forhåndsvisning. Ingenting sendes til Saxo.")
+    intent = st.session_state.get(intent_key)
+    if preview is None or intent is None:
+        st.info("Velg produkt, konto og antall, og forbered KJØP eller SELG. Ingenting sendes før pre-check og ny bekreftelse.")
         return
 
-    st.markdown("**Ordre-forhåndsvisning**")
+    st.markdown("**Ordreintent**")
     st.write(
         f"{preview.action_label} **{preview.amount:g} × "
         f"{preview.description or preview.symbol or 'Saxo-instrument'}**"
     )
     st.caption(
-        f"{preview.market} · {preview.asset_type} · UIC {preview.uic} · "
-        f"konto {preview.account_id} · {preview.exposure_label}"
+        f"{preview.market} · {preview.asset_type} · UIC {preview.uic} · konto {preview.account_id} · "
+        f"{preview.exposure_label}"
     )
+    st.caption(f"Intent-ID: {intent.intent_id}")
 
-    precheck_col, send_col = st.columns(2)
-    precheck_col.button(
-        "Kjør Saxo pre-check · låst",
-        disabled=True,
-        key=f"locked_precheck_{market}",
-    )
-    send_col.button(
-        "Send SIM-ordre · låst",
-        disabled=True,
-        key=f"locked_send_{market}",
-    )
+    if st.button("Kjør Saxo pre-check", type="primary", key=f"manual_precheck_{market}"):
+        try:
+            validate_manual_intent(intent, active_account_keys={item.account_key for item in accounts})
+            with st.spinner("Validerer ordren hos Saxo SIM …"):
+                precheck = trading.precheck(intent.order_request())
+            st.session_state[precheck_key] = {"intent_id": intent.intent_id, "value": precheck}
+        except (SaxoError, ValueError, SaxoTradingSafetyError) as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error(f"Pre-check feilet: {exc}")
+
+    cached_precheck = st.session_state.get(precheck_key)
+    precheck = None
+    if isinstance(cached_precheck, dict) and cached_precheck.get("intent_id") == intent.intent_id:
+        precheck = cached_precheck.get("value")
+
+    if not isinstance(precheck, dict):
+        return
+
+    precheck_result = str(precheck.get("PreCheckResult") or "UKJENT")
+    if precheck_result.lower() == "ok":
+        st.success("Saxo pre-check: OK")
+    else:
+        st.warning(f"Saxo pre-check: {precheck_result}")
+    with st.expander("Se pre-check-respons"):
+        st.json(precheck)
+
+    disclaimers = precheck.get("PreTradeDisclaimers")
+    if disclaimers:
+        st.error(
+            "Saxo krever pre-trade disclaimer for denne ordren. AutoTrader sender ikke ordren før "
+            "en eksplisitt disclaimer-flyt er implementert."
+        )
+        return
+    if not precheck_is_clear(precheck):
+        st.warning("Ordren kan ikke sendes fordi Saxo pre-check ikke er klarert.")
+        return
+
+    st.markdown("**Eksplisitt bekreftelse**")
     st.warning(
-        "Ordrebanen stopper her i denne capability-en. Neste steg er å koble denne eksakte "
-        "forhåndsvisningen til Saxo pre-check, deretter en separat eksplisitt bekreftelse før SIM-order kan sendes."
+        f"Neste knapp sender en faktisk ordre til Saxo SIM: {preview.action_label} {preview.amount:g} × "
+        f"{preview.description or preview.symbol or 'instrument'} på konto {preview.account_id}."
     )
+    confirmed = st.checkbox(
+        "Jeg bekrefter denne eksakte Saxo SIM-ordren",
+        key=f"manual_confirm_{intent.intent_id}",
+    )
+    already_submitted = intent.intent_id in submitted
+    if already_submitted:
+        st.info("Dette intentet er allerede forsøkt sendt. Automatisk retry er blokkert for å unngå dobbeltordre.")
+
+    if st.button(
+        "Send SIM-ordre",
+        type="primary",
+        disabled=not confirmed or already_submitted,
+        key=f"manual_send_{intent.intent_id}",
+    ):
+        try:
+            validate_manual_intent(intent, active_account_keys={item.account_key for item in accounts})
+            with st.spinner("Sender én manuell ordre til Saxo SIM og leser tilbake Saxo-state …"):
+                result = execute_confirmed_manual_order(
+                    trading,
+                    intent,
+                    confirmed_intent_id=intent.intent_id,
+                    submitted_intent_ids=submitted,
+                )
+            st.session_state[result_key] = result
+        except (SaxoError, ValueError, SaxoTradingSafetyError) as exc:
+            st.error(str(exc))
+            if intent.intent_id in submitted:
+                st.warning(
+                    "Ordreforsøket er markert som brukt. Ved timeout/ukjent respons sendes det ikke automatisk på nytt; "
+                    "kontroller Saxo-state før du bygger et nytt intent."
+                )
+        except Exception as exc:
+            st.error(f"Ordreforsøket feilet: {exc}")
+            if intent.intent_id in submitted:
+                st.warning("Automatisk retry er blokkert. Kontroller Saxo-state før et eventuelt nytt ordreintent.")
+
+    result = st.session_state.get(result_key)
+    if not isinstance(result, ManualExecutionResult) or result.intent_id != intent.intent_id:
+        return
+
+    st.success(f"Saxo SIM svarte på ordreforespørselen. OrderId: {result.order_id or 'ikke oppgitt'}")
+    with st.expander("Saxo ordrespons"):
+        st.json(result.order_response)
+
+    st.markdown("**Authoritative Saxo read-back**")
+    if result.open_orders:
+        st.caption(f"Saxo rapporterer {len(result.open_orders)} matching åpen ordre/ordre(r) for UIC {preview.uic}.")
+        with st.expander("Åpne ordre"):
+            st.json(list(result.open_orders))
+    else:
+        st.caption("Ingen matching åpen ordre rapporteres. En market-order kan allerede være fylt eller avvist; se nettoposisjon og ordrespons.")
+
+    if result.net_positions:
+        st.caption(f"Saxo rapporterer {len(result.net_positions)} matching nettoposisjon(er) for UIC {preview.uic}.")
+        with st.expander("Nettoposisjon"):
+            st.json(list(result.net_positions))
+    else:
+        st.caption("Ingen matching nettoposisjon rapporteres i umiddelbar read-back.")
