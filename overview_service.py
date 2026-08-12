@@ -7,6 +7,7 @@ from typing import Mapping
 
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
 from forecast_contracts import DEFAULT_FORECAST_HORIZON_HOURS, ForecastSnapshot
+from forecast_error import ForecastErrorObservation, ForecastErrorStore
 from forecast_store import ForecastStore
 from market_history_store import MarketHistoryStore
 from overview_summary_contract import OverviewSummary
@@ -21,6 +22,7 @@ from telegram_flow_store import TelegramFlowStore
 # visible-lifetime rule; it keeps every forecast whose horizon overlaps the
 # rolling chart viewport.
 RECENT_FORECAST_LIMIT = 200
+RECENT_FORECAST_ERROR_LIMIT = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +41,7 @@ class OverviewMarket:
     recommendation_status: str = "PROVISIONAL"
     forecast: ForecastSnapshot | None = None
     forecasts: tuple[ForecastSnapshot, ...] = ()
+    forecast_errors: tuple[ForecastErrorObservation, ...] = ()
     price_history: tuple[tuple[str, float], ...] = ()
     market_regime: str = ""
     volatility_score: float | None = None
@@ -129,6 +132,7 @@ def _market(
     flow: TelegramFlowAssessment | None,
     runtime_store: StateRuntimeStore,
     forecast_store: ForecastStore,
+    error_store: ForecastErrorStore,
     history_store: MarketHistoryStore,
     horizon_hours: float = DEFAULT_FORECAST_HORIZON_HOURS,
 ) -> OverviewMarket:
@@ -140,6 +144,15 @@ def _market(
     )
     forecasts = tuple(reversed(recent))
     forecast = forecasts[-1] if forecasts else None
+    errors = tuple(
+        reversed(
+            error_store.load_all(
+                market=item.market,
+                horizon_hours=horizon_hours,
+                limit=RECENT_FORECAST_ERROR_LIMIT,
+            )
+        )
+    )
     market_state = runtime_store.load_latest_market_state(market=item.market)
     history = _forecast_timeline_prices(
         history_store,
@@ -173,6 +186,7 @@ def _market(
         recommendation_status=_recommendation_status(item),
         forecast=forecast,
         forecasts=forecasts,
+        forecast_errors=errors,
         price_history=history,
         market_regime="" if market_state is None else market_state.regime,
         volatility_score=None if market_state is None else market_state.volatility_score,
@@ -185,6 +199,7 @@ def _load_markets(
     flow: TelegramFlowAssessment | None,
     runtime_store: StateRuntimeStore,
     forecast_store: ForecastStore,
+    error_store: ForecastErrorStore,
     history_store: MarketHistoryStore,
     horizons_by_market: Mapping[str, float] | None = None,
 ) -> tuple[OverviewMarket, ...]:
@@ -196,6 +211,7 @@ def _load_markets(
             flow=flow,
             runtime_store=runtime_store,
             forecast_store=forecast_store,
+            error_store=error_store,
             history_store=history_store,
             horizon_hours=float(selections.get(item.market, DEFAULT_FORECAST_HORIZON_HOURS)),
         )
@@ -215,6 +231,7 @@ def load_overview_markets(
         flow=flow,
         runtime_store=StateRuntimeStore(db_path),
         forecast_store=ForecastStore(db_path),
+        error_store=ForecastErrorStore(db_path),
         history_store=MarketHistoryStore(db_path),
         horizons_by_market=horizons_by_market,
     )
@@ -224,6 +241,7 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
     flow_store = TelegramFlowStore(db_path)
     runtime_store = StateRuntimeStore(db_path)
     forecast_store = ForecastStore(db_path)
+    error_store = ForecastErrorStore(db_path)
     history_store = MarketHistoryStore(db_path)
     flow = flow_store.load_latest_snapshot()
     posts = tuple(reversed(flow_store.load_posts(limit=post_limit)))
@@ -234,6 +252,7 @@ def load_overview(db_path: str | Path = "pricegauger.db", *, post_limit: int = 6
         flow=flow,
         runtime_store=runtime_store,
         forecast_store=forecast_store,
+        error_store=error_store,
         history_store=history_store,
     )
     return OverviewData(
