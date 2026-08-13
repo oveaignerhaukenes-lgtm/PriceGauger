@@ -36,4 +36,5 @@ def test_realized_price_uses_theme_contrast_and_no_stretched_markers() -> None:
     assert 'class="pg-realized"' in svg
     assert "stroke:currentColor" in svg
     assert "<circle" not in svg
-    assert "kontrastlinje = faktisk pris" in svg
+    assert "terminalfeil måles i modellfeilsporet" in svg
+    assert "pg-forecast-error" not in svg
