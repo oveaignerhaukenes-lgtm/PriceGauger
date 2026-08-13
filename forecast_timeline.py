@@ -42,7 +42,7 @@ def _profile(
     market_regime: str = "",
     volatility_score: float | None = None,
 ) -> str:
-    """Choose only shapes justified by the persisted evidence."""
+    """Legacy qualitative label only; it must not become forecast evidence."""
     regime = market_regime.lower()
     if (
         forecast.status == "READY"
@@ -55,6 +55,12 @@ def _profile(
 
 
 def _shape(progress: float, endpoint: float, profile: str) -> float:
+    """Legacy endpoint interpolation retained for stored v1 snapshots.
+
+    The renderer does not treat this qualitative geometry as additional market
+    evidence. A richer path must come from persisted analysis data rather than
+    invented visual noise.
+    """
     p = max(0.0, min(1.0, progress))
     if profile == "IMPULSE_REVERSAL":
         overshoot = endpoint * 1.25
@@ -158,6 +164,39 @@ def _observed_segments(
     return tuple(tuple(segment) for segment in segments)
 
 
+def _observed_price_at(
+    observed: tuple[tuple[datetime, float], ...],
+    stamp: datetime,
+    *,
+    max_gap: timedelta = timedelta(minutes=5),
+) -> float | None:
+    """Interpolate canonical observed price only across a genuinely continuous gap."""
+    if not observed or stamp < observed[0][0] or stamp > observed[-1][0]:
+        return None
+    previous: tuple[datetime, float] | None = None
+    for current in observed:
+        if current[0] == stamp:
+            return float(current[1])
+        if current[0] > stamp:
+            if previous is None or current[0] - previous[0] > max_gap:
+                return None
+            span = (current[0] - previous[0]).total_seconds()
+            if span <= 0:
+                return float(previous[1])
+            progress = (stamp - previous[0]).total_seconds() / span
+            return float(previous[1]) + (float(current[1]) - float(previous[1])) * progress
+        previous = current
+    return None
+
+
+def _history_evaluation_strength(x: float, *, split_x: float) -> float:
+    """Fade forecast geometry into outcome error over the older half of history."""
+    if split_x <= 0 or x >= split_x:
+        return 0.0
+    age = max(0.0, min(1.0, 1.0 - x / split_x))
+    return max(0.0, min(1.0, (age - 0.45) / 0.55))
+
+
 def _nice_tick_step(lower: float, upper: float, *, target_ticks: int = 4) -> float:
     span = max(0.01, float(upper) - float(lower))
     raw = max(1.0, span / max(2, int(target_ticks)))
@@ -202,7 +241,7 @@ def _visible_window(
     candidates: tuple[TimelineForecast, ...],
     observed: tuple[tuple[datetime, float], ...],
 ) -> tuple[datetime, datetime]:
-    """Use all bounded chart history while retaining the latest forecast endpoint."""
+    """Use bounded chart history while retaining the latest forecast endpoint."""
     latest = candidates[-1]
     horizon = max(MIN_FORECAST_HORIZON, latest.ends_at - latest.as_of)
     axis_end = latest.ends_at
@@ -236,7 +275,12 @@ def render_forecast_timeline_svg(
     max_layers: int | None = None,
     steps: int = 12,
 ) -> str:
-    """Render immutable forecast snapshots against one canonical observed price timeline."""
+    """Render immutable forecasts against canonical realized prices.
+
+    The time boundary is wall-clock ``now`` when it lies inside the chart. The
+    left side therefore evaluates already elapsed forecast path against truth;
+    the right side remains genuinely prospective.
+    """
     candidates = tuple(
         sorted(
             (item for item in (_eligible(snapshot) for snapshot in forecasts) if item is not None),
@@ -262,11 +306,16 @@ def render_forecast_timeline_svg(
     if max_layers is not None:
         layers = layers[-max(1, int(max_layers)) :]
 
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    split_time = current if axis_start < current < axis_end else latest_forecast.as_of
+
     observed_in_window = tuple(item for item in observed if axis_start <= item[0] <= axis_end)
     gaps = _timeline_gaps(observed)
     plot_right = 90.0
     split_x = 64.0
-    split_time = latest_forecast.as_of
     history_span = max(1.0, _display_seconds(split_time, axis_start=axis_start, gaps=gaps))
     future_span = max(1.0, _display_seconds(axis_end, axis_start=split_time, gaps=gaps))
 
@@ -286,14 +335,16 @@ def render_forecast_timeline_svg(
         base_end = (low + high) / 2.0
         profile = _profile(snapshot, market_regime=market_regime, volatility_score=volatility_score)
         base: list[tuple[float, float]] = []
+        base_timed: list[tuple[datetime, float, float]] = []
         bull: list[tuple[float, float]] = []
         bear: list[tuple[float, float]] = []
         upper: list[tuple[float, float]] = []
         lower: list[tuple[float, float]] = []
         low_evidence = snapshot.status != "READY" or float(snapshot.confidence) < 0.55
         fan_exponent = 0.45 if low_evidence else 0.8
-        for step in range(max(2, int(steps)) + 1):
-            progress = step / max(2, int(steps))
+        step_count = max(2, int(steps))
+        for step in range(step_count + 1):
+            progress = step / step_count
             stamp = item.as_of + (item.ends_at - item.as_of) * progress
             x = xmap(stamp)
             base_move = _shape(progress, base_end, profile)
@@ -302,13 +353,24 @@ def render_forecast_timeline_svg(
             fan = progress ** fan_exponent
             upper_move = base_move + max(0.0, high - base_end) * fan
             lower_move = base_move - max(0.0, base_end - low) * fan
-            base.append((x, ref * (1.0 + base_move / 100.0)))
+            base_price = ref * (1.0 + base_move / 100.0)
+            base.append((x, base_price))
+            base_timed.append((stamp, x, base_price))
             bull.append((x, ref * (1.0 + bull_move / 100.0)))
             bear.append((x, ref * (1.0 + bear_move / 100.0)))
             upper.append((x, ref * (1.0 + upper_move / 100.0)))
             lower.append((x, ref * (1.0 + lower_move / 100.0)))
         plotted_layers.append(
-            {"item": item, "index": index, "base": tuple(base), "bull": tuple(bull), "bear": tuple(bear), "upper": tuple(upper), "lower": tuple(lower)}
+            {
+                "item": item,
+                "index": index,
+                "base": tuple(base),
+                "base_timed": tuple(base_timed),
+                "bull": tuple(bull),
+                "bear": tuple(bear),
+                "upper": tuple(upper),
+                "lower": tuple(lower),
+            }
         )
 
     scale_observed = [price for _, price in observed_in_window]
@@ -347,7 +409,7 @@ def render_forecast_timeline_svg(
         '<line x1="90" y1="10" x2="90" y2="94" style="stroke:rgba(100,116,139,.25);stroke-width:.5;vector-effect:non-scaling-stroke" />'
     )
     grid_markup.append(
-        f'<line x1="{split_x:.1f}" y1="8" x2="{split_x:.1f}" y2="96" style="stroke:rgba(100,116,139,.45);stroke-width:.55;stroke-dasharray:1.5 1.5;vector-effect:non-scaling-stroke"><title>Siste forecast-origin</title></line>'
+        f'<line x1="{split_x:.1f}" y1="5" x2="{split_x:.1f}" y2="96" class="pg-now-boundary" style="stroke:rgba(71,85,105,.78);stroke-width:.9;stroke-dasharray:1.8 1.3;vector-effect:non-scaling-stroke"><title>NÅ · observert til venstre, prognose til høyre</title></line>'
     )
 
     gap_markup: list[str] = []
@@ -363,7 +425,9 @@ def render_forecast_timeline_svg(
         )
 
     layer_markup: list[str] = []
+    error_markup: list[str] = []
     count = len(plotted_layers)
+    evaluated_layers = 0
     for ordinal, layer in enumerate(plotted_layers):
         upper = layer["upper"]
         lower = layer["lower"]
@@ -372,24 +436,48 @@ def render_forecast_timeline_svg(
         fan_opacity, line_opacity = _layer_opacity(ordinal, count)
         item = layer["item"]
         start_x = xmap(item.as_of)
+        history_strength = _history_evaluation_strength(start_x, split_x=split_x)
+        visual_line_opacity = line_opacity * (1.0 - 0.72 * history_strength)
+        visual_fan_opacity = fan_opacity * (1.0 - 0.88 * history_strength)
         layer_markup.append(
-            f'<line x1="{start_x:.1f}" y1="8" x2="{start_x:.1f}" y2="96" style="stroke:{color};stroke-width:.45;stroke-opacity:{line_opacity:.2f};stroke-dasharray:1.5 2;vector-effect:non-scaling-stroke" />'
+            f'<line x1="{start_x:.1f}" y1="8" x2="{start_x:.1f}" y2="96" style="stroke:{color};stroke-width:.45;stroke-opacity:{visual_line_opacity:.2f};stroke-dasharray:1.5 2;vector-effect:non-scaling-stroke" />'
         )
         layer_markup.append(
-            f'<polygon points="{fan_polygon}" class="pg-forecast-layer pg-forecast-fan" style="fill:{color};fill-opacity:{fan_opacity:.2f};stroke:none" />'
+            f'<polygon points="{fan_polygon}" class="pg-forecast-layer pg-forecast-fan" style="fill:{color};fill-opacity:{visual_fan_opacity:.2f};stroke:none" />'
         )
         layer_markup.append(
-            f'<polyline points="{_points(base, ymap=ymap)}" class="pg-forecast-layer pg-forecast-base" style="fill:none;stroke:{color};stroke-width:{1.15 if ordinal < count - 1 else 2.0};stroke-opacity:{line_opacity:.2f};vector-effect:non-scaling-stroke" />'
+            f'<polyline points="{_points(base, ymap=ymap)}" class="pg-forecast-layer pg-forecast-base" style="fill:none;stroke:{color};stroke-width:{1.15 if ordinal < count - 1 else 2.0};stroke-opacity:{visual_line_opacity:.2f};vector-effect:non-scaling-stroke" />'
         )
+
+        layer_has_evaluation = False
+        for stamp, x, predicted_price in layer["base_timed"]:
+            if stamp > split_time:
+                continue
+            strength = _history_evaluation_strength(x, split_x=split_x)
+            if strength <= 0.0:
+                continue
+            actual_price = _observed_price_at(observed, stamp)
+            if actual_price is None:
+                continue
+            layer_has_evaluation = True
+            error_markup.append(
+                f'<line x1="{x:.1f}" y1="{ymap(predicted_price):.1f}" x2="{x:.1f}" y2="{ymap(actual_price):.1f}" class="pg-forecast-error" style="stroke:#b45309;stroke-width:.8;stroke-opacity:{0.12 + 0.58 * strength:.2f};vector-effect:non-scaling-stroke"><title>Prognoseavvik: {predicted_price - actual_price:+.2f}</title></line>'
+            )
+        if layer_has_evaluation:
+            evaluated_layers += 1
 
     if plotted_layers:
         latest = plotted_layers[-1]
-        layer_markup.append(
-            f'<polyline points="{_points(latest["bull"], ymap=ymap)}" class="pg-alt pg-bull" style="fill:none;stroke:#2f9e64;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
-        )
-        layer_markup.append(
-            f'<polyline points="{_points(latest["bear"], ymap=ymap)}" class="pg-alt pg-bear" style="fill:none;stroke:#d15b5b;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
-        )
+        latest_bull = tuple(point for timed, point in zip(latest["base_timed"], latest["bull"]) if timed[0] >= split_time)
+        latest_bear = tuple(point for timed, point in zip(latest["base_timed"], latest["bear"]) if timed[0] >= split_time)
+        if len(latest_bull) >= 2:
+            layer_markup.append(
+                f'<polyline points="{_points(latest_bull, ymap=ymap)}" class="pg-alt pg-bull" style="fill:none;stroke:#2f9e64;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
+            )
+        if len(latest_bear) >= 2:
+            layer_markup.append(
+                f'<polyline points="{_points(latest_bear, ymap=ymap)}" class="pg-alt pg-bear" style="fill:none;stroke:#d15b5b;stroke-width:1.0;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke" />'
+            )
 
     actual_markup = ""
     if observed_in_window:
@@ -402,38 +490,31 @@ def render_forecast_timeline_svg(
                 )
         actual_markup = "".join(actual_parts)
 
-    current = now or datetime.now(timezone.utc)
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
-    current = current.astimezone(timezone.utc)
-    now_markup = ""
-    if axis_start <= current <= axis_end:
-        now_x = xmap(current)
-        now_markup = (
-            f'<line x1="{now_x:.1f}" y1="8" x2="{now_x:.1f}" y2="96" class="pg-now" style="stroke:#64748b;stroke-width:.8;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke" />'
-        )
-
     latest_snapshot = latest_forecast.snapshot
     interval = f"{latest_snapshot.expected_move_low_pct:+.2f}%…{latest_snapshot.expected_move_high_pct:+.2f}%"
     horizon_label = _horizon_label(latest_snapshot.horizon_hours)
     missing = _missing_text(latest_snapshot)
     degradation = f" · {missing}" if missing else ""
     actual_label = "faktisk pris oppdateres fra canonical 1m-bars" if observed_in_window else "venter på faktisk pris"
+    status_label = f"{len(layers)} AKTIVE SPOR"
+    if evaluated_layers:
+        status_label += f" · {evaluated_layers} EVALUERT"
 
     fragment = f'''<div class="pg-forecast-wrap" style="overflow:hidden">
-      <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{len(layers)} AKTIVE SPOR</span></div>
+      <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{status_label}</span></div>
       <div class="pg-forecast-plot" style="position:relative;height:13.5rem">
-        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Lang markedshistorikk og siste lagrede prognoser mot faktisk utvikling">
+        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Markedshistorikk, evaluerte prognoser og aktiv prognose">
           {''.join(grid_markup)}
           {''.join(gap_markup)}
           {''.join(layer_markup)}
+          {''.join(error_markup)}
           {actual_markup}
-          {now_markup}
         </svg>
+        <div class="pg-timeline-zones" aria-hidden="true" style="position:absolute;left:0;right:10%;top:.15rem;display:grid;grid-template-columns:64fr 26fr;pointer-events:none;font-size:.52rem;font-weight:700;letter-spacing:.05em;opacity:.62"><span>HISTORIKK · FASIT</span><span style="text-align:center">NÅ → PROGNOSE</span></div>
         <div class="pg-price-axis" aria-hidden="true" style="position:absolute;inset:0;pointer-events:none">{''.join(axis_labels)}</div>
       </div>
       <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.72;margin-top:.08rem">
-        <span>venstre = regimehistorikk · høyre = siste forecastvindu</span><span>kontrastlinje = faktisk pris · høyre = pris</span>
+        <span>gamle prognoser fader til målt avvik · kontrastlinje = faktisk pris</span><span>høyre = aktivt forecastvindu · prisakse</span>
       </div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon_label} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
