@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import json
+from contextlib import contextmanager
+
+import db_workspace_persistence_v2 as persistence
 from technical_core_v2 import TechnicalBaselineForecast, TechnicalCoreState
-from workspace_composer_v2 import AnalysisRecipeV2, CachedLayerOutput, WorkspaceSnapshotV2
-from db_workspace_persistence_v2 import (
-    DbWorkspacePersistenceV2,
-    technical_recipe_uuid,
-    analysis_recipe_uuid,
-)
+from workspace_composer_v2 import CachedLayerOutput, WorkspaceSnapshotV2
 
 
 def _state() -> TechnicalCoreState:
@@ -42,26 +41,46 @@ def _baseline(state: TechnicalCoreState | None = None) -> TechnicalBaselineForec
     )
 
 
-def test_recipe_ids_are_deterministic():
-    assert technical_recipe_uuid("technical-core-v2.1") == technical_recipe_uuid("technical-core-v2.1")
-    recipe = AnalysisRecipeV2(name="ta", version=1, enabled_layers=())
-    assert analysis_recipe_uuid(recipe) == analysis_recipe_uuid(recipe)
-
-
-def test_sqlite_round_trip_preserves_layer_cache(tmp_path):
+def _sqlite_connect(tmp_path, monkeypatch):
     db_path = tmp_path / "pg-v2-test.db"
-    store = DbWorkspacePersistenceV2(sqlite_path=db_path, force_sqlite=True)
-    store.initialize_test_schema()
 
-    market_id = store.ensure_market("Silver", category="metal")
+    @contextmanager
+    def connect_for_test():
+        from database import connect
+
+        with connect(db_path, force_sqlite=True) as db:
+            yield db
+
+    monkeypatch.setattr(persistence, "connect", connect_for_test)
+
+    with connect_for_test() as db:
+        db.executescript(
+            """
+            CREATE TABLE pg_v2_forecast_layer_outputs (
+                layer_output_id TEXT PRIMARY KEY,
+                market_id INTEGER NOT NULL,
+                as_of TEXT NOT NULL,
+                layer_name TEXT NOT NULL,
+                layer_version TEXT NOT NULL,
+                input_fingerprint TEXT NOT NULL,
+                directional_bias REAL,
+                velocity_modifier REAL,
+                uncertainty_modifier REAL,
+                reversal_probability REAL,
+                squeeze_probability REAL,
+                regime_confidence REAL,
+                details_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(market_id, as_of, layer_name, layer_version, input_fingerprint)
+            );
+            """
+        )
+
+
+def test_layer_output_round_trip_preserves_workspace_cache(tmp_path, monkeypatch):
+    _sqlite_connect(tmp_path, monkeypatch)
     state = _state()
     baseline = _baseline(state)
-    recipe = AnalysisRecipeV2(name="ta-plus-interpreter", version=1, enabled_layers=("technical-interpreter",))
-
-    technical_state_id = store.persist_technical_state(market_id, state)
-    analysis_recipe_id = store.persist_analysis_recipe(recipe, state.recipe_version)
-    store.persist_baseline_forecast(market_id, technical_state_id, analysis_recipe_id, baseline)
-
     workspace = WorkspaceSnapshotV2(
         market=state.market,
         as_of=state.as_of,
@@ -80,20 +99,27 @@ def test_sqlite_round_trip_preserves_layer_cache(tmp_path):
         confidence=0.78,
         details={"human_summary": "Momentum and volume support continuation."},
     )
-    store.persist_layer_output(market_id, state.as_of, layer)
 
-    restored = store.load_layer_outputs(market_id, state.as_of, workspace.fingerprint)
+    persistence.persist_layer_output(market_id=1, as_of=state.as_of, output=layer)
+    restored = persistence.load_cached_layer_outputs(market_id=1, workspace=workspace)
+
     assert set(restored) == {"technical-interpreter"}
-    assert restored["technical-interpreter"].directional_bias == 0.55
-    assert restored["technical-interpreter"].details["human_summary"].startswith("Momentum")
+    loaded = restored["technical-interpreter"]
+    assert loaded.directional_bias == 0.55
+    assert loaded.confidence == 0.78
+    assert loaded.details["human_summary"].startswith("Momentum")
 
 
-def test_wrong_fingerprint_does_not_restore_cached_layers(tmp_path):
-    db_path = tmp_path / "pg-v2-test.db"
-    store = DbWorkspacePersistenceV2(sqlite_path=db_path, force_sqlite=True)
-    store.initialize_test_schema()
-    market_id = store.ensure_market("Silver", category="metal")
-
+def test_wrong_fingerprint_does_not_restore_cached_layers(tmp_path, monkeypatch):
+    _sqlite_connect(tmp_path, monkeypatch)
+    state = _state()
+    baseline = _baseline(state)
+    workspace = WorkspaceSnapshotV2(
+        market=state.market,
+        as_of=state.as_of,
+        technical_state=state,
+        technical_baselines={3600: baseline},
+    )
     layer = CachedLayerOutput(
         layer_name="technical-interpreter",
         layer_version="technical-interpreter-v2.1",
@@ -101,7 +127,37 @@ def test_wrong_fingerprint_does_not_restore_cached_layers(tmp_path):
         directional_bias=0.1,
         details={},
     )
-    store.persist_layer_output(market_id, "2026-08-14T00:00:00+00:00", layer)
 
-    restored = store.load_layer_outputs(market_id, "2026-08-14T00:00:00+00:00", "fingerprint-b")
+    persistence.persist_layer_output(market_id=1, as_of=state.as_of, output=layer)
+    restored = persistence.load_cached_layer_outputs(market_id=1, workspace=workspace)
+
     assert restored == {}
+
+
+def test_persisted_details_keep_confidence_when_not_explicitly_present(tmp_path, monkeypatch):
+    _sqlite_connect(tmp_path, monkeypatch)
+    state = _state()
+    baseline = _baseline(state)
+    workspace = WorkspaceSnapshotV2(
+        market=state.market,
+        as_of=state.as_of,
+        technical_state=state,
+        technical_baselines={3600: baseline},
+    )
+    layer = CachedLayerOutput(
+        layer_name="technical-interpreter",
+        layer_version="technical-interpreter-v2.1",
+        input_fingerprint=workspace.fingerprint,
+        confidence=0.66,
+        details={"human_summary": "Technical-only explanation."},
+    )
+
+    persistence.persist_layer_output(market_id=1, as_of=state.as_of, output=layer)
+
+    with persistence.connect() as db:
+        row = db.execute(
+            "SELECT details_json FROM pg_v2_forecast_layer_outputs WHERE market_id = ?",
+            (1,),
+        ).fetchone()
+    details = json.loads(row[0])
+    assert details["confidence"] == 0.66
