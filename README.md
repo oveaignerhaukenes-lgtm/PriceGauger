@@ -1,10 +1,94 @@
-# PriceGauger Alpha
+# PriceGauger
 
-Mobilvennlig Streamlit-prototype som kobler offentlige meldinger fra Middle East Spectator (MES) mot prisutviklingen i Brent, sølv, gull og DXY.
+PriceGauger er et worker-first markedanalyse-system som kombinerer nyhets-/hendelsesdata, teknisk markedsstate, multi-horizon forecasts, outcome-læring og eksplisitt cross-market/adaptation-observasjon. PostgreSQL er autoritativ delt state i produksjon.
 
-Se [prosjektoverleveringen](docs/PROJECT_HANDOFF.md) for gjeldende produksjonsarkitektur, stabiliseringssjekk og bevisst utsatt arbeid.
+Se [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) for gjeldende arkitektur, guardrails, stabil baseline og eksplisitt utsatt arbeid.
 
-## Kjør lokalt
+## Hovedflyt
+
+```text
+Telegram / event context
+→ Information State
+→ Technical State
+→ Decision State
+→ 5m / 15m / 30m / 1h / 4h / 12h / 24h / 7d Forecasts
+→ Outcomes
+→ immutable ForecastErrorObservations
+```
+
+Parallelt kjører den deskriptive cross-market-kjeden:
+
+```text
+CrossMarketState
+→ ResponseDivergence
+→ TransmissionState
+```
+
+Denne kjeden observerer hvordan markedet faktisk reagerer og hvilke transmisjonsmekanismer som er konsistente med dataene. Den påvirker foreløpig ikke Decision State eller forecast-vekter.
+
+## Produksjonsarkitektur
+
+Produksjonen bruker tre Railway-tjenester fra samme `main` og samme PostgreSQL-database:
+
+| Tjeneste | Config | Ansvar |
+| --- | --- | --- |
+| `pricegauger-web` | `/railway.streamlit.toml` | Streamlit UI / read-render |
+| `pricegauger-worker` | `/railway.worker.toml` | Telegram, context, state, forecasts, outcomes |
+| `pricegauger-stream` | `/railway.stream.toml` | Saxo realtime stream → canonical 1m bars |
+
+Canonical realtime-dataflyt:
+
+```text
+Saxo stream
+→ canonical completed 1m OHLC bars
+→ PostgreSQL
+→ TradingDesk / technical analysis / cross-market analysis
+```
+
+Browseren er aldri autoritativ market-data-producer og snakker ikke direkte med Saxo.
+
+## Forecasts og læring
+
+Forecasts er immutable og knyttet til eksakt Decision/Information/Technical state ved opprettelse.
+
+- Åtte horisonter: `5m / 15m / 30m / 1h / 4h / 12h / 24h / 7d`.
+- Movement magnitude kalibreres fra COMPLETE outcomes separat per `market × horizon`.
+- Direction learning og regime learning er fortsatt eksplisitt deaktivert.
+- Aktiv intrahorizon-bane kan visualiseres fra forecast-dommen + teknisk regime + volatilitet, men terminalintervallet er autoritativt.
+- Historiske mellomliggende forecast-baner er visuell kontekst, ikke retroaktiv evidens.
+
+## Cross-market / adaptation
+
+`CrossMarketState` bruker canonical Silver / Gold / Brent / DXY og eksplisitte 15m / 1h / 4h-vinduer. US 2Y / 10Y / 30Y er definert som yields, men forblir `MISSING` til en verifisert yield-feed finnes; Treasury futures-priser skal aldri brukes som erstatning.
+
+`ResponseDivergence` registrerer om realisert Silver-respons er `ALIGNED`, `DIVERGENT` eller `UNCONFIRMED` mot informasjonssignalet, med korrekt post-event tidsretning.
+
+`TransmissionState` bruker diskrete evidensklasser (`SUPPORTED`, `PARTIAL`, `CONFLICTING`, `INSUFFICIENT`) og kan forbli `UNRESOLVED`. Den tvinger ikke fram en kausal historie.
+
+## TradingDesk og AutoTrader
+
+TradingDesk bruker samme canonical 1m-data og samme AutoTrader execution-komponent.
+
+AutoTrader-grensen er foreløpig:
+
+- Saxo **SIM only**
+- eksplisitt brukerinitiert manual execution
+- server-side validering
+- Saxo precheck
+- eksplisitt confirmation
+- én submit
+- autoritativ order/position read-back
+- ingen automatisk strategy/entry
+
+Den gamle MACD 30m AutoTrader-prøvegrenen er superseded og skal ikke gjenopptas.
+
+## Markedschat
+
+Markedschat er read-only beslutningsstøtte og bygger authoritative PostgreSQL-kontekst på nytt for hvert spørsmål. Samtalehistorikk kan videreføres, men chatten får ikke egen markedssannhet og har ingen execution-kobling.
+
+Merk: CrossMarketState / ResponseDivergence / TransmissionState / forecast-error adaptation er ennå ikke lagt inn i Markedschat-konteksten.
+
+## Lokal kjøring
 
 ```bash
 python -m venv .venv
@@ -13,124 +97,40 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Market State MVP
-
-```text
-Telegram-observasjon
-→ strukturert state-delta
-→ tidsvektet Market State
-→ transparent mapping til Brent, Gold, Silver og DXY
-→ LONG / SHORT / NEUTRAL
-→ PostgreSQL-logg i produksjon, SQLite lokalt
-→ pris ved signal, 1t/4t-resultat og MFE/MAE
-```
-
-Uten modellnøkkel brukes en deterministisk mock-interpreter. Med OpenAI konfigurert brukes Responses API med strict JSON Schema; modellen leverer bare state-deltaer, evidens og usikkerhet. Handelsretningen beregnes fortsatt av vanlig kode.
-
-En egen **Signal History**-side viser anbefalingene mot senere markedsrespons.
-
-## Worker
-
-Én kontrollert runde:
+Én worker-runde:
 
 ```bash
 python worker.py --once
 ```
 
-Kontinuerlig innsamling hvert minutt:
+Kontinuerlig worker:
 
 ```bash
 python worker.py --interval 60
 ```
 
-Workeren:
-
-- sjekker Telegram hvert 60. sekund
-- behandler bare nye meldinger
-- oppdaterer og lagrer rullerende nyhetskontekst over 1t/4t/12t/24t/7d
-- bruker OpenAI når nøkkel er konfigurert, ellers mock-interpreter
-- lagrer Market State, anbefalinger og utfall i PostgreSQL når `DATABASE_URL` er satt, ellers SQLite lokalt
-- oppdaterer 1t/4t-resultater og MFE/MAE i hver syklus
-
-Den låste papirtesten bruker fortsatt 5-minutters prisbarer. Senere kan 1-minutts rådata lagres og aggregeres til 5 minutter uten å endre første testprotokoll.
-
-## Realtime stream
-
-Saxo realtime-kjernen kjøres separat fra analyseworkeren:
+Realtime stream:
 
 ```bash
 python realtime_worker.py --refresh-ms 1000
 ```
 
-Streamtjenesten:
+SQLite brukes bare lokalt/test der det er hensiktsmessig. Produksjon skal bruke `DATABASE_URL` og delt PostgreSQL.
 
-- bruker Saxo WebSocket/subscriptions i stedet for høyfrekvent REST-polling
-- ber om 1000 ms refresh, men registrerer den faktiske raten Saxo tildeler
-- holder løpende quotes transient i minnet
-- aggregerer og lagrer ferdige 1-minutts OHLC-barer i PostgreSQL
-- lagrer UIC, asset type og symbol sammen med barene for kontraktssporbarhet
-- registrerer streamstatus og eventuell markedsdataforsinkelse uten å skrive til databasen hvert sekund
-- reconnecter etter reset/disconnect uten å påvirke analyseworkeren eller Streamlit-webben
+## Utviklingsregel
 
-## Secrets / miljøvariabler
+All ny utvikling følger:
 
-```toml
-OPENAI_API_KEY = "..."
-OPENAI_MARKET_MODEL = "gpt-5-mini"
-GDELT_PROVIDER = "direct"
+```text
+fresh main
+→ isolert branch
+→ én bounded capability
+→ focused tests
+→ full GitHub Actions
+→ draft PR
+→ architecture/diff review
+→ fresh-main check
+→ merge med exact-head guard
 ```
 
-`GDELT_PROVIDER` kan være:
-
-- `direct` – gratis offisiell GDELT DOC 2.0, standard og uten nøkkel
-- `cloud` – eksisterende betalt GDELT Cloud-provider; krever `GDELT_CLOUD_API_KEY`
-- `auto` – bruker cloud når nøkkel finnes, ellers direct
-
-GDELT behandles som sekundær evidens om sirkulasjon, repetisjon og historisk markedsrespons, ikke som autoritativ sannhetskilde.
-
-## Railway
-
-Produksjonen bruker tre Railway-tjenester fra samme repository og branch, koblet
-til samme Railway PostgreSQL-database:
-
-| Tjeneste | Config file path | Startkommando |
-| --- | --- | --- |
-| Streamlit | `/railway.streamlit.toml` | `streamlit run app.py ... --server.port $PORT` |
-| Worker | `/railway.worker.toml` | `python worker.py --interval 60` |
-| Realtime stream | `/railway.stream.toml` | `python realtime_worker.py --refresh-ms 1000` |
-
-Ved deploy:
-
-1. Opprett eller behold én PostgreSQL-tjeneste i Railway-prosjektet.
-2. Opprett tre tjenester fra dette GitHub-repositoryet: `pricegauger-web`,
-   `pricegauger-worker` og `pricegauger-stream`. Alle skal bruke `main`.
-3. Sett **Config File Path** til `/railway.streamlit.toml` for webtjenesten,
-   `/railway.worker.toml` for analyseworkeren og `/railway.stream.toml` for
-   realtime-tjenesten.
-4. Gjør PostgreSQL-variabelen `DATABASE_URL` tilgjengelig i alle tre tjenester.
-   Alle må peke til den samme databasen.
-5. Legg `OPENAI_API_KEY`, `OPENAI_MARKET_MODEL` og nødvendige Telegram-variabler
-   på analyseworkeren. Saxo-variablene `SAXO_APP_KEY`, `SAXO_APP_SECRET`,
-   `SAXO_REDIRECT_URI` og `SAXO_ENVIRONMENT` må være identiske på web, worker og
-   realtime stream. Når `DATABASE_URL` er satt, lagres det roterende
-   Saxo-tokenparet i PostgreSQL og deles av de tre tjenestene. Realtime-tjenesten
-   kan i tillegg bruke `PRICEGAUGER_STREAM_REFRESH_MS` dersom ønsket rate skal
-   overstyres; standard er 1000 ms. Legg også modellvariablene på webtjenesten
-   dersom UI-et bruker dem direkte.
-6. Deploy alle tre tjenester. Webtjenestens healthcheck er `/_stcore/health`;
-   workerloggen skal vise `cycle complete` hvert 60. sekund, mens
-   `pricegauger-stream` skal vise aktive Saxo subscriptions og løpende quotes
-   uten å restarte analyseworkeren.
-
-Det skal ikke monteres et SQLite-volum på `/data` i produksjon. Uten
-`DATABASE_URL` faller applikasjonen tilbake til lokal SQLite, som bare er ment
-for lokal utvikling og isolerte tester.
-
-## Begrensninger i Alpha
-
-- Telegram-data hentes fra den offentlige forhåndsvisningssiden og dekker ikke full historikk.
-- Yahoo-data er ikke børsgradert sanntidsdata.
-- GDELT DOC er artikkel-/narrativsøk og ikke en komplett, autoritativ hendelsesdatabase.
-- Canonical event-klassifiseringen er fortsatt delvis regelbasert.
-- Statistikken viser korrelasjon, ikke kausalitet eller validert prediksjon.
-- Market State-anbefalingene er et testinstrument, ikke validerte handelsråd.
+Ikke gjenoppta gamle branches blindt. Historiske forecasts skal aldri omskrives, heuristikker skal være synlige/versionerte, og nye forklaringsmekanismer skal ikke få læringsvekt uten outcome-evidens.
