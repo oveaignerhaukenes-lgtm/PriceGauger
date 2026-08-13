@@ -16,6 +16,7 @@ Important supporting layers:
 
 - News Context adds regime/context fields but must not add a duplicate directional news impulse.
 - Historical Engine can contribute only when an event-scoped historical signal already exists for the Decision State's contributing events. It is a conservative confirmation component, not an independent always-on directional engine.
+- The old automatic Historical Runtime producer branch was never integrated and is now considered stale. Historical Engine should therefore be treated as a safe optional/dormant consumer unless a fresh bounded producer capability is deliberately rebuilt from current `main`.
 - Decision State stores the actual engine component scores/weights used for auditability.
 - Forecasts are immutable. Historical Decision States/forecasts are never rewritten by newer information or learning.
 
@@ -120,6 +121,8 @@ Current production-development boundary:
 - Fail closed on stale intent, invalid SIM account, disclaimers/precheck failure or uncertain duplicate-submit state.
 - Browser never talks directly to Saxo.
 
+Repository evidence does not currently record the explicit small end-to-end Saxo SIM order that PR #105 required before operational sign-off. Treat the execution code as CI-validated but **runtime verification pending** until a controlled SIM order confirms precheck -> confirmation -> submit -> read-back in the deployed environment.
+
 The old MACD 30m AutoTrader draft was closed as superseded during stable-baseline cleanup. Automatic strategy/entry remains explicitly deferred. Any future automation must begin from fresh `main` and first have authoritative position reconciliation, persisted processed-event state, restart recovery and duplicate-action protection.
 
 ## TradingDesk
@@ -174,7 +177,9 @@ These are not regressions; they are explicitly incomplete capabilities:
 - scheduled macro state for CPI / PPI / NFP with actual-consensus-revisions plus observed market response;
 - empirically validated direction learning and regime/transmission adaptation per market × horizon × regime;
 - richer industrial-growth/liquidity proxies for TransmissionState;
+- fresh Historical Runtime producer if Historical Engine is to become live rather than optional/dormant;
 - Markedschat context upgrade for CrossMarket / ResponseDivergence / Transmission / adaptation diagnostics;
+- controlled deployed Saxo SIM end-to-end verification of the manual execution path;
 - persistent thesis/follow mode and interactive counterfactual scenario workspace;
 - automatic trading only after separate explicit approval and execution-state safety work.
 
