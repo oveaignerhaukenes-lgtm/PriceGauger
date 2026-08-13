@@ -49,7 +49,7 @@ def test_timeline_has_normal_html_right_price_scale():
     forecast = _forecast(suffix="axis", as_of="2026-08-10T00:00:00+00:00", low=-0.2, high=0.4)
     svg = render_forecast_timeline_svg((forecast,), observed_prices=(("2026-08-10T00:05:00+00:00", 4205.0),))
     assert 'style="height:13.5rem' in svg
-    assert "høyre = aktivt forecastvindu · prisakse" in svg
+    assert "aktiv bane = analyse + teknisk state" in svg
     assert "HISTORIKK · FASIT" in svg
     assert "NÅ → PROGNOSE" in svg
     assert 'x1="90"' in svg
