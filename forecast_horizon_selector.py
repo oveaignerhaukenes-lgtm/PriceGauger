@@ -79,13 +79,8 @@ def apply_horizon_query(session_state, *, market: str | None, token: str | None)
     return True
 
 
-def render_horizon_selector_html(market: str, selected_hours: float | None) -> str:
-    """Render compact navigation controls for the forecast chart's right rail."""
-    active = (
-        float(selected_hours)
-        if selected_hours is not None and supported_horizon(float(selected_hours))
-        else DEFAULT_FORECAST_HORIZON_HOURS
-    )
+def _legacy_selector_markup(market: str, active: float) -> str:
+    """Keep deterministic markup for tests and non-Streamlit consumers."""
     buttons: list[str] = []
     for option in FORECAST_HORIZON_OPTIONS:
         query = urlencode({"forecast_market": market, "forecast_horizon": option.token})
@@ -101,6 +96,76 @@ def render_horizon_selector_html(market: str, selected_hours: float | None) -> s
         + "".join(buttons)
         + "</nav>"
     )
+
+
+def _in_streamlit_runtime() -> bool:
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        return get_script_run_ctx(suppress_warning=True) is not None
+    except Exception:
+        return False
+
+
+def _compact_forecast_css() -> str:
+    return """
+      <style>
+        .pg-forecast-shell{grid-template-columns:minmax(0,1fr)!important;gap:0!important;}
+        .pg-forecast-wrap{height:auto!important;justify-content:flex-start!important;}
+        .pg-forecast-plot{height:8.6rem!important;}
+        .pg-forecast-svg{height:8.6rem!important;margin:.08rem 0 .02rem!important;}
+        .pg-forecast{padding-top:.58rem!important;padding-bottom:.55rem!important;}
+        div[data-testid="stSegmentedControl"]{max-width:31rem;margin-left:auto;margin-bottom:-.18rem;}
+        @media(max-width:1100px){
+          .pg-forecast-plot,.pg-forecast-svg{height:7.5rem!important;}
+          div[data-testid="stSegmentedControl"]{max-width:none;margin-left:0;}
+        }
+      </style>
+    """
+
+
+def render_horizon_selector_html(market: str, selected_hours: float | None) -> str:
+    """Render a fragment-native horizon widget in Streamlit, legacy markup elsewhere.
+
+    Overview calls this function while its five-second market-card fragment is
+    executing. A native Streamlit widget therefore reruns only that fragment on
+    horizon changes instead of navigating the browser and resetting scroll.
+    """
+    active = (
+        float(selected_hours)
+        if selected_hours is not None and supported_horizon(float(selected_hours))
+        else DEFAULT_FORECAST_HORIZON_HOURS
+    )
+    if not _in_streamlit_runtime():
+        return _legacy_selector_markup(market, active)
+
+    import streamlit as st
+
+    key = horizon_session_key(market)
+    if key not in st.session_state:
+        st.session_state[key] = active
+    options = tuple(item.hours for item in FORECAST_HORIZON_OPTIONS)
+    labels = {item.hours: item.label for item in FORECAST_HORIZON_OPTIONS}
+    widget = getattr(st, "segmented_control", None)
+    label = f"Velg prognosehorisont for {market}"
+    if widget is not None:
+        widget(
+            label,
+            options=options,
+            format_func=lambda value: labels.get(float(value), str(value)),
+            key=key,
+            label_visibility="collapsed",
+        )
+    else:
+        st.radio(
+            label,
+            options=options,
+            format_func=lambda value: labels.get(float(value), str(value)),
+            key=key,
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    return _compact_forecast_css()
 
 
 assert tuple(item.hours for item in FORECAST_HORIZON_OPTIONS) == FORECAST_HORIZONS_HOURS
