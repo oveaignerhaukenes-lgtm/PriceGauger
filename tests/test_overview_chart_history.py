@@ -97,8 +97,9 @@ def test_timeline_reserves_forecast_space_when_history_is_long():
         now=None,
     )
 
-    assert "Siste forecast-origin" in html
-    assert "venstre = regimehistorikk" in html
-    # The forecast origin is deliberately reserved at x=64 rather than being
-    # crushed against the right edge by months of calendar history.
+    assert "NÅ · observert til venstre, prognose til høyre" in html
+    assert "HISTORIKK · FASIT" in html
+    assert "NÅ → PROGNOSE" in html
+    # The split is deliberately reserved at x=64 rather than being crushed
+    # against the right edge by months of calendar history.
     assert 'x1="64.0"' in html
