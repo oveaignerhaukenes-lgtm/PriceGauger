@@ -42,7 +42,8 @@ def test_timeline_keeps_multiple_forecasts_and_actual_price():
     assert svg.count("pg-forecast-fan") == 2
     assert svg.count("pg-forecast-base") == 2
     assert "pg-realized" in svg
-    assert "kontrastlinje = faktisk pris" in svg
+    assert "terminalfeil måles i modellfeilsporet" in svg
+    assert "pg-forecast-error" not in svg
 
 
 def test_timeline_has_normal_html_right_price_scale():
