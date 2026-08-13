@@ -14,6 +14,7 @@ from adaptation_diagnostics import (
 from analysis_status import AnalysisStatusStore, AnalysisStepStatus
 from forecast_contracts import DEFAULT_FORECAST_HORIZON_HOURS, ForecastSnapshot
 from forecast_error import ForecastErrorObservation, ForecastErrorStore
+from forecast_shadow_sampling import sample_forecast_shadows
 from forecast_store import ForecastStore
 from overview_chart_history import history_days_for_horizon, load_overview_chart_history
 from overview_summary_contract import OverviewSummary
@@ -130,8 +131,9 @@ def _market(
         horizon_hours=horizon_hours,
         limit=RECENT_FORECAST_LIMIT,
     )
-    forecasts = tuple(reversed(recent))
-    forecast = forecasts[-1] if forecasts else None
+    all_forecasts = tuple(reversed(recent))
+    forecast = all_forecasts[-1] if all_forecasts else None
+    forecasts = sample_forecast_shadows(all_forecasts)
     raw_errors = tuple(
         reversed(
             error_store.load_all(
@@ -147,7 +149,7 @@ def _market(
     history = _forecast_timeline_prices(
         db_path,
         market=item.market,
-        forecasts=forecasts,
+        forecasts=all_forecasts,
         horizon_hours=horizon_hours,
     )
 
