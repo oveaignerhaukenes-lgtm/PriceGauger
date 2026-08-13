@@ -1,186 +1,161 @@
 # PriceGauger handoff
 
-## Stable baseline — 13 Aug 2026
+## PriceGauger v2 — active architecture
 
-This document describes the current architecture on `main`. Treat old feature branches and superseded draft PRs as historical only; new work must always start from fresh `main`.
+PriceGauger v1 is frozen at commit `443e144275407670230397f36aa6a9ea1bc56ba2` and preserved on branch `archive/v1-final`.
 
-PriceGauger is currently a live paper-analysis system with a deliberately separated execution subsystem. PostgreSQL is authoritative shared state, Railway runs the web/worker/stream services, and GitHub `main` is the deployment source.
+All architectural development after that point belongs to PriceGauger v2. v2 may replace v1 storage and analysis contracts; backward compatibility with the v1 database is not a design requirement.
 
-## Authoritative analysis path
+The authoritative v2 architecture is documented in `docs/PRICEGAUGER_V2_ARCHITECTURE.md`.
 
-The main directional analysis chain is:
+`main` remains the single integration branch. Every capability still follows:
 
-`Telegram -> semantic filter / event clusters -> Information State -> Technical State -> Decision State -> multi-horizon Forecast -> Outcome -> ForecastErrorObservation`
+fresh `main` -> isolated branch -> one bounded capability -> focused tests -> full CI -> draft PR -> architecture review -> fresh-main check -> exact-head merge.
 
-Important supporting layers:
+Do not resume stale v1 feature branches blindly. Treat them as historical references only.
 
-- News Context adds regime/context fields but must not add a duplicate directional news impulse.
-- Historical Engine can contribute only when an event-scoped historical signal already exists for the Decision State's contributing events. It is a conservative confirmation component, not an independent always-on directional engine.
-- The old automatic Historical Runtime producer branch was never integrated and is now considered stale. Historical Engine should therefore be treated as a safe optional/dormant consumer unless a fresh bounded producer capability is deliberately rebuilt from current `main`.
-- Decision State stores the actual engine component scores/weights used for auditability.
-- Forecasts are immutable. Historical Decision States/forecasts are never rewritten by newer information or learning.
+## v2 core model
 
-## Cross-market / adaptation observation chain
+The default control-group analysis path is:
 
-The cross-market chain is now live and persisted:
+`canonical market data -> deterministic Technical Core -> baseline forecast -> outcome`
 
-`CrossMarketState -> ResponseDivergence -> TransmissionState`
+Technical Core is the continuous baseline market model. It should be deterministic, inspectable and reproducible from canonical data plus a versioned recipe.
 
-### CrossMarketState
+Additional analysis is layered above the technical baseline rather than blended invisibly into it:
 
-- Produced during each authoritative state-runtime cycle, before the `no_material_change` early return.
-- Uses canonical Silver, Gold, Brent and DXY history.
-- Tracks 15m / 1h / 4h returns with explicit temporal window coverage.
-- Separates latest-observation freshness from horizon reference validity.
-- Defines US 2Y / 10Y / 30Y as yield observations, but leaves them explicitly `MISSING` until a verified yield feed exists. Treasury futures prices must never be substituted for yields.
-- Persists immutable timestamped snapshots with auditable reference timestamps/offsets.
+1. simple explicit cross-market priors;
+2. regime-aware interpretation of those relationships;
+3. external semantic context such as Telegram/news/macro/supply;
+4. optional AI review/orchestration/position management.
 
-### ResponseDivergence
+Higher layers may refine direction bias, velocity/timing, uncertainty, reversal/squeeze risk or permitted setup classes, but they must not silently replace the technical baseline with an unrelated opaque forecast.
 
-- Compares an Information State impulse with a later temporally valid Silver response.
-- A response horizon is never allowed to mature early; the full requested horizon must have elapsed after the Information State timestamp.
-- Classifies only `ALIGNED`, `DIVERGENT` or `UNCONFIRMED`.
-- Gold / Brent / DXY / yields remain descriptive supporting context and are not treated as causal proof.
+The user must always be able to strip the system back to Technical-only and see what each enabled layer changes.
 
-### TransmissionState
+## Forecast composition and UI
 
-- Interprets mature response observations only as mechanisms consistent with observed evidence.
-- Mechanisms: `SAFE_HAVEN`, `RATES_FX`, `ENERGY_INFLATION`, `INDUSTRIAL_GROWTH`, `RISK_LIQUIDITY`.
-- Uses discrete evidence classes (`SUPPORTED`, `PARTIAL`, `CONFLICTING`, `INSUFFICIENT`) rather than hand-written channel scores/confidence weights.
-- `dominant_channel` is set only when exactly one mechanism is supported and consistent with the realized Silver response; otherwise the state remains `UNRESOLVED`.
-- TransmissionState currently has no Decision State, forecast, notification or trading effect.
+The Technical Core produces the baseline path, terminal prediction and baseline uncertainty.
 
-## Forecast system
+Layer outputs should be structured and cacheable. Interactive forecast toggles should recompose an already-loaded workspace snapshot rather than reread PostgreSQL, rerun Technical Core or call an LLM again when the underlying data has not changed.
 
-Forecast production is multi-horizon and immutable. Current target horizons are:
+Target flow:
 
-`5m / 15m / 30m / 1h / 4h / 12h / 24h / 7d`
+`DB -> workspace snapshot -> technical baseline -> cached layer outputs -> selected composition -> render`
 
-Each Decision State can persist one deterministic forecast identity per horizon. The historical 4h identity recipe remains backward-compatible.
+The UI should expose the active analysis recipe explicitly, for example Technical-only versus Technical + CrossMarket + Regime + Macro.
 
-### What learns today
+Overview should show a short human-readable technical interpretation next to the chart. Detailed layer/state explanations belong on the market page.
 
-- Movement magnitude learns from COMPLETE outcomes independently per `market × horizon`.
-- Learning is versioned through immutable training recipes.
-- Direction learning is still disabled.
-- Regime learning is still disabled.
-- The established-technical conflict rule remains a deterministic prior for new Decision States; it is not learned direction weighting.
+## Context Thesis
 
-### Forecast path semantics
+Technical-only forecasts do not require a semantic thesis.
 
-The terminal expected-move interval remains authoritative.
+A Context Thesis becomes relevant when external/world-state information is allowed to modify the baseline. A full thesis is immutable and should state:
 
-For the newest active forecast only, the displayed intrahorizon path may use the frozen forecast judgement together with current technical regime and volatility to determine *when* movement is expressed. An opposing technical regime can therefore show an initial counter-move before convergence to an unchanged endpoint; aligned technical state may front-load the move. No random market noise is invented.
+- the regime/context claim;
+- directional or risk implication;
+- evidence;
+- what strengthens it;
+- what weakens or invalidates it;
+- missing inputs/uncertainty.
 
-Intrahorizon uncertainty is volatility-derived and vanishes at both forecast origin and terminal endpoint, so it never changes the persisted terminal prediction.
+Short updates point back to the same thesis while its foundation remains intact. A new full thesis is created only when the underlying foundation materially changes.
 
-Historical forecast geometry is visual context only because path evidence is not persisted. It must not be retrospectively treated as an authoritative minute-by-minute forecast. Forecast accuracy remains terminal/outcome based through the separate immutable error-observation path.
+`Thesis A -> update -> update -> invalidated -> Thesis B`
 
-### Forecast chart / diagnostics
+## AI role
 
-- Wall-clock `NOW` is the actual history/forecast boundary when it lies inside the visible chart.
-- Left side is realized canonical history; right side is prospective forecast.
-- Old forecast trails remain visible while they overlap the chart's retained forecast-history region and fade as historical context.
-- Canonical price gaps are not bridged by invented interpolation.
-- A horizon-specific signed forecast-error track shows immutable completed errors and display-only rolling diagnostics.
-- ResponseDivergence / TransmissionState may be overlaid as temporal adaptation context, but these associations are descriptive and not causal learning weights.
+AI is a consumer/orchestrator above the deterministic core, not a hidden dependency inside it.
 
-## Market chat
+AI may consume only the information channels enabled by the current recipe/session. It may analyze technicals, interpret context, summarize reports, help configure strategy recipes, propose position-management changes and act as an investment companion.
 
-Markedschat is read-only decision support. For every user turn it rebuilds context from authoritative PostgreSQL state and may carry conversation history only as conversational context.
+Every AI decision should produce both:
 
-Current context includes Decision State, Technical State, decision-engine components, News Context, event-scoped Historical signal, market mover, Telegram context, forecasts/outcomes and bounded canonical price history.
+- a structured backend record suitable for audit/evaluation; and
+- a short human-readable explanation suitable for the frontend.
 
-Known consistency gap: Markedschat does **not yet** include the newer CrossMarketState / ResponseDivergence / TransmissionState / forecast-error adaptation context in its authoritative prompt. Treat that as a separate future bounded capability rather than silently assuming the chat sees those layers.
+The structured decision record is authoritative for machine evaluation. The human summary is deliberately concise and should not become an unbounded reasoning archive.
 
-Markedschat must never create its own market truth, mutate worker status, or execute trades.
+## Dynamic instruments
 
-## Production data/runtime
+v2 must not hardcode Silver/Gold/Brent/etc. into the database schema or Technical Core.
 
-- PostgreSQL is canonical backend. SQLite is test-only where appropriate.
-- `pricegauger-web`: Streamlit read/render UI.
-- `pricegauger-worker`: continuous Telegram/context/state/forecast/outcome runtime.
-- server-side Saxo stream service: canonical realtime market-data producer.
-- canonical realtime flow: `Saxo stream -> canonical 1m bars -> PostgreSQL -> TradingDesk / analysis`.
-- reconnect/backfill repairs recent canonical gaps; browser/PC is never the authoritative stream producer.
-- Saxo instrument metadata is versioned in `config/saxo_instruments.json`; do not reintroduce an environment JSON silo unless an intentional temporary override is explicitly required.
+The system needs a dynamic market/instrument registry with separate provider mappings. Selecting a new Saxo instrument should create/activate data records, not require a schema or code change.
 
-When production behavior is in doubt, verify Railway runtime/logs and persisted PostgreSQL state. GitHub deployment metadata alone is not proof that a running service is healthy.
+Canonical bars refer to compact internal IDs. Provider metadata such as Saxo UIC, asset type, symbol and price multiplier belongs in reference/mapping tables and is not repeated in every market-data row.
 
-## AutoTrader / execution boundary
+Futures require lineage so multiple tradable contracts can map to the same economic market while preserving which actual contract sourced each observation.
 
-AutoTrader is a separate execution/risk-control subsystem.
+The current `config/saxo_instruments.json` is therefore a v1 bootstrap/fallback mechanism, not the v2 canonical instrument model.
 
-Current production-development boundary:
+## Database v2 direction
 
-- Saxo **SIM only**.
-- User-initiated manual execution only.
-- Shared AutoTrader/TradingDesk execution component; no parallel order path.
-- Product discovery and directional product sizing are read/preparation layers.
-- Execution path is `ManualOrderIntent -> server-side validation -> Saxo precheck -> explicit confirmation -> one SIM submit -> authoritative Saxo order/position read-back`.
-- Fail closed on stale intent, invalid SIM account, disclaimers/precheck failure or uncertain duplicate-submit state.
-- Browser never talks directly to Saxo.
+PostgreSQL remains the intended canonical backend, but v2 may start with a fresh schema. The v1 database may remain read-only as an archive. Only legacy data that is easy to migrate and demonstrably useful needs to be carried forward.
 
-Repository evidence does not currently record the explicit small end-to-end Saxo SIM order that PR #105 required before operational sign-off. Treat the execution code as CI-validated but **runtime verification pending** until a controlled SIM order confirms precheck -> confirmation -> submit -> read-back in the deployed environment.
+The database should be designed around information semantics rather than mirroring Python object graphs.
 
-The old MACD 30m AutoTrader draft was closed as superseded during stable-baseline cleanup. Automatic strategy/entry remains explicitly deferred. Any future automation must begin from fresh `main` and first have authoritative position reconciliation, persisted processed-event state, restart recovery and duplicate-action protection.
+Expected primary persisted classes:
 
-## TradingDesk
+- market/instrument registry and provider mappings;
+- compact canonical 1m OHLC bars;
+- versioned Technical States or enough deterministic recipe information to reproduce them;
+- analysis/forecast recipes;
+- immutable forecasts and outcomes;
+- sparse Context Theses and thesis updates;
+- raw evidence where audit/re-analysis requires it;
+- structured AI decisions plus concise human summaries;
+- strategy/risk configuration and later execution records;
+- latest-only operational/runtime status unless historical status proves analytically useful.
 
-TradingDesk shares the canonical Saxo/1m data path and the same execution component as AutoTrader.
+Do not persist intermediate calculations merely because they exist in code. Avoid repeated self-describing JSON in high-volume time-series tables.
 
-- Canonical 1m bars resample to supported chart timeframes.
-- Bollinger / MACD / RSI are default indicators.
-- EMA20 / EMA50 / SMA50 / Stochastic / ATR are available.
-- Page-specific controls live in the right control surface on wide layouts.
-- No parallel OAuth, market-data silo or execution motor is permitted.
+## Evaluation principle
 
-## Analysis status / degradation
+TA-only is the control group.
 
-`AnalysisStatusStore` is the user-visible health contract for runtime stages.
+Additional layers are introduced separately and must identify exactly which recipe/layers were active for each forecast or trading experiment.
 
-- Expected missing/stale data is represented explicitly rather than disguised as a crash.
-- Independent observation layers degrade locally where practical.
-- CrossMarketState failure causes ResponseDivergence / TransmissionState to be skipped rather than bringing down the main analysis cycle.
-- Healthy no-material-change technical reuse is surfaced as `REUSED/Gjenbrukt`, not as a misleading missing-analysis state.
+Examples:
 
-## Architecture discipline
+`TA`
 
-For every new capability:
+`TA + simple cross-market`
 
-1. Fresh `main`.
-2. Isolated branch.
-3. One bounded capability.
-4. Focused tests.
-5. Full GitHub Actions CI.
-6. Draft PR.
-7. Architecture/diff review.
-8. Fresh-main check.
-9. Merge with exact-head guard.
-10. For runtime changes, verify production service behavior after deployment.
+`TA + regime-aware cross-market`
 
-Do not resume stale branches blindly. Do not change three architectural concepts in one PR. Do not hide heuristics. Version priors/recipes. Preserve traceability:
+`TA + regime + macro`
 
-`forecast -> decision -> component scores/weights -> context -> outcome -> error observation -> learning recipe`
+This allows genuine ablation: a layer earns influence by improving forecast/trading outcomes or by supplying a clearly useful safety/diagnostic constraint.
 
-The central learning principle remains:
+## AutoTrader boundary
 
-**Semantics may propose explanations; observed data and outcomes decide which explanations deserve weight.**
+AutoTrader remains a separate execution/risk-control subsystem. v2 analysis can feed AutoTrader, but analysis layers cannot bypass execution policy.
 
-PriceGauger must get better at detecting when its model was wrong, not merely at explaining afterward why its original story sounded plausible.
+The initial v2 direction is deliberately measurable: simple Technical-only strategy recipes may be tested first, then extra analysis channels can be enabled one at a time.
 
-## Intentional gaps / next candidates
+Strategy/session configuration should be explicit and auditable. Core risk concepts include maximum exposure, trade/session loss limits, permitted instruments/actions and stop/target policy. More advanced trailing, scaling and dynamic de-risking should be separate strategy-management capabilities rather than hidden defaults.
 
-These are not regressions; they are explicitly incomplete capabilities:
+AI may later help configure or manage a strategy within explicit policy constraints, but the deterministic/risk boundary remains authoritative.
 
-- verified Treasury 2Y / 10Y / 30Y yield feed;
-- scheduled macro state for CPI / PPI / NFP with actual-consensus-revisions plus observed market response;
-- empirically validated direction learning and regime/transmission adaptation per market × horizon × regime;
-- richer industrial-growth/liquidity proxies for TransmissionState;
-- fresh Historical Runtime producer if Historical Engine is to become live rather than optional/dormant;
-- Markedschat context upgrade for CrossMarket / ResponseDivergence / Transmission / adaptation diagnostics;
-- controlled deployed Saxo SIM end-to-end verification of the manual execution path;
-- persistent thesis/follow mode and interactive counterfactual scenario workspace;
-- automatic trading only after separate explicit approval and execution-state safety work.
+## v1 reference
 
-Do not add new signals merely to increase feature count. Prefer production observation, outcome accumulation and identifiable learning improvements.
+The complete v1 architecture and implementation remain available at:
+
+`archive/v1-final` -> `443e144275407670230397f36aa6a9ea1bc56ba2`
+
+Useful v1 ideas such as CrossMarketState, ResponseDivergence and TransmissionState are not discarded. In v2 they become candidate context/regime tools that must be reintroduced deliberately and evaluated against the Technical-only baseline rather than assumed to be permanent core layers.
+
+## Immediate v2 build order
+
+1. Freeze/merge this v2 architecture foundation.
+2. Define and build DB v2 with dynamic instrument registry and compact canonical price storage.
+3. Build deterministic Technical Core v2 against the new data contract.
+4. Build baseline Technical-only forecast composition and UI recipe toggles.
+5. Connect simple measurable SIM strategy experiments through the separate AutoTrader risk/execution boundary.
+6. Reintroduce cross-market, regime, macro/news and AI layers one bounded capability at a time.
+7. Create subsystem-specific handoffs for the new crew only after the common v2 foundation is stable.
+
+## Guiding rule
+
+**Start with the simplest technically justified model. Preserve the baseline. Add information one layer at a time. Measure whether each added layer improves the result.**
