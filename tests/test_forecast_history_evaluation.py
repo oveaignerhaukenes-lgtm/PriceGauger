@@ -46,7 +46,8 @@ def test_history_evaluation_fades_in_only_in_older_half_of_history():
     assert _history_evaluation_strength(0.0, split_x=64.0) == 1.0
 
 
-def test_elapsed_forecasts_turn_into_measured_error_while_future_remains_forecast():
+def test_replaced_forecast_path_is_visual_context_not_reconstructed_error_evidence():
+    """A newer forecast must not make an old synthetic path retroactively authoritative."""
     start = datetime(2026, 8, 10, 0, 0, tzinfo=timezone.utc)
     forecasts = (
         _forecast(suffix="old", as_of=start),
@@ -66,6 +67,7 @@ def test_elapsed_forecasts_turn_into_measured_error_while_future_remains_forecas
     assert "HISTORIKK · FASIT" in svg
     assert "NÅ → PROGNOSE" in svg
     assert "pg-now-boundary" in svg
-    assert "pg-forecast-error" in svg
-    assert "EVALUERT" in svg
-    assert "gamle prognoser fader til målt avvik" in svg
+    assert svg.count("pg-forecast-base") == 2
+    assert "pg-forecast-error" not in svg
+    assert "EVALUERT" not in svg
+    assert "terminalfeil måles i modellfeilsporet" in svg

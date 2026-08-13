@@ -6,6 +6,7 @@ from math import ceil, floor, log10
 from typing import Iterable
 
 from forecast_contracts import ForecastSnapshot
+from forecast_path import ForecastPathEvidence, analysis_path_move, transient_path_uncertainty_pct
 from forecast_visuals import MISSING_INPUT_LABELS
 
 
@@ -55,12 +56,7 @@ def _profile(
 
 
 def _shape(progress: float, endpoint: float, profile: str) -> float:
-    """Legacy endpoint interpolation retained for stored v1 snapshots.
-
-    The renderer does not treat this qualitative geometry as additional market
-    evidence. A richer path must come from persisted analysis data rather than
-    invented visual noise.
-    """
+    """Legacy endpoint interpolation retained for historical v1 snapshots."""
     p = max(0.0, min(1.0, progress))
     if profile == "IMPULSE_REVERSAL":
         overshoot = endpoint * 1.25
@@ -190,7 +186,7 @@ def _observed_price_at(
 
 
 def _history_evaluation_strength(x: float, *, split_x: float) -> float:
-    """Fade forecast geometry into outcome error over the older half of history."""
+    """Fade older forecast geometry without turning it into authoritative error evidence."""
     if split_x <= 0 or x >= split_x:
         return 0.0
     age = max(0.0, min(1.0, 1.0 - x / split_x))
@@ -277,9 +273,10 @@ def render_forecast_timeline_svg(
 ) -> str:
     """Render immutable forecasts against canonical realized prices.
 
-    The time boundary is wall-clock ``now`` when it lies inside the chart. The
-    left side therefore evaluates already elapsed forecast path against truth;
-    the right side remains genuinely prospective.
+    Historical forecast geometry is visual context only because intrahorizon path
+    evidence is not persisted. The newest active layer may use current analysis
+    state for path timing, while authoritative historical accuracy remains the
+    terminal forecast/outcome tracked separately by ForecastErrorStore.
     """
     candidates = tuple(
         sorted(
@@ -327,13 +324,15 @@ def render_forecast_timeline_svg(
         return max(split_x, min(plot_right, split_x + displayed / future_span * (plot_right - split_x)))
 
     plotted_layers: list[dict[str, object]] = []
+    layer_count = len(layers)
+    evidence = ForecastPathEvidence(market_regime=market_regime, volatility_score=volatility_score)
     for index, item in enumerate(layers):
         snapshot = item.snapshot
         ref = float(snapshot.reference_price)
         low = float(snapshot.expected_move_low_pct)
         high = float(snapshot.expected_move_high_pct)
         base_end = (low + high) / 2.0
-        profile = _profile(snapshot, market_regime=market_regime, volatility_score=volatility_score)
+        is_active = index == layer_count - 1
         base: list[tuple[float, float]] = []
         base_timed: list[tuple[datetime, float, float]] = []
         bull: list[tuple[float, float]] = []
@@ -347,12 +346,42 @@ def render_forecast_timeline_svg(
             progress = step / step_count
             stamp = item.as_of + (item.ends_at - item.as_of) * progress
             x = xmap(stamp)
-            base_move = _shape(progress, base_end, profile)
-            bull_move = _shape(progress, high, profile)
-            bear_move = _shape(progress, low, profile)
+            if is_active:
+                base_move = analysis_path_move(
+                    progress,
+                    base_end,
+                    decision_score=float(snapshot.direction_score),
+                    confidence=float(snapshot.confidence),
+                    evidence=evidence,
+                )
+                bull_move = analysis_path_move(
+                    progress,
+                    high,
+                    decision_score=float(snapshot.direction_score),
+                    confidence=float(snapshot.confidence),
+                    evidence=evidence,
+                )
+                bear_move = analysis_path_move(
+                    progress,
+                    low,
+                    decision_score=float(snapshot.direction_score),
+                    confidence=float(snapshot.confidence),
+                    evidence=evidence,
+                )
+                transient = transient_path_uncertainty_pct(
+                    progress,
+                    base_end,
+                    confidence=float(snapshot.confidence),
+                    evidence=evidence,
+                )
+            else:
+                base_move = _shape(progress, base_end, "TREND")
+                bull_move = _shape(progress, high, "TREND")
+                bear_move = _shape(progress, low, "TREND")
+                transient = 0.0
             fan = progress ** fan_exponent
-            upper_move = base_move + max(0.0, high - base_end) * fan
-            lower_move = base_move - max(0.0, base_end - low) * fan
+            upper_move = base_move + max(0.0, high - base_end) * fan + transient
+            lower_move = base_move - max(0.0, base_end - low) * fan - transient
             base_price = ref * (1.0 + base_move / 100.0)
             base.append((x, base_price))
             base_timed.append((stamp, x, base_price))
@@ -370,6 +399,7 @@ def render_forecast_timeline_svg(
                 "bear": tuple(bear),
                 "upper": tuple(upper),
                 "lower": tuple(lower),
+                "analysis_derived": is_active,
             }
         )
 
@@ -425,9 +455,7 @@ def render_forecast_timeline_svg(
         )
 
     layer_markup: list[str] = []
-    error_markup: list[str] = []
     count = len(plotted_layers)
-    evaluated_layers = 0
     for ordinal, layer in enumerate(plotted_layers):
         upper = layer["upper"]
         lower = layer["lower"]
@@ -439,32 +467,16 @@ def render_forecast_timeline_svg(
         history_strength = _history_evaluation_strength(start_x, split_x=split_x)
         visual_line_opacity = line_opacity * (1.0 - 0.72 * history_strength)
         visual_fan_opacity = fan_opacity * (1.0 - 0.88 * history_strength)
+        analysis_class = " pg-analysis-derived-path" if layer["analysis_derived"] else ""
         layer_markup.append(
             f'<line x1="{start_x:.1f}" y1="8" x2="{start_x:.1f}" y2="96" style="stroke:{color};stroke-width:.45;stroke-opacity:{visual_line_opacity:.2f};stroke-dasharray:1.5 2;vector-effect:non-scaling-stroke" />'
         )
         layer_markup.append(
-            f'<polygon points="{fan_polygon}" class="pg-forecast-layer pg-forecast-fan" style="fill:{color};fill-opacity:{visual_fan_opacity:.2f};stroke:none" />'
+            f'<polygon points="{fan_polygon}" class="pg-forecast-layer pg-forecast-fan{analysis_class}" style="fill:{color};fill-opacity:{visual_fan_opacity:.2f};stroke:none" />'
         )
         layer_markup.append(
-            f'<polyline points="{_points(base, ymap=ymap)}" class="pg-forecast-layer pg-forecast-base" style="fill:none;stroke:{color};stroke-width:{1.15 if ordinal < count - 1 else 2.0};stroke-opacity:{visual_line_opacity:.2f};vector-effect:non-scaling-stroke" />'
+            f'<polyline points="{_points(base, ymap=ymap)}" class="pg-forecast-layer pg-forecast-base{analysis_class}" style="fill:none;stroke:{color};stroke-width:{1.15 if ordinal < count - 1 else 2.0};stroke-opacity:{visual_line_opacity:.2f};vector-effect:non-scaling-stroke" />'
         )
-
-        layer_has_evaluation = False
-        for stamp, x, predicted_price in layer["base_timed"]:
-            if stamp > split_time:
-                continue
-            strength = _history_evaluation_strength(x, split_x=split_x)
-            if strength <= 0.0:
-                continue
-            actual_price = _observed_price_at(observed, stamp)
-            if actual_price is None:
-                continue
-            layer_has_evaluation = True
-            error_markup.append(
-                f'<line x1="{x:.1f}" y1="{ymap(predicted_price):.1f}" x2="{x:.1f}" y2="{ymap(actual_price):.1f}" class="pg-forecast-error" style="stroke:#b45309;stroke-width:.8;stroke-opacity:{0.12 + 0.58 * strength:.2f};vector-effect:non-scaling-stroke"><title>Prognoseavvik: {predicted_price - actual_price:+.2f}</title></line>'
-            )
-        if layer_has_evaluation:
-            evaluated_layers += 1
 
     if plotted_layers:
         latest = plotted_layers[-1]
@@ -497,24 +509,21 @@ def render_forecast_timeline_svg(
     degradation = f" · {missing}" if missing else ""
     actual_label = "faktisk pris oppdateres fra canonical 1m-bars" if observed_in_window else "venter på faktisk pris"
     status_label = f"{len(layers)} AKTIVE SPOR"
-    if evaluated_layers:
-        status_label += f" · {evaluated_layers} EVALUERT"
 
     fragment = f'''<div class="pg-forecast-wrap" style="overflow:hidden">
       <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{status_label}</span></div>
       <div class="pg-forecast-plot" style="position:relative;height:13.5rem">
-        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Markedshistorikk, evaluerte prognoser og aktiv prognose">
+        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Markedshistorikk, historiske prognoser som visuell kontekst og aktiv analyseavledet prognose">
           {''.join(grid_markup)}
           {''.join(gap_markup)}
           {''.join(layer_markup)}
-          {''.join(error_markup)}
           {actual_markup}
         </svg>
         <div class="pg-timeline-zones" aria-hidden="true" style="position:absolute;left:0;right:10%;top:.15rem;display:grid;grid-template-columns:64fr 26fr;pointer-events:none;font-size:.52rem;font-weight:700;letter-spacing:.05em;opacity:.62"><span>HISTORIKK · FASIT</span><span style="text-align:center">NÅ → PROGNOSE</span></div>
         <div class="pg-price-axis" aria-hidden="true" style="position:absolute;inset:0;pointer-events:none">{''.join(axis_labels)}</div>
       </div>
       <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.72;margin-top:.08rem">
-        <span>gamle prognoser fader til målt avvik · kontrastlinje = faktisk pris</span><span>høyre = aktivt forecastvindu · prisakse</span>
+        <span>gamle prognoser fader som visuell kontekst · terminalfeil måles i modellfeilsporet</span><span>aktiv bane = analyse + teknisk state</span>
       </div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon_label} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
