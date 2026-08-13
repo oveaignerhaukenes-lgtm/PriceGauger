@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -14,6 +13,10 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _json_placeholder(db) -> str:
+    return "?::jsonb" if db.is_postgres else "?"
+
+
 def persist_technical_recipe(
     *,
     technical_recipe_id: UUID,
@@ -22,11 +25,12 @@ def persist_technical_recipe(
     parameters: dict[str, Any],
 ) -> None:
     with connect() as db:
+        json_value = _json_placeholder(db)
         db.execute(
-            """
+            f"""
             INSERT INTO pg_v2_technical_recipes
                 (technical_recipe_id, name, version, parameters_json)
-            VALUES (?, ?, ?, ?::jsonb)
+            VALUES (?, ?, ?, {json_value})
             ON CONFLICT (name, version) DO NOTHING
             """,
             (str(technical_recipe_id), name, int(version), _json(parameters)),
@@ -50,12 +54,13 @@ def persist_technical_state(
         "recipe_version": state.recipe_version,
     }
     with connect() as db:
+        json_value = _json_placeholder(db)
         db.execute(
-            """
+            f"""
             INSERT INTO pg_v2_technical_states
                 (technical_state_id, market_id, as_of, technical_recipe_id,
                  trend_state, momentum_state, volatility_state, features_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            VALUES (?, ?, ?, ?, ?, ?, ?, {json_value})
             ON CONFLICT (market_id, as_of, technical_recipe_id)
             DO UPDATE SET
                 trend_state = EXCLUDED.trend_state,
@@ -87,12 +92,13 @@ def persist_analysis_recipe(
     layer_versions: dict[str, str],
 ) -> None:
     with connect() as db:
+        json_value = _json_placeholder(db)
         db.execute(
-            """
+            f"""
             INSERT INTO pg_v2_analysis_recipes
                 (analysis_recipe_id, name, version, technical_recipe_id,
                  enabled_layers_json, layer_versions_json)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb)
+            VALUES (?, ?, ?, ?, {json_value}, {json_value})
             ON CONFLICT (name, version) DO UPDATE SET
                 enabled_layers_json = EXCLUDED.enabled_layers_json,
                 layer_versions_json = EXCLUDED.layer_versions_json
@@ -118,14 +124,15 @@ def persist_baseline_forecast(
 ) -> UUID:
     stored_forecast_id = forecast_id or uuid4()
     with connect() as db:
+        json_value = _json_placeholder(db)
         db.execute(
-            """
+            f"""
             INSERT INTO pg_v2_forecasts
                 (forecast_id, market_id, as_of, horizon_seconds,
                  technical_state_id, analysis_recipe_id,
                  baseline_return, composed_return, lower_return, upper_return,
                  path_spec_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {json_value})
             """,
             (
                 str(stored_forecast_id),
@@ -160,14 +167,15 @@ def persist_layer_output(
     details = dict(output.details)
     details.setdefault("confidence", output.confidence)
     with connect() as db:
+        json_value = _json_placeholder(db)
         db.execute(
-            """
+            f"""
             INSERT INTO pg_v2_forecast_layer_outputs
                 (layer_output_id, market_id, as_of, layer_name, layer_version,
                  input_fingerprint, directional_bias, velocity_modifier,
                  uncertainty_modifier, reversal_probability, squeeze_probability,
                  regime_confidence, details_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {json_value})
             ON CONFLICT (market_id, as_of, layer_name, layer_version, input_fingerprint)
             DO UPDATE SET
                 directional_bias = EXCLUDED.directional_bias,
