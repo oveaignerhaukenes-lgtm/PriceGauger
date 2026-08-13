@@ -5,11 +5,11 @@ from dataclasses import replace
 from technical_core_v2 import TechnicalBaselineForecast, TechnicalCoreState
 from technical_interpreter_v2 import TechnicalInterpretation
 from workspace_composer_v2 import (
-    AnalysisRecipe,
-    ForecastLayerOutput,
-    WorkspaceSnapshot,
-    apply_technical_interpretation,
+    AnalysisRecipeV2,
+    CachedLayerOutput,
+    WorkspaceSnapshotV2,
     compose_forecast,
+    technical_interpretation_to_layer_output,
 )
 
 
@@ -46,14 +46,19 @@ def _baseline(state: TechnicalCoreState | None = None) -> TechnicalBaselineForec
     )
 
 
-def _workspace() -> WorkspaceSnapshot:
+def _workspace() -> WorkspaceSnapshotV2:
     baseline = _baseline()
-    return WorkspaceSnapshot.from_baselines({baseline.horizon_seconds: baseline})
+    return WorkspaceSnapshotV2(
+        market=baseline.market,
+        as_of=baseline.as_of,
+        technical_state=baseline.technical_state,
+        technical_baselines={baseline.horizon_seconds: baseline},
+    )
 
 
 def test_technical_only_recipe_preserves_frozen_baseline():
     workspace = _workspace()
-    recipe = AnalysisRecipe(name="ta-only", version=1, enabled_layers=())
+    recipe = AnalysisRecipeV2(name="ta-only", version=1, enabled_layers=())
 
     composed = compose_forecast(workspace, horizon_seconds=3600, recipe=recipe)
 
@@ -81,27 +86,27 @@ def test_technical_interpreter_can_refine_without_mutating_baseline():
         human_summary="Momentum and participation support continuation.",
         source_technical_recipe="technical-core-v2.1",
     )
-    layer = apply_technical_interpretation(workspace, interpretation)
-    workspace = workspace.with_layer_output(layer)
-    recipe = AnalysisRecipe(name="ta-plus-interpreter", version=1, enabled_layers=("technical_interpreter",))
+    layer = technical_interpretation_to_layer_output(workspace, interpretation)
+    workspace.cache_layer(layer)
+    recipe = AnalysisRecipeV2(name="ta-plus-interpreter", version=1, enabled_layers=("technical-interpreter",))
 
     composed = compose_forecast(workspace, horizon_seconds=3600, recipe=recipe)
 
     assert composed.baseline_return == 0.004
     assert composed.composed_return > composed.baseline_return
-    assert composed.applied_layers == ("technical_interpreter",)
+    assert composed.applied_layers == ("technical-interpreter",)
     assert _baseline().expected_return == 0.004
 
 
 def test_stale_layer_output_is_rejected_by_workspace_fingerprint():
     workspace = _workspace()
-    stale = ForecastLayerOutput(
-        layer_name="technical_interpreter",
+    stale = CachedLayerOutput(
+        layer_name="technical-interpreter",
         layer_version="technical-interpreter-v2.1",
-        workspace_fingerprint="stale-fingerprint",
+        input_fingerprint="stale-fingerprint",
         directional_bias=0.4,
-        velocity_modifier=1.0,
-        uncertainty_modifier=1.0,
+        velocity_modifier=0.1,
+        uncertainty_modifier=0.1,
         reversal_probability=0.2,
         squeeze_probability=0.1,
         confidence=0.7,
@@ -109,9 +114,9 @@ def test_stale_layer_output_is_rejected_by_workspace_fingerprint():
     )
 
     try:
-        workspace.with_layer_output(stale)
+        workspace.cache_layer(stale)
     except ValueError as exc:
-        assert "fingerprint" in str(exc).lower()
+        assert "different workspace snapshot" in str(exc).lower()
     else:
         raise AssertionError("Expected ValueError")
 
@@ -119,29 +124,43 @@ def test_stale_layer_output_is_rejected_by_workspace_fingerprint():
 def test_new_technical_state_changes_workspace_fingerprint():
     first = _workspace()
     changed_state = replace(_state(), as_of="2026-08-14T00:01:00+00:00", score=0.2)
-    second = WorkspaceSnapshot.from_baselines({3600: _baseline(changed_state)})
+    changed_baseline = _baseline(changed_state)
+    second = WorkspaceSnapshotV2(
+        market=changed_baseline.market,
+        as_of=changed_baseline.as_of,
+        technical_state=changed_baseline.technical_state,
+        technical_baselines={3600: changed_baseline},
+    )
 
     assert first.fingerprint != second.fingerprint
 
 
 def test_recipe_can_toggle_cached_layer_without_recomputing_baseline():
     workspace = _workspace()
-    layer = ForecastLayerOutput(
-        layer_name="technical_interpreter",
+    layer = CachedLayerOutput(
+        layer_name="technical-interpreter",
         layer_version="technical-interpreter-v2.1",
-        workspace_fingerprint=workspace.fingerprint,
+        input_fingerprint=workspace.fingerprint,
         directional_bias=-0.3,
-        velocity_modifier=0.9,
-        uncertainty_modifier=1.2,
+        velocity_modifier=-0.1,
+        uncertainty_modifier=0.2,
         reversal_probability=0.65,
         squeeze_probability=0.1,
         confidence=0.7,
         details={},
     )
-    workspace = workspace.with_layer_output(layer)
+    workspace.cache_layer(layer)
 
-    ta_only = compose_forecast(workspace, horizon_seconds=3600, recipe=AnalysisRecipe(name="ta", version=1, enabled_layers=()))
-    interpreted = compose_forecast(workspace, horizon_seconds=3600, recipe=AnalysisRecipe(name="ta+i", version=1, enabled_layers=("technical_interpreter",)))
+    ta_only = compose_forecast(
+        workspace,
+        horizon_seconds=3600,
+        recipe=AnalysisRecipeV2(name="ta", version=1, enabled_layers=()),
+    )
+    interpreted = compose_forecast(
+        workspace,
+        horizon_seconds=3600,
+        recipe=AnalysisRecipeV2(name="ta+i", version=1, enabled_layers=("technical-interpreter",)),
+    )
 
     assert ta_only.baseline_return == interpreted.baseline_return == 0.004
     assert ta_only.composed_return != interpreted.composed_return
