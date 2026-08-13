@@ -60,8 +60,6 @@ def _one_minute_frame(points: Iterable[tuple[str, float]]) -> pd.DataFrame:
     frame = frame.drop_duplicates("timestamp", keep="last")
     if frame.empty:
         raise ValueError("Canonical 1m history contained no valid observations")
-    # Canonical v1 history currently exposes close-only points. Use close as OHLC so
-    # trend/momentum remain live without inventing intrabar range or volume.
     for column in ("open", "high", "low"):
         frame[column] = frame["close"]
     return frame.reset_index(drop=True)
@@ -69,7 +67,9 @@ def _one_minute_frame(points: Iterable[tuple[str, float]]) -> pd.DataFrame:
 
 def _complete_resampled_bars(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
     data = frame.set_index("timestamp")
-    aggregated = data.resample(rule, label="right", closed="right").agg(
+    latest_observation = frame["timestamp"].iloc[-1]
+
+    aggregated = data.resample(rule, label="left", closed="left").agg(
         open=("open", "first"),
         high=("high", "max"),
         low=("low", "min"),
@@ -79,9 +79,12 @@ def _complete_resampled_bars(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
     if aggregated.empty:
         return aggregated.reset_index()
 
-    latest_observation = frame["timestamp"].iloc[-1]
-    complete = aggregated.loc[aggregated.index <= latest_observation]
-    return complete.reset_index()
+    # Keep the currently forming bucket because Technical Core is a live runtime
+    # observation, not a closed-bar-only backtest. Its close must therefore match
+    # the latest canonical 1m observation while preserving completed historical
+    # buckets before it.
+    aggregated = aggregated.loc[aggregated.index <= latest_observation]
+    return aggregated.reset_index()
 
 
 def build_runtime_frames_v2(
