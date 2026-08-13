@@ -10,7 +10,7 @@
 
 ## Temporal rule
 
-A response window is evaluable only after it has matured. For example, a 15-minute response to Information State at `t0` must come from a later CrossMarket snapshot whose valid 15-minute reference points back to `t0` within the alignment tolerance. A trailing 15-minute return ending at `t0` is never treated as the response to information observed at `t0`.
+A response window is evaluable only after the full requested horizon has matured after Information State time `t0`. For example, a 15-minute response to Information State at `t0` must come from a CrossMarket snapshot at or after `t0 + 15m`, and that snapshot's valid 15-minute reference must point back to `t0` within the alignment tolerance. A trailing 15-minute return ending at `t0` is never treated as the response to information observed at `t0`.
 
 ## Outcomes
 
@@ -20,12 +20,15 @@ A response window is evaluable only after it has matured. For example, a 15-minu
 
 Neutral information impulses, invalid CrossMarket windows, and temporally misaligned observations are not persisted as divergence evaluations.
 
-Supporting Gold, Brent, DXY, and Treasury observations are stored as descriptive context only. v1 does not label any supporting move as a cause or transmission channel.
+Supporting Gold, Brent, DXY, and Treasury observations are stored as descriptive context only. ResponseDivergence itself does not label any supporting move as a cause or transmission channel.
+
+## Downstream boundary
+
+`TransmissionState` now exists as a **separate downstream consumer** of mature ResponseDivergence observations. It must not be folded back into this observation contract. ResponseDivergence remains the auditable statement that information and realized response aligned, diverged or stayed unconfirmed; TransmissionState separately asks which mechanism, if any, is consistent with the observed evidence.
 
 ## Scope guardrails
 
-- No `TransmissionState`.
-- No causal classification.
+- No causal classification inside ResponseDivergence.
 - No new directional weights.
 - No Decision State or forecast influence.
 - No notifications or trading actions.
