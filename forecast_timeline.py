@@ -186,7 +186,7 @@ def _observed_price_at(
 
 
 def _history_evaluation_strength(x: float, *, split_x: float) -> float:
-    """Fade forecast geometry into outcome error over the older half of history."""
+    """Fade older forecast geometry without turning it into authoritative error evidence."""
     if split_x <= 0 or x >= split_x:
         return 0.0
     age = max(0.0, min(1.0, 1.0 - x / split_x))
@@ -273,11 +273,10 @@ def render_forecast_timeline_svg(
 ) -> str:
     """Render immutable forecasts against canonical realized prices.
 
-    Historical layers retain stable endpoint interpolation because their exact
-    technical path evidence is not persisted yet. The newest active layer uses
-    the current persisted Decision State plus technical regime/volatility passed
-    by Overview, so the projected path may express alignment, counter-momentum
-    and intrahorizon uncertainty without inventing stochastic wiggles.
+    Historical forecast geometry is visual context only because intrahorizon path
+    evidence is not persisted. The newest active layer may use current analysis
+    state for path timing, while authoritative historical accuracy remains the
+    terminal forecast/outcome tracked separately by ForecastErrorStore.
     """
     candidates = tuple(
         sorted(
@@ -456,9 +455,7 @@ def render_forecast_timeline_svg(
         )
 
     layer_markup: list[str] = []
-    error_markup: list[str] = []
     count = len(plotted_layers)
-    evaluated_layers = 0
     for ordinal, layer in enumerate(plotted_layers):
         upper = layer["upper"]
         lower = layer["lower"]
@@ -480,23 +477,6 @@ def render_forecast_timeline_svg(
         layer_markup.append(
             f'<polyline points="{_points(base, ymap=ymap)}" class="pg-forecast-layer pg-forecast-base{analysis_class}" style="fill:none;stroke:{color};stroke-width:{1.15 if ordinal < count - 1 else 2.0};stroke-opacity:{visual_line_opacity:.2f};vector-effect:non-scaling-stroke" />'
         )
-
-        layer_has_evaluation = False
-        for stamp, x, predicted_price in layer["base_timed"]:
-            if stamp > split_time:
-                continue
-            strength = _history_evaluation_strength(x, split_x=split_x)
-            if strength <= 0.0:
-                continue
-            actual_price = _observed_price_at(observed, stamp)
-            if actual_price is None:
-                continue
-            layer_has_evaluation = True
-            error_markup.append(
-                f'<line x1="{x:.1f}" y1="{ymap(predicted_price):.1f}" x2="{x:.1f}" y2="{ymap(actual_price):.1f}" class="pg-forecast-error" style="stroke:#b45309;stroke-width:.8;stroke-opacity:{0.12 + 0.58 * strength:.2f};vector-effect:non-scaling-stroke"><title>Prognoseavvik: {predicted_price - actual_price:+.2f}</title></line>'
-            )
-        if layer_has_evaluation:
-            evaluated_layers += 1
 
     if plotted_layers:
         latest = plotted_layers[-1]
@@ -529,24 +509,21 @@ def render_forecast_timeline_svg(
     degradation = f" · {missing}" if missing else ""
     actual_label = "faktisk pris oppdateres fra canonical 1m-bars" if observed_in_window else "venter på faktisk pris"
     status_label = f"{len(layers)} AKTIVE SPOR"
-    if evaluated_layers:
-        status_label += f" · {evaluated_layers} EVALUERT"
 
     fragment = f'''<div class="pg-forecast-wrap" style="overflow:hidden">
       <div class="pg-forecast-head"><span>PROGNOSE VS. VIRKELIGHET</span><span>{status_label}</span></div>
       <div class="pg-forecast-plot" style="position:relative;height:13.5rem">
-        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Markedshistorikk, evaluerte prognoser og aktiv analyseavledet prognose">
+        <svg class="pg-forecast-svg" style="height:13.5rem;display:block" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Markedshistorikk, historiske prognoser som visuell kontekst og aktiv analyseavledet prognose">
           {''.join(grid_markup)}
           {''.join(gap_markup)}
           {''.join(layer_markup)}
-          {''.join(error_markup)}
           {actual_markup}
         </svg>
         <div class="pg-timeline-zones" aria-hidden="true" style="position:absolute;left:0;right:10%;top:.15rem;display:grid;grid-template-columns:64fr 26fr;pointer-events:none;font-size:.52rem;font-weight:700;letter-spacing:.05em;opacity:.62"><span>HISTORIKK · FASIT</span><span style="text-align:center">NÅ → PROGNOSE</span></div>
         <div class="pg-price-axis" aria-hidden="true" style="position:absolute;inset:0;pointer-events:none">{''.join(axis_labels)}</div>
       </div>
       <div style="display:flex;justify-content:space-between;gap:.5rem;font-size:.58rem;opacity:.72;margin-top:.08rem">
-        <span>gamle prognoser fader til målt avvik · kontrastlinje = faktisk pris</span><span>aktiv bane = analyse + teknisk state</span>
+        <span>gamle prognoser fader som visuell kontekst · terminalfeil måles i modellfeilsporet</span><span>aktiv bane = analyse + teknisk state</span>
       </div>
       <div class="pg-forecast-meta"><strong>{interval}</strong> · {horizon_label} · {latest_snapshot.status}{degradation} · {actual_label}</div>
     </div>'''
