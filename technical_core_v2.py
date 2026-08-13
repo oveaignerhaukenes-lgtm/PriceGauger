@@ -79,7 +79,7 @@ def _snapshot_score(snapshot: TechnicalSnapshot) -> tuple[float, int]:
     return weighted / weight_total, len(snapshot.readings)
 
 
-def _classify(value: float, *, strong: float = 0.30) -> str:
+def _classify(value: float, *, strong: float = 0.15) -> str:
     if value >= strong:
         return "BULLISH"
     if value <= -strong:
@@ -136,6 +136,25 @@ def _pick_primary(snapshots: dict[str, TechnicalSnapshot]) -> str:
     return sorted(snapshots)[0]
 
 
+def _score_primary_snapshot(snapshot: TechnicalSnapshot) -> float:
+    components: list[tuple[float, float]] = []
+    if snapshot.ema_20 is not None and snapshot.ema_50 is not None:
+        components.append((1.0 if snapshot.ema_20 > snapshot.ema_50 else -1.0 if snapshot.ema_20 < snapshot.ema_50 else 0.0, 1.4))
+    if snapshot.macd_histogram is not None:
+        components.append((1.0 if snapshot.macd_histogram > 0 else -1.0 if snapshot.macd_histogram < 0 else 0.0, 1.0))
+    if snapshot.rsi_14 is not None:
+        components.append((1.0 if snapshot.rsi_14 >= 55 else -1.0 if snapshot.rsi_14 <= 45 else 0.0, 0.8))
+    if snapshot.market_structure == "HH_HL":
+        components.append((1.0, 1.2))
+    elif snapshot.market_structure == "LH_LL":
+        components.append((-1.0, 1.2))
+    if not components:
+        return 0.0
+    weighted = sum(value * weight for value, weight in components)
+    total = sum(weight for _, weight in components)
+    return weighted / total
+
+
 def build_technical_core_state(
     frames: dict[str, pd.DataFrame],
     *,
@@ -150,7 +169,9 @@ def build_technical_core_state(
     weight_total = 0.0
     evidence_count = 0
     for timeframe, snapshot in snapshots.items():
-        score, reading_count = _snapshot_score(snapshot)
+        generic_score, reading_count = _snapshot_score(snapshot)
+        primary_score = _score_primary_snapshot(snapshot)
+        score = 0.7 * primary_score + 0.3 * generic_score
         weight = timeframe_weights.get(timeframe, 0.6)
         weighted_score += score * weight
         weight_total += weight
