@@ -34,10 +34,6 @@ class ForecastOutcomeV2:
     signed_error: float | None
     status: str
 
-    @property
-    def direction_hit(self) -> bool | None:
-        return None
-
 
 PricePointV2 = tuple[str, float]
 PricePathResolverV2 = Callable[[ForecastClaimV2], Sequence[PricePointV2]]
@@ -88,7 +84,7 @@ def evaluate_forecast_claim_v2(
     if not normalized:
         return None
 
-    reference_at, reference_price = normalized[0]
+    _, reference_price = normalized[0]
     active_seconds = 0.0
     cursor = _utc(claim.as_of)
     terminal_at: datetime | None = None
@@ -126,12 +122,14 @@ def evaluate_forecast_claim_v2(
 
 
 def interval_hit_v2(claim: ForecastClaimV2, outcome: ForecastOutcomeV2) -> bool | None:
+    """Return interval coverage without storing a redundant derived column."""
     if claim.lower_return is None or claim.upper_return is None:
         return None
     return float(claim.lower_return) <= outcome.realized_return <= float(claim.upper_return)
 
 
 def direction_hit_v2(claim: ForecastClaimV2, outcome: ForecastOutcomeV2) -> bool | None:
+    """Return directional correctness from the frozen composed forecast."""
     predicted = claim.composed_return
     if predicted is None:
         return None
@@ -184,7 +182,9 @@ def load_unevaluated_forecast_claims_v2(*, limit: int = 500) -> tuple[ForecastCl
 
     claims: list[ForecastClaimV2] = []
     for row in rows:
-        get = (lambda key, index: row[key] if isinstance(row, dict) else row[index])
+        def get(key: str, index: int):
+            return row[key] if isinstance(row, dict) else row[index]
+
         claims.append(
             ForecastClaimV2(
                 forecast_id=UUID(str(get("forecast_id", 0))),
