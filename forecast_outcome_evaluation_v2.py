@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 from typing import Callable, Iterable, Sequence
 from uuid import UUID
 
@@ -122,10 +123,15 @@ def evaluate_forecast_claim_v2(
 
 
 def interval_hit_v2(claim: ForecastClaimV2, outcome: ForecastOutcomeV2) -> bool | None:
-    """Return interval coverage without storing a redundant derived column."""
+    """Return interval coverage with tolerant inclusive float boundaries."""
     if claim.lower_return is None or claim.upper_return is None:
         return None
-    return float(claim.lower_return) <= outcome.realized_return <= float(claim.upper_return)
+    low = float(claim.lower_return)
+    high = float(claim.upper_return)
+    realized = float(outcome.realized_return)
+    above_low = realized > low or math.isclose(realized, low, rel_tol=1e-12, abs_tol=1e-15)
+    below_high = realized < high or math.isclose(realized, high, rel_tol=1e-12, abs_tol=1e-15)
+    return above_low and below_high
 
 
 def direction_hit_v2(claim: ForecastClaimV2, outcome: ForecastOutcomeV2) -> bool | None:
@@ -138,7 +144,7 @@ def direction_hit_v2(claim: ForecastClaimV2, outcome: ForecastOutcomeV2) -> bool
         return outcome.realized_return > 0
     if predicted < 0:
         return outcome.realized_return < 0
-    return outcome.realized_return == 0
+    return math.isclose(outcome.realized_return, 0.0, rel_tol=0.0, abs_tol=1e-15)
 
 
 def persist_forecast_outcome_v2(outcome: ForecastOutcomeV2) -> None:
