@@ -91,6 +91,12 @@ def persist_analysis_recipe(
     enabled_layers: tuple[str, ...],
     layer_versions: dict[str, str],
 ) -> None:
+    """Persist an immutable analysis recipe identity.
+
+    A (name, version) pair is a historical contract. Changing enabled layers or
+    layer versions therefore requires a new recipe version rather than rewriting
+    an existing row that old forecasts already reference.
+    """
     with connect() as db:
         json_value = _json_placeholder(db)
         db.execute(
@@ -99,9 +105,7 @@ def persist_analysis_recipe(
                 (analysis_recipe_id, name, version, technical_recipe_id,
                  enabled_layers_json, layer_versions_json)
             VALUES (?, ?, ?, ?, {json_value}, {json_value})
-            ON CONFLICT (name, version) DO UPDATE SET
-                enabled_layers_json = EXCLUDED.enabled_layers_json,
-                layer_versions_json = EXCLUDED.layer_versions_json
+            ON CONFLICT (name, version) DO NOTHING
             """,
             (
                 str(analysis_recipe_id),
