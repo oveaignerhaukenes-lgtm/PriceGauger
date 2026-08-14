@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
+
 from forecast_outcome_evaluation_v2 import (
     ForecastClaimV2,
     direction_hit_v2,
@@ -45,9 +47,9 @@ def test_complete_outcome_uses_active_horizon_and_composed_error():
     assert outcome.status == "COMPLETE"
     assert outcome.reference_price == 100.0
     assert outcome.realized_terminal_price == 103.0
-    assert outcome.realized_return == 0.03
-    assert outcome.signed_error == 0.01
-    assert outcome.absolute_error == 0.01
+    assert outcome.realized_return == pytest.approx(0.03)
+    assert outcome.signed_error == pytest.approx(0.01)
+    assert outcome.absolute_error == pytest.approx(0.01)
     assert outcome.matured_at == "2026-08-14T10:05:00+00:00"
     assert direction_hit_v2(_claim(), outcome) is True
     assert interval_hit_v2(_claim(), outcome) is True
@@ -111,7 +113,7 @@ def test_missing_prediction_still_records_objective_realized_result():
     )
 
     assert outcome is not None
-    assert outcome.realized_return == 0.01
+    assert outcome.realized_return == pytest.approx(0.01)
     assert outcome.signed_error is None
     assert outcome.absolute_error is None
     assert direction_hit_v2(claim, outcome) is None
