@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from database import connect
 from technical_core_v2 import TechnicalBaselineForecast, TechnicalCoreState
 from workspace_composer_v2 import CachedLayerOutput, WorkspaceSnapshotV2
+
+
+PERSISTENCE_NAMESPACE_V2 = UUID("3a53f5bd-9420-41e1-a52b-b97417c47964")
 
 
 def _json(value: Any) -> str:
@@ -15,6 +18,30 @@ def _json(value: Any) -> str:
 
 def _json_placeholder(db) -> str:
     return "?::jsonb" if db.is_postgres else "?"
+
+
+def technical_state_identity_v2(*, market_id: int, as_of: str, technical_recipe_id: UUID) -> UUID:
+    return uuid5(
+        PERSISTENCE_NAMESPACE_V2,
+        f"technical-state:{int(market_id)}:{as_of}:{technical_recipe_id}",
+    )
+
+
+def forecast_identity_v2(
+    *,
+    market_id: int,
+    as_of: str,
+    horizon_seconds: int,
+    technical_state_id: UUID,
+    analysis_recipe_id: UUID,
+) -> UUID:
+    return uuid5(
+        PERSISTENCE_NAMESPACE_V2,
+        (
+            f"forecast:{int(market_id)}:{as_of}:{int(horizon_seconds)}:"
+            f"{technical_state_id}:{analysis_recipe_id}"
+        ),
+    )
 
 
 def persist_technical_recipe(
@@ -44,7 +71,11 @@ def persist_technical_state(
     state: TechnicalCoreState,
     technical_state_id: UUID | None = None,
 ) -> UUID:
-    state_id = technical_state_id or uuid4()
+    state_id = technical_state_id or technical_state_identity_v2(
+        market_id=market_id,
+        as_of=state.as_of,
+        technical_recipe_id=technical_recipe_id,
+    )
     features = {
         "primary_timeframe": state.primary_timeframe,
         "structure_state": state.structure_state,
@@ -61,12 +92,7 @@ def persist_technical_state(
                 (technical_state_id, market_id, as_of, technical_recipe_id,
                  trend_state, momentum_state, volatility_state, features_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, {json_value})
-            ON CONFLICT (market_id, as_of, technical_recipe_id)
-            DO UPDATE SET
-                trend_state = EXCLUDED.trend_state,
-                momentum_state = EXCLUDED.momentum_state,
-                volatility_state = EXCLUDED.volatility_state,
-                features_json = EXCLUDED.features_json
+            ON CONFLICT (market_id, as_of, technical_recipe_id) DO NOTHING
             """,
             (
                 str(state_id),
@@ -126,7 +152,13 @@ def persist_baseline_forecast(
     baseline: TechnicalBaselineForecast,
     forecast_id: UUID | None = None,
 ) -> UUID:
-    stored_forecast_id = forecast_id or uuid4()
+    stored_forecast_id = forecast_id or forecast_identity_v2(
+        market_id=market_id,
+        as_of=baseline.as_of,
+        horizon_seconds=baseline.horizon_seconds,
+        technical_state_id=technical_state_id,
+        analysis_recipe_id=analysis_recipe_id,
+    )
     with connect() as db:
         json_value = _json_placeholder(db)
         db.execute(
@@ -137,6 +169,7 @@ def persist_baseline_forecast(
                  baseline_return, composed_return, lower_return, upper_return,
                  path_spec_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {json_value})
+            ON CONFLICT (forecast_id) DO NOTHING
             """,
             (
                 str(stored_forecast_id),
