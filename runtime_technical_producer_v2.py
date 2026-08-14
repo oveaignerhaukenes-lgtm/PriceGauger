@@ -20,15 +20,9 @@ from technical_core_v2 import (
     build_baseline_forecast,
     build_technical_core_state,
 )
+from timeframe_contract_v2 import build_runtime_frames_from_canonical_1m_v2
 
 
-DEFAULT_TIMEFRAMES: dict[str, str] = {
-    "5m": "5min",
-    "15m": "15min",
-    "30m": "30min",
-    "1h": "1h",
-    "4h": "4h",
-}
 DEFAULT_HORIZONS = (300, 900, 1800, 3600, 14400)
 
 
@@ -49,54 +43,13 @@ def _to_utc(value: str) -> pd.Timestamp:
     return timestamp
 
 
-def _one_minute_frame(points: Iterable[tuple[str, float]]) -> pd.DataFrame:
-    rows = [(stamp, float(price)) for stamp, price in points]
-    if not rows:
-        raise ValueError("Technical Core v2 producer requires canonical 1m history")
-    frame = pd.DataFrame(rows, columns=["timestamp", "close"])
-    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="coerce")
-    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
-    frame = frame.dropna(subset=["timestamp", "close"]).sort_values("timestamp")
-    frame = frame.drop_duplicates("timestamp", keep="last")
-    if frame.empty:
-        raise ValueError("Canonical 1m history contained no valid observations")
-    for column in ("open", "high", "low"):
-        frame[column] = frame["close"]
-    return frame.reset_index(drop=True)
-
-
-def _complete_resampled_bars(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
-    data = frame.set_index("timestamp")
-    latest_observation = frame["timestamp"].iloc[-1]
-
-    aggregated = data.resample(rule, label="left", closed="left").agg(
-        open=("open", "first"),
-        high=("high", "max"),
-        low=("low", "min"),
-        close=("close", "last"),
-    )
-    aggregated = aggregated.dropna(subset=["close"])
-    if aggregated.empty:
-        return aggregated.reset_index()
-
-    # Keep the currently forming bucket because Technical Core is a live runtime
-    # observation, not a closed-bar-only backtest. Its close must therefore match
-    # the latest canonical 1m observation while preserving completed historical
-    # buckets before it.
-    aggregated = aggregated.loc[aggregated.index <= latest_observation]
-    return aggregated.reset_index()
-
-
 def build_runtime_frames_v2(
     points: Iterable[tuple[str, float]],
     *,
     timeframes: dict[str, str] | None = None,
 ) -> dict[str, pd.DataFrame]:
-    one_minute = _one_minute_frame(points)
-    frames: dict[str, pd.DataFrame] = {"1m": one_minute}
-    for name, rule in (timeframes or DEFAULT_TIMEFRAMES).items():
-        frames[name] = _complete_resampled_bars(one_minute, rule)
-    return frames
+    """Compatibility entrypoint backed by the canonical v2 timeframe contract."""
+    return build_runtime_frames_from_canonical_1m_v2(points, timeframes=timeframes)
 
 
 def produce_technical_runtime_v2(
