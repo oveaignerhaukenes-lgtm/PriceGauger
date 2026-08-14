@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS pg_v2_forecasts (
     lower_return DOUBLE PRECISION,
     upper_return DOUBLE PRECISION,
     path_spec_json JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(market_id, as_of, horizon_seconds, technical_state_id, analysis_recipe_id)
 );
 
 CREATE INDEX IF NOT EXISTS pg_v2_forecasts_market_time_idx
