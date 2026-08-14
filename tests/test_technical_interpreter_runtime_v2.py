@@ -160,16 +160,25 @@ def test_technical_only_forecast_remains_identical_after_interpreter_generation(
     assert interpreted.composed_return != 0.004
 
 
-def test_persistence_requires_market_id_before_write():
+def test_persistence_requires_market_id_before_interpreter_or_workspace_mutation():
     workspace = _workspace()
+    calls = 0
+
+    def fake_interpreter(payload):
+        nonlocal calls
+        calls += 1
+        return _valid_response()
 
     try:
         run_technical_interpreter_v2(
             workspace=workspace,
-            interpreter=lambda payload: _valid_response(),
+            interpreter=fake_interpreter,
             persist=True,
         )
     except ValueError as exc:
         assert "market_id" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+    assert calls == 0
+    assert "technical-interpreter" not in workspace.layer_outputs
