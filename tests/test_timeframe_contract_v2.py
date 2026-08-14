@@ -43,7 +43,9 @@ def test_live_bucket_uses_latest_real_observation_without_forward_fill():
     assert five.iloc[0]["close"] == 104.0
     assert five.iloc[1]["open"] == 105.0
     assert five.iloc[1]["close"] == 106.0
-    assert frames["1m"].shape[0] == 4
+    # Five real minute observations were supplied; the two missing minutes were
+    # not synthesized, so canonical 1m retains exactly those five observations.
+    assert frames["1m"].shape[0] == 5
 
 
 def test_timeframe_buckets_are_utc_epoch_aligned():
