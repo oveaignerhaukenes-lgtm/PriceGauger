@@ -58,6 +58,9 @@ def run_technical_interpreter_v2(
     Returned data must pass the existing strict TechnicalInterpretation contract
     before it can modify a forecast.
     """
+    if persist and market_id is None:
+        raise ValueError("market_id is required when persisting interpreter output")
+
     if allow_cached:
         cached = _matching_cached_output(workspace, recipe_version=recipe_version)
         if cached is not None:
@@ -81,8 +84,6 @@ def run_technical_interpreter_v2(
     workspace.cache_layer(output)
 
     if persist:
-        if market_id is None:
-            raise ValueError("market_id is required when persisting interpreter output")
         persist_layer_output(
             market_id=int(market_id),
             as_of=workspace.as_of,
