@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from build_info import render_build_badge
+from companion_ui_v2 import render_companion_panel_v2
 from overview_v2_read_model import load_v2_overview_snapshots
 from runtime_health_v2 import freshness_health_v2, load_runtime_health_v2
 from v2_forecast_visualization import (
@@ -134,6 +135,8 @@ def _render_inspector() -> None:
         st.caption(
             "Technical Interpreter er foreløpig ikke en del av live TA-runtime. Toggle blir aktiv automatisk når et kompatibelt cached layer-output finnes."
         )
+
+    render_companion_panel_v2(view)
 
 
 _fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
