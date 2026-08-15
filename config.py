@@ -71,3 +71,7 @@ def openai_api_key() -> str:
 
 def openai_market_model() -> str:
     return get_secret("OPENAI_MARKET_MODEL") or "gpt-5-mini"
+
+
+def openai_companion_model() -> str:
+    return get_secret("OPENAI_COMPANION_MODEL") or openai_market_model()
