@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
-from typing import Mapping
 
 from overview_v2_read_model import OverviewTechnicalV2, load_v2_overview_snapshots
 from runtime_health_v2 import RuntimeHealthV2, freshness_health_v2, load_runtime_health_v2
@@ -10,7 +9,9 @@ from v2_forecast_visualization import V2_FORECAST_CSS, render_v2_forecast_chart,
 
 
 _HORIZON_PREFIX = "overview_v2_horizon:"
+_LEGACY_HORIZON_PREFIX = "overview_forecast_horizon:"
 _INTERPRETER_PREFIX = "overview_v2_interpreter:"
+_DEFAULT_OVERVIEW_HORIZON_SECONDS = 4 * 3600
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,24 @@ def _horizon_label(seconds: int) -> str:
     if abs(hours - 168.0) <= 1e-6:
         return "7d"
     return f"{hours:g}t"
+
+
+def _preferred_horizon(available: tuple[int, ...], session_state, market: str) -> int:
+    """Keep Overview's established 4h default and honor a prior legacy selection."""
+    values = tuple(sorted({int(value) for value in available if int(value) > 0}))
+    if not values:
+        raise LookupError("v2 workspace contains no forecast horizons")
+
+    requested: int | None = None
+    legacy = session_state.get(f"{_LEGACY_HORIZON_PREFIX}{market}")
+    if legacy is not None:
+        try:
+            requested = int(round(float(legacy) * 3600.0))
+        except (TypeError, ValueError):
+            requested = None
+    if requested is None:
+        requested = _DEFAULT_OVERVIEW_HORIZON_SECONDS
+    return min(values, key=lambda value: (abs(value - requested), value))
 
 
 def _direction_label(direction: str) -> str:
@@ -128,6 +147,8 @@ OVERVIEW_V2_CSS = V2_FORECAST_CSS + """
 .pg-analysis-v2 .pg-v2-recipe{margin-bottom:.45rem}
 .pg-forecast-v2 .pg-v2-chart{border:0;background:transparent;padding:0;height:100%}
 .pg-forecast-v2 .pg-v2-chart svg{height:9.4rem}
+.pg-market-card-v2 .pg-v2-path{stroke:var(--market-color)}
+.pg-market-card-v2 .pg-v2-fan{fill:var(--market-color)}
 .pg-v2-overview-controls{margin:.15rem 0 .3rem}
 .pg-v2-health-warning{font-weight:650}
 @media(max-width:1100px){.pg-market-layout-v2{grid-template-columns:minmax(0,3fr) minmax(13rem,1.4fr)!important}.pg-forecast-v2{grid-column:1 / -1}.pg-forecast-v2 .pg-v2-chart svg{height:8.5rem}}
@@ -164,15 +185,16 @@ def render_v2_overview_market_cards(st, *, asset_color, market_detail_href) -> N
             with control_a:
                 st.checkbox("Technicals", value=True, disabled=True, key=f"overview-v2-technicals:{market}")
             with control_b:
+                preferred = _preferred_horizon(baseline.available_horizons, st.session_state, market)
                 selected = st.segmented_control(
                     f"Prognosehorisont · {market}",
                     options=baseline.available_horizons,
-                    default=baseline.horizon_seconds,
+                    default=preferred,
                     format_func=_horizon_label,
                     key=f"{_HORIZON_PREFIX}{market}",
                     label_visibility="collapsed",
                 )
-                selected_horizons[market] = int(selected if selected is not None else baseline.horizon_seconds)
+                selected_horizons[market] = int(selected if selected is not None else preferred)
             with control_c:
                 enabled = st.checkbox(
                     "Technical Interpreter",
