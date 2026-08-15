@@ -74,11 +74,8 @@ def render_v2_forecast_chart(view) -> str:
         shaped = _path_progress(view.path_shape, p)
         x = 66.0 + 31.0 * p
         center = reference_price * (1.0 + expected_return * shaped)
-        # Endpoint interval widens from the observed current point. This is a
-        # visual interpolation of the persisted terminal interval, not a claim
-        # about independently predicted intermediate quantiles.
-        low = reference_price * (1.0 + (expected_return * shaped + (lower_return - expected_return) * p))
-        high = reference_price * (1.0 + (expected_return * shaped + (upper_return - expected_return) * p))
+        low = reference_price * (1.0 + expected_return * shaped + (lower_return - expected_return) * p)
+        high = reference_price * (1.0 + expected_return * shaped + (upper_return - expected_return) * p)
         baseline = reference_price * (1.0 + baseline_return * _path_progress(view.path_shape, p))
         forecast_raw.append((x, center))
         lower_raw.append((x, low))
@@ -171,9 +168,9 @@ def render_v2_technical_explanation(view) -> str:
         f'<div><small>Confidence</small><strong>{float(view.confidence):.0%}</strong></div>'
         '</div>'
         '<p class="pg-v2-driver"><strong>Banegrunnlag:</strong> samlet teknisk score bestemmer retning; '
-        'volatilitet og horisont skalerer forventet move; confidence skalerer uncertainty. '</n        'p>'
+        'volatilitet og horisont skalerer forventet move; confidence skalerer uncertainty.</p>'
         f'{interpreter}</div>'
-    ).replace("</n        ", "")
+    )
 
 
 V2_FORECAST_CSS = """
