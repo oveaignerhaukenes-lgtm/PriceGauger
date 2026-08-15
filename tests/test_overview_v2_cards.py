@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from overview_v2_cards import OverviewV2Health, render_overview_v2_market_card_html
+from overview_v2_cards import (
+    OverviewV2Health,
+    _preferred_horizon,
+    render_overview_v2_market_card_html,
+)
 from overview_v2_read_model import OverviewTechnicalV2
 
 
@@ -77,6 +81,17 @@ def test_overview_v2_card_marks_interpreter_as_refinement_not_baseline_replaceme
     assert "STALE" in html
 
 
+def test_overview_v2_defaults_to_four_hours_when_available():
+    available = (300, 900, 1800, 3600, 14400, 43200)
+    assert _preferred_horizon(available, {}, "Gold") == 14400
+
+
+def test_overview_v2_honors_previous_legacy_horizon_selection():
+    available = (300, 900, 1800, 3600, 14400)
+    session_state = {"overview_forecast_horizon:Gold": 1.0}
+    assert _preferred_horizon(available, session_state, "Gold") == 3600
+
+
 def test_overview_page_active_market_fragment_is_v2_only():
     source = open("pages/0_Oversikt.py", encoding="utf-8").read()
     start = source.index("def _render_live_market_cards")
@@ -97,3 +112,4 @@ def test_overview_v2_card_module_has_no_analysis_or_provider_side_effect_path():
     assert "saxo_" not in source
     assert "persist_" not in source
     assert "build_technical_core_state" not in source
+    assert ".pg-market-card-v2 .pg-v2-path{stroke:var(--market-color)}" in source
