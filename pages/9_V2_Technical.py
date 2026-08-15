@@ -31,6 +31,30 @@ def _horizon_label(seconds: int) -> str:
     return f"{hours:g}t"
 
 
+def _horizon_control(market: str, baseline) -> int:
+    horizons = baseline.available_horizons
+    default = baseline.horizon_seconds if baseline.horizon_seconds in horizons else horizons[0]
+    segmented = getattr(st, "segmented_control", None)
+    if segmented is not None:
+        selected = segmented(
+            "Prognosehorisont",
+            options=horizons,
+            default=default,
+            format_func=_horizon_label,
+            key=f"v2-tech-horizon:{market}",
+        )
+        return int(default if selected is None else selected)
+    return int(
+        st.selectbox(
+            "Prognosehorisont",
+            options=horizons,
+            index=horizons.index(default),
+            format_func=_horizon_label,
+            key=f"v2-tech-horizon:{market}",
+        )
+    )
+
+
 def _render_inspector() -> None:
     try:
         baseline_views = load_v2_overview_snapshots()
@@ -44,16 +68,7 @@ def _render_inspector() -> None:
 
     market = st.selectbox("Marked", options=sorted(baseline_views), key="v2-tech-market")
     baseline = baseline_views[market]
-    horizons = baseline.available_horizons
-    selected_horizon = st.segmented_control(
-        "Prognosehorisont",
-        options=horizons,
-        default=baseline.horizon_seconds if baseline.horizon_seconds in horizons else horizons[0],
-        format_func=_horizon_label,
-        key=f"v2-tech-horizon:{market}",
-    )
-    if selected_horizon is None:
-        selected_horizon = baseline.horizon_seconds
+    selected_horizon = _horizon_control(market, baseline)
 
     layer_col, interpreter_col = st.columns([1, 2])
     with layer_col:
@@ -73,7 +88,7 @@ def _render_inspector() -> None:
 
     try:
         views = load_v2_overview_snapshots(
-            requested_horizons={market: int(selected_horizon)},
+            requested_horizons={market: selected_horizon},
             interpreter_by_market={market: bool(use_interpreter)},
         )
         view = views[market]
