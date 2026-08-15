@@ -95,6 +95,7 @@ def run_live_technical_cycle_v2(
     *,
     instruments: Mapping[str, SaxoInstrument],
     db_path: str = "pricegauger.db",
+    ensure_schema: bool = True,
 ) -> LiveTechnicalCycleSummaryV2:
     """Produce and persist one TA-only v2 snapshot for every configured Saxo market.
 
@@ -102,7 +103,8 @@ def run_live_technical_cycle_v2(
     canonical market-history source during this controlled v2 read-path cutover.
     This runner consumes it; it does not create a second Saxo ingestion path.
     """
-    ensure_db_v2_schema()
+    if ensure_schema:
+        ensure_db_v2_schema()
     history_store = MarketHistoryStore(db_path)
     produced_count = 0
     failed_count = 0
@@ -150,9 +152,14 @@ def run_live_technical_forever_v2(
 ) -> None:
     """Continuously refresh persisted TA-only v2 state from canonical market history."""
     interval = max(15, int(interval_seconds))
+    ensure_db_v2_schema()
     while True:
         try:
-            summary = run_live_technical_cycle_v2(instruments=instruments, db_path=db_path)
+            summary = run_live_technical_cycle_v2(
+                instruments=instruments,
+                db_path=db_path,
+                ensure_schema=False,
+            )
             LOGGER.info(
                 "v2 TA-only cycle attempted=%d produced=%d failed=%d",
                 summary.attempted,
