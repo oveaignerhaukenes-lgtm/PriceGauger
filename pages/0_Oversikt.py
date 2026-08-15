@@ -5,49 +5,20 @@ from datetime import datetime
 
 import streamlit as st
 
-from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from analysis_status import AnalysisStatusStore
+from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from build_info import render_build_badge
-from forecast_error_track import render_forecast_error_track
-from forecast_horizon_selector import (
-    apply_horizon_query,
-    render_horizon_selector_html,
-    selected_horizons_from_session,
-)
-from forecast_timeline import render_forecast_timeline_svg
-from market_data_freshness import classify_market_data_freshness
 from market_history_store import MarketHistoryStore
 from market_mover_observation import format_elapsed, observe_market_mover
 from market_navigation import market_detail_href
 from overview_ai_summary import build_overview_summary
-from overview_recommendation_display import recommendation_action
-from overview_service import load_overview, load_overview_markets
-from overview_visuals import asset_color, bipolar_fill, visual_direction_score
-from realtime_market_data import RealtimeMarketDataStore
+from overview_service import load_overview
+from overview_v2_cards import render_v2_overview_market_cards
+from overview_visuals import asset_color
 from saxo_auth import configured_oauth_client
 
 
 st.set_page_config(page_title="Oversikt · PriceGauger", page_icon="📡", layout="wide")
-
-
-def _query_value(name: str) -> str | None:
-    try:
-        value = st.query_params.get(name)
-    except Exception:
-        return None
-    if isinstance(value, (list, tuple)):
-        return None if not value else str(value[-1])
-    return None if value is None else str(value)
-
-
-# Horizon links are ordinary one-click navigation controls. Persist the selection
-# in session state so the 5-second live fragment can reread only that forecast
-# family without triggering analysis or mutating the persisted forecast itself.
-apply_horizon_query(
-    st.session_state,
-    market=_query_value("forecast_market"),
-    token=_query_value("forecast_horizon"),
-)
 
 render_build_badge()
 title_col, saxo_col = st.columns([4, 1])
@@ -107,20 +78,7 @@ st.markdown(
     .pg-market-title-link:focus-visible {outline:2px solid var(--market-color); outline-offset:2px;}
     .pg-direction {font-weight:750; letter-spacing:.02em; color:var(--market-color);}
     .pg-meta {font-size:.78rem; opacity:.76; margin-top:.35rem; line-height:1.35;}
-    .pg-driver {font-size:.84rem; margin-top:.5rem; line-height:1.35; overflow-wrap:anywhere;}
-    .pg-delta {font-size:.76rem; margin-top:.38rem; font-weight:650;}
     .pg-data-health {font-size:.72rem; margin-top:.48rem; padding:.32rem .45rem; border-radius:.45rem; background:rgba(128,128,128,.08); line-height:1.3;}
-    .pg-gauge-labels {display:grid; grid-template-columns:1fr auto 1fr; margin-top:.58rem; font-size:.66rem; opacity:.66;}
-    .pg-gauge-labels span:last-child {text-align:right;}
-    .pg-bipolar {position:relative; height:.52rem; margin-top:.18rem; border-radius:999px; background:rgba(128,128,128,.18); overflow:visible;}
-    .pg-bipolar::after {content:""; position:absolute; left:50%; top:-.18rem; width:1px; height:.88rem; background:rgba(128,128,128,.68);}
-    .pg-fill-left,.pg-fill-right {position:absolute; top:0; height:100%; background:var(--market-color); opacity:.9;}
-    .pg-fill-left {right:50%; border-radius:999px 0 0 999px;}
-    .pg-fill-right {left:50%; border-radius:0 999px 999px 0;}
-    .pg-marker {position:absolute; top:50%; width:.7rem; height:.7rem; border:2px solid var(--card-bg-color,#fff); border-radius:50%; background:var(--market-color); transform:translate(-50%,-50%); box-shadow:0 0 0 1px rgba(0,0,0,.18); z-index:2;}
-    .pg-score-row {display:flex; justify-content:space-between; gap:.8rem; margin-top:.48rem; font-size:.75rem;}
-    .pg-confidence {height:.26rem; margin-top:.25rem; border-radius:999px; background:rgba(128,128,128,.16); overflow:hidden;}
-    .pg-confidence span {display:block; height:100%; background:var(--market-color); opacity:.55; border-radius:999px;}
     .pg-rec-kicker {font-size:.69rem; font-weight:780; letter-spacing:.09em; opacity:.7;}
     .pg-rec-action {font-size:1.25rem; font-weight:820; margin:.28rem 0 .12rem; color:var(--market-color);}
     .pg-rec-signal {font-size:.78rem; font-weight:700; margin-bottom:.65rem;}
@@ -128,34 +86,6 @@ st.markdown(
     .pg-rec-row {border-top:1px solid rgba(128,128,128,.18); padding-top:.4rem; font-size:.76rem; line-height:1.3;}
     .pg-rec-row strong {display:block; font-size:.82rem; margin-bottom:.08rem;}
     .pg-rec-status {display:inline-block; margin-top:.62rem; border:1px solid rgba(128,128,128,.28); border-radius:999px; padding:.28rem .55rem; font-size:.69rem; font-weight:780; letter-spacing:.05em;}
-    .pg-forecast-shell {display:grid; grid-template-columns:minmax(0,1fr) 2.7rem; gap:.35rem; align-items:stretch; min-width:0;}
-    .pg-forecast-main {min-width:0;}
-    .pg-horizon-selector {display:flex; flex-direction:column; justify-content:center; gap:.18rem; padding-left:.32rem; border-left:1px solid rgba(128,128,128,.20);}
-    .pg-horizon-btn {display:flex; align-items:center; justify-content:center; min-height:1.28rem; padding:.05rem .12rem; border:1px solid rgba(128,128,128,.26); border-radius:.32rem; color:inherit!important; text-decoration:none!important; font-size:.57rem; font-weight:680; line-height:1; opacity:.72; background:rgba(128,128,128,.025); transition:border-color .1s ease,opacity .1s ease,background .1s ease;}
-    .pg-horizon-btn:hover {border-color:var(--market-color); opacity:1; background:rgba(128,128,128,.08);}
-    .pg-horizon-btn.is-active {border-color:var(--market-color); box-shadow:inset 2px 0 0 var(--market-color); opacity:1; font-weight:850; background:rgba(128,128,128,.10);}
-    .pg-horizon-btn:focus-visible {outline:2px solid var(--market-color); outline-offset:1px;}
-    .pg-forecast-wrap {height:100%; display:flex; flex-direction:column; justify-content:center;}
-    .pg-forecast-head {display:flex; justify-content:space-between; gap:.5rem; font-size:.62rem; font-weight:780; letter-spacing:.06em; opacity:.72;}
-    .pg-forecast-svg {width:100%; height:8.6rem; margin:.15rem 0 .05rem; overflow:visible;}
-    .pg-zero {stroke:rgba(128,128,128,.22); stroke-width:.45; stroke-dasharray:2 2; vector-effect:non-scaling-stroke;}
-    .pg-now {stroke:rgba(128,128,128,.62); stroke-width:.7; stroke-dasharray:2 1.5; vector-effect:non-scaling-stroke;}
-    .pg-fan {fill:rgba(128,128,128,.2); stroke:none;}
-    .pg-history {fill:none; stroke:rgba(90,90,90,.78); stroke-width:1.2; vector-effect:non-scaling-stroke;}
-    .pg-base {fill:none; stroke-width:1.8; vector-effect:non-scaling-stroke;}
-    .pg-alt {fill:none; stroke:rgba(128,128,128,.62); stroke-width:.75; stroke-dasharray:2 1.5; vector-effect:non-scaling-stroke;}
-    .pg-axis-label {font-size:4px; fill:rgba(128,128,128,.72);}
-    .pg-forecast-meta {font-size:.67rem; line-height:1.3; opacity:.78; overflow-wrap:anywhere;}
-    .pg-forecast-empty {height:100%; min-height:7rem; display:flex; align-items:center; justify-content:center; text-align:center; font-size:.75rem; opacity:.62; padding:.8rem;}
-    .pg-error-track {margin:.32rem 0 .08rem; padding-top:.3rem; border-top:1px solid rgba(128,128,128,.16);}
-    .pg-error-head,.pg-error-foot {display:flex; justify-content:space-between; gap:.55rem; font-size:.55rem; line-height:1.25; opacity:.66;}
-    .pg-error-head span:first-child {font-weight:780; letter-spacing:.06em;}
-    .pg-error-svg {width:100%; height:2.25rem; display:block; margin:.08rem 0; overflow:visible;}
-    .pg-error-zero {stroke:rgba(128,128,128,.48); stroke-width:.65; vector-effect:non-scaling-stroke;}
-    .pg-error-bound {stroke:rgba(128,128,128,.18); stroke-width:.5; stroke-dasharray:2 2; vector-effect:non-scaling-stroke;}
-    .pg-error-dot {fill:var(--market-color); opacity:.18; vector-effect:non-scaling-stroke;}
-    .pg-error-median {fill:none; stroke:var(--market-color); stroke-width:1.15; vector-effect:non-scaling-stroke;}
-    .pg-error-empty {display:flex; justify-content:space-between; gap:.5rem; font-size:.57rem; opacity:.58;}
 
     .pg-news-card {padding:.75rem .9rem;}
     .pg-news-head {display:flex; justify-content:space-between; gap:.75rem; font-size:.76rem; opacity:.76;}
@@ -167,7 +97,6 @@ st.markdown(
       .pg-alert-stat:nth-last-child(-n+2) {margin-top:.15rem;}
       .pg-market-layout {grid-template-columns:minmax(0,3fr) minmax(13rem,1.4fr);}
       .pg-forecast {grid-column:1 / -1; border-left:0; border-top:1px solid rgba(128,128,128,.22);}
-      .pg-forecast-svg {height:7.5rem;}
     }
     @media(max-width:700px){
       .pg-summary-top {display:block;}
@@ -177,8 +106,6 @@ st.markdown(
       .pg-alert-stat {border-left:0; border-top:1px solid rgba(128,128,128,.22); padding:.45rem 0 0;}
       .pg-market-layout {grid-template-columns:1fr;}
       .pg-recommendation,.pg-forecast {border-left:0; border-top:1px solid rgba(128,128,128,.22); grid-column:auto;}
-      .pg-forecast-shell {grid-template-columns:minmax(0,1fr) 2.55rem;}
-      .pg-error-head,.pg-error-foot {display:block;}
     }
     </style>
     """,
@@ -208,17 +135,6 @@ def _fmt_time(value: str) -> str:
         return value
 
 
-def _direction_label(value: str) -> str:
-    return {
-        "LONG_BIAS": "LONG-BIAS",
-        "SHORT_BIAS": "SHORT-BIAS",
-        "NEUTRAL": "NØYTRAL",
-        "CONFLICTED": "MOTSTRIDENDE",
-        "INSUFFICIENT_DATA": "FOR LITE DATA",
-        "STALE": "UTDATERT",
-    }.get(value, value)
-
-
 def _sensitivity_label(value: str) -> str:
     return {
         "HEADLINE_SENSITIVE": "OVERSKRIFTSFØLSOMT",
@@ -229,155 +145,11 @@ def _sensitivity_label(value: str) -> str:
     }.get(value, value)
 
 
-def _signal_action(direction: str) -> str:
-    return recommendation_action(direction)
-
-
-def _recommendation_action(item) -> str:
-    return recommendation_action(item.direction)
-
-
-def _move_interval(item) -> str:
-    if item.expected_move_low_pct is None or item.expected_move_high_pct is None:
-        return "Ikke beregnet"
-    return f"{item.expected_move_low_pct:+.2f}% til {item.expected_move_high_pct:+.2f}%"
-
-
-def _price_interval(item) -> str:
-    forecast = item.forecast
-    if (
-        forecast is None
-        or forecast.reference_price is None
-        or forecast.expected_move_low_pct is None
-        or forecast.expected_move_high_pct is None
-    ):
-        return "Ikke tilgjengelig"
-    low = forecast.reference_price * (1.0 + forecast.expected_move_low_pct / 100.0)
-    high = forecast.reference_price * (1.0 + forecast.expected_move_high_pct / 100.0)
-    return f"{low:.2f} til {high:.2f}"
-
-
-def _horizon(item) -> str:
-    if item.horizon_hours is None:
-        return "Ikke fastsatt"
-    hours = float(item.horizon_hours)
-    if hours < 1.0:
-        return f"{round(hours * 60):g} minutter"
-    if abs(hours - 168.0) < 1e-6:
-        return "7 dager"
-    return f"{hours:g} timer"
-
-
-def _freshness_html(freshness) -> str:
-    if freshness is None:
-        return ""
-    icon = "●"
-    if freshness.state in {"STREAM_WARNING", "BAR_PIPELINE_WARNING", "NO_BARS"}:
-        icon = "⚠"
-    elif freshness.state == "QUIET_OR_STALE":
-        icon = "○"
-    return (
-        '<div class="pg-data-health">'
-        f'{html.escape(icon)} <strong>{html.escape(freshness.label)}</strong> · '
-        f'{html.escape(freshness.detail)}'
-        '</div>'
-    )
-
-
-def _render_market_card(item, freshness=None) -> str:
-    color = asset_color(item.market)
-    left_width, right_width, marker_position = bipolar_fill(item.score)
-    display_score = visual_direction_score(item.score)
-    confidence_width = max(0.0, min(100.0, item.confidence * 100.0))
-    delta_label = f"Endring siden forrige snapshot: {item.change_from_previous:+.2f}"
-    action = _recommendation_action(item)
-    signal = _signal_action(item.direction)
-    interval = _move_interval(item)
-    price_interval = _price_interval(item)
-    horizon = _horizon(item)
-    detail_href = market_detail_href(item.market)
-    forecast_svg = render_forecast_timeline_svg(
-        item.forecasts,
-        observed_prices=item.price_history,
-        market_regime=item.market_regime,
-        volatility_score=item.volatility_score,
-        color=color,
-    )
-    error_track = render_forecast_error_track(item.forecast_errors)
-    horizon_selector = render_horizon_selector_html(item.market, item.horizon_hours)
-    data_health = _freshness_html(freshness)
-    return f"""
-      <article class="pg-market-card" style="--market-color:{color}">
-        <div class="pg-market-layout">
-          <section class="pg-analysis">
-            <div class="pg-state-top">
-              <div class="pg-market"><a class="pg-market-title-link" href="{html.escape(detail_href, quote=True)}" target="_self" aria-label="Åpne {html.escape(item.market)} i Markedsvisning">{html.escape(item.market)}</a></div>
-              <div class="pg-direction">{html.escape(_direction_label(item.direction))}</div>
-            </div>
-            <div class="pg-gauge-labels"><span>Bearish</span><span>0</span><span>Bullish</span></div>
-            <div class="pg-bipolar">
-              <span class="pg-fill-left" style="width:{left_width:.2f}%"></span>
-              <span class="pg-fill-right" style="width:{right_width:.2f}%"></span>
-              <span class="pg-marker" style="left:{marker_position:.2f}%"></span>
-            </div>
-            <div class="pg-score-row">
-              <span>Retningsstyrke {display_score:+.2f}</span>
-              <span>Rå Decision State {item.score:+.2f}</span>
-            </div>
-            <div class="pg-meta">Konfidens {item.confidence:.0%} · {item.event_count} aktive hendelser</div>
-            <div class="pg-confidence"><span style="width:{confidence_width:.1f}%"></span></div>
-            <div class="pg-delta">{html.escape(delta_label)}</div>
-            <div class="pg-driver">{html.escape(item.top_driver)}</div>
-            <div class="pg-meta">{html.escape(item.status_reason)}</div>
-            {data_health}
-          </section>
-          <aside class="pg-recommendation">
-            <div class="pg-rec-kicker">ANBEFALING</div>
-            <div class="pg-rec-action">{html.escape(action)}</div>
-            <div class="pg-rec-signal">Retningssignal: {html.escape(signal)}</div>
-            <div class="pg-rec-grid">
-              <div class="pg-rec-row"><strong>{html.escape(interval)}</strong>forventet prosentintervall</div>
-              <div class="pg-rec-row"><strong>{html.escape(price_interval)}</strong>forventet prisintervall</div>
-              <div class="pg-rec-row"><strong>{html.escape(horizon)}</strong>valgt prognosehorisont</div>
-              <div class="pg-rec-row"><strong>{item.confidence:.0%}</strong>modellkonfidens</div>
-            </div>
-            <div class="pg-rec-status">{html.escape(item.recommendation_status)}</div>
-          </aside>
-          <section class="pg-forecast"><div class="pg-forecast-shell"><div class="pg-forecast-main">{forecast_svg}{error_track}</div>{horizon_selector}</div></section>
-        </div>
-      </article>
-    """
-
-
 def _render_live_market_cards() -> None:
-    try:
-        markets = load_overview_markets(
-            horizons_by_market=selected_horizons_from_session(st.session_state)
-        )
-        realtime = RealtimeMarketDataStore()
-        statuses = {item.market: item for item in realtime.load_statuses()}
-    except Exception as exc:
-        st.warning(f"Kunne ikke oppdatere levende markedskort: {exc}")
-        return
-
-    if not markets:
-        st.info("Venter på første autoritative Decision State-snapshot fra workeren.")
-        return
-
-    for item in markets:
-        try:
-            bar = realtime.load_latest_bar(market=item.market)
-        except Exception:
-            bar = None
-        freshness = classify_market_data_freshness(
-            bar=bar,
-            status=statuses.get(item.market),
-        )
-        st.markdown(_render_market_card(item, freshness), unsafe_allow_html=True)
-
-    st.caption(
-        "Markeds- og forecastkort rereades hvert 5. sekund fra lagret state og canonical 1m-bars. "
-        "Horisontknappene bytter lagret forecastfamilie og det signerte modellfeilsporet uten å utløse ny analyse eller Saxo-kall."
+    render_v2_overview_market_cards(
+        st,
+        asset_color=asset_color,
+        market_detail_href=market_detail_href,
     )
 
 
@@ -466,9 +238,9 @@ else:
         st.write(f"Tilstandsnudge: {float(alert.state_delta):+.2f}")
         st.write(f"Prisbekreftelse: {float(alert.price_confirmation):+.2f}")
 
-st.subheader("Analyse og anbefaling")
+st.subheader("Teknisk analyse og prognose · v2")
 if _fragment is not None:
-    _fragment(run_every="5s")(_render_live_market_cards)()
+    _fragment(run_every="15s")(_render_live_market_cards)()
 else:
     _render_live_market_cards()
 
