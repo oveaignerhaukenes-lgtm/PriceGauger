@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from autotrader_product_explorer_ui import render_saxo_product_explorer
 from build_info import render_build_badge
 from trading_desk_product_panel import render_saxo_product_panel
 from trading_desk_products import MARKET_SEARCH_TERMS
@@ -29,3 +30,6 @@ market = st.selectbox(
 )
 
 render_saxo_product_panel(market)
+
+st.divider()
+render_saxo_product_explorer()
