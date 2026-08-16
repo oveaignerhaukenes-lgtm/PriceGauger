@@ -8,6 +8,7 @@ import time
 from typing import Callable
 
 from analysis_status import AnalysisStatusStore
+from context_worker_bridge_v2 import publish_latest_context_v2
 from telegram_channel_store import TelegramChannelStore
 from telegram_flow_engine import OpenAITelegramFlowScorer
 from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
@@ -83,12 +84,13 @@ def run_once(
             timeout=timeout,
         )
 
-    # worker.py remains the authoritative analysis/state pipeline. Only replace the
-    # scorer class so it sees the real channel for each namespaced source post.
+    # worker.py remains the authoritative legacy analysis/state pipeline during
+    # this bounded migration step. Only replace the scorer class so it sees the
+    # real channel for each namespaced source post.
     original_scorer = worker_module.OpenAITelegramFlowScorer
     worker_module.OpenAITelegramFlowScorer = SourceAwareTelegramFlowScorer
     try:
-        return worker_module.run_once(
+        result = worker_module.run_once(
             db_path=db_path,
             channel="configured-sources",
             minimum_signal=minimum_signal,
@@ -96,6 +98,25 @@ def run_once(
         )
     finally:
         worker_module.OpenAITelegramFlowScorer = original_scorer
+
+    # Context v2 is an independent public output of the semantic engines. The
+    # bridge consumes their stored outputs only; it cannot call Technical Core,
+    # legacy Decision/Recommendation, Composer, an LLM, or execution.
+    try:
+        snapshot, persisted = publish_latest_context_v2(db_path=db_path)
+        if snapshot is not None:
+            LOGGER.info(
+                "context v2 publication snapshot=%s freshness=%s persisted=%s",
+                snapshot.snapshot_id,
+                snapshot.freshness_status,
+                persisted,
+            )
+    except Exception:
+        # Context-v2 publication must not make the existing ingestion daemon lose
+        # the already-produced Telegram/News state while migration is in progress.
+        LOGGER.exception("context v2 publication failed; existing semantic outputs remain available")
+
+    return result
 
 
 def run_forever(
