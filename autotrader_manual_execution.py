@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any
 
+from autotrader_execution_context_v2 import AutoTraderExecutionContextV2, verify_execution_context_v2
 from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest, SaxoTradingClient, SaxoTradingSafetyError
 from trading_desk_order_preview import TradingDeskOrderPreview
@@ -23,6 +24,7 @@ class ManualOrderIntent:
     amount: float
     instrument: SaxoInstrument
     created_at: datetime
+    execution_context_v2: AutoTraderExecutionContextV2 | None = None
 
     def order_request(self) -> SaxoOrderRequest:
         return SaxoOrderRequest(
@@ -59,21 +61,23 @@ def _now_utc(now: datetime | None = None) -> datetime:
 def build_manual_order_intent(
     preview: TradingDeskOrderPreview,
     *,
+    execution_context_v2: AutoTraderExecutionContextV2 | None = None,
     now: datetime | None = None,
 ) -> ManualOrderIntent:
     created_at = _now_utc(now)
-    identity = "|".join(
-        (
-            "manual",
-            preview.market,
-            preview.account_key,
-            preview.action,
-            f"{preview.amount:.12g}",
-            str(preview.uic),
-            preview.asset_type,
-            created_at.isoformat(),
-        )
-    )
+    identity_parts = [
+        "manual",
+        preview.market,
+        preview.account_key,
+        preview.action,
+        f"{preview.amount:.12g}",
+        str(preview.uic),
+        preview.asset_type,
+    ]
+    if execution_context_v2 is not None:
+        identity_parts.extend(("v2", execution_context_v2.fingerprint))
+    identity_parts.append(created_at.isoformat())
+    identity = "|".join(identity_parts)
     intent_id = "pg-" + sha256(identity.encode("utf-8")).hexdigest()[:32]
     return ManualOrderIntent(
         intent_id=intent_id,
@@ -90,6 +94,7 @@ def build_manual_order_intent(
             description=preview.description,
         ),
         created_at=created_at,
+        execution_context_v2=execution_context_v2,
     )
 
 
@@ -97,6 +102,7 @@ def validate_manual_intent(
     intent: ManualOrderIntent,
     *,
     active_account_keys: set[str],
+    require_v2_context: bool = False,
     now: datetime | None = None,
 ) -> None:
     if intent.action not in {"Buy", "Sell"}:
@@ -108,6 +114,11 @@ def validate_manual_intent(
     age = _now_utc(now) - _now_utc(intent.created_at)
     if age < timedelta(0) or age > MANUAL_INTENT_MAX_AGE:
         raise ValueError("manual order intent er stale; bygg ordren på nytt")
+
+    if require_v2_context and intent.execution_context_v2 is None:
+        raise ValueError("TradingDesk-ordre mangler eksplisitt v2 execution context")
+    if intent.execution_context_v2 is not None:
+        verify_execution_context_v2(intent.execution_context_v2)
 
 
 def precheck_is_clear(precheck: dict[str, Any]) -> bool:
@@ -127,13 +138,16 @@ def execute_confirmed_manual_order(
 
     The caller must persist `submitted_intent_ids` for the UI/session before retries.
     Once an intent id is present, this function refuses another POST even if the prior
-    request ended with an uncertain network outcome.
+    request ended with an uncertain network outcome. A bound v2 TradingDesk context is
+    re-resolved immediately before submission so stale registry identity fails closed.
     """
 
     if confirmed_intent_id != intent.intent_id:
         raise SaxoTradingSafetyError("bekreftelsen gjelder ikke gjeldende ordreintent")
     if intent.intent_id in submitted_intent_ids:
         raise SaxoTradingSafetyError("denne manuelle ordren er allerede forsøkt sendt; automatisk retry er blokkert")
+    if intent.execution_context_v2 is not None:
+        verify_execution_context_v2(intent.execution_context_v2)
 
     submitted_intent_ids.add(intent.intent_id)
     order_response = trading.place_order(intent.order_request(), confirm_sim=True)

@@ -16,7 +16,8 @@ def test_tradingdesk_keeps_page_controls_out_of_global_sidebar() -> None:
     assert 'with st.expander("Graf", expanded=True):' in source
     assert 'with st.expander("Indikatorer", expanded=True):' in source
     assert 'with st.expander(f"Handel · {market}", expanded=False):' in source
-    assert "render_saxo_product_panel(market)" in source
+    assert "render_saxo_product_panel(" in source
+    assert "execution_context_v2=execution_context_v2" in source
 
 
 def test_tradingdesk_renders_v2_analysis_and_live_chart_in_main_column() -> None:
