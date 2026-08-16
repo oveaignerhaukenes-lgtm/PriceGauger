@@ -28,7 +28,12 @@ _ESCALATION_VALUE = {
 
 
 def _evidence_id(channel: str, message_id: str) -> str:
-    return f"telegram:{str(channel).strip()}:{str(message_id).strip()}"
+    channel_text = str(channel).strip()
+    message_text = str(message_id).strip()
+    prefix = f"{channel_text}:"
+    if message_text.startswith(prefix):
+        message_text = message_text[len(prefix) :]
+    return f"telegram:{channel_text}:{message_text}"
 
 
 def _evidence_from_posts(
@@ -89,6 +94,7 @@ def _target_states(
     flow: TelegramFlowAssessment,
     *,
     news: NewsContextAssessment | None,
+    all_evidence_ids: tuple[str, ...],
 ) -> tuple[ContextTargetStateV2, ...]:
     selected_by_asset: dict[str, list] = defaultdict(list)
     for item in flow.contributions:
@@ -122,7 +128,7 @@ def _target_states(
                 novelty=novelty,
                 event_risk=event_risk,
                 evidence_ids=evidence_ids,
-                dimensions=_news_dimensions(news, evidence_ids),
+                dimensions=_news_dimensions(news, all_evidence_ids),
                 summary="",
             )
         )
@@ -144,6 +150,7 @@ def adapt_context_snapshot_v2(
 
     post_refs = _evidence_from_posts(posts, observed_at=flow.as_of)
     evidence = post_refs or _evidence_from_flow(flow)
+    all_evidence_ids = tuple(item.evidence_id for item in evidence)
 
     coverage_start = news.coverage_start if news is not None else ""
     coverage_end = news.coverage_end if news is not None else ""
@@ -162,7 +169,11 @@ def adapt_context_snapshot_v2(
         coverage_start=coverage_start,
         coverage_end=coverage_end,
         evidence=evidence,
-        targets=_target_states(flow, news=news),
+        targets=_target_states(
+            flow,
+            news=news,
+            all_evidence_ids=all_evidence_ids,
+        ),
         regime_label=regime_label,
         summary=summary,
     )
