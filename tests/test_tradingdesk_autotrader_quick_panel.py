@@ -10,8 +10,9 @@ def test_tradingdesk_renders_shared_autotrader_only_in_right_quick_panel():
     assert "render_saxo_product_panel(market)" in source
     assert "Åpne full AutoTrader" in source
     assert source.count("render_saxo_product_panel(market)") == 1
+    assert "Hurtighandel krever eksplisitt v2-instrumentidentitet" in source
 
     render_index = source.index("render_saxo_product_panel(market)")
-    fragment_index = source.index('_fragment = getattr(st, "fragment"')
-    assert render_index < fragment_index
+    chart_column_index = source.index("with chart_column:")
+    assert render_index < chart_column_index
     assert not source.rstrip().endswith("render_saxo_product_panel(market)")
