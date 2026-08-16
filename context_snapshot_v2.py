@@ -40,6 +40,16 @@ def _non_empty(value: str, field: str) -> str:
     return result
 
 
+def _duplicates(values: Iterable[str]) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return duplicates
+
+
 @dataclass(frozen=True, slots=True)
 class ContextEvidenceRefV2:
     """Stable provenance pointer owned by the Context bounded context.
@@ -115,7 +125,11 @@ class ContextTargetStateV2:
         object.__setattr__(self, "novelty", _bounded(self.novelty, "novelty"))
         object.__setattr__(self, "event_risk", _bounded(self.event_risk, "event_risk"))
         object.__setattr__(self, "evidence_ids", tuple(sorted({str(item).strip() for item in self.evidence_ids if str(item).strip()})))
-        object.__setattr__(self, "dimensions", tuple(sorted(self.dimensions, key=lambda item: item.name)))
+        dimensions = tuple(sorted(self.dimensions, key=lambda item: item.name))
+        duplicate_dimensions = _duplicates(item.name for item in dimensions)
+        if duplicate_dimensions:
+            raise ValueError(f"duplicate context dimensions: {sorted(duplicate_dimensions)}")
+        object.__setattr__(self, "dimensions", dimensions)
         object.__setattr__(self, "summary", str(self.summary or "").strip())
 
 
@@ -147,8 +161,29 @@ class ContextSnapshotV2:
             object.__setattr__(self, "coverage_start", _iso_utc(self.coverage_start))
         if self.coverage_end:
             object.__setattr__(self, "coverage_end", _iso_utc(self.coverage_end))
-        object.__setattr__(self, "evidence", tuple(sorted(self.evidence, key=lambda item: item.evidence_id)))
-        object.__setattr__(self, "targets", tuple(sorted(self.targets, key=lambda item: item.target_key)))
+
+        evidence = tuple(sorted(self.evidence, key=lambda item: item.evidence_id))
+        duplicate_evidence = _duplicates(item.evidence_id for item in evidence)
+        if duplicate_evidence:
+            raise ValueError(f"duplicate evidence ids: {sorted(duplicate_evidence)}")
+        object.__setattr__(self, "evidence", evidence)
+
+        targets = tuple(sorted(self.targets, key=lambda item: item.target_key))
+        duplicate_targets = _duplicates(item.target_key for item in targets)
+        if duplicate_targets:
+            raise ValueError(f"duplicate target keys: {sorted(duplicate_targets)}")
+        object.__setattr__(self, "targets", targets)
+
+        available_evidence = {item.evidence_id for item in evidence}
+        referenced_evidence: set[str] = set()
+        for target in targets:
+            referenced_evidence.update(target.evidence_ids)
+            for dimension in target.dimensions:
+                referenced_evidence.update(dimension.evidence_ids)
+        missing_evidence = referenced_evidence - available_evidence
+        if missing_evidence:
+            raise ValueError(f"unknown evidence ids referenced by context state: {sorted(missing_evidence)}")
+
         object.__setattr__(self, "regime_label", str(self.regime_label or "").strip())
         object.__setattr__(self, "summary", str(self.summary or "").strip())
         calculated = context_state_fingerprint_v2(self)
@@ -160,12 +195,25 @@ class ContextSnapshotV2:
         return asdict(self)
 
 
+def _semantic_target_record(target: ContextTargetStateV2) -> dict[str, Any]:
+    return {
+        "target_key": target.target_key,
+        "directional_bias": target.directional_bias,
+        "confidence": target.confidence,
+        "novelty": target.novelty,
+        "event_risk": target.event_risk,
+        "evidence_ids": list(target.evidence_ids),
+        "dimensions": [asdict(item) for item in target.dimensions],
+    }
+
+
 def _semantic_record(snapshot: ContextSnapshotV2) -> dict[str, Any]:
     """Fields that define semantic state for material-change detection.
 
-    Deliberately excludes snapshot_id and as_of so polling alone cannot create a
-    new semantic state. freshness_status and coverage anchors are included because
-    crossing a freshness boundary is itself material.
+    Poll identity (`snapshot_id`, `as_of`) and generated prose summaries are
+    deliberately excluded. This prevents timestamp churn or harmless LLM wording
+    changes from creating a new canonical semantic state. Freshness and coverage
+    remain included because crossing those boundaries is material.
     """
 
     return {
@@ -176,9 +224,8 @@ def _semantic_record(snapshot: ContextSnapshotV2) -> dict[str, Any]:
         "coverage_start": snapshot.coverage_start,
         "coverage_end": snapshot.coverage_end,
         "evidence": [asdict(item) for item in snapshot.evidence],
-        "targets": [asdict(item) for item in snapshot.targets],
+        "targets": [_semantic_target_record(item) for item in snapshot.targets],
         "regime_label": snapshot.regime_label,
-        "summary": snapshot.summary,
     }
 
 
