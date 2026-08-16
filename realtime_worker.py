@@ -6,6 +6,7 @@ import os
 import threading
 import time
 
+from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
 from database import using_postgres
 from live_technical_runtime_v2 import run_live_technical_forever_v2
 from realtime_gap_repair import GapRepairingSaxoRealtimeService
@@ -37,6 +38,12 @@ def _parser() -> argparse.ArgumentParser:
         default=int(os.getenv("PRICEGAUGER_V2_REGISTRY_POLL_SECONDS", "15")),
         help="Cadence for discovering enabled v2 collection subscriptions.",
     )
+    parser.add_argument(
+        "--autotrader-macd-dry-run-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_MACD_DRY_RUN_SECONDS", "60")),
+        help="Cadence for the read-only 30m MACD LONG/FLAT dry-run evaluator.",
+    )
     return parser
 
 
@@ -61,6 +68,28 @@ def _start_v2_technical_runtime(
     )
     thread.start()
     LOGGER.info("v2 TA-only live runtime started interval_seconds=%d", max(15, interval_seconds))
+    return thread
+
+
+def _start_autotrader_macd_dry_run(
+    *,
+    db_path: str,
+    interval_seconds: int,
+) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader MACD dry-run disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_macd_dry_run_forever_v2,
+        kwargs={
+            "db_path": db_path,
+            "interval_seconds": interval_seconds,
+        },
+        name="pricegauger-autotrader-macd-dry-run",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info("AutoTrader MACD dry-run started interval_seconds=%d", max(30, interval_seconds))
     return thread
 
 
@@ -130,6 +159,10 @@ def main() -> None:
         instruments=runtime_instruments,
         db_path=args.db,
         interval_seconds=args.v2_ta_interval_seconds,
+    )
+    _start_autotrader_macd_dry_run(
+        db_path=args.db,
+        interval_seconds=args.autotrader_macd_dry_run_seconds,
     )
     watcher = threading.Thread(
         target=_watch_v2_registry,
