@@ -24,10 +24,10 @@ def _evidence(*, evidence_id: str = "telegram:1", scope: str = SCOPE_GLOBAL, use
     )
 
 
-def _target(*, summary: str = "Escalation pressure"):
+def _target(*, summary: str = "Escalation pressure", directional_bias: float = 0.4):
     return ContextTargetStateV2(
         target_key="GOLD",
-        directional_bias=0.4,
+        directional_bias=directional_bias,
         confidence=0.7,
         novelty=0.8,
         event_risk=0.6,
@@ -45,7 +45,12 @@ def _target(*, summary: str = "Escalation pressure"):
     )
 
 
-def _snapshot(*, as_of: str = "2026-08-16T20:01:00Z", summary: str = "Escalation pressure"):
+def _snapshot(
+    *,
+    as_of: str = "2026-08-16T20:01:00Z",
+    summary: str = "Escalation pressure",
+    directional_bias: float = 0.4,
+):
     return build_context_snapshot_v2(
         as_of=as_of,
         engine_version="context-engine-v2-test",
@@ -54,7 +59,7 @@ def _snapshot(*, as_of: str = "2026-08-16T20:01:00Z", summary: str = "Escalation
         coverage_start="2026-08-16T19:00:00Z",
         coverage_end="2026-08-16T19:59:00Z",
         evidence=(_evidence(),),
-        targets=(_target(summary=summary),),
+        targets=(_target(summary=summary, directional_bias=directional_bias),),
         regime_label="elevated geopolitical risk",
         summary=summary,
     )
@@ -69,9 +74,17 @@ def test_polling_time_does_not_change_semantic_fingerprint():
     assert not materially_changed_v2(first, later)
 
 
-def test_semantic_change_changes_fingerprint():
+def test_prose_rewording_does_not_create_material_change():
     first = _snapshot(summary="Escalation pressure")
-    changed = _snapshot(summary="De-escalation pressure")
+    reworded = _snapshot(summary="Pressure from escalation remains elevated")
+
+    assert first.state_fingerprint == reworded.state_fingerprint
+    assert not materially_changed_v2(first, reworded)
+
+
+def test_semantic_state_change_changes_fingerprint():
+    first = _snapshot(directional_bias=0.4)
+    changed = _snapshot(directional_bias=-0.2)
 
     assert first.state_fingerprint != changed.state_fingerprint
     assert materially_changed_v2(first, changed)
@@ -98,6 +111,31 @@ def test_user_and_global_provenance_are_explicit():
     assert global_ref.user_scope_id == ""
     assert user_ref.source_scope == SCOPE_USER
     assert user_ref.user_scope_id == "user-42"
+
+
+def test_unknown_evidence_reference_is_rejected():
+    target = ContextTargetStateV2(
+        target_key="GOLD",
+        directional_bias=0.1,
+        confidence=0.5,
+        novelty=0.4,
+        event_risk=0.3,
+        evidence_ids=("missing:evidence",),
+    )
+
+    try:
+        build_context_snapshot_v2(
+            as_of="2026-08-16T20:01:00Z",
+            engine_version="context-engine-v2-test",
+            scope_key="global",
+            freshness_status=FRESH,
+            evidence=(_evidence(),),
+            targets=(target,),
+        )
+    except ValueError as exc:
+        assert "unknown evidence ids" in str(exc)
+    else:
+        raise AssertionError("snapshot must reject references to absent evidence")
 
 
 def test_extensible_dimension_names_do_not_require_contract_change():
