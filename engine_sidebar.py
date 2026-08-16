@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from migration_debug_ui import render_migration_badge
+
 
 _ENGINE_LABELS = {
     "historical": "Historisk motor",
@@ -14,8 +16,21 @@ _ENGINE_LABELS = {
     "synthesis": "Syntesemotor",
 }
 
+_LEGACY_DETAILS = {
+    "historical": "Historisk motor ligger fortsatt på legacy/V1-kontraktene mens gjenbrukbare deler vurderes for v2.",
+    "technical": "Legacy direkte teknisk motor. Autoritativ live Technical Core ligger i v2.",
+    "news": "Nyhetskontekst produseres fortsatt av legacy/V1 worker/store og skal migreres lagvis.",
+    "telegram_flow": "Telegram ingestion/scoring/store er fortsatt legacy/V1 og beholdes under kontrollert migrasjon.",
+    "ai_assessment": "AI-markedsvurderingen er fortsatt koblet til legacy/V1 state/context.",
+}
+
 
 def render_engine_sidebar(*, active: str) -> None:
+    render_migration_badge(
+        "LEGACY/V1",
+        detail=_LEGACY_DETAILS.get(active, "Legacy/V1 engine surface — migration pending."),
+    )
+
     with st.sidebar.expander("Motorer", expanded=True):
         st.page_link(
             "pages/1_Kjerneflyt.py",
