@@ -15,6 +15,7 @@ from instrument_registry_v2 import (
     set_collection_subscription_v2,
 )
 from market_history_store import MarketHistoryStore
+from parallel_forecast_runtime_v2 import run_parallel_forecast_runtime_cycle_v2
 from recipe_registry_v2 import TA_ONLY_V1, TECHNICAL_CORE_RECIPE_V2_1
 from runtime_health_v2 import RuntimeHealthV2, freshness_health_v2, record_runtime_health_v2
 from runtime_technical_producer_v2 import (
@@ -152,6 +153,28 @@ def run_live_technical_cycle_v2(
                 analysis_recipe_name=TA_ONLY_V1.name,
                 analysis_recipe_version=TA_ONLY_V1.version,
             )
+            try:
+                benchmark = run_parallel_forecast_runtime_cycle_v2(
+                    produced,
+                    history_store=history_store,
+                    db_path=db_path,
+                )
+                LOGGER.info(
+                    "v2 parallel benchmark market=%s attempted=%d inserted=%d resolved=%d",
+                    market,
+                    benchmark.experiments_attempted,
+                    benchmark.experiments_inserted,
+                    benchmark.outcomes_resolved,
+                )
+            except Exception as exc:
+                # Benchmark collection is observational. It must never make the
+                # authoritative Technical Core runtime unhealthy.
+                LOGGER.warning(
+                    "v2 parallel benchmark failed market=%s: %s",
+                    market,
+                    exc,
+                    exc_info=True,
+                )
             record_runtime_health_v2(
                 freshness_health_v2(
                     service=SERVICE_NAME,
