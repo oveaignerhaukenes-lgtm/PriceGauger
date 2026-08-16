@@ -48,18 +48,22 @@ of the public contract.
 Raw ingestion may occur frequently. Canonical semantic snapshots must not be persisted merely
 because a polling loop ran again.
 
-`state_fingerprint` is computed from semantic state and deliberately excludes `snapshot_id`
-and `as_of`. It includes freshness state, coverage anchors, provenance, target assessments,
-regime and summary. Therefore:
+`state_fingerprint` is computed from semantic state and deliberately excludes `snapshot_id`,
+`as_of` and generated prose summaries. It includes freshness state, coverage anchors,
+provenance, numeric/structured target assessments and regime state. Therefore:
 
 - identical semantic state at a later poll has the same fingerprint;
-- a real semantic change has a new fingerprint;
+- harmless LLM rewording does not create a new semantic state;
+- a real structured state change has a new fingerprint;
 - crossing a freshness boundary is material;
 - a runtime adapter can persist only when `materially_changed_v2(...)` is true.
 
 `as_of` remains part of immutable snapshot identity. Two observations made at different times
 are distinct snapshot objects even when they represent the same semantic state, while the
 fingerprint allows the runtime to avoid storing the redundant one.
+
+AP3 must also apply a material-input gate before expensive LLM regeneration where practical;
+this contract prevents redundant persistence, but does not itself schedule or invoke models.
 
 ## Contract shape
 
@@ -72,6 +76,10 @@ The contract is deliberately layered:
 
 `directional_bias` is contextual directional pressure in `[-1, 1]`, not a trading action.
 Confidence, novelty and event risk are bounded in `[0, 1]`.
+
+Evidence references are validated: target and dimension evidence IDs must resolve to evidence
+present in the same snapshot. Duplicate evidence IDs, target keys and dimension names are
+rejected so downstream composition receives an unambiguous state.
 
 ## Deferred work
 
