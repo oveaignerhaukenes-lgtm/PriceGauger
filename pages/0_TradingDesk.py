@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 import streamlit as st
 
 from build_info import render_build_badge
+from companion_ui_v2 import render_companion_panel_v2
 from realtime_market_data import RealtimeMarketDataStore
-from saxo_provider import configured_instruments
 from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars, utc
 from trading_desk_chart import (
     OVERLAY_ACTUAL,
@@ -21,15 +21,23 @@ from trading_desk_indicators import (
     clip_indicators,
 )
 from trading_desk_product_panel import render_saxo_product_panel
+from trading_desk_v2_context import TradingDeskV2Context, load_trading_desk_contexts_v2
+from v2_forecast_visualization import (
+    V2_FORECAST_CSS,
+    render_v2_forecast_chart,
+    render_v2_technical_explanation,
+)
 
 
 LIVE_CHART_REFRESH_SECONDS = 5
+V2_ANALYSIS_REFRESH_SECONDS = 15
 QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
 render_build_badge()
+st.markdown(V2_FORECAST_CSS, unsafe_allow_html=True)
 
 # Keep Plotly's graph operators accessible without covering the chart title/legend.
 st.markdown(
@@ -57,39 +65,24 @@ header_left, header_right = st.columns([5, 1])
 with header_left:
     st.title("TradingDesk")
     st.caption(
-        "Operativ markedsflate for canonical OHLCV. Venstre side er global navigasjon; "
-        "graf-, indikator- og AutoTrader-kontroller ligger samlet til høyre på bred skjerm."
+        "V2 cockpit: valgt marked og instrument kommer fra den dynamiske v2-registryen; "
+        "forecast, runtime health og Analyst Companion følger samme persisterte v2-workspace."
     )
 with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
 
 store = RealtimeMarketDataStore()
-configured = configured_instruments()
-configured_markets = list(configured)
-latest_by_market = {market: store.load_latest_bar(market=market) for market in configured_markets}
-available_markets = [market for market in configured_markets if latest_by_market[market] is not None]
-unavailable_markets = [market for market in configured_markets if market not in available_markets]
+try:
+    baseline_contexts = load_trading_desk_contexts_v2()
+except Exception as exc:
+    st.warning(f"TradingDesk kunne ikke lese v2-workspaces: {exc}")
+    st.caption("Legacy analyse/forecast brukes ikke som skjult fallback etter v2-cutover.")
+    st.stop()
 
-chart_column, controls_column = st.columns([4.8, 1.45], gap="large")
-
+available_markets = sorted(baseline_contexts)
 if not available_markets:
-    with controls_column:
-        st.subheader("Kontroller")
-        st.info("Grafinnstillinger blir tilgjengelige når canonical markedsbarer finnes.")
-    with chart_column:
-        st.info("Ingen canonical 1m-markedsbarer er tilgjengelige for TradingDesk ennå.")
-        if unavailable_markets:
-            st.caption("Konfigurert uten tilgjengelige bars: " + ", ".join(unavailable_markets))
-        empty = build_trading_desk_figure(
-            market="Marked",
-            timeframe="5m",
-            window_hours=24,
-            primary=(),
-            overlays={},
-            overlay_mode=OVERLAY_NORMALIZED,
-            empty_message="Grafen fylles automatisk når canonical 1m-bars blir tilgjengelige.",
-        )
-        st.plotly_chart(empty, use_container_width=True, config={"scrollZoom": True, "displaylogo": False})
+    st.info("Venter på aktive persisterte v2 workspaces før TradingDesk kan åpnes.")
+    st.caption("Legacy analyse/forecast brukes ikke som skjult fallback etter v2-cutover.")
     st.stop()
 
 if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
@@ -100,12 +93,56 @@ def _select_timeframe(value: str) -> None:
     st.session_state[TIMEFRAME_STATE_KEY] = value
 
 
+def _horizon_label(seconds: int) -> str:
+    value = int(seconds)
+    if value < 3600:
+        return f"{value // 60:g}m"
+    hours = value / 3600.0
+    if abs(hours - 168.0) <= 1e-6:
+        return "7d"
+    return f"{hours:g}t"
+
+
+chart_column, controls_column = st.columns([4.8, 1.45], gap="large")
+
 with controls_column:
     st.subheader("Kontroller")
 
-    with st.expander("Graf", expanded=True):
-        market = st.selectbox("Marked", available_markets)
+    with st.expander("V2 marked / analyse", expanded=True):
+        market = st.selectbox("Marked", available_markets, key="tradingdesk-v2-market")
+        baseline_context = baseline_contexts[market]
+        baseline_view = baseline_context.forecast
 
+        horizons = tuple(sorted(int(value) for value in baseline_view.available_horizons))
+        default_horizon = min(horizons, key=lambda value: (abs(value - 4 * 3600), value))
+        selected_horizon = st.selectbox(
+            "Prognosehorisont",
+            horizons,
+            index=horizons.index(default_horizon),
+            format_func=_horizon_label,
+            key=f"tradingdesk-v2-horizon:{market}",
+        )
+        use_interpreter = st.checkbox(
+            "Technical Interpreter",
+            value=False,
+            disabled=not baseline_view.interpreter_available,
+            help=(
+                "Komponerer bare fingerprint-matchet cached v2 layer-output."
+                if baseline_view.interpreter_available
+                else "Ingen kompatibel cached Technical Interpreter-output finnes for dette workspace-snapshotet."
+            ),
+            key=f"tradingdesk-v2-interpreter:{market}",
+        )
+
+        st.caption(f"market_id {baseline_context.market_id}")
+        if baseline_context.instrument is None:
+            st.warning("Ingen aktiv/subscribed v2-instrumentkilde. Chart og hurtighandel er deaktivert for markedet.")
+        else:
+            st.caption(
+                f"instrument_id {baseline_context.instrument.instrument_id} · {baseline_context.instrument_label}"
+            )
+
+    with st.expander("Graf", expanded=True):
         st.markdown("**Timeframe**")
         timeframe_rows = (QUICK_TIMEFRAMES[:3], QUICK_TIMEFRAMES[3:])
         for row_index, values in enumerate(timeframe_rows):
@@ -127,7 +164,11 @@ with controls_column:
         window_hours = st.selectbox("Vindu", [6, 12, 24, 48], index=2, format_func=lambda value: f"{value}t")
         overlay_mode = st.radio("Overlay-akse", [OVERLAY_NORMALIZED, OVERLAY_ACTUAL], index=0)
 
-        overlay_options = [item for item in available_markets if item != market]
+        overlay_options = [
+            item
+            for item in available_markets
+            if item != market and baseline_contexts[item].instrument is not None
+        ]
         overlays = st.multiselect("Sammenlign med", overlay_options)
 
     with st.expander("Indikatorer", expanded=True):
@@ -159,20 +200,25 @@ with controls_column:
         )
 
     with st.expander(f"Handel · {market}", expanded=False):
-        st.caption(
-            "Hurtighandel bruker samme Mini/KO-, sizing-, pre-check- og SIM-execution-motor som AutoTrader-siden. "
-            "Markedet følger grafen; TradingDesk har ingen separat ordrelogikk."
-        )
-        render_saxo_product_panel(market)
-        st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
-
-    if unavailable_markets:
-        st.caption("Uten canonical bars: " + ", ".join(unavailable_markets))
+        if baseline_context.instrument is None:
+            st.warning("Hurtighandel krever eksplisitt v2-instrumentidentitet og er derfor deaktivert.")
+        else:
+            st.caption(
+                "Produktvalg er fortsatt separat fra det analyserte v2-instrumentet. "
+                "AutoTrader-binding til eksplisitt v2 instrument_id er neste execution-cutover; "
+                "TradingDesk oppretter ingen separat ordrevei."
+            )
+            render_saxo_product_panel(market)
+            st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
 
     with st.expander("Status", expanded=False):
         st.caption(
-            f"Canonical bars leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
-            "Ferdige candles og indikatorer oppdateres når neste 1m-bar er lagret."
+            f"Canonical chart-bars leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
+            f"V2 workspace/health/Companion oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
+        )
+        st.caption(
+            "Under kontrollert v2-cutover følger chartet den eksisterende canonical 1m-adapteren som v2-runtime også konsumerer. "
+            "Markeds- og instrumentidentiteten som autoriserer chartet kommer fra v2-registryen."
         )
 
 
@@ -181,7 +227,57 @@ def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int =
     return resample_bars(raw, timeframe=timeframe)
 
 
+def _load_active_context() -> TradingDeskV2Context | None:
+    try:
+        contexts = load_trading_desk_contexts_v2(
+            requested_horizons={market: int(selected_horizon)},
+            interpreter_by_market={market: bool(use_interpreter)},
+        )
+    except Exception as exc:
+        st.warning(f"Kunne ikke oppdatere v2 TradingDesk-context: {exc}")
+        return None
+    return contexts.get(market)
+
+
+def _render_v2_analysis() -> None:
+    context = _load_active_context()
+    if context is None:
+        st.info("V2-workspace er ikke tilgjengelig for valgt marked/horizon.")
+        return
+
+    view = context.forecast
+    status_label = f"{context.health.status} · {context.health.detail}"
+    st.subheader("PriceGauger v2")
+    identity = f"market_id {context.market_id}"
+    if context.instrument is not None:
+        identity += f" · instrument_id {context.instrument.instrument_id} · {context.instrument.provider}:{context.instrument.provider_instrument_id}"
+    st.caption(f"{identity} · {view.recipe_label} · snapshot {view.as_of} · {status_label}")
+
+    chart = render_v2_forecast_chart(view)
+    explanation = render_v2_technical_explanation(view)
+    st.markdown(
+        f'<div class="pg-v2-layout">{chart}{explanation}</div>',
+        unsafe_allow_html=True,
+    )
+
+    metrics = st.columns(4)
+    metrics[0].metric("Retning", view.direction)
+    metrics[1].metric("Forventet move", f"{view.expected_return * 100:+.3f}%")
+    metrics[2].metric("TA confidence", f"{view.confidence:.0%}")
+    metrics[3].metric("Horisont", _horizon_label(view.horizon_seconds))
+
+    if context.health.status != "HEALTHY":
+        st.warning(f"V2 analysis health: {context.health.status} · {context.health.detail}")
+
+    render_companion_panel_v2(view)
+
+
 def _render_live_chart() -> None:
+    context = _load_active_context()
+    if context is None or context.instrument is None:
+        st.info("Live chart venter på eksplisitt aktiv v2-instrumentidentitet.")
+        return
+
     now = datetime.now(timezone.utc)
     resolved_start = now - timedelta(hours=int(window_hours))
     resolved_end = now
@@ -213,6 +309,10 @@ def _render_live_chart() -> None:
 
     loaded_overlays: dict[str, tuple] = {}
     for overlay_market in overlays:
+        overlay_context = baseline_contexts.get(overlay_market)
+        if overlay_context is None or overlay_context.instrument is None:
+            st.warning(f"Hopper over {overlay_market}: mangler aktiv v2-instrumentidentitet.")
+            continue
         try:
             overlay_bars = _load(overlay_market, range_start=resolved_start, range_end=resolved_end)
         except ValueError as exc:
@@ -238,7 +338,11 @@ def _render_live_chart() -> None:
     if primary:
         latest_display = f"{primary[-1].close:g} @ {utc(primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
 
-    st.caption(f"**{market}** · {timeframe} · {window_hours}t · siste close {latest_display}")
+    st.subheader("Live chart")
+    st.caption(
+        f"**{market}** · v2 instrument_id {context.instrument.instrument_id} · {timeframe} · {window_hours}t · "
+        f"siste close {latest_display}"
+    )
 
     fig = build_trading_desk_figure(
         market=market,
@@ -264,7 +368,7 @@ def _render_live_chart() -> None:
     )
 
     if not primary:
-        st.info(f"Fant ingen ferdige 1m-bars for {market}, heller ikke rundt siste registrerte bar.")
+        st.info(f"Fant ingen canonical 1m-bars for {market}, heller ikke rundt siste registrerte bar.")
     else:
         volume_points = sum(item.volume is not None for item in primary)
         if volume_points < len(primary):
@@ -275,8 +379,14 @@ def _render_live_chart() -> None:
 
 
 with chart_column:
-    _fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-    if _fragment is not None:
-        _fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
+    analysis_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+    if analysis_fragment is not None:
+        analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis)()
+    else:
+        _render_v2_analysis()
+
+    chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+    if chart_fragment is not None:
+        chart_fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
     else:
         _render_live_chart()
