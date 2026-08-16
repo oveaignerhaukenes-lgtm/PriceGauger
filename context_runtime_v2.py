@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime, timezone
 
 from context_snapshot_store_v2 import ContextSnapshotStoreV2
-from context_snapshot_v2 import FRESH, STALE, ContextSnapshotV2
+from context_snapshot_v2 import (
+    FRESH,
+    STALE,
+    ContextSnapshotV2,
+    build_context_snapshot_v2,
+)
 
 
 DEFAULT_CONTEXT_FRESHNESS_SECONDS = 300
@@ -28,6 +32,10 @@ def apply_context_freshness_v2(
     Freshness is based on coverage_end when present, otherwise snapshot as_of. The
     policy is intentionally outside the semantic adapter so polling and translation
     remain independent from runtime policy.
+
+    A freshness transition is a material semantic-state transition. Rebuild through
+    the canonical constructor so the new fingerprint and immutable snapshot identity
+    remain consistent instead of mutating the prior identity in place.
     """
     if max_age_seconds <= 0:
         raise ValueError("max_age_seconds must be positive")
@@ -37,7 +45,18 @@ def apply_context_freshness_v2(
     status = FRESH if age_seconds <= max_age_seconds else STALE
     if snapshot.freshness_status == status:
         return snapshot
-    return replace(snapshot, freshness_status=status, state_fingerprint="")
+    return build_context_snapshot_v2(
+        as_of=snapshot.as_of,
+        engine_version=snapshot.engine_version,
+        scope_key=snapshot.scope_key,
+        freshness_status=status,
+        coverage_start=snapshot.coverage_start,
+        coverage_end=snapshot.coverage_end,
+        evidence=snapshot.evidence,
+        targets=snapshot.targets,
+        regime_label=snapshot.regime_label,
+        summary=snapshot.summary,
+    )
 
 
 def publish_context_snapshot_v2(
