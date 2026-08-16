@@ -14,12 +14,27 @@ from autotrader_product_explorer import (
     product_explanation,
     search_product_universe,
 )
+from database import using_postgres
+from instrument_onboarding_v2 import (
+    SaxoInstrumentOnboardingRequestV2,
+    onboard_saxo_instrument_v2,
+)
 from saxo_provider import SaxoError
 from saxo_trading import SaxoAccount, SaxoTradingSafetyError, configured_trading_client
 
 
 _RESULT_KEY = "saxo_product_explorer_result_v2"
 _DETAILS_KEY = "saxo_product_explorer_details_v2"
+_ONBOARDING_RESULT_KEY = "saxo_product_explorer_onboarding_result_v2"
+_MARKET_CATEGORIES = (
+    "commodity",
+    "equity",
+    "index",
+    "fx",
+    "fixed_income",
+    "fund",
+    "other",
+)
 
 
 def _account_label(account: SaxoAccount) -> str:
@@ -69,11 +84,127 @@ def _detail_cache_key(product: ProductSummary, account_key: str | None) -> str:
     return f"{product.instrument.uic}:{product.instrument.asset_type}:{account_key or '-'}"
 
 
+def _suggest_market_category(product: ProductSummary) -> str:
+    underlying = (product.underlying_asset_type or "").lower()
+    asset_type = product.instrument.asset_type.lower()
+    if "stockindex" in underlying or "index" in asset_type:
+        return "index"
+    if underlying == "stock" or product.category == "Aksjer":
+        return "equity"
+    if asset_type.startswith("fx") or product.category == "Valuta":
+        return "fx"
+    if product.category == "Obligasjoner":
+        return "fixed_income"
+    if product.category in {"ETF / ETC / ETN", "Fond"}:
+        return "fund"
+    return "other"
+
+
+def _onboarding_metadata(product: ProductSummary, details: dict[str, object]) -> dict[str, object]:
+    return {
+        "description": product.instrument.description,
+        "currency": product.currency,
+        "exchange": product.exchange,
+        "expiry": product.instrument.expiry,
+        "underlying_asset_type": product.underlying_asset_type,
+        "tradable_as": list(product.tradable_as),
+        "product_category": product.category,
+        "details_description": details.get("Description"),
+    }
+
+
+def _render_onboarding(
+    *,
+    selected: ProductSummary,
+    result: ProductSearchResult,
+    details: dict[str, object],
+) -> None:
+    st.divider()
+    st.markdown("### Legg til i PriceGauger v2")
+    st.caption(
+        "Dette er en systemkonfigurasjons-write: valgt Saxo-instrument registreres i canonical v2-registry "
+        "og 1m collection subscription aktiveres. Det sender ingen ordre."
+    )
+
+    if not using_postgres():
+        st.warning("Onboarding er deaktivert: canonical v2-registry krever konfigurert PostgreSQL.")
+        return
+
+    identity = f"UIC {selected.instrument.uic} · {selected.instrument.asset_type}"
+    st.code(identity, language=None)
+
+    default_market = result.request.keywords.strip() or selected.instrument.description or selected.instrument.symbol
+    default_category = _suggest_market_category(selected)
+    category_index = _MARKET_CATEGORIES.index(default_category)
+
+    with st.form(f"v2_onboarding_{selected.instrument.uic}_{selected.instrument.asset_type}"):
+        market_name = st.text_input(
+            "Canonical market-navn",
+            value=default_market,
+            help=(
+                "Dette er den stabile økonomiske markedsidentiteten, f.eks. Gold, Apple eller DAX — "
+                "ikke nødvendigvis det fulle Saxo-produktnavnet. Flere konkrete instrumenter kan senere høre til samme marked."
+            ),
+        )
+        market_category = st.selectbox(
+            "Økonomisk markedskategori",
+            _MARKET_CATEGORIES,
+            index=category_index,
+            help="Klassifiser selve markedet/underliggende økonomisk mål, ikke Saxos produkttype.",
+        )
+        display_name = st.text_input(
+            "Instrumentnavn i registry",
+            value=selected.instrument.description or selected.instrument.symbol or identity,
+        )
+        confirm = st.checkbox(
+            f"Jeg bekrefter {identity} → `{market_name or '…'}` og aktivering av canonical 1m-innsamling.",
+            value=False,
+        )
+        submit_onboarding = st.form_submit_button(
+            "Legg til i PriceGauger",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if not submit_onboarding:
+        return
+    if not confirm:
+        st.warning("Bekreft den eksakte registry-endringen før du fortsetter.")
+        return
+    if not market_name.strip() or not display_name.strip():
+        st.error("Canonical market-navn og instrumentnavn må være utfylt.")
+        return
+
+    try:
+        onboarded = onboard_saxo_instrument_v2(
+            SaxoInstrumentOnboardingRequestV2(
+                market_name=market_name,
+                market_category=market_category,
+                display_name=display_name,
+                uic=selected.instrument.uic,
+                asset_type=selected.instrument.asset_type,
+                symbol=selected.instrument.symbol or None,
+                price_multiplier=selected.instrument.price_multiplier,
+                metadata=_onboarding_metadata(selected, details),
+            )
+        )
+    except (ValueError, LookupError, RuntimeError) as exc:
+        st.error(f"V2-onboarding ble avvist uten delvis registry-write: {exc}")
+        return
+
+    st.session_state[_ONBOARDING_RESULT_KEY] = onboarded
+    action = "Gjenbrukte eksisterende source og aktiverte subscription" if onboarded.reused_existing_source else "Registrert"
+    st.success(
+        f"{action}: market_id={onboarded.market_id}, instrument_id={onboarded.instrument_id}, "
+        f"source_id={onboarded.instrument_source_id}. Canonical 1m subscription er aktiv."
+    )
+
+
 def render_saxo_product_explorer() -> None:
     st.subheader("Saxo Product Explorer")
     st.caption(
-        "Read-only katalogvisning av instrumentuniverset Saxo SIM eksponerer. "
-        "Explorer sender ingen ordre og skriver foreløpig ikke til PriceGauger v2-registry."
+        "Katalogvisning av instrumentuniverset Saxo SIM eksponerer. Søk/Inspector er read-only; "
+        "eksplisitt `Legg til i PriceGauger` kan registrere valgt instrument i canonical v2-registry."
     )
 
     try:
@@ -145,6 +276,7 @@ def render_saxo_product_explorer() -> None:
             )
             try:
                 st.session_state[_RESULT_KEY] = search_product_universe(trading.client, request)
+                st.session_state.pop(_ONBOARDING_RESULT_KEY, None)
             except SaxoError as exc:
                 st.session_state.pop(_RESULT_KEY, None)
                 st.error(f"Saxo instrument-search feilet: {exc}")
@@ -174,7 +306,12 @@ def render_saxo_product_explorer() -> None:
             "*Retning er en eksplisitt navnetolkning, ikke et Direction-felt fra Saxo instrument-summary. "
             "UIC + AssetType er den tekniske Saxo-identiteten som vises uendret."
         )
-        selected = st.selectbox("Velg produkt for forklaring", result.products, format_func=_product_label)
+        selected = st.selectbox(
+            "Velg produkt for forklaring",
+            result.products,
+            format_func=_product_label,
+            key="saxo_product_explorer_selected_v2",
+        )
 
     with inspector_col:
         st.markdown("### Valgt produkt")
@@ -202,9 +339,11 @@ def render_saxo_product_explorer() -> None:
                 cache[cache_key] = {"_error": str(exc)}
 
         details = cache.get(cache_key, {})
+        clean_details: dict[str, object] = {}
         if isinstance(details, dict) and details.get("_error"):
             st.warning(f"Kunne ikke hente instrumentdetaljer: {details['_error']}")
         elif isinstance(details, dict):
+            clean_details = details
             rows = detail_rows(details)
             if rows:
                 st.dataframe(
@@ -219,11 +358,8 @@ def render_saxo_product_explorer() -> None:
         with st.expander("Rå Saxo-data", expanded=False):
             st.markdown("**Search summary**")
             st.json(selected.raw)
-            if isinstance(details, dict) and not details.get("_error"):
+            if clean_details:
                 st.markdown("**Instrument details**")
-                st.json(details)
+                st.json(clean_details)
 
-    st.info(
-        "Neste capability kan koble et eksplisitt valgt instrument til PriceGauger v2 instrument-registry. "
-        "Denne Explorer-versjonen er bevisst read-only."
-    )
+        _render_onboarding(selected=selected, result=result, details=clean_details)
