@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import html
+import inspect
 import os
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 import streamlit as st
+
+from migration_debug_ui import render_migration_badge
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +18,26 @@ class BuildInfo:
     commit: str
     branch: str
     commit_time: str
+
+
+_MIGRATION_BY_PAGE: dict[str, tuple[str, str]] = {
+    "0_Oversikt.py": (
+        "MIXED",
+        "V2: markedskort/Technical Core/forecast. Legacy/V1: nyhets-, Telegram- og Information State-kontekst.",
+    ),
+    "0_TradingDesk.py": (
+        "V2",
+        "V2 identity/workspace/Companion/execution context. Canonical 1m-bars bruker fortsatt den kontrollerte storage-broen.",
+    ),
+    "2_Direct_Technical.py": (
+        "LEGACY/V1",
+        "Eldre direkte teknisk analyseflate; ikke den autoritative Technical Core v2-read-pathen.",
+    ),
+    "6_AutoTrader_POC.py": (
+        "V2",
+        "Product Explorer/onboarding bruker canonical v2 registry; ordreutførelse går gjennom separat Saxo SIM safety-path.",
+    ),
+}
 
 
 def _git(*args: str) -> str | None:
@@ -49,6 +73,19 @@ def get_build_info() -> BuildInfo:
     except ValueError:
         commit_time = "time unknown"
     return BuildInfo(commit=commit[:7], branch=branch, commit_time=commit_time)
+
+
+def _render_page_migration_marker() -> None:
+    frame = inspect.currentframe()
+    caller = frame.f_back.f_back if frame is not None and frame.f_back is not None else None
+    if caller is None:
+        return
+    page = Path(caller.f_code.co_filename).name
+    marker = _MIGRATION_BY_PAGE.get(page)
+    if marker is None:
+        return
+    authority, detail = marker
+    render_migration_badge(authority, detail=detail)
 
 
 def render_build_badge() -> None:
@@ -162,10 +199,10 @@ def render_build_badge() -> None:
         unsafe_allow_html=True,
     )
 
-    # Also expose the page through Streamlit's native sidebar navigation.
+    _render_page_migration_marker()
+
     try:
         with st.sidebar:
             st.page_link("pages/2_Signalaggregat.py", label="∑ Signalaggregat")
     except Exception:
-        # Older Streamlit versions or standalone test contexts may not support page_link.
         pass
