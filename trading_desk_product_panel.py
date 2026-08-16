@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from autotrader_execution_context_v2 import AutoTraderExecutionContextV2
 from autotrader_manual_execution import (
     ManualExecutionResult,
     build_manual_order_intent,
@@ -34,13 +35,24 @@ def _money(value: float, currency: str) -> str:
     return f"{value:,.2f} {currency}".replace(",", " ")
 
 
-def render_saxo_product_panel(market: str) -> None:
+def render_saxo_product_panel(
+    market: str,
+    *,
+    execution_context_v2: AutoTraderExecutionContextV2 | None = None,
+) -> None:
     st.divider()
     st.subheader("AutoTrader · Saxo SIM")
     st.caption(
         "Manuell ordreplassering for markedet i TradingDesk. AutoTrader prioriterer Mini/KO-produkter; "
         "execution-flyten er hardlåst til Saxo SIM."
     )
+    if execution_context_v2 is not None:
+        st.caption(
+            "V2 execution gate · "
+            f"market_id {execution_context_v2.market_id} · instrument_id {execution_context_v2.instrument_id} · "
+            f"{execution_context_v2.provider}:{execution_context_v2.provider_instrument_id} · "
+            f"{execution_context_v2.asset_type or 'AssetType ukjent'}"
+        )
 
     try:
         trading = configured_trading_client()
@@ -268,8 +280,15 @@ def render_saxo_product_panel(market: str) -> None:
                 action=action,
                 amount=order_amount,
             )
-            intent = build_manual_order_intent(preview)
-            validate_manual_intent(intent, active_account_keys={item.account_key for item in accounts})
+            intent = build_manual_order_intent(
+                preview,
+                execution_context_v2=execution_context_v2,
+            )
+            validate_manual_intent(
+                intent,
+                active_account_keys={item.account_key for item in accounts},
+                require_v2_context=execution_context_v2 is not None,
+            )
             st.session_state[preview_key] = preview
             st.session_state[intent_key] = intent
             if sizing is not None:
@@ -297,6 +316,13 @@ def render_saxo_product_panel(market: str) -> None:
         f"Saxo-handling {preview.action} · produktretning {direction} · {preview.asset_type} · UIC {preview.uic} · "
         f"konto {preview.account_id}"
     )
+    if intent.execution_context_v2 is not None:
+        context = intent.execution_context_v2
+        st.caption(
+            "Bundet TradingDesk-identitet · "
+            f"market_id {context.market_id} · instrument_id {context.instrument_id} · "
+            f"{context.provider}:{context.provider_instrument_id} · {context.asset_type or 'AssetType ukjent'}"
+        )
 
     sizing = st.session_state.get(sizing_key)
     if isinstance(sizing, ProductSizingQuote):
@@ -314,7 +340,11 @@ def render_saxo_product_panel(market: str) -> None:
 
     if st.button("Kjør Saxo pre-check", type="primary", key=f"manual_precheck_{market}"):
         try:
-            validate_manual_intent(intent, active_account_keys={item.account_key for item in accounts})
+            validate_manual_intent(
+                intent,
+                active_account_keys={item.account_key for item in accounts},
+                require_v2_context=execution_context_v2 is not None,
+            )
             with st.spinner("Validerer ordren hos Saxo SIM …"):
                 precheck = trading.precheck(intent.order_request())
             st.session_state[precheck_key] = {"intent_id": intent.intent_id, "value": precheck}
@@ -376,7 +406,11 @@ def render_saxo_product_panel(market: str) -> None:
         key=f"manual_send_{intent.intent_id}",
     ):
         try:
-            validate_manual_intent(intent, active_account_keys={item.account_key for item in accounts})
+            validate_manual_intent(
+                intent,
+                active_account_keys={item.account_key for item in accounts},
+                require_v2_context=execution_context_v2 is not None,
+            )
             with st.spinner("Sender én manuell ordre til Saxo SIM og leser tilbake Saxo-state …"):
                 result = execute_confirmed_manual_order(
                     trading,
