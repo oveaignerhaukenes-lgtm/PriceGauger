@@ -63,6 +63,24 @@ def test_freshness_uses_coverage_end_and_explicit_threshold():
     assert fresh.freshness_status == FRESH
     assert stale.freshness_status == STALE
     assert fresh.state_fingerprint != stale.state_fingerprint
+    assert fresh.snapshot_id != stale.snapshot_id
+    assert fresh.snapshot_id != snapshot.snapshot_id
+    assert stale.snapshot_id != snapshot.snapshot_id
+
+
+def test_same_freshness_state_preserves_snapshot_identity():
+    fresh = apply_context_freshness_v2(
+        _snapshot(),
+        evaluated_at="2026-08-17T00:04:00Z",
+    )
+    repeated = apply_context_freshness_v2(
+        fresh,
+        evaluated_at="2026-08-17T00:04:30Z",
+    )
+
+    assert repeated is fresh
+    assert repeated.snapshot_id == fresh.snapshot_id
+    assert repeated.state_fingerprint == fresh.state_fingerprint
 
 
 def test_publish_rejects_repeated_poll_but_persists_freshness_transition(tmp_path):
@@ -88,6 +106,8 @@ def test_publish_rejects_repeated_poll_but_persists_freshness_transition(tmp_pat
     assert first.freshness_status == FRESH
     assert repeated.freshness_status == FRESH
     assert stale.freshness_status == STALE
+    assert first.snapshot_id == repeated.snapshot_id
+    assert stale.snapshot_id != first.snapshot_id
     assert first_saved is True
     assert repeated_saved is False
     assert stale_saved is True
