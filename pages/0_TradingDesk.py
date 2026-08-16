@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 
+from autotrader_execution_context_v2 import AutoTraderExecutionContextV2
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
 from realtime_market_data import RealtimeMarketDataStore
@@ -203,12 +204,19 @@ with controls_column:
         if baseline_context.instrument is None:
             st.warning("Hurtighandel krever eksplisitt v2-instrumentidentitet og er derfor deaktivert.")
         else:
-            st.caption(
-                "Produktvalg er fortsatt separat fra det analyserte v2-instrumentet. "
-                "AutoTrader-binding til eksplisitt v2 instrument_id er neste execution-cutover; "
-                "TradingDesk oppretter ingen separat ordrevei."
+            execution_context_v2 = AutoTraderExecutionContextV2.from_source(
+                market_id=baseline_context.market_id,
+                market_name=baseline_context.market_name,
+                source=baseline_context.instrument,
             )
-            render_saxo_product_panel(market)
+            st.caption(
+                "Produktvalg er separat fra analyse/feed-instrumentet, men enhver TradingDesk-ordre bindes nå til "
+                "den eksakte canonical v2-identiteten og revalideres før pre-check og submit."
+            )
+            render_saxo_product_panel(
+                market,
+                execution_context_v2=execution_context_v2,
+            )
             st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
 
     with st.expander("Status", expanded=False):
