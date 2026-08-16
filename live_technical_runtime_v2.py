@@ -11,6 +11,7 @@ from instrument_registry_v2 import (
     ensure_instrument_source_v2,
     ensure_instrument_v2,
     ensure_market_v2,
+    resolve_instrument_source_v2,
     set_collection_subscription_v2,
 )
 from market_history_store import MarketHistoryStore
@@ -52,7 +53,33 @@ def _instrument_display_name(market: str, instrument: SaxoInstrument) -> str:
 
 
 def register_saxo_instrument_v2(*, market: str, instrument: SaxoInstrument) -> int:
-    """Ensure one configured Saxo feed instrument is represented and subscribed in DB v2."""
+    """Resolve the canonical v2 identity or register a legacy configured feed once.
+
+    Explicit Product Explorer onboarding owns existing provider identities. The
+    runtime must reuse that identity rather than creating a second instrument row
+    with a runtime-generated display label.
+    """
+    try:
+        existing = resolve_instrument_source_v2(
+            provider="saxo",
+            provider_instrument_id=str(instrument.uic),
+        )
+    except LookupError:
+        existing = None
+
+    if existing is not None:
+        if existing.asset_type and str(existing.asset_type) != str(instrument.asset_type):
+            raise ValueError(
+                "registered Saxo provider identity has different AssetType; refusing runtime remap"
+            )
+        if existing.market_name != market:
+            raise ValueError(
+                f"registered Saxo source {instrument.uic} belongs to canonical market "
+                f"{existing.market_name!r}, not runtime market {market!r}"
+            )
+        set_collection_subscription_v2(instrument_id=existing.instrument_id, enabled=True)
+        return existing.market_id
+
     market_id = ensure_market_v2(
         name=market,
         category=instrument.asset_type or "market",
@@ -97,11 +124,12 @@ def run_live_technical_cycle_v2(
     db_path: str = "pricegauger.db",
     ensure_schema: bool = True,
 ) -> LiveTechnicalCycleSummaryV2:
-    """Produce and persist one TA-only v2 snapshot for every configured Saxo market.
+    """Produce and persist one TA-only v2 snapshot for every active runtime market.
 
     The existing ``realtime_bars_1m`` / ``MarketHistoryStore`` path remains the
-    canonical market-history source during this controlled v2 read-path cutover.
-    This runner consumes it; it does not create a second Saxo ingestion path.
+    canonical market-history bridge during this controlled v2 cutover. Runtime
+    instrument discovery is driven by enabled v2 collection subscriptions; this
+    producer consumes the resulting market set and does not create a second feed.
     """
     if ensure_schema:
         ensure_db_v2_schema()
@@ -109,7 +137,7 @@ def run_live_technical_cycle_v2(
     produced_count = 0
     failed_count = 0
 
-    for market, instrument in instruments.items():
+    for market, instrument in tuple(instruments.items()):
         try:
             market_id = register_saxo_instrument_v2(market=market, instrument=instrument)
             produced = produce_technical_runtime_v2(
