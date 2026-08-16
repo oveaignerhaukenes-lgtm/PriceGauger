@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import live_technical_runtime_v2 as runtime
+from instrument_registry_v2 import InstrumentSourceV2
 from recipe_registry_v2 import TA_ONLY_V1, TECHNICAL_CORE_RECIPE_V2_1
 from saxo_provider import SaxoInstrument
 
@@ -21,6 +22,7 @@ def _instrument(asset: str, uic: int) -> SaxoInstrument:
 
 def test_register_saxo_instrument_uses_generic_v2_registry(monkeypatch):
     calls = []
+    monkeypatch.setattr(runtime, "resolve_instrument_source_v2", lambda **kwargs: (_ for _ in ()).throw(LookupError()))
     monkeypatch.setattr(runtime, "ensure_market_v2", lambda **kwargs: calls.append(("market", kwargs)) or 7)
     monkeypatch.setattr(runtime, "ensure_instrument_v2", lambda **kwargs: calls.append(("instrument", kwargs)) or 11)
     monkeypatch.setattr(runtime, "ensure_instrument_source_v2", lambda **kwargs: calls.append(("source", kwargs)) or 13)
@@ -38,6 +40,30 @@ def test_register_saxo_instrument_uses_generic_v2_registry(monkeypatch):
     assert source["instrument_id"] == 11
     subscription = next(payload for kind, payload in calls if kind == "subscription")
     assert subscription == {"instrument_id": 11, "enabled": True}
+
+
+def test_register_saxo_instrument_reuses_explicit_onboarded_source(monkeypatch):
+    existing = InstrumentSourceV2(
+        market_id=7,
+        market_name="Gold",
+        instrument_id=11,
+        instrument_type="CfdOnFutures",
+        display_name="User selected Gold product",
+        provider="saxo",
+        provider_instrument_id="42",
+        asset_type="CfdOnFutures",
+        symbol="GOLD",
+        price_multiplier=1.0,
+    )
+    monkeypatch.setattr(runtime, "resolve_instrument_source_v2", lambda **kwargs: existing)
+    calls = []
+    monkeypatch.setattr(runtime, "set_collection_subscription_v2", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(runtime, "ensure_market_v2", lambda **kwargs: (_ for _ in ()).throw(AssertionError("must not create market")))
+
+    market_id = runtime.register_saxo_instrument_v2(market="Gold", instrument=_instrument("GOLD", 42))
+
+    assert market_id == 7
+    assert calls == [{"instrument_id": 11, "enabled": True}]
 
 
 def test_live_cycle_persists_canonical_ta_only_recipe_and_isolates_market_failure(monkeypatch):
