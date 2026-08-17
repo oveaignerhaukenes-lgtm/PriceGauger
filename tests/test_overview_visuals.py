@@ -10,7 +10,7 @@ def test_instrument_colors_are_stable():
     assert asset_color("Silver") == "#8c96a0"
     assert asset_color("Brent") == "#d6a04a"
     assert asset_color("Natural Gas") == "#168f8a"
-    assert asset_color("DXY") == "#4f7fb8"
+    assert asset_color("DXY") == "#3f6fa8"
 
 
 def test_visual_score_does_not_saturate_raw_unit_score():
