@@ -82,6 +82,12 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "icon": "📈",
             "url_path": "Forecast_Learning",
         },
+        {
+            "page": "pages/7_Benchmark.py",
+            "title": "Benchmark",
+            "icon": "🧪",
+            "url_path": "Benchmark",
+        },
     ),
     "Tilkoblinger og drift": (
         {
