@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from database import connect
+from database import connect, using_postgres
 
 
 def utc(value: str | datetime) -> datetime:
@@ -82,8 +82,6 @@ class StreamStatus:
 
 
 class MinuteBarAggregator:
-    """Aggregate transient realtime quotes into persistent one-minute OHLC bars."""
-
     def __init__(self) -> None:
         self._minute: datetime | None = None
         self._market: str | None = None
@@ -95,18 +93,10 @@ class MinuteBarAggregator:
             return None
         item = self._template
         return RealtimeBar1m(
-            market=item.market,
-            bar_time=self._minute.isoformat(),
-            open=self._values[0],
-            high=max(self._values),
-            low=min(self._values),
-            close=self._values[-1],
-            sample_count=len(self._values),
-            provider=item.provider,
-            uic=item.uic,
-            asset_type=item.asset_type,
-            symbol=item.symbol,
-            volume=None,
+            market=item.market, bar_time=self._minute.isoformat(), open=self._values[0],
+            high=max(self._values), low=min(self._values), close=self._values[-1],
+            sample_count=len(self._values), provider=item.provider, uic=item.uic,
+            asset_type=item.asset_type, symbol=item.symbol, volume=None,
         )
 
     def add(self, quote: RealtimeQuote) -> RealtimeBar1m | None:
@@ -117,7 +107,7 @@ class MinuteBarAggregator:
         if self._market is not None and quote.market != self._market:
             raise ValueError("MinuteBarAggregator instances are single-market")
         self._market = quote.market
-        completed: RealtimeBar1m | None = None
+        completed = None
         if self._minute is not None and bucket != self._minute:
             if bucket < self._minute:
                 return None
@@ -134,90 +124,71 @@ class MinuteBarAggregator:
 
 
 class RealtimeMarketDataStore:
+    """Compatibility realtime store; PostgreSQL also writes canonical pg_v2 bars."""
+
     def __init__(self, path: str | Path = "pricegauger.db") -> None:
         self.path = str(path)
         with connect(self.path) as db:
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS realtime_bars_1m (
-                    market TEXT NOT NULL,
-                    bar_time TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    uic INTEGER,
-                    payload_json TEXT NOT NULL,
+                    market TEXT NOT NULL, bar_time TEXT NOT NULL, provider TEXT NOT NULL,
+                    uic INTEGER, payload_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (market, bar_time, provider)
                 );
-                CREATE INDEX IF NOT EXISTS idx_realtime_bars_market_time
-                ON realtime_bars_1m(market, bar_time);
+                CREATE INDEX IF NOT EXISTS idx_realtime_bars_market_time ON realtime_bars_1m(market,bar_time);
                 CREATE TABLE IF NOT EXISTS realtime_stream_status (
-                    market TEXT PRIMARY KEY,
-                    updated_at TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
+                    market TEXT PRIMARY KEY, updated_at TEXT NOT NULL, state TEXT NOT NULL, payload_json TEXT NOT NULL
                 );
                 """
             )
 
-    def save_bar(self, bar: RealtimeBar1m) -> None:
+    def save_bar(self, bar: RealtimeBar1m, *, quality_flags: int = 1) -> None:
+        # Keep the legacy row during AP13 for rollback/debug consumers, but v2 is
+        # the canonical physical write for subscribed PostgreSQL instruments.
         with connect(self.path) as db:
             db.execute(
-                """
-                INSERT INTO realtime_bars_1m(market, bar_time, provider, uic, payload_json)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(market, bar_time, provider) DO UPDATE SET
-                    uic=excluded.uic,
-                    payload_json=excluded.payload_json,
-                    updated_at=CURRENT_TIMESTAMP
-                """,
+                """INSERT INTO realtime_bars_1m(market,bar_time,provider,uic,payload_json)
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT(market,bar_time,provider) DO UPDATE SET
+                     uic=excluded.uic,payload_json=excluded.payload_json,updated_at=CURRENT_TIMESTAMP""",
                 (bar.market, bar.bar_time, bar.provider, bar.uic, json.dumps(bar.to_record(), sort_keys=True)),
             )
+        if using_postgres():
+            from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
+            CanonicalMarketBarStoreV2(self.path).save_saxo_bar(bar, quality_flags=quality_flags)
 
     def save_status(self, status: StreamStatus) -> None:
         with connect(self.path) as db:
             db.execute(
-                """
-                INSERT INTO realtime_stream_status(market, updated_at, state, payload_json)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(market) DO UPDATE SET
-                    updated_at=excluded.updated_at,
-                    state=excluded.state,
-                    payload_json=excluded.payload_json
-                """,
+                """INSERT INTO realtime_stream_status(market,updated_at,state,payload_json) VALUES (?,?,?,?)
+                   ON CONFLICT(market) DO UPDATE SET updated_at=excluded.updated_at,state=excluded.state,payload_json=excluded.payload_json""",
                 (status.market, status.updated_at, status.state, json.dumps(status.to_record(), sort_keys=True)),
             )
 
     def load_statuses(self) -> list[StreamStatus]:
         with connect(self.path) as db:
-            rows = db.execute(
-                "SELECT payload_json FROM realtime_stream_status ORDER BY market"
-            ).fetchall()
+            rows = db.execute("SELECT payload_json FROM realtime_stream_status ORDER BY market").fetchall()
         return [StreamStatus(**json.loads(row["payload_json"])) for row in rows]
 
     def load_latest_bar(self, *, market: str) -> RealtimeBar1m | None:
+        if using_postgres():
+            from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
+            bar = CanonicalMarketBarStoreV2(self.path).load_latest(market=market)
+            if bar is not None:
+                return RealtimeBar1m(market=bar.market_name, bar_time=bar.bar_time, open=bar.open, high=bar.high, low=bar.low, close=bar.close, sample_count=0, provider="canonical-v2", uic=None, asset_type="", symbol="", volume=bar.volume)
         with connect(self.path) as db:
-            row = db.execute(
-                """
-                SELECT payload_json FROM realtime_bars_1m
-                WHERE market=?
-                ORDER BY bar_time DESC
-                LIMIT 1
-                """,
-                (market,),
-            ).fetchone()
-        if row is None:
-            return None
-        return RealtimeBar1m(**json.loads(row["payload_json"]))
+            row = db.execute("SELECT payload_json FROM realtime_bars_1m WHERE market=? ORDER BY bar_time DESC LIMIT 1", (market,)).fetchone()
+        return None if row is None else RealtimeBar1m(**json.loads(row["payload_json"]))
 
     def load_range(self, *, market: str, start: str | datetime, end: str | datetime, limit: int = 10000) -> list[RealtimeBar1m]:
+        if using_postgres():
+            from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
+            bars = CanonicalMarketBarStoreV2(self.path).load_range(market=market, start=start, end=end, limit=limit)
+            if bars:
+                return [RealtimeBar1m(market=item.market_name, bar_time=item.bar_time, open=item.open, high=item.high, low=item.low, close=item.close, sample_count=0, provider="canonical-v2", uic=None, asset_type="", symbol="", volume=item.volume) for item in bars]
         start_at, end_at = utc(start), utc(end)
         with connect(self.path) as db:
-            rows = db.execute(
-                """
-                SELECT payload_json FROM realtime_bars_1m
-                WHERE market=? AND bar_time>=? AND bar_time<=?
-                ORDER BY bar_time ASC LIMIT ?
-                """,
-                (market, start_at.isoformat(), end_at.isoformat(), max(1, int(limit))),
-            ).fetchall()
+            rows = db.execute("SELECT payload_json FROM realtime_bars_1m WHERE market=? AND bar_time>=? AND bar_time<=? ORDER BY bar_time ASC LIMIT ?", (market,start_at.isoformat(),end_at.isoformat(),max(1,int(limit)))).fetchall()
         return [RealtimeBar1m(**json.loads(row["payload_json"])) for row in rows]
