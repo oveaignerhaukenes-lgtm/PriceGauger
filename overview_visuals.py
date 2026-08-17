@@ -4,17 +4,18 @@ import math
 
 
 ASSET_COLORS: dict[str, str] = {
-    "Brent": "#171717",
+    # Identity colors must remain readable on PriceGauger's dark surfaces.
+    "Brent": "#d6a04a",
     "Gold": "#d88716",
     "Silver": "#8c96a0",
     "Natural Gas": "#168f8a",
-    "DXY": "#244a7c",
+    "DXY": "#3f6fa8",
 }
 
 
 def asset_color(market: str) -> str:
-    """Return a stable instrument identity color for the overview UI."""
-    return ASSET_COLORS.get(str(market), "#6f7780")
+    """Return a stable, dark-surface-safe instrument identity color."""
+    return ASSET_COLORS.get(str(market), "#8b95a1")
 
 
 def visual_direction_score(raw_score: float) -> float:

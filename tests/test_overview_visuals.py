@@ -8,9 +8,9 @@ from overview_visuals import asset_color, bipolar_fill, visual_direction_score
 def test_instrument_colors_are_stable():
     assert asset_color("Gold") == "#d88716"
     assert asset_color("Silver") == "#8c96a0"
-    assert asset_color("Brent") == "#171717"
+    assert asset_color("Brent") == "#d6a04a"
     assert asset_color("Natural Gas") == "#168f8a"
-    assert asset_color("DXY") == "#244a7c"
+    assert asset_color("DXY") == "#3f6fa8"
 
 
 def test_visual_score_does_not_saturate_raw_unit_score():
