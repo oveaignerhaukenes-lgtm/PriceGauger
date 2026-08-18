@@ -469,7 +469,12 @@ class SaxoRealtimeService:
         self._backfill_thread.start()
         return True
 
-    def handle_message(self, message: SaxoStreamMessage) -> None:
+    def handle_message(
+        self,
+        message: SaxoStreamMessage,
+        *,
+        received_at: str | None = None,
+    ) -> None:
         ref = message.reference_id.upper()
         if ref.startswith("_"):
             payload = message.payload if isinstance(message.payload, dict) else {}
@@ -487,8 +492,20 @@ class SaxoRealtimeService:
         merged = merge_delta(current, message.payload)
         self.snapshots[ref] = merged
         instrument = self.instruments[market]
+        provider_observed_at = _find_value(
+            message.payload,
+            ("Timestamp", "LastUpdated"),
+        )
+        observation_time = str(
+            provider_observed_at
+            or received_at
+            or datetime.now(timezone.utc).isoformat()
+        )
         quote = quote_from_snapshot(
-            market=market, instrument=instrument, payload=merged
+            market=market,
+            instrument=instrument,
+            payload=merged,
+            observed_at=observation_time,
         )
         if quote is not None:
             self._consume_quote(quote)
