@@ -55,12 +55,7 @@ def load_context_overview_v2(
     *,
     scope_key: str = "global",
 ) -> ContextOverviewV2 | None:
-    """Project the canonical ContextSnapshotV2 into an Overview-safe read model.
-
-    The Overview consumer deliberately knows nothing about legacy Information State,
-    Decision State, Recommendation, ForecastStore or state_runtime_pipeline. Raw
-    semantic engines remain behind the ContextSnapshotV2 boundary.
-    """
+    """Project the canonical ContextSnapshotV2 into an Overview-safe read model."""
     snapshot = ContextSnapshotStoreV2(db_path).load_latest(scope_key=scope_key)
     if snapshot is None:
         return None
