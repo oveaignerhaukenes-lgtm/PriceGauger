@@ -95,7 +95,7 @@ def test_overview_v2_honors_previous_legacy_horizon_selection():
 def test_overview_page_active_market_fragment_is_v2_only():
     source = open("pages/0_Oversikt.py", encoding="utf-8").read()
     start = source.index("def _render_live_market_cards")
-    end = source.index("\n\ntry:\n    data = load_overview()", start)
+    end = source.index("\n\n_render_context_v2()", start)
     fragment_source = source[start:end]
 
     assert "render_v2_overview_market_cards" in fragment_source

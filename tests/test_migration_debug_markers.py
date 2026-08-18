@@ -13,7 +13,8 @@ def _source(path: str) -> str:
 def test_primary_surfaces_have_explicit_migration_authority() -> None:
     build_info = _source("build_info.py")
     assert '"0_Oversikt.py": (' in build_info
-    assert '"MIXED"' in build_info
+    overview_marker = build_info[build_info.index('"0_Oversikt.py": (') : build_info.index('"0_TradingDesk.py": (')]
+    assert '"V2"' in overview_marker
     assert '"0_TradingDesk.py": (' in build_info
     assert '"6_AutoTrader_POC.py": (' in build_info
 
@@ -30,7 +31,8 @@ def test_engine_sidebar_marks_remaining_engine_surfaces_legacy() -> None:
     assert "migration pending" in source
 
 
-def test_overview_mixed_marker_explains_v2_and_legacy_split() -> None:
+def test_overview_v2_marker_explains_canonical_context_and_technical_sources() -> None:
     source = _source("build_info.py")
-    assert "V2: markedskort/Technical Core/forecast" in source
-    assert "Legacy/V1: nyhets-, Telegram- og Information State-kontekst" in source
+    assert "Canonical ContextSnapshotV2" in source
+    assert "v2 Technical Core/workspace/forecast" in source
+    assert "Ingen skjult V1 Decision/Recommendation-fallback" in source

@@ -49,6 +49,12 @@ CONSUMER_CUTOVER_V2: tuple[ConsumerCutoverV2, ...] = (
         "Technical analysis and forecast cards are canonical v2.",
     ),
     ConsumerCutoverV2(
+        "Overview semantic/news shell",
+        CUTOVER,
+        "ContextSnapshotStoreV2 -> ContextSnapshotV2",
+        "Overview reads canonical Context v2 directly; legacy Information/Decision/Recommendation is not a UI fallback.",
+    ),
+    ConsumerCutoverV2(
         "MarketHistoryStore historical continuity",
         TEMPORARY_ADAPTER,
         "pg_v2_market_bars_1m preferred; legacy rows only fill pre-cutover gaps",
@@ -61,10 +67,10 @@ CONSUMER_CUTOVER_V2: tuple[ConsumerCutoverV2, ...] = (
         "Retained for rollback and remaining diagnostics during first production test window.",
     ),
     ConsumerCutoverV2(
-        "Overview semantic/news shell",
-        MIXED_SURFACE,
-        "legacy semantic stores + canonical v2 technical cards",
-        "Deliberately mixed until Context-v2 source-policy/runtime migration is completed.",
+        "Legacy semantic downstream runtime",
+        RETIRE,
+        "worker process_flow_snapshot -> Information/Decision/Recommendation",
+        "No longer required by Overview after Context cutover; retire as a separate bounded capability.",
     ),
     ConsumerCutoverV2(
         "Historical Event Lab",
