@@ -14,6 +14,7 @@ from live_technical_runtime_v2 import run_live_technical_forever_v2
 from market_history_store import MarketHistoryStore
 from realtime_gap_repair import GapRepairingSaxoRealtimeService
 from runtime_subscription_bridge_v2 import instrument_signature_v2, load_runtime_instruments_v2
+from saxo_infoprice_probe import run_infoprice_probe_forever
 from saxo_provider import SaxoInstrument, configured_instruments
 
 
@@ -47,6 +48,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_MACD_DRY_RUN_SECONDS", "60")),
         help="Cadence for the read-only 30m MACD LONG/FLAT dry-run evaluator.",
+    )
+    parser.add_argument(
+        "--saxo-infoprice-probe-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_SAXO_INFOPRICE_PROBE_SECONDS", "300")),
+        help="Diagnostic cadence for Saxo InfoPrice feed-quality inspection.",
     )
     return parser
 
@@ -240,6 +247,19 @@ def main() -> None:
             daemon=True,
         )
         probe.start()
+        if service.client is not None:
+            infoprice_probe = threading.Thread(
+                target=run_infoprice_probe_forever,
+                kwargs={
+                    "client": service.client,
+                    "instruments": service.instruments,
+                    "stop_requested": restart_requested.is_set,
+                    "interval_seconds": args.saxo_infoprice_probe_seconds,
+                },
+                name="pricegauger-saxo-infoprice-probe",
+                daemon=True,
+            )
+            infoprice_probe.start()
         service.run_forever(stop_requested=restart_requested.is_set)
         if restart_requested.is_set():
             LOGGER.info("restarting Saxo stream to apply v2 collection subscription changes")
