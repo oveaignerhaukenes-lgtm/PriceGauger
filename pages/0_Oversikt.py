@@ -53,6 +53,8 @@ else:
 
 
 def _fmt_time(value: str) -> str:
+    if not value:
+        return "—"
     try:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).strftime("%d.%m.%y · %H:%M")
     except Exception:
@@ -103,6 +105,7 @@ def _render_context_v2() -> None:
                 "Confidence": f"{target.confidence:.0%}",
                 "Novelty": f"{target.novelty:.0%}",
                 "Event risk": f"{target.event_risk:.0%}",
+                "Context summary": target.summary,
             }
             for target in context.targets
         ]
@@ -117,12 +120,12 @@ def _render_context_v2() -> None:
             evidence_rows = [
                 {
                     "Kilde": item.source_kind,
+                    "Scope": item.source_scope,
                     "Source ID": item.source_id,
                     "Publisert": _fmt_time(item.published_at),
                     "Observert": _fmt_time(item.observed_at),
-                    "Novelty": f"{item.novelty:.0%}",
-                    "Kildekvalitet": f"{item.source_quality:.0%}",
-                    "Cluster": item.cluster_id,
+                    "Tags": ", ".join(item.tags),
+                    "User scope": item.user_scope_id or "—",
                     "Evidence ID": item.evidence_id,
                 }
                 for item in context.evidence[:50]
