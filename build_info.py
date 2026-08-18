@@ -22,8 +22,8 @@ class BuildInfo:
 
 _MIGRATION_BY_PAGE: dict[str, tuple[str, str]] = {
     "0_Oversikt.py": (
-        "MIXED",
-        "V2: markedskort/Technical Core/forecast. Legacy/V1: nyhets-, Telegram- og Information State-kontekst.",
+        "V2",
+        "Canonical ContextSnapshotV2 for semantisk kontekst + v2 Technical Core/workspace/forecast. Ingen skjult V1 Decision/Recommendation-fallback.",
     ),
     "0_TradingDesk.py": (
         "V2",
