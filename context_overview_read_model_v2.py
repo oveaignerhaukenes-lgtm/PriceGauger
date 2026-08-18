@@ -13,6 +13,7 @@ class ContextOverviewTargetV2:
     confidence: float
     novelty: float
     event_risk: float
+    summary: str
 
     @property
     def direction_label(self) -> str:
@@ -27,12 +28,12 @@ class ContextOverviewTargetV2:
 class ContextOverviewEvidenceV2:
     evidence_id: str
     source_kind: str
+    source_scope: str
     source_id: str
     observed_at: str
     published_at: str
-    novelty: float
-    source_quality: float
-    cluster_id: str
+    user_scope_id: str
+    tags: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,7 @@ def load_context_overview_v2(
             confidence=float(item.confidence),
             novelty=float(item.novelty),
             event_risk=float(item.event_risk),
+            summary=item.summary,
         )
         for item in sorted(snapshot.targets, key=lambda item: item.target_key.casefold())
     )
@@ -78,12 +80,12 @@ def load_context_overview_v2(
         ContextOverviewEvidenceV2(
             evidence_id=item.evidence_id,
             source_kind=item.source_kind,
+            source_scope=item.source_scope,
             source_id=item.source_id,
             observed_at=item.observed_at,
             published_at=item.published_at,
-            novelty=float(item.novelty),
-            source_quality=float(item.source_quality),
-            cluster_id=item.cluster_id,
+            user_scope_id=item.user_scope_id,
+            tags=item.tags,
         )
         for item in reversed(snapshot.evidence)
     )
