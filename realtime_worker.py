@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 import threading
 import time
 
 from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
+from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import using_postgres
 from live_technical_runtime_v2 import run_live_technical_forever_v2
+from market_history_store import MarketHistoryStore
 from realtime_gap_repair import GapRepairingSaxoRealtimeService
 from runtime_subscription_bridge_v2 import instrument_signature_v2, load_runtime_instruments_v2
 from saxo_provider import SaxoInstrument, configured_instruments
 
 
 LOGGER = logging.getLogger("pricegauger.realtime_worker")
+FRESHNESS_PROBE_SECONDS = 60
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -144,6 +148,46 @@ def _watch_v2_registry(
         )
 
 
+def _run_freshness_probe(
+    *,
+    service: GapRepairingSaxoRealtimeService,
+    markets: tuple[str, ...],
+    db_path: str,
+    stop_requested,
+) -> None:
+    """Log the three boundaries needed to localize stale realtime data.
+
+    Diagnostic only: this reads persisted status/canonical/history state and does
+    not change collection, analysis, or forecast behavior.
+    """
+    canonical = CanonicalMarketBarStoreV2(db_path)
+    history = MarketHistoryStore(db_path)
+    while not stop_requested():
+        try:
+            statuses = {item.market: item for item in service.store.load_statuses()}
+            now = datetime.now(timezone.utc)
+            start = now - timedelta(hours=2)
+            for market in markets:
+                status = statuses.get(market)
+                latest_bar = canonical.load_latest(market=market) if using_postgres() else None
+                points = history.load_range(market=market, start=start, end=now, limit=5000)
+                history_latest = points[-1][0] if points else None
+                LOGGER.info(
+                    "realtime freshness probe market=%s stream_state=%s last_quote_at=%s canonical_bar_at=%s history_latest_at=%s",
+                    market,
+                    None if status is None else status.state,
+                    None if status is None else status.last_quote_at,
+                    None if latest_bar is None else latest_bar.bar_time,
+                    history_latest,
+                )
+        except Exception as exc:
+            LOGGER.warning("realtime freshness probe failed: %s", exc, exc_info=True)
+        for _ in range(FRESHNESS_PROBE_SECONDS):
+            if stop_requested():
+                return
+            time.sleep(1)
+
+
 def main() -> None:
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -184,6 +228,18 @@ def main() -> None:
             refresh_ms=args.refresh_ms,
             instruments=dict(runtime_instruments),
         )
+        probe = threading.Thread(
+            target=_run_freshness_probe,
+            kwargs={
+                "service": service,
+                "markets": tuple(sorted(runtime_instruments)),
+                "db_path": args.db,
+                "stop_requested": restart_requested.is_set,
+            },
+            name="pricegauger-realtime-freshness-probe",
+            daemon=True,
+        )
+        probe.start()
         service.run_forever(stop_requested=restart_requested.is_set)
         if restart_requested.is_set():
             LOGGER.info("restarting Saxo stream to apply v2 collection subscription changes")
