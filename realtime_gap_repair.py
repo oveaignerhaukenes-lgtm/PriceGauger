@@ -7,6 +7,12 @@ import time
 
 from canonical_market_bars_v2 import QUALITY_BACKFILL
 from realtime_market_data import RealtimeMarketDataStore, RealtimeQuote, minute_start, utc
+from saxo_chart_live import (
+    FormingCandleStore,
+    chart_delay_minutes,
+    create_chart_subscription,
+    forming_candle_from_chart_payload,
+)
 from saxo_provider import SaxoClient, SaxoInstrument
 from saxo_streaming import (
     BACKFILL_TIMEOUT_SECONDS,
@@ -64,12 +70,11 @@ def repair_recent_market_history(
 
 
 class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
-    """Saxo stream with bounded chart repair when quote delivery goes stale.
+    """Saxo stream with canonical repair plus a presentation-only chart stream.
 
-    The WebSocket remains the primary realtime source.  Chart repair is only
-    scheduled for markets whose quote stream has not produced an observation in
-    the stale window.  This keeps canonical 1m history moving when Saxo leaves a
-    subscription transport alive but does not deliver usable quote deltas.
+    Canonical 1m collection remains isolated from the forming candle. Saxo chart
+    subscription updates are written to a dedicated presentation read-model for
+    TradingDesk, while Technical Core continues to consume only canonical bars.
     """
 
     def __init__(self, *args, **kwargs) -> None:
@@ -77,17 +82,63 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         self._stale_repair_lock = threading.Lock()
         self._stale_repair_thread: threading.Thread | None = None
         self._last_stale_repair_started = 0.0
+        self._forming_store = FormingCandleStore(self.store.path)
+        self._chart_reference_to_market: dict[str, str] = {}
+        self._chart_delays: dict[str, float | None] = {}
+
+    def subscribe_all(self, context_id: str) -> None:
+        # Keep the existing tradable-price subscriptions intact for future
+        # entitlement upgrades and AutoTrader separation.
+        super().subscribe_all(context_id)
+
+        self._chart_reference_to_market.clear()
+        self._chart_delays.clear()
+        for index, (market, instrument) in enumerate(self.instruments.items(), start=1):
+            reference_id = f"PGC{index:02d}"
+            try:
+                payload = create_chart_subscription(
+                    self.client,
+                    context_id=context_id,
+                    reference_id=reference_id,
+                    instrument=instrument,
+                    refresh_ms=self.refresh_ms,
+                )
+                snapshot = payload.get("Snapshot") if isinstance(payload, dict) else None
+                if not isinstance(snapshot, dict):
+                    snapshot = {}
+                ref = reference_id.upper()
+                self._chart_reference_to_market[ref] = market
+                delay = chart_delay_minutes(snapshot)
+                self._chart_delays[ref] = delay
+                candle = forming_candle_from_chart_payload(
+                    market=market,
+                    instrument=instrument,
+                    payload=snapshot,
+                    delayed_by_minutes=delay,
+                )
+                if candle is not None:
+                    self._forming_store.save(candle)
+                actual = payload.get("RefreshRate") if isinstance(payload, dict) else None
+                LOGGER.info(
+                    "Saxo chart stream subscribed market=%s reference=%s actual_refresh_ms=%s delay_minutes=%s",
+                    market,
+                    reference_id,
+                    actual,
+                    delay,
+                )
+            except Exception as exc:
+                LOGGER.warning(
+                    "Saxo chart stream subscription failed market=%s: %s",
+                    market,
+                    exc,
+                    exc_info=True,
+                )
 
     def _consume_quote(self, quote: RealtimeQuote) -> None:
         previous = self._status_cache.get(quote.market)
         first_observation = previous is None or previous.last_quote_at is None
         super()._consume_quote(quote)
         if first_observation:
-            # subscribe_all persists SUBSCRIBED immediately before consuming the
-            # initial Snapshot.  The base 15s write throttle would otherwise hide
-            # that first quote from persisted health/probe state if no later delta
-            # arrives.  Persist the transition once; normal quote writes stay
-            # throttled afterwards.
             current = self._status_cache.get(quote.market)
             if current is not None:
                 self.store.save_status(current)
@@ -167,10 +218,31 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         *,
         received_at: str | None = None,
     ) -> None:
+        ref = message.reference_id.upper()
+        if ref.startswith("_"):
+            super().handle_message(message, received_at=received_at)
+            self._start_stale_repair_if_due()
+            return
+
+        chart_market = self._chart_reference_to_market.get(ref)
+        if chart_market is not None:
+            instrument = self.instruments[chart_market]
+            delay = chart_delay_minutes(message.payload)
+            if delay is not None:
+                self._chart_delays[ref] = delay
+            candle = forming_candle_from_chart_payload(
+                market=chart_market,
+                instrument=instrument,
+                payload=message.payload,
+                source_event_at=received_at,
+                delayed_by_minutes=self._chart_delays.get(ref),
+            )
+            if candle is not None:
+                self._forming_store.save(candle)
+            self._start_stale_repair_if_due()
+            return
+
         super().handle_message(message, received_at=received_at)
-        # Heartbeats prove the transport is alive, but they do not prove that
-        # market subscriptions are delivering prices.  Use any incoming frame as
-        # a cheap cadence source for the bounded stale-market fallback.
         self._start_stale_repair_if_due()
 
     def _run_backfill(self) -> None:
