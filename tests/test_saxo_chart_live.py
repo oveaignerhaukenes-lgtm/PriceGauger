@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from saxo_chart_live import (
     FormingCandle1m,
     FormingCandleStore,
@@ -96,10 +98,10 @@ def test_forming_candle_uses_latest_chart_row_and_price_multiplier():
 
     assert candle is not None
     assert candle.bar_time == "2026-08-18T22:21:00+00:00"
-    assert candle.open == 60.05
-    assert candle.high == 60.20
-    assert candle.low == 60.00
-    assert candle.close == 60.15
+    assert candle.open == pytest.approx(60.05)
+    assert candle.high == pytest.approx(60.20)
+    assert candle.low == pytest.approx(60.00)
+    assert candle.close == pytest.approx(60.15)
     assert candle.volume == 12
     assert candle.delayed_by_minutes == 15
 
