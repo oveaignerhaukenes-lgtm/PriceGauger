@@ -107,7 +107,6 @@ def create_chart_subscription(
                 "Uic": int(instrument.uic),
                 "Horizon": 1,
                 "Count": 2,
-                "ChartSampleFieldSet": "BidAsk",
                 "FieldGroups": ["Data", "ChartInfo"],
             },
             "ContextId": context_id,
@@ -150,8 +149,6 @@ def chart_delay_minutes(payload: Mapping[str, Any] | None) -> float | None:
 def _chart_response(payload: Any) -> Mapping[str, Any] | None:
     if not isinstance(payload, Mapping):
         return None
-    # Binary streaming normally yields the resource payload directly. Accept the
-    # documented DomainEvent wrapper too so the adapter remains tolerant.
     nested = payload.get("Data")
     if isinstance(nested, Mapping) and isinstance(nested.get("Data"), list):
         return nested
