@@ -127,7 +127,6 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                     delay,
                 )
             except Exception as exc:
-                # Presentation streaming must never take down canonical collection.
                 LOGGER.warning(
                     "Saxo chart stream subscription failed market=%s: %s",
                     market,
@@ -140,11 +139,6 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         first_observation = previous is None or previous.last_quote_at is None
         super()._consume_quote(quote)
         if first_observation:
-            # subscribe_all persists SUBSCRIBED immediately before consuming the
-            # initial Snapshot. The base 15s write throttle would otherwise hide
-            # that first quote from persisted health/probe state if no later delta
-            # arrives. Persist the transition once; normal quote writes stay
-            # throttled afterwards.
             current = self._status_cache.get(quote.market)
             if current is not None:
                 self.store.save_status(current)
@@ -227,6 +221,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         ref = message.reference_id.upper()
         if ref.startswith("_"):
             super().handle_message(message, received_at=received_at)
+            self._start_stale_repair_if_due()
             return
 
         chart_market = self._chart_reference_to_market.get(ref)
@@ -248,9 +243,6 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
             return
 
         super().handle_message(message, received_at=received_at)
-        # Heartbeats prove the transport is alive, but they do not prove that
-        # market subscriptions are delivering prices. Use any incoming frame as
-        # a cheap cadence source for the bounded stale-market fallback.
         self._start_stale_repair_if_due()
 
     def _run_backfill(self) -> None:
