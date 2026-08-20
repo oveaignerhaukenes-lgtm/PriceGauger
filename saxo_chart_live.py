@@ -13,6 +13,9 @@ from trading_desk import ChartBar, timeframe_minutes, utc
 
 
 CHART_STREAM_REFRESH_MS = 1000
+LIVE_CHART_ACTIVE_REFRESH_SECONDS = 1
+LIVE_CHART_IDLE_REFRESH_SECONDS = 5
+LIVE_CHART_ACTIVE_EVENT_MAX_AGE_SECONDS = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +46,23 @@ class FormingCandle1m:
         return asdict(self)
 
 
+@dataclass(frozen=True, slots=True)
+class ChartStreamStatus:
+    market: str
+    state: str
+    reference_id: str
+    requested_refresh_ms: int
+    actual_refresh_ms: int | None
+    delayed_by_minutes: float | None
+    last_event_at: str | None
+    last_candle_at: str | None
+    error: str | None
+    updated_at: str
+
+    def to_record(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 class FormingCandleStore:
     """Small presentation read-model; never writes pg_v2_market_bars_1m."""
 
@@ -59,6 +79,13 @@ class FormingCandleStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_realtime_forming_candle_time
                     ON realtime_forming_candles_1m(bar_time);
+
+                CREATE TABLE IF NOT EXISTS realtime_chart_stream_status (
+                    market TEXT PRIMARY KEY,
+                    state TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
                 """
             )
 
@@ -86,6 +113,60 @@ class FormingCandleStore:
                 (market,),
             ).fetchone()
         return None if row is None else FormingCandle1m(**json.loads(row["payload_json"]))
+
+    def save_status(self, status: ChartStreamStatus) -> None:
+        with connect(self.path) as db:
+            db.execute(
+                """INSERT INTO realtime_chart_stream_status(market,state,updated_at,payload_json)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT(market) DO UPDATE SET
+                     state=excluded.state,
+                     updated_at=excluded.updated_at,
+                     payload_json=excluded.payload_json""",
+                (
+                    status.market,
+                    status.state,
+                    status.updated_at,
+                    json.dumps(status.to_record(), sort_keys=True),
+                ),
+            )
+
+    def load_status(self, *, market: str) -> ChartStreamStatus | None:
+        with connect(self.path) as db:
+            row = db.execute(
+                "SELECT payload_json FROM realtime_chart_stream_status WHERE market=?",
+                (market,),
+            ).fetchone()
+        return None if row is None else ChartStreamStatus(**json.loads(row["payload_json"]))
+
+    def load_statuses(self) -> tuple[ChartStreamStatus, ...]:
+        with connect(self.path) as db:
+            rows = db.execute(
+                "SELECT payload_json FROM realtime_chart_stream_status ORDER BY market"
+            ).fetchall()
+        return tuple(ChartStreamStatus(**json.loads(row["payload_json"])) for row in rows)
+
+
+def forming_candle_event_age_seconds(
+    candle: FormingCandle1m | None,
+    *,
+    now: datetime | None = None,
+) -> float | None:
+    if candle is None:
+        return None
+    current = now or datetime.now(timezone.utc)
+    return max(0.0, (current - utc(candle.updated_at)).total_seconds())
+
+
+def live_chart_refresh_seconds(
+    candle: FormingCandle1m | None,
+    *,
+    now: datetime | None = None,
+) -> int:
+    age = forming_candle_event_age_seconds(candle, now=now)
+    if age is not None and age <= LIVE_CHART_ACTIVE_EVENT_MAX_AGE_SECONDS:
+        return LIVE_CHART_ACTIVE_REFRESH_SECONDS
+    return LIVE_CHART_IDLE_REFRESH_SECONDS
 
 
 def create_chart_subscription(
@@ -164,8 +245,6 @@ def _finite(value: Any) -> float | None:
 
 
 def _row_price(row: Mapping[str, Any], stem: str) -> float | None:
-    # Keep visual chart pricing aligned with PriceGauger's existing Saxo chart
-    # adapter, which uses bid OHLC when available.
     for key in (f"{stem}Bid", stem, f"{stem}Ask"):
         value = _finite(row.get(key))
         if value is not None:

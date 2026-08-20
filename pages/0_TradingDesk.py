@@ -8,7 +8,6 @@ from autotrader_execution_context_v2 import AutoTraderExecutionContextV2
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
 from realtime_market_data import RealtimeMarketDataStore
-from saxo_chart_live import FormingCandleStore, merge_forming_candle_for_display
 from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars, utc
 from trading_desk_chart import (
     OVERLAY_ACTUAL,
@@ -31,7 +30,7 @@ from v2_forecast_visualization import (
 )
 
 
-LIVE_CHART_REFRESH_SECONDS = 1
+LIVE_CHART_REFRESH_SECONDS = 5
 V2_ANALYSIS_REFRESH_SECONDS = 15
 QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
@@ -74,7 +73,6 @@ with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
 
 store = RealtimeMarketDataStore()
-forming_store = FormingCandleStore()
 try:
     baseline_contexts = load_trading_desk_contexts_v2()
 except Exception as exc:
@@ -223,12 +221,12 @@ with controls_column:
 
     with st.expander("Status", expanded=False):
         st.caption(
-            f"Grafens forming candle leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
+            f"Canonical chart-bars leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
             f"V2 workspace/health/Companion oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
         )
         st.caption(
-            "Den åpne candle kommer fra Saxo chart-stream og er kun presentasjon. "
-            "Canonical lukkede 1m-bars er fortsatt eneste analysegrunnlag for Technical Core."
+            "Under kontrollert v2-cutover følger chartet den eksisterende canonical 1m-adapteren som v2-runtime også konsumerer. "
+            "Markeds- og instrumentidentiteten som autoriserer chartet kommer fra v2-registryen."
         )
 
 
@@ -317,13 +315,6 @@ def _render_live_chart() -> None:
             f"{window_hours}t frem til {latest_label:%Y-%m-%d %H:%M} UTC."
         )
 
-    forming = forming_store.load(market=market)
-    display_primary = merge_forming_candle_for_display(
-        primary,
-        forming=forming,
-        timeframe=timeframe,
-    )
-
     loaded_overlays: dict[str, tuple] = {}
     for overlay_market in overlays:
         overlay_context = baseline_contexts.get(overlay_market)
@@ -352,30 +343,20 @@ def _render_live_chart() -> None:
             st.warning(f"Kunne ikke beregne tekniske indikatorer for {market}: {exc}")
 
     latest_display = "ingen data"
-    if display_primary:
-        latest_display = f"{display_primary[-1].close:g} @ {utc(display_primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
+    if primary:
+        latest_display = f"{primary[-1].close:g} @ {utc(primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
 
     st.subheader("Live chart")
     st.caption(
         f"**{market}** · v2 instrument_id {context.instrument.instrument_id} · {timeframe} · {window_hours}t · "
         f"siste close {latest_display}"
     )
-    if forming is not None:
-        delay_label = (
-            "ukjent"
-            if forming.delayed_by_minutes is None
-            else f"{forming.delayed_by_minutes:g} min"
-        )
-        st.caption(
-            f"Åpen candle · Saxo chart-stream · feed-delay {delay_label} · "
-            f"sist mottatt {utc(forming.updated_at):%H:%M:%S} UTC"
-        )
 
     fig = build_trading_desk_figure(
         market=market,
         timeframe=timeframe,
         window_hours=int(window_hours),
-        primary=display_primary,
+        primary=primary,
         overlays=loaded_overlays,
         overlay_mode=overlay_mode,
         indicators=technical,

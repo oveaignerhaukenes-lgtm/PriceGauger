@@ -8,6 +8,7 @@ import time
 from canonical_market_bars_v2 import QUALITY_BACKFILL
 from realtime_market_data import RealtimeMarketDataStore, RealtimeQuote, minute_start, utc
 from saxo_chart_live import (
+    ChartStreamStatus,
     FormingCandleStore,
     chart_delay_minutes,
     create_chart_subscription,
@@ -30,6 +31,10 @@ STALE_REPAIR_INTERVAL_SECONDS = 60.0
 STALE_QUOTE_AFTER_SECONDS = 90.0
 STALE_REPAIR_LOOKBACK_HOURS = 1
 STALE_REPAIR_PAGE_SIZE = 120
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def repair_recent_market_history(
@@ -70,12 +75,7 @@ def repair_recent_market_history(
 
 
 class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
-    """Saxo stream with canonical repair plus a presentation-only chart stream.
-
-    Canonical 1m collection remains isolated from the forming candle. Saxo chart
-    subscription updates are written to a dedicated presentation read-model for
-    TradingDesk, while Technical Core continues to consume only canonical bars.
-    """
+    """Saxo stream with canonical repair plus presentation-only chart state."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -85,14 +85,50 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         self._forming_store = FormingCandleStore(self.store.path)
         self._chart_reference_to_market: dict[str, str] = {}
         self._chart_delays: dict[str, float | None] = {}
+        self._chart_actual_refresh: dict[str, int | None] = {}
+
+    def _save_chart_status(
+        self,
+        *,
+        market: str,
+        reference_id: str,
+        state: str,
+        delayed_by_minutes: float | None = None,
+        actual_refresh_ms: int | None = None,
+        last_event_at: str | None = None,
+        last_candle_at: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        previous = self._forming_store.load_status(market=market)
+        self._forming_store.save_status(
+            ChartStreamStatus(
+                market=market,
+                state=state,
+                reference_id=reference_id,
+                requested_refresh_ms=int(self.refresh_ms),
+                actual_refresh_ms=(
+                    actual_refresh_ms
+                    if actual_refresh_ms is not None
+                    else (None if previous is None else previous.actual_refresh_ms)
+                ),
+                delayed_by_minutes=(
+                    delayed_by_minutes
+                    if delayed_by_minutes is not None
+                    else (None if previous is None else previous.delayed_by_minutes)
+                ),
+                last_event_at=(last_event_at if last_event_at is not None else (None if previous is None else previous.last_event_at)),
+                last_candle_at=(last_candle_at if last_candle_at is not None else (None if previous is None else previous.last_candle_at)),
+                error=error,
+                updated_at=_iso_now(),
+            )
+        )
 
     def subscribe_all(self, context_id: str) -> None:
-        # Keep the existing tradable-price subscriptions intact for future
-        # entitlement upgrades and AutoTrader separation.
         super().subscribe_all(context_id)
 
         self._chart_reference_to_market.clear()
         self._chart_delays.clear()
+        self._chart_actual_refresh.clear()
         for index, (market, instrument) in enumerate(self.instruments.items(), start=1):
             reference_id = f"PGC{index:02d}"
             try:
@@ -118,18 +154,40 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                 )
                 if candle is not None:
                     self._forming_store.save(candle)
-                actual = payload.get("RefreshRate") if isinstance(payload, dict) else None
+                raw_actual = payload.get("RefreshRate") if isinstance(payload, dict) else None
+                try:
+                    actual = None if raw_actual is None else int(raw_actual)
+                except (TypeError, ValueError):
+                    actual = None
+                self._chart_actual_refresh[ref] = actual
+                self._save_chart_status(
+                    market=market,
+                    reference_id=reference_id,
+                    state="SUBSCRIBED",
+                    delayed_by_minutes=delay,
+                    actual_refresh_ms=actual,
+                    last_candle_at=None if candle is None else candle.updated_at,
+                )
                 LOGGER.info(
-                    "Saxo chart stream subscribed market=%s reference=%s actual_refresh_ms=%s delay_minutes=%s",
+                    "Saxo chart stream subscribed market=%s reference=%s requested_refresh_ms=%s actual_refresh_ms=%s delay_minutes=%s snapshot_candle=%s",
                     market,
                     reference_id,
+                    self.refresh_ms,
                     actual,
                     delay,
+                    candle is not None,
                 )
             except Exception as exc:
+                self._save_chart_status(
+                    market=market,
+                    reference_id=reference_id,
+                    state="FAILED",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
                 LOGGER.warning(
-                    "Saxo chart stream subscription failed market=%s: %s",
+                    "Saxo chart stream subscription failed market=%s reference=%s: %s",
                     market,
+                    reference_id,
                     exc,
                     exc_info=True,
                 )
@@ -230,15 +288,25 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
             delay = chart_delay_minutes(message.payload)
             if delay is not None:
                 self._chart_delays[ref] = delay
+            event_at = received_at or _iso_now()
             candle = forming_candle_from_chart_payload(
                 market=chart_market,
                 instrument=instrument,
                 payload=message.payload,
-                source_event_at=received_at,
+                source_event_at=event_at,
                 delayed_by_minutes=self._chart_delays.get(ref),
             )
             if candle is not None:
                 self._forming_store.save(candle)
+            self._save_chart_status(
+                market=chart_market,
+                reference_id=message.reference_id,
+                state="STREAMING",
+                delayed_by_minutes=self._chart_delays.get(ref),
+                actual_refresh_ms=self._chart_actual_refresh.get(ref),
+                last_event_at=event_at,
+                last_candle_at=None if candle is None else candle.updated_at,
+            )
             self._start_stale_repair_if_due()
             return
 
