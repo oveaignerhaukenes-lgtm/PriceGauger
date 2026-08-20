@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from saxo_chart_live import (
+    ChartStreamStatus,
     FormingCandle1m,
     FormingCandleStore,
     create_chart_subscription,
     forming_candle_from_chart_payload,
+    live_chart_refresh_seconds,
     merge_forming_candle_for_display,
 )
 from saxo_provider import SaxoClient, SaxoInstrument
@@ -43,6 +45,25 @@ def _instrument() -> SaxoInstrument:
         "ContractFutures",
         symbol="SILVER",
         price_multiplier=0.01,
+    )
+
+
+def _candle(*, updated_at: str) -> FormingCandle1m:
+    return FormingCandle1m(
+        market="Gold",
+        bar_time="2026-08-18T22:21:00+00:00",
+        open=4400,
+        high=4402,
+        low=4399,
+        close=4401,
+        volume=None,
+        provider="Saxo chart stream",
+        uic=7,
+        asset_type="ContractFutures",
+        symbol="GOLD",
+        delayed_by_minutes=15,
+        source_event_at=updated_at,
+        updated_at=updated_at,
     )
 
 
@@ -106,29 +127,39 @@ def test_forming_candle_uses_latest_chart_row_and_price_multiplier():
     assert candle.delayed_by_minutes == 15
 
 
-def test_forming_candle_store_is_separate_from_canonical_store(tmp_path):
+def test_forming_candle_store_keeps_presentation_and_stream_status(tmp_path):
     store = FormingCandleStore(tmp_path / "chart.db")
-    candle = FormingCandle1m(
+    candle = _candle(updated_at="2026-08-18T22:36:01+00:00")
+    status = ChartStreamStatus(
         market="Gold",
-        bar_time="2026-08-18T22:21:00+00:00",
-        open=4400,
-        high=4402,
-        low=4399,
-        close=4401,
-        volume=None,
-        provider="Saxo chart stream",
-        uic=7,
-        asset_type="ContractFutures",
-        symbol="GOLD",
+        state="STREAMING",
+        reference_id="PGC01",
+        requested_refresh_ms=1000,
+        actual_refresh_ms=1000,
         delayed_by_minutes=15,
-        source_event_at="2026-08-18T22:36:01+00:00",
+        last_event_at="2026-08-18T22:36:01+00:00",
+        last_candle_at="2026-08-18T22:36:01+00:00",
+        error=None,
         updated_at="2026-08-18T22:36:01+00:00",
     )
 
     store.save(candle)
+    store.save_status(status)
 
     assert store.load(market="Gold") == candle
     assert store.load(market="Silver") is None
+    assert store.load_status(market="Gold") == status
+    assert store.load_statuses() == (status,)
+
+
+def test_live_chart_refresh_is_one_second_only_for_recent_events():
+    now = datetime(2026, 8, 18, 22, 36, 8, tzinfo=timezone.utc)
+    recent = _candle(updated_at=(now - timedelta(seconds=7)).isoformat())
+    stale = _candle(updated_at=(now - timedelta(seconds=9)).isoformat())
+
+    assert live_chart_refresh_seconds(recent, now=now) == 1
+    assert live_chart_refresh_seconds(stale, now=now) == 5
+    assert live_chart_refresh_seconds(None, now=now) == 5
 
 
 def test_forming_candle_overlays_only_last_display_bucket():
@@ -136,21 +167,17 @@ def test_forming_candle_overlays_only_last_display_bucket():
         ChartBar("Gold", "2026-08-18T22:15:00+00:00", 100, 104, 99, 102, None),
         ChartBar("Gold", "2026-08-18T22:20:00+00:00", 102, 105, 101, 104, None),
     )
+    forming = _candle(updated_at=datetime.now(timezone.utc).isoformat())
     forming = FormingCandle1m(
-        market="Gold",
-        bar_time="2026-08-18T22:23:00+00:00",
-        open=104,
-        high=108,
-        low=103,
-        close=107,
-        volume=7,
-        provider="Saxo chart stream",
-        uic=7,
-        asset_type="ContractFutures",
-        symbol="GOLD",
-        delayed_by_minutes=15,
-        source_event_at=datetime.now(timezone.utc).isoformat(),
-        updated_at=datetime.now(timezone.utc).isoformat(),
+        **{
+            **forming.to_record(),
+            "bar_time": "2026-08-18T22:23:00+00:00",
+            "open": 104,
+            "high": 108,
+            "low": 103,
+            "close": 107,
+            "volume": 7,
+        }
     )
 
     merged = merge_forming_candle_for_display(completed, forming=forming, timeframe="5m")
