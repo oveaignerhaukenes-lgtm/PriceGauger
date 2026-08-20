@@ -14,6 +14,7 @@ from live_technical_runtime_v2 import run_live_technical_forever_v2
 from market_history_store import MarketHistoryStore
 from realtime_gap_repair import GapRepairingSaxoRealtimeService
 from runtime_subscription_bridge_v2 import instrument_signature_v2, load_runtime_instruments_v2
+from saxo_chart_live import FormingCandleStore
 from saxo_infoprice_probe import run_infoprice_probe_forever
 from saxo_provider import SaxoInstrument, configured_instruments
 
@@ -140,8 +141,6 @@ def _watch_v2_registry(
         try:
             desired = load_runtime_instruments_v2(configured).instruments
         except Exception as exc:
-            # Fail closed on an invalid/ambiguous registry without disturbing the
-            # currently healthy stream generation. The next poll retries.
             LOGGER.warning("v2 collection registry refresh rejected: %s", exc, exc_info=True)
             continue
         if instrument_signature_v2(desired) == instrument_signature_v2(runtime_instruments):
@@ -162,28 +161,32 @@ def _run_freshness_probe(
     db_path: str,
     stop_requested,
 ) -> None:
-    """Log the three boundaries needed to localize stale realtime data.
-
-    Diagnostic only: this reads persisted status/canonical/history state and does
-    not change collection, analysis, or forecast behavior.
-    """
+    """Log live-price, chart-stream, canonical and history boundaries together."""
     canonical = CanonicalMarketBarStoreV2(db_path)
     history = MarketHistoryStore(db_path)
+    chart_store = FormingCandleStore(db_path)
     while not stop_requested():
         try:
             statuses = {item.market: item for item in service.store.load_statuses()}
+            chart_statuses = {item.market: item for item in chart_store.load_statuses()}
             now = datetime.now(timezone.utc)
             start = now - timedelta(hours=2)
             for market in markets:
                 status = statuses.get(market)
+                chart_status = chart_statuses.get(market)
                 latest_bar = canonical.load_latest(market=market) if using_postgres() else None
                 points = history.load_range(market=market, start=start, end=now, limit=5000)
                 history_latest = points[-1][0] if points else None
                 LOGGER.info(
-                    "realtime freshness probe market=%s stream_state=%s last_quote_at=%s canonical_bar_at=%s history_latest_at=%s",
+                    "realtime freshness probe market=%s stream_state=%s last_quote_at=%s chart_state=%s chart_last_event_at=%s chart_last_candle_at=%s chart_delay_minutes=%s chart_actual_refresh_ms=%s canonical_bar_at=%s history_latest_at=%s",
                     market,
                     None if status is None else status.state,
                     None if status is None else status.last_quote_at,
+                    None if chart_status is None else chart_status.state,
+                    None if chart_status is None else chart_status.last_event_at,
+                    None if chart_status is None else chart_status.last_candle_at,
+                    None if chart_status is None else chart_status.delayed_by_minutes,
+                    None if chart_status is None else chart_status.actual_refresh_ms,
                     None if latest_bar is None else latest_bar.bar_time,
                     history_latest,
                 )
