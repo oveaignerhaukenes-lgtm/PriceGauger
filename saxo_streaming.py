@@ -116,6 +116,17 @@ def _find_value(payload: Any, names: tuple[str, ...]) -> Any:
     return None
 
 
+def _payload_keys(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return type(payload).__name__
+    return ",".join(sorted(str(key) for key in payload)) or "none"
+
+
+def _should_log_count(count: int) -> bool:
+    """Keep boundary diagnostics informative without flooding production logs."""
+    return count <= 3 or count % 100 == 0
+
+
 def quote_from_snapshot(
     *,
     market: str,
@@ -341,6 +352,11 @@ class SaxoRealtimeService:
         self._last_status_write: dict[str, float] = {}
         self._backfill_lock = threading.Lock()
         self._backfill_thread: threading.Thread | None = None
+        self._frame_count = 0
+        self._message_counts: dict[str, int] = {}
+        self._quote_message_counts: dict[str, int] = {}
+        self._unknown_reference_counts: dict[str, int] = {}
+        self._control_message_counts: dict[str, int] = {}
 
     def _status(self, market: str, state: str, *, force: bool = True, **kwargs: Any) -> None:
         previous = self._status_cache.get(market)
@@ -375,6 +391,10 @@ class SaxoRealtimeService:
     def subscribe_all(self, context_id: str) -> None:
         self.reference_to_market.clear()
         self.snapshots.clear()
+        self._message_counts.clear()
+        self._quote_message_counts.clear()
+        self._unknown_reference_counts.clear()
+        self._control_message_counts.clear()
         for index, (market, instrument) in enumerate(self.instruments.items(), start=1):
             reference_id = f"PG{index:02d}{uuid.uuid4().hex[:8]}"
             try:
@@ -392,6 +412,28 @@ class SaxoRealtimeService:
                 self.snapshots[reference_id.upper()] = snapshot
                 actual = payload.get("RefreshRate") if isinstance(payload, dict) else None
                 delay = delay_minutes(snapshot)
+                quote = quote_from_snapshot(
+                    market=market, instrument=instrument, payload=snapshot
+                )
+                quote_payload = snapshot.get("Quote") if isinstance(snapshot.get("Quote"), dict) else {}
+                LOGGER.info(
+                    "Saxo price subscription diagnostic market=%s reference=%s uic=%s asset_type=%s "
+                    "actual_refresh_ms=%s delay_minutes=%s payload_keys=%s snapshot_keys=%s quote_keys=%s "
+                    "error_code=%s price_type_bid=%s price_type_ask=%s snapshot_quote=%s",
+                    market,
+                    reference_id,
+                    instrument.uic,
+                    instrument.asset_type,
+                    actual,
+                    delay,
+                    _payload_keys(payload),
+                    _payload_keys(snapshot),
+                    _payload_keys(quote_payload),
+                    _find_value(payload, ("ErrorCode",)),
+                    _find_value(snapshot, ("PriceTypeBid",)),
+                    _find_value(snapshot, ("PriceTypeAsk",)),
+                    quote is not None,
+                )
                 self._status(
                     market,
                     "SUBSCRIBED",
@@ -399,9 +441,6 @@ class SaxoRealtimeService:
                     actual_refresh_ms=None if actual is None else int(actual),
                     delay_minutes=delay,
                     detail="subscription active",
-                )
-                quote = quote_from_snapshot(
-                    market=market, instrument=instrument, payload=snapshot
                 )
                 if quote is not None:
                     self._consume_quote(quote)
@@ -478,6 +517,16 @@ class SaxoRealtimeService:
         ref = message.reference_id.upper()
         if ref.startswith("_"):
             payload = message.payload if isinstance(message.payload, dict) else {}
+            count = self._control_message_counts.get(ref, 0) + 1
+            self._control_message_counts[ref] = count
+            if _should_log_count(count):
+                LOGGER.info(
+                    "Saxo stream control diagnostic reference=%s count=%d payload_format=%s payload_keys=%s",
+                    ref,
+                    count,
+                    message.payload_format,
+                    _payload_keys(message.payload),
+                )
             if ref == "_RESETSUBSCRIPTIONS":
                 raise SaxoStreamReset(
                     str(payload.get("TargetReferenceIds") or "all subscriptions")
@@ -486,7 +535,34 @@ class SaxoRealtimeService:
                 raise SaxoStreamDisconnected("Saxo requested disconnect")
             return
         market = self.reference_to_market.get(ref)
-        if market is None or not isinstance(message.payload, dict):
+        if market is None:
+            count = self._unknown_reference_counts.get(ref, 0) + 1
+            self._unknown_reference_counts[ref] = count
+            if _should_log_count(count):
+                LOGGER.warning(
+                    "Saxo stream unknown-reference diagnostic reference=%s count=%d message_id=%s "
+                    "payload_format=%s payload_keys=%s known_references=%s",
+                    ref,
+                    count,
+                    message.message_id,
+                    message.payload_format,
+                    _payload_keys(message.payload),
+                    ",".join(sorted(self.reference_to_market)) or "none",
+                )
+            return
+        count = self._message_counts.get(ref, 0) + 1
+        self._message_counts[ref] = count
+        if not isinstance(message.payload, dict):
+            if _should_log_count(count):
+                LOGGER.warning(
+                    "Saxo price message diagnostic market=%s reference=%s count=%d payload_format=%s "
+                    "payload_type=%s quote_producing=false",
+                    market,
+                    ref,
+                    count,
+                    message.payload_format,
+                    type(message.payload).__name__,
+                )
             return
         current = self.snapshots.get(ref, {})
         merged = merge_delta(current, message.payload)
@@ -508,7 +584,23 @@ class SaxoRealtimeService:
             observed_at=observation_time,
         )
         if quote is not None:
+            quote_count = self._quote_message_counts.get(ref, 0) + 1
+            self._quote_message_counts[ref] = quote_count
             self._consume_quote(quote)
+        if _should_log_count(count):
+            LOGGER.info(
+                "Saxo price message diagnostic market=%s reference=%s count=%d quote_count=%d "
+                "message_id=%s payload_format=%s payload_keys=%s merged_keys=%s quote_producing=%s",
+                market,
+                ref,
+                count,
+                self._quote_message_counts.get(ref, 0),
+                message.message_id,
+                message.payload_format,
+                _payload_keys(message.payload),
+                _payload_keys(merged),
+                quote is not None,
+            )
 
     def run_forever(
         self, *, stop_requested: Callable[[], bool] | None = None
@@ -549,8 +641,20 @@ class SaxoRealtimeService:
                         frame = socket.recv(timeout=45)
                         if isinstance(frame, str):
                             continue
-                        for message in parse_stream_frame(bytes(frame)):
-                            self.handle_message(message)
+                        raw_frame = bytes(frame)
+                        messages = parse_stream_frame(raw_frame)
+                        self._frame_count += 1
+                        if _should_log_count(self._frame_count):
+                            LOGGER.info(
+                                "Saxo stream frame diagnostic frame_count=%d bytes=%d messages=%d references=%s",
+                                self._frame_count,
+                                len(raw_frame),
+                                len(messages),
+                                ",".join(message.reference_id for message in messages) or "none",
+                            )
+                        received_at = datetime.now(timezone.utc).isoformat()
+                        for message in messages:
+                            self.handle_message(message, received_at=received_at)
             except (SaxoStreamReset, SaxoStreamDisconnected) as exc:
                 LOGGER.warning("Saxo stream reset/reconnect: %s", exc)
             except Exception as exc:
