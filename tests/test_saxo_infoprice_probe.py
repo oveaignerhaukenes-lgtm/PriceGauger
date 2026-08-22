@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from saxo_infoprice_probe import fetch_infoprice_diagnostics
+from saxo_infoprice_probe import fetch_identity_diagnostic, fetch_infoprice_diagnostics
 from saxo_provider import SaxoInstrument
 
 
 class FakeClient:
-    def __init__(self, payloads):
+    def __init__(self, payloads, *, base_url="https://gateway.saxobank.com/sim/openapi"):
         self.payloads = list(payloads)
         self.calls = []
+        self.base_url = base_url
 
     def _get(self, path, *, params=None):
         self.calls.append((path, params))
@@ -83,3 +84,64 @@ def test_infoprice_probe_marks_missing_instrument_row_explicitly():
     assert result.error_code == "MISSING_FROM_RESPONSE"
     assert result.bid is None
     assert result.delayed_by_minutes is None
+
+
+def test_identity_probe_reads_terms_accounts_and_entitlements_without_raw_ids():
+    client = FakeClient(
+        [
+            {
+                "Active": True,
+                "UserKey": "secret-user-key",
+                "ClientKey": "secret-client-key",
+                "MarketDataViaOpenApiTermsAccepted": True,
+                "LegalAssetTypes": ["Stock", "ContractFutures"],
+            },
+            {
+                "ClientKey": "secret-client-key",
+                "DefaultAccountKey": "secret-account-key",
+                "LegalAssetTypes": ["ContractFutures", "CfdOnFutures"],
+            },
+            {
+                "Data": [
+                    {"AccountType": "Normal", "IsTrialAccount": True},
+                    {"AccountType": "Normal", "IsTrialAccount": False},
+                ]
+            },
+            {
+                "Data": [
+                    {
+                        "ExchangeId": "X1",
+                        "Entitlements": [
+                            {
+                                "DelayedFullBook": ["ContractFutures"],
+                                "RealTimeTopOfBook": ["CfdOnFutures"],
+                            }
+                        ],
+                    }
+                ]
+            },
+        ]
+    )
+
+    result = fetch_identity_diagnostic(client=client)
+
+    assert [call[0] for call in client.calls] == [
+        "port/v1/users/me",
+        "port/v1/clients/me",
+        "port/v1/accounts/me",
+        "port/v1/users/me/entitlements",
+    ]
+    assert result.environment == "sim"
+    assert result.active is True
+    assert result.market_data_terms_accepted is True
+    assert result.user_fingerprint not in {"none", "secret-user-key"}
+    assert result.client_fingerprint not in {"none", "secret-client-key"}
+    assert result.default_account_fingerprint not in {"none", "secret-account-key"}
+    assert result.user_legal_asset_types == ("ContractFutures", "Stock")
+    assert result.client_legal_asset_types == ("CfdOnFutures", "ContractFutures")
+    assert result.account_count == 2
+    assert result.account_types == ("Normal",)
+    assert result.trial_account_count == 1
+    assert result.entitlement_exchange_count == 1
+    assert "DelayedFullBook:ContractFutures" in result.entitlement_modes
+    assert "RealTimeTopOfBook:CfdOnFutures" in result.entitlement_modes

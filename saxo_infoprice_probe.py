@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import logging
 import time
 from typing import Any, Callable, Mapping
@@ -30,11 +31,41 @@ class InfoPriceDiagnostic:
     last_traded: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class SaxoIdentityDiagnostic:
+    environment: str
+    user_fingerprint: str
+    client_fingerprint: str
+    default_account_fingerprint: str
+    active: bool | None
+    market_data_terms_accepted: bool | None
+    user_legal_asset_types: tuple[str, ...]
+    client_legal_asset_types: tuple[str, ...]
+    account_count: int
+    account_types: tuple[str, ...]
+    trial_account_count: int
+    entitlement_exchange_count: int
+    entitlement_modes: tuple[str, ...]
+
+
 def _number(value: Any) -> float | None:
     try:
         return None if value is None else float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _fingerprint(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "none"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(sorted(str(item) for item in value if item is not None))
 
 
 def _diagnostic_from_row(*, market: str, instrument: SaxoInstrument, row: Mapping[str, Any]) -> InfoPriceDiagnostic:
@@ -64,19 +95,14 @@ def fetch_infoprice_diagnostics(
     client: SaxoClient,
     instruments: Mapping[str, SaxoInstrument],
 ) -> tuple[InfoPriceDiagnostic, ...]:
-    """Read Saxo InfoPrices without changing collection or trading state.
-
-    Saxo's list endpoint accepts one AssetType plus a comma-separated UIC list.
-    We therefore group the active runtime instruments by AssetType and map each
-    returned row back to the canonical PriceGauger market name.
-    """
+    """Read Saxo InfoPrices without changing collection or trading state."""
     grouped: dict[str, list[tuple[str, SaxoInstrument]]] = {}
     for market, instrument in instruments.items():
         grouped.setdefault(instrument.asset_type, []).append((market, instrument))
 
     diagnostics: list[InfoPriceDiagnostic] = []
     for asset_type, members in grouped.items():
-        payload = client._get(  # noqa: SLF001 - diagnostic uses the provider's authenticated request contract
+        payload = client._get(  # noqa: SLF001 - diagnostic uses authenticated provider contract
             "trade/v1/infoprices/list",
             params={
                 "AssetType": asset_type,
@@ -115,6 +141,79 @@ def fetch_infoprice_diagnostics(
     return tuple(diagnostics)
 
 
+def fetch_identity_diagnostic(*, client: SaxoClient) -> SaxoIdentityDiagnostic:
+    """Read authenticated Saxo identity/feed metadata without exposing account identifiers."""
+    user = client._get("port/v1/users/me")  # noqa: SLF001
+    client_row = client._get("port/v1/clients/me")  # noqa: SLF001
+    accounts_payload = client._get("port/v1/accounts/me", params={"$top": 100})  # noqa: SLF001
+    entitlement_payload = client._get(  # noqa: SLF001
+        "port/v1/users/me/entitlements",
+        params={"EntitlementFieldSet": "Default"},
+    )
+
+    accounts = accounts_payload.get("Data", []) if isinstance(accounts_payload, dict) else []
+    account_rows = [row for row in accounts if isinstance(row, Mapping)]
+    entitlement_rows = (
+        entitlement_payload.get("Data", []) if isinstance(entitlement_payload, dict) else []
+    )
+    modes: set[str] = set()
+    exchange_count = 0
+    for row in entitlement_rows:
+        if not isinstance(row, Mapping):
+            continue
+        exchange_count += 1
+        groups = row.get("Entitlements")
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, Mapping):
+                continue
+            for mode, asset_types in group.items():
+                if isinstance(asset_types, list) and asset_types:
+                    modes.add(f"{mode}:{','.join(sorted(str(item) for item in asset_types))}")
+
+    environment = "live" if "/openapi" in client.base_url and "/sim/openapi" not in client.base_url else "sim"
+    active = user.get("Active")
+    terms = user.get("MarketDataViaOpenApiTermsAccepted")
+    return SaxoIdentityDiagnostic(
+        environment=environment,
+        user_fingerprint=_fingerprint(user.get("UserKey") or user.get("UserId")),
+        client_fingerprint=_fingerprint(user.get("ClientKey") or client_row.get("ClientKey")),
+        default_account_fingerprint=_fingerprint(client_row.get("DefaultAccountKey")),
+        active=active if isinstance(active, bool) else None,
+        market_data_terms_accepted=terms if isinstance(terms, bool) else None,
+        user_legal_asset_types=_string_tuple(user.get("LegalAssetTypes")),
+        client_legal_asset_types=_string_tuple(client_row.get("LegalAssetTypes")),
+        account_count=len(account_rows),
+        account_types=tuple(sorted({str(row.get("AccountType")) for row in account_rows if row.get("AccountType")})),
+        trial_account_count=sum(1 for row in account_rows if row.get("IsTrialAccount") is True),
+        entitlement_exchange_count=exchange_count,
+        entitlement_modes=tuple(sorted(modes)),
+    )
+
+
+def log_identity_diagnostic(*, client: SaxoClient) -> None:
+    item = fetch_identity_diagnostic(client=client)
+    LOGGER.info(
+        "Saxo auth/feed diagnostic environment=%s user_fp=%s client_fp=%s default_account_fp=%s active=%s "
+        "market_data_terms_accepted=%s user_legal_asset_types=%s client_legal_asset_types=%s "
+        "account_count=%s account_types=%s trial_accounts=%s entitlement_exchanges=%s entitlement_modes=%s",
+        item.environment,
+        item.user_fingerprint,
+        item.client_fingerprint,
+        item.default_account_fingerprint,
+        item.active,
+        item.market_data_terms_accepted,
+        ",".join(item.user_legal_asset_types) or "none",
+        ",".join(item.client_legal_asset_types) or "none",
+        item.account_count,
+        ",".join(item.account_types) or "none",
+        item.trial_account_count,
+        item.entitlement_exchange_count,
+        ";".join(item.entitlement_modes) or "none",
+    )
+
+
 def log_infoprice_diagnostics(*, client: SaxoClient, instruments: Mapping[str, SaxoInstrument]) -> None:
     for item in fetch_infoprice_diagnostics(client=client, instruments=instruments):
         LOGGER.info(
@@ -144,6 +243,10 @@ def run_infoprice_probe_forever(
 ) -> None:
     interval = max(60, int(interval_seconds))
     while not stop_requested():
+        try:
+            log_identity_diagnostic(client=client)
+        except Exception as exc:
+            LOGGER.warning("Saxo auth/feed diagnostic failed: %s", exc, exc_info=True)
         try:
             log_infoprice_diagnostics(client=client, instruments=instruments)
         except Exception as exc:
