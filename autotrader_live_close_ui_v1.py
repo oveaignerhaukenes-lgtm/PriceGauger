@@ -10,6 +10,12 @@ from autotrader_live_close_v1 import (
     run_live_close_cycle_v1,
     save_live_close_config_v1,
 )
+from autotrader_managed_positions_v1 import (
+    enroll_position_v1,
+    is_position_managed_v1,
+    stop_managing_position_v1,
+)
+from autotrader_risk_dry_run_v2 import _position_observations_v2
 from database import connect, using_postgres
 from saxo_provider import LIVE_BASE_URL, configured_client
 
@@ -26,11 +32,52 @@ def _rows(sql: str, params=()) -> list[dict[str, object]]:
     return rows
 
 
+def _render_position_enrollment(client) -> None:
+    st.markdown("#### Åpne posisjoner")
+    st.caption(
+        "Nye posisjoner tas aldri automatisk over. Trykk **Auto-manage** på akkurat den posisjonen "
+        "PriceGauger skal få lov til å håndtere. Hvis posisjonen lukkes, åpnes på nytt eller størrelsen "
+        "endres, må den eksplisitt Auto-manages på nytt."
+    )
+    if client is None:
+        st.info("Saxo-klienten er ikke tilgjengelig.")
+        return
+    try:
+        observations = _position_observations_v2(client)
+    except Exception as exc:
+        st.error(f"Kunne ikke lese åpne Saxo-posisjoner: {exc}")
+        return
+    if not observations:
+        st.caption("Ingen åpne Saxo-posisjoner akkurat nå.")
+        return
+
+    for observation in observations:
+        managed = is_position_managed_v1(observation)
+        left, middle, right = st.columns([5, 2, 2])
+        left.write(
+            f"**{observation.asset_type} · UIC {observation.uic}**  \n"
+            f"{observation.direction} · amount {observation.amount:g} · "
+            f"posisjonsavkastning {observation.pnl_pct:+.2f}%"
+        )
+        middle.metric("Status", "AUTO-MANAGED" if managed else "MANUELL")
+        key = f"manage-{observation.account_id}-{observation.net_position_id}"
+        if managed:
+            if right.button("Stopp auto-manage", key=key, width="stretch"):
+                stop_managing_position_v1(observation.account_id, observation.net_position_id)
+                st.success("Auto-manage er slått av for denne posisjonen.")
+                st.rerun()
+        else:
+            if right.button("Auto-manage", key=key, type="primary", width="stretch"):
+                enroll_position_v1(observation)
+                st.success("Denne posisjonen er nå eksplisitt valgt for Auto-manage.")
+                st.rerun()
+
+
 def render_live_close_v1() -> None:
     st.subheader("LIVE close-only · proof of concept")
     st.caption(
-        "Denne modulen kan bare redusere en allerede åpen, trigget posisjon. Den kan ikke åpne posisjoner, "
-        "øke størrelse eller drive entry-strategi. Automatisk Saxo-ordre bruker ManualOrder=false."
+        "Execution-motoren kan bare redusere en allerede åpen, eksplisitt Auto-managed posisjon. "
+        "Den kan ikke åpne posisjoner, øke størrelse eller drive entry-strategi."
     )
 
     if not using_postgres():
@@ -51,27 +98,29 @@ def render_live_close_v1() -> None:
     c1, c2, c3 = st.columns(3)
     c1.metric("Saxo-miljø", "LIVE" if environment_ok else "IKKE LIVE")
     c2.metric("Kode-gate", "ÅPEN" if code_gate else "LÅST")
-    c3.metric("Execution", "ARMERT" if config.armed and code_gate and environment_ok else "AV")
+    c3.metric("Execution-motor", "PÅ" if config.armed and code_gate and environment_ok else "AV")
 
     st.info(
-        "To nøkler kreves for faktisk ordre: Railway-kodegaten og denne armeringen. "
-        "Hvis én av dem er av, blir ingen LIVE-ordre sendt."
+        "Tre ting kreves før en ordre kan sendes: Railway-kodegaten, execution-motoren og eksplisitt "
+        "Auto-manage på den enkelte posisjonen. En ny posisjon er alltid MANUELL som standard."
     )
 
     acknowledge = st.checkbox(
-        "Jeg forstår at armering kan sende en automatisk markedsordre for å lukke en trigget LIVE-posisjon.",
+        "Jeg forstår at execution-motoren kan sende en automatisk markedsordre, men bare for posisjoner jeg eksplisitt har valgt med Auto-manage.",
         value=False,
     )
-    desired = st.checkbox("Armér automatisk LIVE close-only", value=config.armed)
-    if st.button("Lagre LIVE execution-status", width="stretch"):
+    desired = st.checkbox("Aktiver LIVE close-motor", value=config.armed)
+    if st.button("Lagre execution-motor", width="stretch"):
         if desired and not acknowledge:
-            st.error("Bekreft LIVE execution-advarselen før armering.")
+            st.error("Bekreft LIVE execution-advarselen før motoren aktiveres.")
         elif desired and not environment_ok:
-            st.error("Armering avvises fordi Saxo-klienten ikke peker på LIVE.")
+            st.error("Aktivering avvises fordi Saxo-klienten ikke peker på LIVE.")
         else:
             save_live_close_config_v1(LiveCloseConfigV1(armed=bool(desired)))
-            st.success("LIVE close-only-status er lagret.")
+            st.success("LIVE close-motorstatus er lagret.")
             st.rerun()
+
+    _render_position_enrollment(client)
 
     if st.button("Diagnostiser Saxo execution-forutsetninger", width="stretch"):
         if not environment_ok or client is None:
