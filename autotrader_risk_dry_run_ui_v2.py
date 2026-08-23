@@ -30,8 +30,9 @@ def render_risk_dry_run_monitor_v2() -> None:
     st.subheader("Risk-control · dry-run")
     st.caption(
         "Leser åpne Saxo-posisjoner og simulerer bare exit-beslutninger. "
-        "Ingen pre-check eller ordreplassering finnes i denne modulen. "
-        "Standard: -1,0 % hard stop og trailing fra +2,0 % med 0,5 prosentpoeng avstand."
+        "Alle prosentgrenser gjelder posisjonsavkastning i selve produktet som handles — "
+        "ikke kontoverdi, brukt margin eller prosentbevegelse i underliggende marked. "
+        "Ingen pre-check eller ordreplassering finnes i denne modulen."
     )
     if not using_postgres():
         st.info("Risk-control dry-run krever PostgreSQL-runtime.")
@@ -51,7 +52,7 @@ def render_risk_dry_run_monitor_v2() -> None:
         )
         c1, c2, c3 = st.columns(3)
         hard_stop_pct = c1.number_input(
-            "Hard stop (%)",
+            "Hard stop · posisjonsavkastning (%)",
             min_value=-25.0,
             max_value=-0.05,
             value=float(config.hard_stop_pct),
@@ -59,7 +60,7 @@ def render_risk_dry_run_monitor_v2() -> None:
             format="%.2f",
         )
         trailing_activation_pct = c2.number_input(
-            "Trailing aktiveres ved gevinst (%)",
+            "Trailing aktiveres ved posisjonsavkastning (%)",
             min_value=0.1,
             max_value=50.0,
             value=float(config.trailing_activation_pct),
@@ -80,10 +81,10 @@ def render_risk_dry_run_monitor_v2() -> None:
         fixed_take_profit_enabled = c4.checkbox(
             "Fast take-profit",
             value=config.fixed_take_profit_enabled,
-            help="Valgfri absolutt gevinstgrense i tillegg til trailing stop.",
+            help="Valgfri absolutt posisjonsavkastning i tillegg til trailing stop.",
         )
         fixed_take_profit_pct = c5.number_input(
-            "Fast take-profit (%)",
+            "Fast take-profit · posisjonsavkastning (%)",
             min_value=0.1,
             max_value=100.0,
             value=float(config.fixed_take_profit_pct),
@@ -96,7 +97,7 @@ def render_risk_dry_run_monitor_v2() -> None:
             max_value=120,
             value=int(config.max_price_delay_minutes),
             step=1,
-            help="0 krever realtime pris. Forsinket pris kan observeres, men får ikke WOULD_CLOSE.",
+            help="0 krever realtime pris. Forsinket pris observeres, men kan ikke bli execution-eligible.",
         )
         saved = st.form_submit_button("Lagre risk-control", use_container_width=True)
 
@@ -134,10 +135,12 @@ def render_risk_dry_run_monitor_v2() -> None:
         states = _rows(
             """
             SELECT net_position_id AS position, asset_type, uic, direction, amount,
-                   average_open_price, current_price, pnl_pct, high_water_pct,
+                   average_open_price, current_price,
+                   pnl_pct AS posisjonsavkastning_pct,
+                   high_water_pct AS hoyeste_posisjonsavkastning_pct,
                    trailing_floor_pct, price_delay_minutes, can_be_closed,
-                   calculation_reliability, last_action, last_reason,
-                   triggered_reason, triggered_at, last_seen_at
+                   is_market_open, non_tradable_reason, calculation_reliability,
+                   last_action, last_reason, triggered_reason, triggered_at, last_seen_at
             FROM pg_v2_autotrader_risk_state
             WHERE active = TRUE
             ORDER BY last_seen_at DESC
@@ -146,8 +149,9 @@ def render_risk_dry_run_monitor_v2() -> None:
         events = _rows(
             """
             SELECT net_position_id AS position, asset_type, uic, direction,
-                   reason, pnl_pct, high_water_pct, trailing_floor_pct,
-                   price_delay_minutes, created_at
+                   reason, pnl_pct AS posisjonsavkastning_pct,
+                   high_water_pct AS hoyeste_posisjonsavkastning_pct,
+                   trailing_floor_pct, price_delay_minutes, created_at
             FROM pg_v2_autotrader_risk_events
             ORDER BY created_at DESC
             LIMIT 20
