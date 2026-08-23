@@ -4,6 +4,7 @@ import streamlit as st
 
 from autotrader_macd_dry_run_ui_v2 import render_macd_dry_run_monitor_v2
 from autotrader_product_explorer_ui import render_saxo_product_explorer
+from autotrader_risk_dry_run_ui_v2 import render_risk_dry_run_monitor_v2
 from build_info import render_build_badge
 from trading_desk_product_panel import render_saxo_product_panel
 from trading_desk_products import MARKET_SEARCH_TERMS
@@ -13,15 +14,18 @@ st.set_page_config(page_title="AutoTrader · PriceGauger", page_icon="⚙️", l
 render_build_badge()
 st.title("AutoTrader")
 st.caption(
-    "Manuell Saxo SIM-handel gjennom samme produktvalg, sizing, pre-check, bekreftelse og read-back "
-    "som brukes i TradingDesk. Første automatiseringslag kjører kun som observerbar MACD dry-run."
+    "Risk-control leser åpne Saxo-posisjoner i read-only dry-run. Manuell ordreutførelse er fortsatt "
+    "hardlåst til den eksisterende SIM-sikkerhetsveien; LIVE-appen får ikke ordre fra denne siden."
 )
 
 st.warning(
-    "AutoTrader er fortsatt hardlåst til Saxo SIM. MACD dry-run sender ingen ordre, og den manuelle "
-    "ordreveien krever fortsatt Saxo pre-check og eksplisitt bekreftelse."
+    "Ingen automatisk ordreutførelse er aktiv. Risk-control produserer bare WOULD_CLOSE, "
+    "og MACD-laget produserer bare observerbare dry-run-signaler."
 )
 
+render_risk_dry_run_monitor_v2()
+
+st.divider()
 render_macd_dry_run_monitor_v2()
 
 st.divider()
