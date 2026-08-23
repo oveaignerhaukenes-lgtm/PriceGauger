@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from overview_v2_cards import (
     OverviewV2Health,
+    _health_for_view,
     _preferred_horizon,
     render_overview_v2_market_card_html,
 )
 from overview_v2_read_model import OverviewTechnicalV2
+from runtime_health_v2 import RuntimeHealthV2
 
 
 def _view(**changes) -> OverviewTechnicalV2:
@@ -79,6 +81,23 @@ def test_overview_v2_card_marks_interpreter_as_refinement_not_baseline_replaceme
     assert "Momentum supports continuation." in html
     assert "TA-only baseline" in html
     assert "STALE" in html
+
+
+def test_overview_health_prefers_persisted_canonical_runtime_freshness():
+    persisted = RuntimeHealthV2(
+        service="v2-technical-runtime",
+        stage="Gold",
+        status="HEALTHY",
+        detail="canonical 1m age=42.0s",
+        age_seconds=None,
+    )
+
+    health = _health_for_view(
+        _view(as_of="2026-08-15T20:00:00+00:00"),
+        persisted,
+    )
+
+    assert health == OverviewV2Health("HEALTHY", "canonical 1m age=42.0s")
 
 
 def test_overview_v2_defaults_to_four_hours_when_available():
