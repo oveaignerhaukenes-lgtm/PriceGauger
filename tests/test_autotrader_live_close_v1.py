@@ -85,7 +85,7 @@ def test_disarmed_cycle_never_resolves_saxo_client(monkeypatch) -> None:
     assert summary.submitted == 0
 
 
-def test_source_has_live_and_idempotency_guards() -> None:
+def test_source_has_live_idempotency_and_per_position_guards() -> None:
     source = open("autotrader_live_close_v1.py", encoding="utf-8").read()
     assert "LIVE_BASE_URL" in source
     assert "PRICEGAUGER_AUTOTRADER_LIVE_CLOSE_CODE_ENABLED" in source
@@ -93,3 +93,5 @@ def test_source_has_live_and_idempotency_guards() -> None:
     assert "STATUS_UNCERTAIN" in source
     assert '"ManualOrder": False' in source
     assert '"IsForceOpen": False' in source
+    assert "is_position_managed_v1(current)" in source
+    assert source.index("is_position_managed_v1(current)") < source.index('_post_once(client, "trade/v2/orders", payload)')
