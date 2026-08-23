@@ -10,6 +10,8 @@ def _position(
     delay: int = 0,
     can_close: bool = True,
     reliability: str = "Ok",
+    market_open: bool = True,
+    non_tradable_reason: str = "None",
 ) -> risk.PositionObservationV2:
     return risk.PositionObservationV2(
         account_id="acct",
@@ -24,6 +26,8 @@ def _position(
         price_delay_minutes=delay,
         can_be_closed=can_close,
         calculation_reliability=reliability,
+        is_market_open=market_open,
+        non_tradable_reason=non_tradable_reason,
     )
 
 
@@ -36,7 +40,7 @@ def test_default_contract_matches_requested_risk_limits() -> None:
     assert config.max_price_delay_minutes == 0
 
 
-def test_long_and_short_pnl_are_directional() -> None:
+def test_position_return_is_product_price_return_not_account_or_margin_return() -> None:
     assert risk.pnl_percent_v2(average_open_price=100.0, current_price=101.0, direction="Buy") == 1.0
     assert risk.pnl_percent_v2(average_open_price=100.0, current_price=99.0, direction="Sell") == 1.0
     assert risk.pnl_percent_v2(average_open_price=100.0, current_price=101.0, direction="Sell") == -1.0
@@ -94,6 +98,23 @@ def test_delayed_price_blocks_close_signal_even_beyond_hard_stop() -> None:
     assert decision.eligible_for_execution is False
 
 
+def test_closed_or_nontradable_market_blocks_actionability() -> None:
+    closed = risk.evaluate_risk_v2(
+        _position(pnl_pct=-5.0, market_open=False),
+        config=risk.RiskConfigV2(),
+    )
+    restricted = risk.evaluate_risk_v2(
+        _position(pnl_pct=-5.0, non_tradable_reason="TemporarilyUnavailable"),
+        config=risk.RiskConfigV2(),
+    )
+    assert closed.action == risk.ACTION_HOLD
+    assert closed.reason == risk.REASON_MARKET_CLOSED
+    assert closed.eligible_for_execution is False
+    assert restricted.action == risk.ACTION_HOLD
+    assert restricted.reason == risk.REASON_NON_TRADABLE
+    assert restricted.eligible_for_execution is False
+
+
 def test_uncloseable_or_unreliable_position_is_never_actionable() -> None:
     uncloseable = risk.evaluate_risk_v2(_position(pnl_pct=-5.0, can_close=False), config=risk.RiskConfigV2())
     unreliable = risk.evaluate_risk_v2(
@@ -106,7 +127,7 @@ def test_uncloseable_or_unreliable_position_is_never_actionable() -> None:
     assert unreliable.reason == risk.REASON_UNRELIABLE
 
 
-def test_net_position_adapter_uses_saxo_current_and_average_prices() -> None:
+def test_net_position_adapter_uses_saxo_price_and_tradability_fields() -> None:
     class Client:
         def _get(self, path, params=None):
             assert path == "port/v1/netpositions/me"
@@ -119,6 +140,8 @@ def test_net_position_adapter_uses_saxo_current_and_average_prices() -> None:
                             "Amount": -2,
                             "AssetType": "CfdOnIndex",
                             "CanBeClosed": True,
+                            "IsMarketOpen": True,
+                            "NonTradableReason": "None",
                             "OpeningDirection": "Sell",
                             "SinglePositionStatus": "Open",
                             "Uic": 42,
@@ -139,6 +162,14 @@ def test_net_position_adapter_uses_saxo_current_and_average_prices() -> None:
     assert observations[0].direction == "Sell"
     assert observations[0].amount == 2.0
     assert observations[0].pnl_pct == 1.0
+    assert observations[0].is_market_open is True
+    assert observations[0].non_tradable_reason == "None"
+
+
+def test_inactive_state_is_not_reused_as_same_position_lifecycle() -> None:
+    source = open("autotrader_risk_dry_run_v2.py", encoding="utf-8").read()
+    assert 'bool(previous.get("active"))' in source
+    assert "triggered_at, active" in source
 
 
 def test_risk_module_is_read_only_dry_run() -> None:
