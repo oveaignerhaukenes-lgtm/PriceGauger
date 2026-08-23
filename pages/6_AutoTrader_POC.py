@@ -15,8 +15,9 @@ st.set_page_config(page_title="AutoTrader · PriceGauger", page_icon="⚙️", l
 render_build_badge()
 st.title("AutoTrader")
 st.caption(
-    "Risk-control observerer åpne Saxo LIVE-posisjoner. Close-only PoC kan, når begge sikkerhetsnøkler "
-    "er aktivert, sende en automatisk motordre som kun skal redusere/lukke en allerede trigget posisjon."
+    "Risk-control observerer åpne Saxo LIVE-posisjoner og produserer WOULD_CLOSE når tersklene treffes. "
+    "Close-only PoC kan, når begge sikkerhetsnøkler er aktivert, sende en automatisk motordre som kun "
+    "skal redusere/lukke den allerede triggete posisjonen."
 )
 
 st.warning(
