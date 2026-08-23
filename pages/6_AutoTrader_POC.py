@@ -14,12 +14,12 @@ st.set_page_config(page_title="AutoTrader · PriceGauger", page_icon="⚙️", l
 render_build_badge()
 st.title("AutoTrader")
 st.caption(
-    "Risk-control leser åpne Saxo-posisjoner i read-only dry-run. Manuell ordreutførelse er fortsatt "
-    "hardlåst til den eksisterende SIM-sikkerhetsveien; LIVE-appen får ikke ordre fra denne siden."
+    "Risk-control kan observere åpne Saxo-posisjoner mot LIVE-porteføljen i read-only dry-run. "
+    "Eksisterende manuell execution-path er fortsatt separat og SIM-låst."
 )
 
 st.warning(
-    "Ingen automatisk ordreutførelse er aktiv. Risk-control produserer bare WOULD_CLOSE, "
+    "Ingen automatisk LIVE ordreutførelse er aktiv. Risk-control produserer bare WOULD_CLOSE, "
     "og MACD-laget produserer bare observerbare dry-run-signaler."
 )
 
