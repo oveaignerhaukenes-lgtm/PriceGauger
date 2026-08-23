@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect, using_postgres
 from instrument_registry_v2 import (
     ensure_instrument_source_v2,
@@ -119,6 +120,34 @@ def _record_failure(market: str, exc: Exception) -> None:
     )
 
 
+def _canonical_freshness_health(*, market: str, db_path: str, fallback_as_of: str) -> RuntimeHealthV2:
+    """Report freshness from the newest canonical 1m bar, not the 30m TA snapshot timestamp.
+
+    ``TechnicalCoreState.as_of`` follows the preferred/primary technical timeframe
+    (currently 30m), so using it as a feed-freshness clock can make a healthy stream
+    look tens of minutes older than the data actually available to the runtime.
+    """
+    latest = CanonicalMarketBarStoreV2(db_path).load_latest(market=market)
+    observed_at = latest.bar_time if latest is not None else fallback_as_of
+    health = freshness_health_v2(
+        service=SERVICE_NAME,
+        stage=market,
+        observed_at=observed_at,
+    )
+    source = "canonical 1m" if latest is not None else "technical snapshot fallback"
+    return RuntimeHealthV2(
+        service=health.service,
+        stage=health.stage,
+        status=health.status,
+        detail=(
+            f"{source} age={health.age_seconds:.1f}s"
+            if health.age_seconds is not None
+            else f"{source} unavailable"
+        ),
+        age_seconds=health.age_seconds,
+    )
+
+
 def run_live_technical_cycle_v2(
     *,
     instruments: Mapping[str, SaxoInstrument],
@@ -176,10 +205,10 @@ def run_live_technical_cycle_v2(
                     exc_info=True,
                 )
             record_runtime_health_v2(
-                freshness_health_v2(
-                    service=SERVICE_NAME,
-                    stage=market,
-                    observed_at=produced.as_of,
+                _canonical_freshness_health(
+                    market=market,
+                    db_path=db_path,
+                    fallback_as_of=produced.as_of,
                 )
             )
             produced_count += 1
