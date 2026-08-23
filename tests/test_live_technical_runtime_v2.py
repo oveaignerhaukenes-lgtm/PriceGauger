@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import live_technical_runtime_v2 as runtime
 from instrument_registry_v2 import InstrumentSourceV2
@@ -69,6 +70,13 @@ def test_register_saxo_instrument_reuses_explicit_onboarded_source(monkeypatch):
 def test_live_cycle_persists_canonical_ta_only_recipe_and_isolates_market_failure(monkeypatch):
     monkeypatch.setattr(runtime, "ensure_db_v2_schema", lambda: None)
     monkeypatch.setattr(runtime, "MarketHistoryStore", lambda path: object())
+    monkeypatch.setattr(
+        runtime,
+        "CanonicalMarketBarStoreV2",
+        lambda path: SimpleNamespace(
+            load_latest=lambda *, market: SimpleNamespace(bar_time="2026-08-15T08:29:00+00:00")
+        ),
+    )
 
     market_ids = {"Gold": 1, "Silver": 2}
     monkeypatch.setattr(
@@ -88,14 +96,22 @@ def test_live_cycle_persists_canonical_ta_only_recipe_and_isolates_market_failur
 
     persisted = []
     health = []
+    freshness_calls = []
     monkeypatch.setattr(runtime, "produce_technical_runtime_v2", produce)
     monkeypatch.setattr(runtime, "persist_produced_runtime_v2", lambda produced, **kwargs: persisted.append(kwargs))
     monkeypatch.setattr(runtime, "record_runtime_health_v2", lambda item: health.append(item))
-    monkeypatch.setattr(
-        runtime,
-        "freshness_health_v2",
-        lambda **kwargs: ("fresh", kwargs),
-    )
+
+    def fake_freshness(**kwargs):
+        freshness_calls.append(kwargs)
+        return runtime.RuntimeHealthV2(
+            service=kwargs["service"],
+            stage=kwargs["stage"],
+            status="HEALTHY",
+            detail="latest observation age=42.0s",
+            age_seconds=42.0,
+        )
+
+    monkeypatch.setattr(runtime, "freshness_health_v2", fake_freshness)
 
     summary = runtime.run_live_technical_cycle_v2(
         instruments={
@@ -116,6 +132,14 @@ def test_live_cycle_persists_canonical_ta_only_recipe_and_isolates_market_failur
             "analysis_recipe_version": TA_ONLY_V1.version,
         }
     ]
+    assert freshness_calls == [
+        {
+            "service": "v2-technical-runtime",
+            "stage": "Gold",
+            "observed_at": "2026-08-15T08:29:00+00:00",
+        }
+    ]
+    assert any(getattr(item, "detail", "") == "canonical 1m age=42.0s" for item in health)
     assert any(getattr(item, "status", None) == "DEGRADED" for item in health)
 
 
