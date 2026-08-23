@@ -22,6 +22,8 @@ REASON_DISABLED = "DISABLED"
 REASON_NOT_CLOSEABLE = "NOT_CLOSEABLE"
 REASON_UNRELIABLE = "UNRELIABLE_PRICE"
 REASON_PRICE_DELAYED = "PRICE_DELAYED"
+REASON_MARKET_CLOSED = "MARKET_CLOSED"
+REASON_NON_TRADABLE = "NON_TRADABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,8 @@ class PositionObservationV2:
     price_delay_minutes: int
     can_be_closed: bool
     calculation_reliability: str
+    is_market_open: bool = True
+    non_tradable_reason: str = "None"
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +135,8 @@ def ensure_risk_dry_run_schema_v2() -> None:
                 price_delay_minutes INTEGER NOT NULL,
                 can_be_closed BOOLEAN NOT NULL,
                 calculation_reliability TEXT NOT NULL,
+                is_market_open BOOLEAN NOT NULL DEFAULT FALSE,
+                non_tradable_reason TEXT NOT NULL DEFAULT '',
                 last_action TEXT NOT NULL,
                 last_reason TEXT NOT NULL,
                 triggered_reason TEXT,
@@ -141,6 +147,12 @@ def ensure_risk_dry_run_schema_v2() -> None:
                 PRIMARY KEY(account_id, net_position_id)
             )
             """
+        )
+        db.execute(
+            "ALTER TABLE pg_v2_autotrader_risk_state ADD COLUMN IF NOT EXISTS is_market_open BOOLEAN NOT NULL DEFAULT FALSE"
+        )
+        db.execute(
+            "ALTER TABLE pg_v2_autotrader_risk_state ADD COLUMN IF NOT EXISTS non_tradable_reason TEXT NOT NULL DEFAULT ''"
         )
         db.execute(
             """
@@ -203,15 +215,10 @@ def save_risk_config_v2(config: RiskConfigV2) -> RiskConfigV2:
         db.execute(
             """
             UPDATE pg_v2_autotrader_risk_config SET
-                enabled = ?,
-                hard_stop_pct = ?,
-                trailing_enabled = ?,
-                trailing_activation_pct = ?,
-                trailing_drawdown_pct = ?,
-                fixed_take_profit_enabled = ?,
-                fixed_take_profit_pct = ?,
-                max_price_delay_minutes = ?,
-                updated_at = now()
+                enabled = ?, hard_stop_pct = ?, trailing_enabled = ?,
+                trailing_activation_pct = ?, trailing_drawdown_pct = ?,
+                fixed_take_profit_enabled = ?, fixed_take_profit_pct = ?,
+                max_price_delay_minutes = ?, updated_at = now()
             WHERE config_id = 1
             """,
             (
@@ -225,7 +232,6 @@ def save_risk_config_v2(config: RiskConfigV2) -> RiskConfigV2:
                 int(config.max_price_delay_minutes),
             ),
         )
-        # A changed risk contract must be evaluated afresh. Historical events remain audit data.
         db.execute(
             """
             UPDATE pg_v2_autotrader_risk_state
@@ -237,6 +243,12 @@ def save_risk_config_v2(config: RiskConfigV2) -> RiskConfigV2:
 
 
 def pnl_percent_v2(*, average_open_price: float, current_price: float, direction: str) -> float:
+    """Return position return in percent of the traded product price.
+
+    This deliberately does not express return on account equity, margin or underlying
+    market movement. For a bought short/bear product the opening direction is still
+    Buy, so the product's own price movement remains the risk-control reference.
+    """
     opening = float(average_open_price)
     current = float(current_price)
     if opening <= 0 or current <= 0:
@@ -249,6 +261,10 @@ def pnl_percent_v2(*, average_open_price: float, current_price: float, direction
     else:
         raise ValueError(f"unsupported opening direction: {direction}")
     return ((current - opening) / opening) * 100.0 * sign
+
+
+def _tradable_reason_is_clear(reason: str) -> bool:
+    return str(reason or "").strip().lower() in {"", "none"}
 
 
 def evaluate_risk_v2(
@@ -276,10 +292,15 @@ def evaluate_risk_v2(
             trailing_floor_pct=trailing_floor,
             eligible_for_execution=False,
         )
+
     if not config.enabled:
         reason = REASON_DISABLED
     elif not observation.can_be_closed:
         reason = REASON_NOT_CLOSEABLE
+    elif not observation.is_market_open:
+        reason = REASON_MARKET_CLOSED
+    elif not _tradable_reason_is_clear(observation.non_tradable_reason):
+        reason = REASON_NON_TRADABLE
     elif observation.calculation_reliability.strip().lower() not in {"ok", ""}:
         reason = REASON_UNRELIABLE
     elif observation.price_delay_minutes > config.max_price_delay_minutes:
@@ -362,8 +383,10 @@ def _position_observations_v2(client) -> tuple[PositionObservationV2, ...]:
                     direction=direction,
                 ),
                 price_delay_minutes=int(view.get("CurrentPriceDelayMinutes") or 0),
-                can_be_closed=bool(base.get("CanBeClosed", True)),
+                can_be_closed=bool(base.get("CanBeClosed", False)),
                 calculation_reliability=str(view.get("CalculationReliability") or ""),
+                is_market_open=bool(base.get("IsMarketOpen", False)),
+                non_tradable_reason=str(base.get("NonTradableReason") or ""),
             )
         )
     return tuple(observations)
@@ -373,7 +396,8 @@ def _load_previous_state(account_id: str, net_position_id: str) -> dict[str, Any
     with connect() as db:
         row = db.execute(
             """
-            SELECT average_open_price, direction, high_water_pct, triggered_reason
+            SELECT average_open_price, direction, high_water_pct, triggered_reason,
+                   triggered_at, active
             FROM pg_v2_autotrader_risk_state
             WHERE account_id = ? AND net_position_id = ?
             """,
@@ -388,6 +412,8 @@ def _load_previous_state(account_id: str, net_position_id: str) -> dict[str, Any
         "direction": row[1],
         "high_water_pct": row[2],
         "triggered_reason": row[3],
+        "triggered_at": row[4],
+        "active": row[5],
     }
 
 
@@ -397,9 +423,12 @@ def _persist_observation(
     *,
     config: RiskConfigV2,
     previous_triggered_reason: str | None,
+    previous_triggered_at: datetime | None,
 ) -> None:
     now = datetime.now(timezone.utc)
     new_trigger = decision.action == ACTION_WOULD_CLOSE and previous_triggered_reason is None
+    trigger_reason = decision.reason if decision.action == ACTION_WOULD_CLOSE else None
+    trigger_at = now if new_trigger else (previous_triggered_at if previous_triggered_reason else None)
     with connect() as db:
         if new_trigger:
             identity = (
@@ -416,20 +445,12 @@ def _persist_observation(
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    str(uuid5(NAMESPACE_URL, identity)),
-                    observation.account_id,
-                    observation.net_position_id,
-                    observation.uic,
-                    observation.asset_type,
-                    observation.direction,
-                    decision.reason,
-                    decision.pnl_pct,
-                    decision.high_water_pct,
-                    decision.trailing_floor_pct,
-                    config.hard_stop_pct,
-                    config.trailing_activation_pct,
-                    config.trailing_drawdown_pct,
-                    config.fixed_take_profit_pct,
+                    str(uuid5(NAMESPACE_URL, identity)), observation.account_id,
+                    observation.net_position_id, observation.uic, observation.asset_type,
+                    observation.direction, decision.reason, decision.pnl_pct,
+                    decision.high_water_pct, decision.trailing_floor_pct,
+                    config.hard_stop_pct, config.trailing_activation_pct,
+                    config.trailing_drawdown_pct, config.fixed_take_profit_pct,
                     observation.price_delay_minutes,
                 ),
             )
@@ -439,49 +460,36 @@ def _persist_observation(
                 (account_id, net_position_id, uic, asset_type, direction, amount,
                  average_open_price, current_price, pnl_pct, high_water_pct,
                  trailing_floor_pct, price_delay_minutes, can_be_closed,
-                 calculation_reliability, last_action, last_reason,
-                 triggered_reason, triggered_at, active, last_seen_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
+                 calculation_reliability, is_market_open, non_tradable_reason,
+                 last_action, last_reason, triggered_reason, triggered_at,
+                 active, last_seen_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now())
             ON CONFLICT (account_id, net_position_id) DO UPDATE SET
-                uic = EXCLUDED.uic,
-                asset_type = EXCLUDED.asset_type,
-                direction = EXCLUDED.direction,
-                amount = EXCLUDED.amount,
+                uic = EXCLUDED.uic, asset_type = EXCLUDED.asset_type,
+                direction = EXCLUDED.direction, amount = EXCLUDED.amount,
                 average_open_price = EXCLUDED.average_open_price,
-                current_price = EXCLUDED.current_price,
-                pnl_pct = EXCLUDED.pnl_pct,
+                current_price = EXCLUDED.current_price, pnl_pct = EXCLUDED.pnl_pct,
                 high_water_pct = EXCLUDED.high_water_pct,
                 trailing_floor_pct = EXCLUDED.trailing_floor_pct,
                 price_delay_minutes = EXCLUDED.price_delay_minutes,
                 can_be_closed = EXCLUDED.can_be_closed,
                 calculation_reliability = EXCLUDED.calculation_reliability,
-                last_action = EXCLUDED.last_action,
-                last_reason = EXCLUDED.last_reason,
+                is_market_open = EXCLUDED.is_market_open,
+                non_tradable_reason = EXCLUDED.non_tradable_reason,
+                last_action = EXCLUDED.last_action, last_reason = EXCLUDED.last_reason,
                 triggered_reason = EXCLUDED.triggered_reason,
-                triggered_at = EXCLUDED.triggered_at,
-                active = TRUE,
-                last_seen_at = now(),
-                updated_at = now()
+                triggered_at = EXCLUDED.triggered_at, active = TRUE,
+                last_seen_at = now(), updated_at = now()
             """,
             (
-                observation.account_id,
-                observation.net_position_id,
-                observation.uic,
-                observation.asset_type,
-                observation.direction,
-                observation.amount,
-                observation.average_open_price,
-                observation.current_price,
-                observation.pnl_pct,
-                decision.high_water_pct,
-                decision.trailing_floor_pct,
-                observation.price_delay_minutes,
-                observation.can_be_closed,
-                observation.calculation_reliability,
-                decision.action,
-                decision.reason,
-                decision.reason if decision.action == ACTION_WOULD_CLOSE else None,
-                now if new_trigger else (now if previous_triggered_reason else None),
+                observation.account_id, observation.net_position_id, observation.uic,
+                observation.asset_type, observation.direction, observation.amount,
+                observation.average_open_price, observation.current_price,
+                observation.pnl_pct, decision.high_water_pct, decision.trailing_floor_pct,
+                observation.price_delay_minutes, observation.can_be_closed,
+                observation.calculation_reliability, observation.is_market_open,
+                observation.non_tradable_reason, decision.action, decision.reason,
+                trigger_reason, trigger_at,
             ),
         )
 
@@ -501,14 +509,17 @@ def run_risk_dry_run_cycle_v2() -> RiskCycleSummaryV2:
             previous = _load_previous_state(observation.account_id, observation.net_position_id)
             previous_high = None
             previous_triggered = None
+            previous_triggered_at = None
             if previous:
                 same_basis = (
-                    abs(float(previous["average_open_price"]) - observation.average_open_price) < 1e-12
+                    bool(previous.get("active"))
+                    and abs(float(previous["average_open_price"]) - observation.average_open_price) < 1e-12
                     and str(previous["direction"]).lower() == observation.direction.lower()
                 )
                 if same_basis:
                     previous_high = float(previous["high_water_pct"])
                     previous_triggered = previous.get("triggered_reason")
+                    previous_triggered_at = previous.get("triggered_at")
             decision = evaluate_risk_v2(
                 observation,
                 config=config,
@@ -520,35 +531,29 @@ def run_risk_dry_run_cycle_v2() -> RiskCycleSummaryV2:
                 decision,
                 config=config,
                 previous_triggered_reason=previous_triggered,
+                previous_triggered_at=previous_triggered_at,
             )
             if decision.action == ACTION_WOULD_CLOSE:
                 close_signals += 1
                 LOGGER.warning(
-                    "risk dry-run position=%s uic=%s pnl=%.3f%% high=%.3f%% action=%s reason=%s eligible=%s",
-                    observation.net_position_id,
-                    observation.uic,
-                    observation.pnl_pct,
-                    decision.high_water_pct,
-                    decision.action,
-                    decision.reason,
+                    "risk dry-run position=%s uic=%s position_return=%.3f%% high=%.3f%% action=%s reason=%s eligible=%s",
+                    observation.net_position_id, observation.uic, observation.pnl_pct,
+                    decision.high_water_pct, decision.action, decision.reason,
                     decision.eligible_for_execution,
                 )
         except Exception as exc:
             failed += 1
-            LOGGER.warning("risk dry-run position failed id=%s: %s", observation.net_position_id, exc, exc_info=True)
+            LOGGER.warning(
+                "risk dry-run position failed id=%s: %s",
+                observation.net_position_id, exc, exc_info=True,
+            )
     with connect() as db:
-        if seen:
-            placeholders = ",".join("(?)" for _ in seen)
-            # PostgreSQL tuple-comparison support would complicate the shared DB wrapper;
-            # mark all inactive first and reactivate observations through the upsert above.
-            db.execute("UPDATE pg_v2_autotrader_risk_state SET active = FALSE")
-            for account_id, net_position_id in seen:
-                db.execute(
-                    "UPDATE pg_v2_autotrader_risk_state SET active = TRUE WHERE account_id = ? AND net_position_id = ?",
-                    (account_id, net_position_id),
-                )
-        else:
-            db.execute("UPDATE pg_v2_autotrader_risk_state SET active = FALSE")
+        db.execute("UPDATE pg_v2_autotrader_risk_state SET active = FALSE")
+        for account_id, net_position_id in seen:
+            db.execute(
+                "UPDATE pg_v2_autotrader_risk_state SET active = TRUE WHERE account_id = ? AND net_position_id = ?",
+                (account_id, net_position_id),
+            )
     return RiskCycleSummaryV2(observed=len(observations), close_signals=close_signals, failed=failed)
 
 
@@ -560,9 +565,7 @@ def run_risk_dry_run_forever_v2(*, interval_seconds: int = 10) -> None:
             summary = run_risk_dry_run_cycle_v2()
             LOGGER.info(
                 "risk dry-run cycle observed=%d close_signals=%d failed=%d",
-                summary.observed,
-                summary.close_signals,
-                summary.failed,
+                summary.observed, summary.close_signals, summary.failed,
             )
         except Exception as exc:
             LOGGER.exception("risk dry-run cycle failed before position evaluation: %s", exc)
