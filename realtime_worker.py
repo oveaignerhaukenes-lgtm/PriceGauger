@@ -7,6 +7,7 @@ import os
 import threading
 import time
 
+from autotrader_live_close_v1 import run_live_close_forever_v1
 from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
 from autotrader_risk_dry_run_v2 import run_risk_dry_run_forever_v2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
@@ -56,6 +57,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_RISK_DRY_RUN_SECONDS", "10")),
         help="Cadence for the read-only open-position risk-control dry-run evaluator.",
+    )
+    parser.add_argument(
+        "--autotrader-live-close-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_LIVE_CLOSE_SECONDS", "2")),
+        help="Cadence for the guarded LIVE close-only executor. No Saxo calls occur while disarmed.",
     )
     parser.add_argument(
         "--saxo-infoprice-probe-seconds",
@@ -124,6 +131,24 @@ def _start_autotrader_risk_dry_run(*, interval_seconds: int) -> threading.Thread
     )
     thread.start()
     LOGGER.info("AutoTrader risk-control dry-run started interval_seconds=%d", max(5, interval_seconds))
+    return thread
+
+
+def _start_autotrader_live_close(*, interval_seconds: int) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader LIVE close-only disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_live_close_forever_v1,
+        kwargs={"interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-live-close",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoTrader LIVE close-only runtime started interval_seconds=%d; execution remains two-key gated",
+        max(1, interval_seconds),
+    )
     return thread
 
 
@@ -242,6 +267,9 @@ def main() -> None:
     )
     _start_autotrader_risk_dry_run(
         interval_seconds=args.autotrader_risk_dry_run_seconds,
+    )
+    _start_autotrader_live_close(
+        interval_seconds=args.autotrader_live_close_seconds,
     )
     watcher = threading.Thread(
         target=_watch_v2_registry,
