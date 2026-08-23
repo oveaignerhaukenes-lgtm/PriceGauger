@@ -66,16 +66,24 @@ def _price_interval(view: OverviewTechnicalV2) -> str:
 
 
 def _health_for_view(view: OverviewTechnicalV2, persisted: RuntimeHealthV2 | None) -> OverviewV2Health:
-    freshness = freshness_health_v2(service="v2-technical-runtime", stage=view.market, observed_at=view.as_of)
-    parts = [freshness.detail]
-    status = freshness.status
+    # The runtime health record is authoritative for feed freshness. Its producer
+    # measures the newest canonical 1m bar. ``view.as_of`` belongs to the primary
+    # Technical Core timeframe (normally 30m) and is therefore not a feed clock.
     if persisted is not None:
-        parts.append(f"runtime {persisted.status}")
-        if persisted.status in {"DEGRADED", "NO_DATA"}:
-            status = persisted.status
-        elif persisted.status == "STALE" and status == "HEALTHY":
-            status = "STALE"
-    return OverviewV2Health(status=status, detail=" · ".join(parts))
+        return OverviewV2Health(
+            status=persisted.status,
+            detail=persisted.detail or "runtime freshness unavailable",
+        )
+
+    freshness = freshness_health_v2(
+        service="v2-technical-runtime",
+        stage=view.market,
+        observed_at=view.as_of,
+    )
+    return OverviewV2Health(
+        status=freshness.status,
+        detail=f"technical snapshot fallback · {freshness.detail}",
+    )
 
 
 def render_overview_v2_market_card_html(view: OverviewTechnicalV2, *, health: OverviewV2Health, color: str, detail_href: str) -> str:
