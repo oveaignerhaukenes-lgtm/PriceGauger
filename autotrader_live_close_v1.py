@@ -8,6 +8,10 @@ from typing import Any
 
 import requests
 
+from autotrader_managed_positions_v1 import (
+    ensure_managed_positions_schema_v1,
+    is_position_managed_v1,
+)
 from autotrader_risk_dry_run_v2 import (
     ACTION_WOULD_CLOSE,
     PositionObservationV2,
@@ -89,6 +93,7 @@ def ensure_live_close_schema_v1() -> None:
             )
             """
         )
+    ensure_managed_positions_schema_v1()
 
 
 def load_live_close_config_v1() -> LiveCloseConfigV1:
@@ -395,6 +400,10 @@ def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
         try:
             current = _current_observation(client, account_id, net_position_id)
             if current is None:
+                blocked += 1
+                continue
+            if not is_position_managed_v1(current):
+                LOGGER.info("LIVE close ignored unmanaged position=%s", net_position_id)
                 blocked += 1
                 continue
             if not _same_trigger_basis(state, current):
