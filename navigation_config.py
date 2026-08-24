@@ -115,14 +115,6 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "url_path": "Runtime_Diagnostics",
         },
     ),
-    "Utviklerverktøy": (
-        {
-            "page": "pages/1_Historical_Event_Lab.py",
-            "title": "Historisk hendelsessøk (legacy)",
-            "icon": "🧪",
-            "url_path": "Historical_Event_Lab",
-        },
-    ),
 }
 
 
