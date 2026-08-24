@@ -45,6 +45,12 @@ class TechnicalSnapshot:
     distance_to_resistance_pct: float | None
     market_structure: str
     readings: tuple[TechnicalReading, ...]
+    rsi_change_3: float | None = None
+    macd_histogram_change_3: float | None = None
+    price_to_ema20_pct: float | None = None
+    price_to_ema50_pct: float | None = None
+    recent_return_3_pct: float | None = None
+    recent_return_8_pct: float | None = None
 
     def to_record(self) -> dict[str, Any]:
         record = asdict(self)
@@ -72,6 +78,24 @@ def _clean_frame(frame: pd.DataFrame) -> pd.DataFrame:
 def _last(series: pd.Series) -> float | None:
     values = series.dropna()
     return float(values.iloc[-1]) if not values.empty else None
+
+
+def _change(series: pd.Series, periods: int = 3) -> float | None:
+    values = series.dropna()
+    if len(values) <= periods:
+        return None
+    return float(values.iloc[-1] - values.iloc[-1 - periods])
+
+
+def _return_pct(close: pd.Series, periods: int) -> float | None:
+    values = close.dropna()
+    if len(values) <= periods:
+        return None
+    start = float(values.iloc[-1 - periods])
+    end = float(values.iloc[-1])
+    if not start:
+        return None
+    return (end / start - 1.0) * 100.0
 
 
 def _rsi(close: pd.Series, period: int = 14) -> pd.Series:
@@ -161,6 +185,7 @@ def _build_readings(snapshot: dict[str, Any]) -> tuple[TechnicalReading, ...]:
     readings: list[TechnicalReading] = []
 
     rsi = snapshot["rsi_14"]
+    rsi_change = snapshot["rsi_change_3"]
     if rsi is not None:
         if rsi >= 70:
             interpretation, bias = "Overkjøpt momentum", "bearish"
@@ -173,8 +198,22 @@ def _build_readings(snapshot: dict[str, Any]) -> tuple[TechnicalReading, ...]:
         else:
             interpretation, bias = "Nøytralt momentum", "neutral"
         readings.append(TechnicalReading("momentum", interpretation, "RSI 14", timeframe, _fmt(rsi, 1), bias))
+        if rsi_change is not None and abs(rsi_change) >= 1.0:
+            direction_text = "RSI stiger" if rsi_change > 0 else "RSI faller"
+            dynamic_bias = "bullish" if rsi_change > 0 else "bearish"
+            readings.append(
+                TechnicalReading(
+                    "momentum_dynamic",
+                    direction_text,
+                    "RSI 14 · 3 bars",
+                    timeframe,
+                    f"{rsi_change:+.1f}",
+                    dynamic_bias,
+                )
+            )
 
     histogram = snapshot["macd_histogram"]
+    histogram_change = snapshot["macd_histogram_change_3"]
     macd = snapshot["macd"]
     signal = snapshot["macd_signal"]
     if histogram is not None and macd is not None and signal is not None:
@@ -190,6 +229,26 @@ def _build_readings(snapshot: dict[str, Any]) -> tuple[TechnicalReading, ...]:
                 bias,
             )
         )
+        if histogram_change is not None and abs(histogram_change) > 1e-12:
+            if histogram > 0:
+                dynamic_text = "Bullish momentum akselererer" if histogram_change > 0 else "Bullish momentum kjølner"
+                dynamic_bias = "bullish" if histogram_change > 0 else "bearish"
+            elif histogram < 0:
+                dynamic_text = "Bearish momentum kjølner" if histogram_change > 0 else "Bearish momentum akselererer"
+                dynamic_bias = "bullish" if histogram_change > 0 else "bearish"
+            else:
+                dynamic_text = "MACD-dynamikk snur opp" if histogram_change > 0 else "MACD-dynamikk snur ned"
+                dynamic_bias = "bullish" if histogram_change > 0 else "bearish"
+            readings.append(
+                TechnicalReading(
+                    "momentum_dynamic",
+                    dynamic_text,
+                    "MACD histogram · 3 bars",
+                    timeframe,
+                    f"Δ {histogram_change:+.4f}",
+                    dynamic_bias,
+                )
+            )
 
     ema_20 = snapshot["ema_20"]
     ema_50 = snapshot["ema_50"]
@@ -263,8 +322,12 @@ def build_technical_snapshot(frame: pd.DataFrame, *, asset: str, timeframe: str)
     data = _clean_frame(frame)
     close = data["close"]
     price = float(close.iloc[-1])
-    rsi = _last(_rsi(close))
+    rsi_series = _rsi(close)
+    rsi = _last(rsi_series)
+    rsi_change = _change(rsi_series, 3)
     macd_line, macd_signal, macd_histogram = _macd(close)
+    histogram = _last(macd_histogram)
+    histogram_change = _change(macd_histogram, 3)
     ema_20 = _last(close.ewm(span=20, adjust=False, min_periods=20).mean())
     ema_50 = _last(close.ewm(span=50, adjust=False, min_periods=50).mean())
     atr = _last(_atr(data))
@@ -289,7 +352,7 @@ def build_technical_snapshot(frame: pd.DataFrame, *, asset: str, timeframe: str)
         "rsi_14": rsi,
         "macd": _last(macd_line),
         "macd_signal": _last(macd_signal),
-        "macd_histogram": _last(macd_histogram),
+        "macd_histogram": histogram,
         "ema_20": ema_20,
         "ema_50": ema_50,
         "atr_14": atr,
@@ -300,6 +363,13 @@ def build_technical_snapshot(frame: pd.DataFrame, *, asset: str, timeframe: str)
         "distance_to_support_pct": distance_to_support,
         "distance_to_resistance_pct": distance_to_resistance,
         "market_structure": _market_structure(data),
+        "readings": (),
+        "rsi_change_3": rsi_change,
+        "macd_histogram_change_3": histogram_change,
+        "price_to_ema20_pct": ((price / ema_20) - 1.0) * 100.0 if ema_20 else None,
+        "price_to_ema50_pct": ((price / ema_50) - 1.0) * 100.0 if ema_50 else None,
+        "recent_return_3_pct": _return_pct(close, 3),
+        "recent_return_8_pct": _return_pct(close, 8),
     }
     values["readings"] = _build_readings(values)
     return TechnicalSnapshot(**values)

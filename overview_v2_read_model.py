@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from database import connect
+from forecast_path_model_v2 import build_forecast_path_v2
 from overview_chart_history import load_overview_chart_history
 from recipe_registry_v2 import TA_INTERPRETER_V1, TA_ONLY_V1
 from workspace_composer_v2 import AnalysisRecipeV2, compose_forecast
@@ -35,6 +36,10 @@ class OverviewTechnicalV2:
     interpreter_confidence: float | None
     path_profile: tuple[tuple[float, float], ...] = ()
     path_rationale: str = ""
+    path_phases: tuple[str, ...] = ()
+    path_source_timeframe: str | None = None
+    expected_low_return: float | None = None
+    expected_high_return: float | None = None
     price_history: tuple[tuple[str, float], ...] = ()
 
 
@@ -55,140 +60,6 @@ def _matching_interpreter(workspace):
     return None, None
 
 
-def _direction_sign(value: str | None) -> int:
-    normalized = str(value or "").upper()
-    if normalized in {"BULLISH", "HH_HL"}:
-        return 1
-    if normalized in {"BEARISH", "LH_LL"}:
-        return -1
-    return 0
-
-
-def _forecast_path_profile(
-    *,
-    direction: str,
-    expected_return: float,
-    lower_return: float,
-    upper_return: float,
-    path_shape: str,
-    trend_state: str,
-    momentum_state: str,
-    structure_state: str,
-) -> tuple[tuple[tuple[float, float], ...], str]:
-    """Compose explicit path geometry from already-persisted v2 technical semantics.
-
-    The terminal return remains authoritative. This projection only makes the
-    intermediate path explicit so the renderer no longer invents a monotone curve.
-    Counter-moves are introduced only when persisted trend/momentum/structure
-    evidence conflicts with the composed terminal direction.
-    """
-    expected = float(expected_return)
-    width = max(0.0, float(upper_return) - float(lower_return))
-    scale = max(abs(expected), width / 2.0, 0.0005)
-    terminal_sign = 1 if expected > 0 else -1 if expected < 0 else _direction_sign(direction)
-
-    if terminal_sign == 0:
-        amplitude = max(scale * 0.35, 0.0002)
-        return (
-            (
-                (0.0, 0.0),
-                (0.22, amplitude),
-                (0.48, -0.70 * amplitude),
-                (0.72, 0.45 * amplitude),
-                (1.0, expected),
-            ),
-            "Nøytral terminalvurdering: forventet range/mean-reversion innenfor usikkerhetsrommet.",
-        )
-
-    trend_alignment = terminal_sign * _direction_sign(trend_state)
-    momentum_alignment = terminal_sign * _direction_sign(momentum_state)
-    structure_alignment = terminal_sign * _direction_sign(structure_state)
-    signed_scale = terminal_sign * scale
-
-    if trend_alignment < 0 and momentum_alignment < 0:
-        return (
-            (
-                (0.0, 0.0),
-                (0.18, -0.28 * signed_scale),
-                (0.42, -0.10 * signed_scale),
-                (0.68, 0.42 * expected),
-                (1.0, expected),
-            ),
-            "Trend og momentum peker først mot terminalretningen: motbevegelse/retest før eventuell reversering og fortsettelse.",
-        )
-
-    if momentum_alignment < 0:
-        return (
-            (
-                (0.0, 0.0),
-                (0.20, -0.20 * signed_scale),
-                (0.43, 0.06 * signed_scale),
-                (0.70, 0.55 * expected),
-                (1.0, expected),
-            ),
-            "Momentum går mot terminalretningen: kort motbevegelse forventes før hovedretningen eventuelt tar over.",
-        )
-
-    if trend_alignment < 0:
-        return (
-            (
-                (0.0, 0.0),
-                (0.20, 0.12 * signed_scale),
-                (0.45, -0.06 * signed_scale),
-                (0.70, 0.48 * expected),
-                (1.0, expected),
-            ),
-            "Terminalretningen er mot gjeldende trend: tidlig fremdrift behandles som sårbar og etterfølges av retest før videre move.",
-        )
-
-    if structure_alignment < 0:
-        return (
-            (
-                (0.0, 0.0),
-                (0.22, 0.16 * expected),
-                (0.46, -0.04 * signed_scale),
-                (0.72, 0.50 * expected),
-                (1.0, expected),
-            ),
-            "Svingstrukturen går mot terminalretningen: brudd/retest må absorberes før videre fortsettelse.",
-        )
-
-    if structure_alignment == 0:
-        return (
-            (
-                (0.0, 0.0),
-                (0.22, 0.24 * expected),
-                (0.50, 0.27 * expected),
-                (0.72, 0.62 * expected),
-                (1.0, expected),
-            ),
-            "Blandet/uklar svingstruktur: tidlig drift etterfølges av konsolidering før terminalretningen.",
-        )
-
-    if str(path_shape or "").upper() == "TREND_CONTINUATION":
-        return (
-            (
-                (0.0, 0.0),
-                (0.20, 0.23 * expected),
-                (0.46, 0.52 * expected),
-                (0.73, 0.79 * expected),
-                (1.0, expected),
-            ),
-            "Trend, momentum og struktur støtter terminalretningen: relativt jevn trendfortsettelse.",
-        )
-
-    return (
-        (
-            (0.0, 0.0),
-            (0.22, 0.18 * expected),
-            (0.48, 0.43 * expected),
-            (0.74, 0.69 * expected),
-            (1.0, expected),
-        ),
-        "Signalene støtter terminalretningen, men uten sterk trendfortsettelse: gradvis drift er mest konsistent.",
-    )
-
-
 def project_workspace_v2(
     workspace,
     *,
@@ -198,10 +69,9 @@ def project_workspace_v2(
 ) -> OverviewTechnicalV2:
     """Project one coherent persisted workspace into a visualization read model.
 
-    Layer switching is deliberately composition-only. The function never invokes
-    Technical Core, an interpreter/LLM, Saxo, or persistence. A Technical
-    Interpreter refinement is available only when a fingerprint-matching cached
-    output already exists on the workspace.
+    Layer switching remains composition-only. The forecast path is derived only
+    from already-persisted Technical Core state and the selected composed terminal
+    forecast; this function does not invoke Saxo, an LLM or persistence.
     """
     horizon = _closest_horizon(workspace.technical_baselines, requested_horizon_seconds)
     layer_key, interpreter = _matching_interpreter(workspace)
@@ -209,9 +79,6 @@ def project_workspace_v2(
 
     if use_interpreter:
         recipe_spec = TA_INTERPRETER_V1
-        # Runtime v2 historically persisted the canonical layer with a hyphen,
-        # while the recipe registry uses an underscore. Resolve that read-only
-        # storage alias here without mutating either historical contract.
         recipe = AnalysisRecipeV2(
             name=recipe_spec.name,
             version=recipe_spec.version,
@@ -234,15 +101,14 @@ def project_workspace_v2(
         interpreter_confidence = interpreter.confidence
 
     state = workspace.technical_state
-    path_profile, path_rationale = _forecast_path_profile(
+    path = build_forecast_path_v2(
+        state=state,
+        horizon_seconds=horizon,
         direction=composed.direction,
         expected_return=float(composed.composed_return),
         lower_return=float(composed.lower_return),
         upper_return=float(composed.upper_return),
         path_shape=composed.path_shape,
-        trend_state=state.trend_state,
-        momentum_state=state.momentum_state,
-        structure_state=state.structure_state,
     )
     return OverviewTechnicalV2(
         market=workspace.market,
@@ -266,8 +132,12 @@ def project_workspace_v2(
         interpreter_available=interpreter is not None,
         interpreter_summary=summary,
         interpreter_confidence=interpreter_confidence,
-        path_profile=path_profile,
-        path_rationale=path_rationale,
+        path_profile=path.points,
+        path_rationale=path.rationale,
+        path_phases=path.phases,
+        path_source_timeframe=path.source_timeframe,
+        expected_low_return=path.expected_low_return,
+        expected_high_return=path.expected_high_return,
         price_history=tuple(price_history),
     )
 
