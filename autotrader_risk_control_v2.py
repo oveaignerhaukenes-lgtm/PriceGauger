@@ -7,12 +7,13 @@ import time
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from autotrader_schema_v2 import DEFAULT_HARD_STOP_PCT, ensure_autotrader_schema_v2
 from database import connect, using_postgres
 from saxo_provider import configured_client
 
 
-LOGGER = logging.getLogger("pricegauger.autotrader.risk_dry_run_v2")
-STRATEGY_KEY = "risk-control-v1"
+LOGGER = logging.getLogger("pricegauger.autotrader.risk_control_v2")
+STRATEGY_KEY = "risk-control-v2"
 ACTION_HOLD = "HOLD"
 ACTION_WOULD_CLOSE = "WOULD_CLOSE"
 REASON_HARD_STOP = "HARD_STOP"
@@ -29,7 +30,7 @@ REASON_NON_TRADABLE = "NON_TRADABLE"
 @dataclass(frozen=True, slots=True)
 class RiskConfigV2:
     enabled: bool = True
-    hard_stop_pct: float = -1.0
+    hard_stop_pct: float = DEFAULT_HARD_STOP_PCT
     trailing_enabled: bool = True
     trailing_activation_pct: float = 2.0
     trailing_drawdown_pct: float = 0.5
@@ -87,99 +88,12 @@ def _validate_config(config: RiskConfigV2) -> RiskConfigV2:
     return config
 
 
-def ensure_risk_dry_run_schema_v2() -> None:
-    if not using_postgres():
-        raise RuntimeError("risk-control dry-run requires PostgreSQL")
-    with connect() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_risk_config (
-                config_id SMALLINT PRIMARY KEY CHECK (config_id = 1),
-                enabled BOOLEAN NOT NULL,
-                hard_stop_pct DOUBLE PRECISION NOT NULL,
-                trailing_enabled BOOLEAN NOT NULL,
-                trailing_activation_pct DOUBLE PRECISION NOT NULL,
-                trailing_drawdown_pct DOUBLE PRECISION NOT NULL,
-                fixed_take_profit_enabled BOOLEAN NOT NULL,
-                fixed_take_profit_pct DOUBLE PRECISION NOT NULL,
-                max_price_delay_minutes INTEGER NOT NULL,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """
-        )
-        db.execute(
-            """
-            INSERT INTO pg_v2_autotrader_risk_config
-                (config_id, enabled, hard_stop_pct, trailing_enabled,
-                 trailing_activation_pct, trailing_drawdown_pct,
-                 fixed_take_profit_enabled, fixed_take_profit_pct,
-                 max_price_delay_minutes)
-            VALUES (1, TRUE, -1.0, TRUE, 2.0, 0.5, FALSE, 5.0, 0)
-            ON CONFLICT (config_id) DO NOTHING
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_risk_state (
-                account_id TEXT NOT NULL,
-                net_position_id TEXT NOT NULL,
-                uic BIGINT NOT NULL,
-                asset_type TEXT NOT NULL,
-                direction TEXT NOT NULL,
-                amount DOUBLE PRECISION NOT NULL,
-                average_open_price DOUBLE PRECISION NOT NULL,
-                current_price DOUBLE PRECISION NOT NULL,
-                pnl_pct DOUBLE PRECISION NOT NULL,
-                high_water_pct DOUBLE PRECISION NOT NULL,
-                trailing_floor_pct DOUBLE PRECISION,
-                price_delay_minutes INTEGER NOT NULL,
-                can_be_closed BOOLEAN NOT NULL,
-                calculation_reliability TEXT NOT NULL,
-                is_market_open BOOLEAN NOT NULL DEFAULT FALSE,
-                non_tradable_reason TEXT NOT NULL DEFAULT '',
-                last_action TEXT NOT NULL,
-                last_reason TEXT NOT NULL,
-                triggered_reason TEXT,
-                triggered_at TIMESTAMPTZ,
-                active BOOLEAN NOT NULL DEFAULT TRUE,
-                last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                PRIMARY KEY(account_id, net_position_id)
-            )
-            """
-        )
-        db.execute(
-            "ALTER TABLE pg_v2_autotrader_risk_state ADD COLUMN IF NOT EXISTS is_market_open BOOLEAN NOT NULL DEFAULT FALSE"
-        )
-        db.execute(
-            "ALTER TABLE pg_v2_autotrader_risk_state ADD COLUMN IF NOT EXISTS non_tradable_reason TEXT NOT NULL DEFAULT ''"
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_risk_events (
-                event_id UUID PRIMARY KEY,
-                account_id TEXT NOT NULL,
-                net_position_id TEXT NOT NULL,
-                uic BIGINT NOT NULL,
-                asset_type TEXT NOT NULL,
-                direction TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                pnl_pct DOUBLE PRECISION NOT NULL,
-                high_water_pct DOUBLE PRECISION NOT NULL,
-                trailing_floor_pct DOUBLE PRECISION,
-                hard_stop_pct DOUBLE PRECISION NOT NULL,
-                trailing_activation_pct DOUBLE PRECISION NOT NULL,
-                trailing_drawdown_pct DOUBLE PRECISION NOT NULL,
-                fixed_take_profit_pct DOUBLE PRECISION NOT NULL,
-                price_delay_minutes INTEGER NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """
-        )
+def ensure_risk_control_schema_v2() -> None:
+    """Initialize the complete canonical AutoTrader v2 persistence boundary."""
+    ensure_autotrader_schema_v2()
 
 
 def load_risk_config_v2() -> RiskConfigV2:
-    ensure_risk_dry_run_schema_v2()
     with connect() as db:
         row = db.execute(
             """
@@ -210,7 +124,6 @@ def load_risk_config_v2() -> RiskConfigV2:
 
 def save_risk_config_v2(config: RiskConfigV2) -> RiskConfigV2:
     config = _validate_config(config)
-    ensure_risk_dry_run_schema_v2()
     with connect() as db:
         db.execute(
             """
@@ -494,8 +407,7 @@ def _persist_observation(
         )
 
 
-def run_risk_dry_run_cycle_v2() -> RiskCycleSummaryV2:
-    ensure_risk_dry_run_schema_v2()
+def run_risk_control_cycle_v2() -> RiskCycleSummaryV2:
     config = load_risk_config_v2()
     client = configured_client()
     if client is None:
@@ -536,7 +448,7 @@ def run_risk_dry_run_cycle_v2() -> RiskCycleSummaryV2:
             if decision.action == ACTION_WOULD_CLOSE:
                 close_signals += 1
                 LOGGER.warning(
-                    "risk dry-run position=%s uic=%s position_return=%.3f%% high=%.3f%% action=%s reason=%s eligible=%s",
+                    "risk control position=%s uic=%s position_return=%.3f%% high=%.3f%% action=%s reason=%s eligible=%s",
                     observation.net_position_id, observation.uic, observation.pnl_pct,
                     decision.high_water_pct, decision.action, decision.reason,
                     decision.eligible_for_execution,
@@ -544,7 +456,7 @@ def run_risk_dry_run_cycle_v2() -> RiskCycleSummaryV2:
         except Exception as exc:
             failed += 1
             LOGGER.warning(
-                "risk dry-run position failed id=%s: %s",
+                "risk control position failed id=%s: %s",
                 observation.net_position_id, exc, exc_info=True,
             )
     with connect() as db:
@@ -557,16 +469,16 @@ def run_risk_dry_run_cycle_v2() -> RiskCycleSummaryV2:
     return RiskCycleSummaryV2(observed=len(observations), close_signals=close_signals, failed=failed)
 
 
-def run_risk_dry_run_forever_v2(*, interval_seconds: int = 10) -> None:
+def run_risk_control_forever_v2(*, interval_seconds: int = 10) -> None:
     interval = max(5, int(interval_seconds))
-    ensure_risk_dry_run_schema_v2()
+    ensure_risk_control_schema_v2()
     while True:
         try:
-            summary = run_risk_dry_run_cycle_v2()
+            summary = run_risk_control_cycle_v2()
             LOGGER.info(
-                "risk dry-run cycle observed=%d close_signals=%d failed=%d",
+                "risk control cycle observed=%d close_signals=%d failed=%d",
                 summary.observed, summary.close_signals, summary.failed,
             )
         except Exception as exc:
-            LOGGER.exception("risk dry-run cycle failed before position evaluation: %s", exc)
+            LOGGER.exception("risk control cycle failed before position evaluation: %s", exc)
         time.sleep(interval)

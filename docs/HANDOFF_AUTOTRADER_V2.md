@@ -8,11 +8,14 @@ Long-term architecture may support full trading-bot capability, but that is expl
 
 ## Current safety posture
 
-- SIM-only guardrails remain the default.
-- First user-facing capability is explicit manual buy/sell from TradingDesk.
-- No strategy or AI may bypass validation/precheck/confirmation.
+- Manual entry/buy/sell remains SIM-only and requires validation, Saxo precheck and explicit confirmation.
+- LIVE capability is restricted to closing/reducing an already-open position that the user explicitly enrolled with Auto-manage.
+- LIVE close requires LIVE environment, a separate code gate, an armed execution motor and an exact per-position enrollment match.
+- RiskControl is an execution-adjacent decision layer, not a dry-run: it produces auditable close signals but never submits an order itself.
+- The canonical default hard stop is −2% of the traded product's own position return. Existing persisted configuration is never overwritten by a deployment default.
+- MACD remains dry-run only and has no execution authority.
+- No strategy or AI may bypass AutoTrader validation/precheck/guardrails.
 - Saxo order execution is an AutoTrader responsibility, not a TradingDesk or analysis-layer responsibility.
-- Automated trading should be introduced only after stable manual operation and explicit approval.
 
 ## Architectural position
 

@@ -69,18 +69,14 @@ Forecasts er immutable og knyttet til eksakt Decision/Information/Technical stat
 
 TradingDesk bruker samme canonical 1m-data og samme AutoTrader execution-komponent.
 
-AutoTrader-grensen er foreløpig:
+AutoTrader har to fysisk avgrensede execution-kapabiliteter:
 
-- Saxo **SIM only**
-- eksplisitt brukerinitiert manual execution
-- server-side validering
-- Saxo precheck
-- eksplisitt confirmation
-- én submit
-- autoritativ order/position read-back
-- ingen automatisk strategy/entry
-
-Den gamle MACD 30m AutoTrader-prøvegrenen er superseded og skal ikke gjenopptas.
+- manuell entry/handel er fortsatt Saxo **SIM-only**, med server-side validering, precheck, eksplisitt confirmation, én submit og autoritativ read-back
+- LIVE er kun close-only for en allerede åpen, eksakt Auto-managed posisjon
+- LIVE close krever LIVE-miljø, separat kode-gate, aktiv execution-motor og gyldig per-position enrollment
+- RiskControl bruker produktets egen posisjonsavkastning; canonical standard hard stop er **−2 %**
+- 30m MACD LONG/FLAT kjører fortsatt kun som observerbar dry-run og har ingen execution-kobling
+- ingen automatisk entry-strategi eller AI-execution er aktiv
 
 ## Markedschat
 

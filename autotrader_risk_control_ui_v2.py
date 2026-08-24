@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import streamlit as st
 
-from autotrader_risk_dry_run_v2 import (
+from autotrader_risk_control_v2 import (
     RiskConfigV2,
     load_risk_config_v2,
-    run_risk_dry_run_cycle_v2,
+    run_risk_control_cycle_v2,
     save_risk_config_v2,
 )
 from database import connect, using_postgres
@@ -26,16 +26,17 @@ def _rows(sql: str, params=()) -> list[dict[str, object]]:
     return rows
 
 
-def render_risk_dry_run_monitor_v2() -> None:
-    st.subheader("Risk-control · dry-run")
+def render_risk_control_monitor_v2() -> None:
+    st.subheader("Risk-control · LIVE portfolio")
     st.caption(
-        "Leser åpne Saxo-posisjoner og simulerer bare exit-beslutninger. "
+        "Leser åpne Saxo LIVE-posisjoner og produserer eksplisitte exit-beslutninger. "
         "Alle prosentgrenser gjelder posisjonsavkastning i selve produktet som handles — "
         "ikke kontoverdi, brukt margin eller prosentbevegelse i underliggende marked. "
-        "Ingen pre-check eller ordreplassering finnes i denne modulen."
+        "RiskControl sender ikke selv ordre; den separate close-only executoren kan bare handle "
+        "et signal når alle LIVE-gater og den eksakte Auto-manage-enrollmenten er gyldige."
     )
     if not using_postgres():
-        st.info("Risk-control dry-run krever PostgreSQL-runtime.")
+        st.info("Risk-control krever PostgreSQL-runtime.")
         return
 
     try:
@@ -48,7 +49,7 @@ def render_risk_dry_run_monitor_v2() -> None:
         enabled = st.checkbox(
             "Aktiver overvåking",
             value=config.enabled,
-            help="Slår selve dry-run-evalueringen av/på. Sender aldri ordre.",
+            help="Slår risikovurderingen av/på. RiskControl sender ikke selv ordre.",
         )
         c1, c2, c3 = st.columns(3)
         hard_stop_pct = c1.number_input(
@@ -120,9 +121,9 @@ def render_risk_dry_run_monitor_v2() -> None:
         except Exception as exc:
             st.error(f"Kunne ikke lagre risk-control: {exc}")
 
-    if st.button("Kjør read-only evaluering nå", use_container_width=True):
+    if st.button("Kjør risk-control-evaluering nå", use_container_width=True):
         try:
-            summary = run_risk_dry_run_cycle_v2()
+            summary = run_risk_control_cycle_v2()
             st.success(
                 f"Evaluert {summary.observed} åpne posisjoner · "
                 f"WOULD_CLOSE {summary.close_signals} · feil {summary.failed}."

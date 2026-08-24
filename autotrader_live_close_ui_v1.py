@@ -5,7 +5,6 @@ import streamlit as st
 from autotrader_live_close_v1 import (
     LiveCloseConfigV1,
     code_gate_enabled_v1,
-    ensure_live_close_schema_v1,
     load_live_close_config_v1,
     run_live_close_cycle_v1,
     save_live_close_config_v1,
@@ -15,7 +14,7 @@ from autotrader_managed_positions_v1 import (
     is_position_managed_v1,
     stop_managing_position_v1,
 )
-from autotrader_risk_dry_run_v2 import _position_observations_v2
+from autotrader_risk_control_v2 import _position_observations_v2
 from database import connect, using_postgres
 from saxo_provider import LIVE_BASE_URL, configured_client
 
@@ -85,7 +84,6 @@ def render_live_close_v1() -> None:
         return
 
     try:
-        ensure_live_close_schema_v1()
         config = load_live_close_config_v1()
     except Exception as exc:
         st.error(f"LIVE close-only kunne ikke initialiseres: {exc}")
@@ -156,11 +154,26 @@ def render_live_close_v1() -> None:
     try:
         attempts = _rows(
             """
-            SELECT event_id, net_position_id AS position, uic, asset_type, close_side,
-                   amount, status, order_id, precheck_result, error_message,
-                   created_at, updated_at
-            FROM pg_v2_autotrader_live_close_attempts
-            ORDER BY created_at DESC
+            SELECT attempts.event_id,
+                   attempts.net_position_id AS position,
+                   attempts.uic,
+                   attempts.asset_type,
+                   events.reason AS trigger,
+                   events.pnl_pct AS trigger_pnl_pct,
+                   events.hard_stop_pct,
+                   events.created_at AS triggered_at,
+                   attempts.close_side,
+                   attempts.amount,
+                   attempts.status,
+                   attempts.order_id,
+                   attempts.precheck_result,
+                   attempts.error_message,
+                   attempts.created_at AS attempted_at,
+                   attempts.updated_at
+            FROM pg_v2_autotrader_live_close_attempts AS attempts
+            LEFT JOIN pg_v2_autotrader_risk_events AS events
+              ON events.event_id = attempts.event_id
+            ORDER BY attempts.created_at DESC
             LIMIT 20
             """
         )
