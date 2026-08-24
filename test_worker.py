@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from telegram_query_builder import build_search_plan
-from market_interpreter import MockMarketInterpreter
 from analysis_status import AnalysisStatusStore
+from telegram_query_builder import build_search_plan
 import worker
 
 
@@ -15,78 +14,56 @@ def _plan(message_id: str, text: str):
     )
 
 
-def test_worker_bootstraps_latest_then_deduplicates(tmp_path, monkeypatch):
+def test_worker_fetches_all_posts_and_runs_aggregate_flow(tmp_path, monkeypatch):
     db_path = tmp_path / "worker.db"
-    first = _plan("101", "Iran missile attack on military base")
-    second = _plan("102", "Iran drone attack on energy infrastructure")
-    plans = [first, second]
+    plans = [
+        _plan("101", "Iran missile attack on military base"),
+        _plan("102", "Iran drone attack on energy infrastructure"),
+    ]
+    calls: list[tuple[str, int]] = []
 
     def fetcher(channel, *, minimum_signal):
         assert channel == "Middle_East_Spectator"
         assert minimum_signal == 0
         return list(plans)
 
-    monkeypatch.setattr(worker, "refresh_signal_outcomes", lambda **kwargs: [])
+    def refresh(**kwargs):
+        calls.append((str(kwargs["channel"]), len(kwargs["plans"])))
 
-    initial = worker.run_once(
-        db_path=db_path,
-        plans_fetcher=fetcher,
-        interpreter=MockMarketInterpreter(),
-    )
-    assert initial.fetched == 2
-    assert initial.processed == 1
-    assert initial.skipped_bootstrap == 1
+    monkeypatch.setattr(worker, "_refresh_telegram_flow", refresh)
 
-    repeated = worker.run_once(
-        db_path=db_path,
-        plans_fetcher=fetcher,
-        interpreter=MockMarketInterpreter(),
-    )
-    assert repeated.pending == 0
-    assert repeated.processed == 0
+    summary = worker.run_once(db_path=db_path, plans_fetcher=fetcher)
 
-    plans.append(_plan("103", "Iran missile attack on shipping near Hormuz"))
-    newest = worker.run_once(
-        db_path=db_path,
-        plans_fetcher=fetcher,
-        interpreter=MockMarketInterpreter(),
-    )
-    assert newest.pending == 1
-    assert newest.processed == 1
-
-    state = worker.WorkerStateStore(db_path)
-    assert state.seen("101")
-    assert state.seen("102")
-    assert state.seen("103")
+    assert summary.fetched == 2
+    assert summary.processed == 0
+    assert summary.outcomes_refreshed == 0
+    assert summary.interpreter == "retired"
+    assert calls == [("Middle_East_Spectator", 2)]
 
 
-def test_empty_first_cycle_initializes_without_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(worker, "refresh_signal_outcomes", lambda **kwargs: [])
-
+def test_empty_cycle_is_valid_without_legacy_runtime(tmp_path):
+    db_path = tmp_path / "empty.db"
     summary = worker.run_once(
-        db_path=tmp_path / "empty.db",
+        db_path=db_path,
         plans_fetcher=lambda *args, **kwargs: [],
-        interpreter=MockMarketInterpreter(),
     )
 
     assert summary.fetched == 0
     assert summary.processed == 0
-    assert worker.WorkerStateStore(tmp_path / "empty.db").is_initialized()
 
-    statuses = {item.step_key: item for item in AnalysisStatusStore(tmp_path / "empty.db").load()}
+    statuses = {item.step_key: item for item in AnalysisStatusStore(db_path).load()}
     assert statuses["telegram_fetch"].status == "COMPLETE"
     assert statuses["event_clustering"].status == "SKIPPED"
-    assert statuses["outcome_refresh"].status == "COMPLETE"
+    assert statuses["outcome_refresh"].status == "SKIPPED"
+    assert "pensjonert" in statuses["outcome_refresh"].detail
 
 
-def test_worker_records_fetch_failure_but_continues_with_stored_flow(tmp_path, monkeypatch):
+def test_worker_records_fetch_failure_but_continues_with_stored_flow(tmp_path):
     db_path = tmp_path / "failed-fetch.db"
-    monkeypatch.setattr(worker, "refresh_signal_outcomes", lambda **kwargs: [])
 
     summary = worker.run_once(
         db_path=db_path,
         plans_fetcher=lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("telegram")),
-        interpreter=MockMarketInterpreter(),
     )
 
     statuses = {item.step_key: item for item in AnalysisStatusStore(db_path).load()}
