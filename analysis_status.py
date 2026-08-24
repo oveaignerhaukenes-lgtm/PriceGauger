@@ -21,7 +21,6 @@ STEP_ORDER = (
     "context_state",
     "decision_state",
     "recommendation",
-    "outcome_refresh",
 )
 
 STEP_LABELS = {
@@ -37,7 +36,6 @@ STEP_LABELS = {
     "context_state": "Nyhetskontekst",
     "decision_state": "Decision State",
     "recommendation": "Anbefaling",
-    "outcome_refresh": "Resultatoppfølging",
 }
 
 VALID_STATUSES = {"PENDING", "RUNNING", "COMPLETE", "REUSED", "SKIPPED", "FAILED"}
