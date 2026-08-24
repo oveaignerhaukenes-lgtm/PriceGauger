@@ -9,7 +9,8 @@ import time
 
 from autotrader_live_close_v1 import run_live_close_forever_v1
 from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
-from autotrader_risk_dry_run_v2 import run_risk_dry_run_forever_v2
+from autotrader_risk_control_v2 import run_risk_control_forever_v2
+from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import using_postgres
 from live_technical_runtime_v2 import run_live_technical_forever_v2
@@ -53,10 +54,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Cadence for the read-only 30m MACD LONG/FLAT dry-run evaluator.",
     )
     parser.add_argument(
+        "--autotrader-risk-control-seconds",
         "--autotrader-risk-dry-run-seconds",
+        dest="autotrader_risk_control_seconds",
         type=int,
-        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_RISK_DRY_RUN_SECONDS", "10")),
-        help="Cadence for the read-only open-position risk-control dry-run evaluator.",
+        default=int(
+            os.getenv(
+                "PRICEGAUGER_AUTOTRADER_RISK_CONTROL_SECONDS",
+                os.getenv("PRICEGAUGER_AUTOTRADER_RISK_DRY_RUN_SECONDS", "10"),
+            )
+        ),
+        help="Cadence for the open-position RiskControl evaluator.",
     )
     parser.add_argument(
         "--autotrader-live-close-seconds",
@@ -119,18 +127,18 @@ def _start_autotrader_macd_dry_run(
     return thread
 
 
-def _start_autotrader_risk_dry_run(*, interval_seconds: int) -> threading.Thread | None:
+def _start_autotrader_risk_control(*, interval_seconds: int) -> threading.Thread | None:
     if not using_postgres():
-        LOGGER.info("AutoTrader risk-control dry-run disabled: PostgreSQL is not configured")
+        LOGGER.info("AutoTrader RiskControl disabled: PostgreSQL is not configured")
         return None
     thread = threading.Thread(
-        target=run_risk_dry_run_forever_v2,
+        target=run_risk_control_forever_v2,
         kwargs={"interval_seconds": interval_seconds},
-        name="pricegauger-autotrader-risk-dry-run",
+        name="pricegauger-autotrader-risk-control",
         daemon=True,
     )
     thread.start()
-    LOGGER.info("AutoTrader risk-control dry-run started interval_seconds=%d", max(5, interval_seconds))
+    LOGGER.info("AutoTrader RiskControl started interval_seconds=%d", max(5, interval_seconds))
     return thread
 
 
@@ -252,6 +260,9 @@ def main() -> None:
     )
     args = _parser().parse_args()
 
+    if using_postgres():
+        ensure_autotrader_schema_v2()
+
     configured = dict(configured_instruments())
     runtime_instruments = _initial_runtime_instruments(configured)
     restart_requested = threading.Event()
@@ -265,8 +276,8 @@ def main() -> None:
         db_path=args.db,
         interval_seconds=args.autotrader_macd_dry_run_seconds,
     )
-    _start_autotrader_risk_dry_run(
-        interval_seconds=args.autotrader_risk_dry_run_seconds,
+    _start_autotrader_risk_control(
+        interval_seconds=args.autotrader_risk_control_seconds,
     )
     _start_autotrader_live_close(
         interval_seconds=args.autotrader_live_close_seconds,

@@ -8,17 +8,15 @@ from typing import Any
 
 import requests
 
-from autotrader_managed_positions_v1 import (
-    ensure_managed_positions_schema_v1,
-    is_position_managed_v1,
-)
-from autotrader_risk_dry_run_v2 import (
+from autotrader_managed_positions_v1 import is_position_managed_v1
+from autotrader_risk_control_v2 import (
     ACTION_WOULD_CLOSE,
     PositionObservationV2,
     evaluate_risk_v2,
     load_risk_config_v2,
     _position_observations_v2,
 )
+from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from database import connect, using_postgres
 from saxo_provider import LIVE_BASE_URL, SaxoClient, SaxoError, configured_client
 
@@ -54,50 +52,11 @@ def code_gate_enabled_v1() -> bool:
 
 
 def ensure_live_close_schema_v1() -> None:
-    if not using_postgres():
-        raise RuntimeError("LIVE close-only execution requires PostgreSQL")
-    with connect() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_close_config (
-                config_id SMALLINT PRIMARY KEY CHECK (config_id = 1),
-                armed BOOLEAN NOT NULL DEFAULT FALSE,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """
-        )
-        db.execute(
-            """
-            INSERT INTO pg_v2_autotrader_live_close_config (config_id, armed)
-            VALUES (1, FALSE)
-            ON CONFLICT (config_id) DO NOTHING
-            """
-        )
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_close_attempts (
-                event_id UUID PRIMARY KEY,
-                account_id TEXT NOT NULL,
-                net_position_id TEXT NOT NULL,
-                uic BIGINT NOT NULL,
-                asset_type TEXT NOT NULL,
-                close_side TEXT NOT NULL,
-                amount DOUBLE PRECISION NOT NULL,
-                external_reference TEXT NOT NULL,
-                status TEXT NOT NULL,
-                order_id TEXT,
-                precheck_result TEXT,
-                error_message TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """
-        )
-    ensure_managed_positions_schema_v1()
+    """Compatibility entrypoint for the centralized AutoTrader v2 schema."""
+    ensure_autotrader_schema_v2()
 
 
 def load_live_close_config_v1() -> LiveCloseConfigV1:
-    ensure_live_close_schema_v1()
     with connect() as db:
         row = db.execute(
             "SELECT armed FROM pg_v2_autotrader_live_close_config WHERE config_id = 1"
@@ -110,7 +69,6 @@ def load_live_close_config_v1() -> LiveCloseConfigV1:
 
 
 def save_live_close_config_v1(config: LiveCloseConfigV1) -> LiveCloseConfigV1:
-    ensure_live_close_schema_v1()
     with connect() as db:
         db.execute(
             """
@@ -363,7 +321,6 @@ def _reconcile_accepted_attempts(client: SaxoClient) -> int:
 
 
 def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
-    ensure_live_close_schema_v1()
     config = load_live_close_config_v1()
     if not config.armed or not code_gate_enabled_v1():
         return LiveCloseCycleSummaryV1(

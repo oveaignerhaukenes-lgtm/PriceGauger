@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from autotrader_managed_positions_v1 import managed_position_matches_v1
-from autotrader_risk_dry_run_v2 import PositionObservationV2
+from autotrader_risk_control_v2 import PositionObservationV2
 
 
 def _obs(*, amount: float = 2.0, opening: float = 100.0, position_id: str = "NP1") -> PositionObservationV2:

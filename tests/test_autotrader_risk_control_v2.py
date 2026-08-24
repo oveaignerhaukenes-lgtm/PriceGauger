@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import autotrader_risk_dry_run_v2 as risk
+import autotrader_risk_control_v2 as risk
 
 
 def _position(
@@ -33,7 +33,7 @@ def _position(
 
 def test_default_contract_matches_requested_risk_limits() -> None:
     config = risk.RiskConfigV2()
-    assert config.hard_stop_pct == -1.0
+    assert config.hard_stop_pct == -2.0
     assert config.trailing_activation_pct == 2.0
     assert config.trailing_drawdown_pct == 0.5
     assert config.fixed_take_profit_enabled is False
@@ -47,7 +47,10 @@ def test_position_return_is_product_price_return_not_account_or_margin_return() 
 
 
 def test_hard_stop_emits_would_close() -> None:
-    decision = risk.evaluate_risk_v2(_position(pnl_pct=-1.01), config=risk.RiskConfigV2())
+    before = risk.evaluate_risk_v2(_position(pnl_pct=-1.99), config=risk.RiskConfigV2())
+    assert before.action == risk.ACTION_HOLD
+
+    decision = risk.evaluate_risk_v2(_position(pnl_pct=-2.01), config=risk.RiskConfigV2())
     assert decision.action == risk.ACTION_WOULD_CLOSE
     assert decision.reason == risk.REASON_HARD_STOP
     assert decision.eligible_for_execution is True
@@ -167,13 +170,13 @@ def test_net_position_adapter_uses_saxo_price_and_tradability_fields() -> None:
 
 
 def test_inactive_state_is_not_reused_as_same_position_lifecycle() -> None:
-    source = open("autotrader_risk_dry_run_v2.py", encoding="utf-8").read()
+    source = open("autotrader_risk_control_v2.py", encoding="utf-8").read()
     assert 'bool(previous.get("active"))' in source
     assert "triggered_at, active" in source
 
 
-def test_risk_module_is_read_only_dry_run() -> None:
-    source = open("autotrader_risk_dry_run_v2.py", encoding="utf-8").read()
+def test_risk_control_decision_layer_never_submits_orders() -> None:
+    source = open("autotrader_risk_control_v2.py", encoding="utf-8").read()
     assert "place_order(" not in source
     assert ".precheck(" not in source
     assert "trade/v2/orders" not in source

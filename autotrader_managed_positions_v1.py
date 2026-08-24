@@ -2,31 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from autotrader_risk_dry_run_v2 import PositionObservationV2
+from autotrader_risk_control_v2 import PositionObservationV2
+from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from database import connect, using_postgres
 
 
 def ensure_managed_positions_schema_v1() -> None:
-    if not using_postgres():
-        raise RuntimeError("Auto-manage position enrollment requires PostgreSQL")
-    with connect() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_managed_positions (
-                account_id TEXT NOT NULL,
-                net_position_id TEXT NOT NULL,
-                uic BIGINT NOT NULL,
-                asset_type TEXT NOT NULL,
-                direction TEXT NOT NULL,
-                amount DOUBLE PRECISION NOT NULL,
-                average_open_price DOUBLE PRECISION NOT NULL,
-                managed BOOLEAN NOT NULL DEFAULT TRUE,
-                enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                PRIMARY KEY(account_id, net_position_id)
-            )
-            """
-        )
+    """Compatibility entrypoint for the centralized AutoTrader v2 schema."""
+    ensure_autotrader_schema_v2()
 
 
 def _record_dict(row: Any) -> dict[str, Any] | None:
@@ -76,7 +59,6 @@ def managed_position_matches_v1(record: dict[str, Any], observation: PositionObs
 
 def enroll_position_v1(observation: PositionObservationV2) -> None:
     """Explicitly opt one currently observed Saxo position into Auto-manage."""
-    ensure_managed_positions_schema_v1()
     with connect() as db:
         db.execute(
             """
@@ -107,7 +89,6 @@ def enroll_position_v1(observation: PositionObservationV2) -> None:
 
 
 def stop_managing_position_v1(account_id: str, net_position_id: str) -> None:
-    ensure_managed_positions_schema_v1()
     with connect() as db:
         db.execute(
             """
@@ -120,7 +101,6 @@ def stop_managing_position_v1(account_id: str, net_position_id: str) -> None:
 
 
 def load_managed_position_v1(account_id: str, net_position_id: str) -> dict[str, Any] | None:
-    ensure_managed_positions_schema_v1()
     with connect() as db:
         row = db.execute(
             """

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import autotrader_live_close_v1 as close
-from autotrader_risk_dry_run_v2 import PositionObservationV2
+from autotrader_risk_control_v2 import PositionObservationV2
 
 
 def _obs(*, direction: str = "Buy", amount: float = 2.0) -> PositionObservationV2:
