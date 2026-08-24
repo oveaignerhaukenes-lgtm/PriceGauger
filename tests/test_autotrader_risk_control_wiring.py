@@ -25,9 +25,3 @@ def test_live_execution_boundary_is_unchanged() -> None:
     assert "place_order(" not in risk_source
     assert "trade/v2/orders" not in risk_source
 
-
-def test_railway_stream_declares_both_risk_cadences() -> None:
-    source = open("railway.stream.toml", encoding="utf-8").read()
-    assert "--autotrader-risk-control-seconds 10" in source
-    assert "--autotrader-managed-risk-reaction-seconds 2" in source
-    assert "--autotrader-live-close-seconds 2" in source

@@ -30,7 +30,12 @@ def test_worker_service_runs_without_sqlite_volume_path():
 def test_realtime_stream_service_is_isolated_and_requests_one_second_updates():
     deploy = _load("railway.stream.toml")["deploy"]
 
-    assert deploy["startCommand"] == "python realtime_worker.py --refresh-ms 1000"
+    assert deploy["startCommand"] == (
+        "python realtime_worker.py --refresh-ms 1000 "
+        "--autotrader-risk-control-seconds 10 "
+        "--autotrader-managed-risk-reaction-seconds 2 "
+        "--autotrader-live-close-seconds 2"
+    )
     assert "/data" not in deploy["startCommand"]
     assert deploy["restartPolicyType"] == "ON_FAILURE"
 
