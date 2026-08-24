@@ -7,7 +7,6 @@ def test_operational_navigation_groups_are_explicit() -> None:
         "Oppgaver",
         "Resultater",
         "Tilkoblinger og drift",
-        "Utviklerverktøy",
     ]
 
 
@@ -36,11 +35,7 @@ def test_saxo_callback_route_is_preserved() -> None:
     assert saxo["url_path"] == "Saxo_OpenAPI"
 
 
-def test_legacy_search_is_not_in_the_operational_groups() -> None:
-    operational = {
-        page["title"]
-        for group in ("", "Oppgaver", "Resultater", "Tilkoblinger og drift")
-        for page in PAGE_GROUPS[group]
-    }
-    assert "Historisk hendelsessøk (legacy)" not in operational
-    assert PAGE_GROUPS["Utviklerverktøy"][0]["title"] == "Historisk hendelsessøk (legacy)"
+def test_retired_historical_event_lab_is_absent_from_navigation() -> None:
+    pages = [page for group in PAGE_GROUPS.values() for page in group]
+    assert all(page["page"] != "pages/1_Historical_Event_Lab.py" for page in pages)
+    assert all(page["title"] != "Historisk hendelsessøk (legacy)" for page in pages)
