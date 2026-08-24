@@ -24,7 +24,7 @@ def _sample(points: tuple[tuple[str, float], ...], limit: int = 180) -> tuple[tu
 
 
 def _path_progress(shape: str, progress: float) -> float:
-    """Use only the coarse timing semantics explicitly supplied by Technical Core."""
+    """Compatibility fallback for views that predate explicit path profiles."""
     p = max(0.0, min(1.0, float(progress)))
     normalized = str(shape or "").upper()
     if normalized == "TREND_CONTINUATION":
@@ -32,6 +32,32 @@ def _path_progress(shape: str, progress: float) -> float:
     if normalized == "MEAN_REVERTING_OR_RANGE":
         return p * (1.10 - 0.10 * p)
     return p
+
+
+def _path_return(view, progress: float) -> float:
+    """Interpolate the explicit read-model path; never infer new analysis here."""
+    p = max(0.0, min(1.0, float(progress)))
+    raw = tuple(getattr(view, "path_profile", ()) or ())
+    profile: list[tuple[float, float]] = []
+    for item in raw:
+        try:
+            x, value = item
+            profile.append((max(0.0, min(1.0, float(x))), float(value)))
+        except (TypeError, ValueError):
+            continue
+    profile.sort(key=lambda item: item[0])
+    if not profile:
+        return float(view.expected_return) * _path_progress(view.path_shape, p)
+    if p <= profile[0][0]:
+        return profile[0][1]
+    if p >= profile[-1][0]:
+        return profile[-1][1]
+    for left, right in zip(profile, profile[1:]):
+        if left[0] <= p <= right[0]:
+            span = max(1e-12, right[0] - left[0])
+            ratio = (p - left[0]) / span
+            return left[1] + (right[1] - left[1]) * ratio
+    return profile[-1][1]
 
 
 def _points(points: Iterable[tuple[float, float]]) -> str:
@@ -45,9 +71,9 @@ def _state_label(value: str) -> str:
 def render_v2_forecast_chart(view) -> str:
     """Render one persisted/composed v2 forecast without running analysis.
 
-    The terminal return and interval are authoritative. ``path_shape`` only changes
-    coarse timing along that frozen terminal claim; no random price wiggles or
-    indicator-derived geometry are invented in the renderer.
+    Terminal return and uncertainty remain authoritative. Intermediate geometry is
+    consumed from the explicit v2 read-model ``path_profile``. Older callers fall
+    back to the historical coarse path-shape interpolation for compatibility.
     """
     history = _sample(tuple(getattr(view, "price_history", ()) or ()))
     parsed_history: list[tuple[datetime, float]] = []
@@ -71,11 +97,11 @@ def render_v2_forecast_chart(view) -> str:
     baseline_raw: list[tuple[float, float]] = []
     for index in range(step_count + 1):
         p = index / step_count
-        shaped = _path_progress(view.path_shape, p)
+        path_return = _path_return(view, p)
         x = 66.0 + 31.0 * p
-        center = reference_price * (1.0 + expected_return * shaped)
-        low = reference_price * (1.0 + expected_return * shaped + (lower_return - expected_return) * p)
-        high = reference_price * (1.0 + expected_return * shaped + (upper_return - expected_return) * p)
+        center = reference_price * (1.0 + path_return)
+        low = reference_price * (1.0 + path_return + (lower_return - expected_return) * p)
+        high = reference_price * (1.0 + path_return + (upper_return - expected_return) * p)
         baseline = reference_price * (1.0 + baseline_return * _path_progress(view.path_shape, p))
         forecast_raw.append((x, center))
         lower_raw.append((x, low))
@@ -156,6 +182,15 @@ def render_v2_technical_explanation(view) -> str:
             f'<br>{html.escape(str(view.interpreter_summary))}{confidence_text}</div>'
         )
 
+    rationale = str(getattr(view, "path_rationale", "") or "").strip()
+    if rationale:
+        path_basis = html.escape(rationale)
+    else:
+        path_basis = (
+            "Samlet teknisk score bestemmer retning; volatilitet og horisont skalerer forventet move; "
+            "confidence skalerer uncertainty."
+        )
+
     return (
         '<div class="pg-v2-explain">'
         f'<div class="pg-v2-recipe">{html.escape(layer_text)} · {html.escape(str(view.recipe_label))}</div>'
@@ -167,8 +202,7 @@ def render_v2_technical_explanation(view) -> str:
         f'<div><small>TA-score</small><strong>{float(view.technical_score):+.2f}</strong></div>'
         f'<div><small>Confidence</small><strong>{float(view.confidence):.0%}</strong></div>'
         '</div>'
-        '<p class="pg-v2-driver"><strong>Banegrunnlag:</strong> samlet teknisk score bestemmer retning; '
-        'volatilitet og horisont skalerer forventet move; confidence skalerer uncertainty.</p>'
+        f'<p class="pg-v2-driver"><strong>Banegrunnlag:</strong> {path_basis}</p>'
         f'{interpreter}</div>'
     )
 

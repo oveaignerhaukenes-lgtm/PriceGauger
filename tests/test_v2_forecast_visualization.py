@@ -1,22 +1,36 @@
 from types import SimpleNamespace
 
-from v2_forecast_visualization import render_v2_forecast_chart, render_v2_technical_explanation
+from v2_forecast_visualization import _path_return, render_v2_forecast_chart, render_v2_technical_explanation
 
 
-def _view(*, interpreted: bool = False):
+def _view(*, interpreted: bool = False, counter_move: bool = False):
+    expected = 0.006 if interpreted else 0.004
+    path_profile = (
+        (0.0, 0.0),
+        (0.2, -0.0012),
+        (0.45, 0.0004),
+        (0.7, expected * 0.55),
+        (1.0, expected),
+    ) if counter_move else (
+        (0.0, 0.0),
+        (0.2, expected * 0.22),
+        (0.46, expected * 0.52),
+        (0.73, expected * 0.79),
+        (1.0, expected),
+    )
     return SimpleNamespace(
         market="GOLD",
         as_of="2026-08-15T10:00:00+00:00",
         horizon_seconds=3600,
         direction="BULLISH",
         baseline_return=0.004,
-        expected_return=0.006 if interpreted else 0.004,
+        expected_return=expected,
         lower_return=-0.001,
         upper_return=0.011,
         confidence=0.72,
         path_shape="TREND_CONTINUATION",
         trend_state="BULLISH",
-        momentum_state="BULLISH",
+        momentum_state="BEARISH" if counter_move else "BULLISH",
         volatility_state="NORMAL",
         structure_state="HH_HL",
         technical_score=0.44,
@@ -24,6 +38,12 @@ def _view(*, interpreted: bool = False):
         applied_layers=("technical-interpreter",) if interpreted else (),
         interpreter_summary="Continuation remains favored." if interpreted else None,
         interpreter_confidence=0.68 if interpreted else None,
+        path_profile=path_profile,
+        path_rationale=(
+            "Momentum går mot terminalretningen: kort motbevegelse forventes før hovedretningen eventuelt tar over."
+            if counter_move
+            else "Trend, momentum og struktur støtter terminalretningen: relativt jevn trendfortsettelse."
+        ),
         price_history=(
             ("2026-08-15T09:57:00+00:00", 100.0),
             ("2026-08-15T09:58:00+00:00", 100.2),
@@ -52,12 +72,23 @@ def test_interpreter_view_shows_baseline_comparison_without_replacing_forecast()
     assert "TA+Interpreter v1" in markup
 
 
-def test_explanation_surfaces_core_states_and_only_cached_interpreter_summary():
-    baseline = render_v2_technical_explanation(_view())
+def test_renderer_consumes_non_monotone_path_profile_instead_of_inventing_monotone_curve():
+    view = _view(counter_move=True)
+
+    assert _path_return(view, 0.2) < 0
+    assert _path_return(view, 0.45) > 0
+    assert _path_return(view, 1.0) == view.expected_return
+    markup = render_v2_forecast_chart(view)
+    assert 'class="pg-v2-path"' in markup
+
+
+def test_explanation_surfaces_core_states_and_explicit_path_rationale():
+    baseline = render_v2_technical_explanation(_view(counter_move=True))
     interpreted = render_v2_technical_explanation(_view(interpreted=True))
 
     for label in ("Trend", "Momentum", "Struktur", "Volatilitet", "TA-score", "Confidence"):
         assert label in baseline
     assert "Banegrunnlag" in baseline
+    assert "motbevegelse" in baseline
     assert "Technical Interpreter</strong>" not in baseline
     assert "Continuation remains favored." in interpreted
