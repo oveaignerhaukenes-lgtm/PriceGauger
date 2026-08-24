@@ -53,8 +53,6 @@ def _pick_snapshot(state: Any, horizon_seconds: int) -> tuple[str, Mapping[str, 
     if not available:
         return None, None
 
-    # Aim for roughly eight bars inside the forecast horizon so the phase model
-    # uses a timeframe that can actually resolve the expected sequence.
     target_seconds = max(60.0, float(horizon_seconds) / 8.0)
     timeframe, mapping, _ = min(available, key=lambda item: (abs(item[2] - target_seconds), item[2]))
     return timeframe, mapping
@@ -87,7 +85,6 @@ def _level_aware_range(
 ) -> tuple[float, float]:
     timeframe_seconds = _TIMEFRAME_SECONDS[source_timeframe]
     bars = max(1.0, float(horizon_seconds) / float(timeframe_seconds))
-
     atr_pct = _finite_float(snapshot.get("atr_14_pct"))
     atr_return = max(0.0, (atr_pct or 0.0) / 100.0)
     horizon_budget = atr_return * sqrt(bars)
@@ -108,9 +105,6 @@ def _level_aware_range(
 
     raw_low = support_return if support_return is not None else -fallback_budget
     raw_high = resistance_return if resistance_return is not None else fallback_budget
-
-    # Local extrema are computed over a longer lookback than many forecast horizons.
-    # ATR therefore caps how much of a distant level is treated as expected route.
     atr_cap = max(fallback_budget, horizon_budget * 1.35, 0.00075)
     raw_low = max(raw_low, -atr_cap)
     raw_high = min(raw_high, atr_cap)
@@ -132,7 +126,6 @@ def _level_aware_range(
 
 
 def _momentum_dynamics(snapshot: Mapping[str, Any]) -> tuple[int, bool, str]:
-    """Return short-term direction, exhaustion flag and concise evidence text."""
     rsi = _finite_float(snapshot.get("rsi_14"))
     rsi_change = _finite_float(snapshot.get("rsi_change_3"))
     histogram = _finite_float(snapshot.get("macd_histogram"))
@@ -184,12 +177,7 @@ def build_forecast_path_v2(
     upper_return: float,
     path_shape: str,
 ) -> ForecastPathV2:
-    """Build a level-aware phase sequence from persisted Technical Core state.
-
-    The terminal forecast remains untouched. The expected *route* is derived from
-    horizon-relevant ATR/support/resistance plus momentum dynamics such as RSI
-    stretch and MACD histogram acceleration/cooling.
-    """
+    """Build a level-aware phase sequence from persisted Technical Core state."""
     expected = float(expected_return)
     terminal_sign = 1 if expected > 0 else -1 if expected < 0 else _direction_sign(direction)
     trend_sign = _direction_sign(getattr(state, "trend_state", None))
@@ -207,7 +195,7 @@ def build_forecast_path_v2(
             phases = ("MOTBEVEGELSE", "RETEST", "HOVEDRETNING")
         else:
             points = ((0.0, 0.0), (0.22, 0.18 * expected), (0.48, 0.43 * expected), (0.74, 0.69 * expected), (1.0, expected))
-            rationale = "Ingen horizon-relevant nivåsnapshot var tilgjengelig; banen følger terminalsignalet konservativt."
+            rationale = "Trend, momentum og struktur støtter terminalretningen: konservativ trendfortsettelse uten nivåsnapshot."
             phases = ("DRIFT", "FORTSETTELSE")
         return ForecastPathV2(points=points, rationale=rationale, phases=phases)
 
@@ -226,30 +214,15 @@ def build_forecast_path_v2(
     trend_conflicts = bool(terminal_sign and trend_sign and trend_sign != terminal_sign)
     structure_conflicts = bool(terminal_sign and structure_sign and structure_sign != terminal_sign)
 
-    # Exhaustion has priority over the coarse terminal classification: a stretched
-    # move that is visibly cooling is expected to complete a final push before the
-    # retrace, not reverse instantaneously.
     if exhaustion and dynamic_sign > 0:
-        points = (
-            (0.0, 0.0),
-            (0.18, 0.52 * high),
-            (0.34, 0.78 * high),
-            (0.66, 0.58 * low),
-            (1.0, expected),
-        )
+        points = ((0.0, 0.0), (0.18, 0.52 * high), (0.34, 0.78 * high), (0.66, 0.58 * low), (1.0, expected))
         rationale = (
             f"{source_timeframe}: {dynamic_evidence}. Forventer siste bullish push mot lokal motstand, "
             f"deretter momentum-exhaustion og retrace mot ca. {0.58 * low * 100:+.2f}%, før terminal {expected * 100:+.2f}%."
         )
         phases = ("SISTE PUSH OPP", "EXHAUSTION", "RETRACE", "NY BALANSE")
     elif exhaustion and dynamic_sign < 0:
-        points = (
-            (0.0, 0.0),
-            (0.18, 0.52 * low),
-            (0.34, 0.78 * low),
-            (0.66, 0.58 * high),
-            (1.0, expected),
-        )
+        points = ((0.0, 0.0), (0.18, 0.52 * low), (0.34, 0.78 * low), (0.66, 0.58 * high), (1.0, expected))
         rationale = (
             f"{source_timeframe}: {dynamic_evidence}. Forventer siste bearish push mot støtte, "
             f"deretter exhaustion og rebound mot ca. {0.58 * high * 100:+.2f}%, før terminal {expected * 100:+.2f}%."
