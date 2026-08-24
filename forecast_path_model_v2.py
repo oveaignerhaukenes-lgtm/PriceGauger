@@ -20,6 +20,7 @@ _TIMEFRAME_SECONDS = {
 class ForecastPathV2:
     points: tuple[tuple[float, float], ...]
     rationale: str
+    phases: tuple[str, ...] = ()
     source_timeframe: str | None = None
     expected_low_return: float | None = None
     expected_high_return: float | None = None
@@ -52,11 +53,10 @@ def _pick_snapshot(state: Any, horizon_seconds: int) -> tuple[str, Mapping[str, 
     if not available:
         return None, None
 
+    # Aim for roughly eight bars inside the forecast horizon so the phase model
+    # uses a timeframe that can actually resolve the expected sequence.
     target_seconds = max(60.0, float(horizon_seconds) / 8.0)
-    timeframe, mapping, _ = min(
-        available,
-        key=lambda item: (abs(item[2] - target_seconds), item[2]),
-    )
+    timeframe, mapping, _ = min(available, key=lambda item: (abs(item[2] - target_seconds), item[2]))
     return timeframe, mapping
 
 
@@ -109,6 +109,8 @@ def _level_aware_range(
     raw_low = support_return if support_return is not None else -fallback_budget
     raw_high = resistance_return if resistance_return is not None else fallback_budget
 
+    # Local extrema are computed over a longer lookback than many forecast horizons.
+    # ATR therefore caps how much of a distant level is treated as expected route.
     atr_cap = max(fallback_budget, horizon_budget * 1.35, 0.00075)
     raw_low = max(raw_low, -atr_cap)
     raw_high = min(raw_high, atr_cap)
@@ -129,6 +131,49 @@ def _level_aware_range(
     return low, high
 
 
+def _momentum_dynamics(snapshot: Mapping[str, Any]) -> tuple[int, bool, str]:
+    """Return short-term direction, exhaustion flag and concise evidence text."""
+    rsi = _finite_float(snapshot.get("rsi_14"))
+    rsi_change = _finite_float(snapshot.get("rsi_change_3"))
+    histogram = _finite_float(snapshot.get("macd_histogram"))
+    histogram_change = _finite_float(snapshot.get("macd_histogram_change_3"))
+    recent_return = _finite_float(snapshot.get("recent_return_3_pct"))
+
+    direction = 0
+    evidence: list[str] = []
+    if histogram is not None and abs(histogram) > 1e-12:
+        direction = 1 if histogram > 0 else -1
+        evidence.append("MACD positiv" if direction > 0 else "MACD negativ")
+    elif recent_return is not None and abs(recent_return) >= 0.02:
+        direction = 1 if recent_return > 0 else -1
+
+    exhaustion = False
+    if direction > 0:
+        hot = rsi is not None and rsi >= 68.0
+        cooling_macd = histogram_change is not None and histogram_change < 0
+        cooling_rsi = rsi_change is not None and rsi_change < -1.0
+        exhaustion = bool(hot and (cooling_macd or cooling_rsi))
+        if hot:
+            evidence.append(f"RSI {rsi:.0f}")
+        if cooling_macd:
+            evidence.append("MACD kjølner")
+        if cooling_rsi:
+            evidence.append("RSI faller")
+    elif direction < 0:
+        stretched = rsi is not None and rsi <= 32.0
+        cooling_macd = histogram_change is not None and histogram_change > 0
+        recovering_rsi = rsi_change is not None and rsi_change > 1.0
+        exhaustion = bool(stretched and (cooling_macd or recovering_rsi))
+        if stretched:
+            evidence.append(f"RSI {rsi:.0f}")
+        if cooling_macd:
+            evidence.append("bearish MACD kjølner")
+        if recovering_rsi:
+            evidence.append("RSI løfter")
+
+    return direction, exhaustion, ", ".join(evidence)
+
+
 def build_forecast_path_v2(
     *,
     state: Any,
@@ -139,12 +184,11 @@ def build_forecast_path_v2(
     upper_return: float,
     path_shape: str,
 ) -> ForecastPathV2:
-    """Build a level-aware route from persisted Technical Core state.
+    """Build a level-aware phase sequence from persisted Technical Core state.
 
-    The persisted terminal forecast is not changed. The selected snapshot supplies
-    horizon-relevant ATR and local support/resistance, while the persisted
-    trend/momentum/structure states determine the expected sequence through that
-    range.
+    The terminal forecast remains untouched. The expected *route* is derived from
+    horizon-relevant ATR/support/resistance plus momentum dynamics such as RSI
+    stretch and MACD histogram acceleration/cooling.
     """
     expected = float(expected_return)
     terminal_sign = 1 if expected > 0 else -1 if expected < 0 else _direction_sign(direction)
@@ -158,24 +202,14 @@ def build_forecast_path_v2(
         scale = max(abs(expected), width / 2.0, 0.0005)
         signed_scale = (terminal_sign or 1) * scale
         if terminal_sign and momentum_sign and momentum_sign != terminal_sign:
-            points = (
-                (0.0, 0.0),
-                (0.20, -0.20 * signed_scale),
-                (0.43, 0.06 * signed_scale),
-                (0.70, 0.55 * expected),
-                (1.0, expected),
-            )
+            points = ((0.0, 0.0), (0.20, -0.20 * signed_scale), (0.43, 0.06 * signed_scale), (0.70, 0.55 * expected), (1.0, expected))
             rationale = "Momentum går mot terminalretningen: kort motbevegelse forventes før hovedretningen eventuelt tar over."
+            phases = ("MOTBEVEGELSE", "RETEST", "HOVEDRETNING")
         else:
-            points = (
-                (0.0, 0.0),
-                (0.22, 0.18 * expected),
-                (0.48, 0.43 * expected),
-                (0.74, 0.69 * expected),
-                (1.0, expected),
-            )
+            points = ((0.0, 0.0), (0.22, 0.18 * expected), (0.48, 0.43 * expected), (0.74, 0.69 * expected), (1.0, expected))
             rationale = "Ingen horizon-relevant nivåsnapshot var tilgjengelig; banen følger terminalsignalet konservativt."
-        return ForecastPathV2(points=points, rationale=rationale)
+            phases = ("DRIFT", "FORTSETTELSE")
+        return ForecastPathV2(points=points, rationale=rationale, phases=phases)
 
     low, high = _level_aware_range(
         snapshot=snapshot,
@@ -185,58 +219,72 @@ def build_forecast_path_v2(
         lower_return=float(lower_return),
         upper_return=float(upper_return),
     )
+    dynamic_sign, exhaustion, dynamic_evidence = _momentum_dynamics(snapshot)
 
     normalized_shape = str(path_shape or "").upper()
     momentum_conflicts = bool(terminal_sign and momentum_sign and momentum_sign != terminal_sign)
     trend_conflicts = bool(terminal_sign and trend_sign and trend_sign != terminal_sign)
     structure_conflicts = bool(terminal_sign and structure_sign and structure_sign != terminal_sign)
 
-    if normalized_shape == "MEAN_REVERTING_OR_RANGE":
-        first_sign = momentum_sign or trend_sign or structure_sign or (-terminal_sign if terminal_sign else 1)
-        if first_sign < 0:
-            first = 0.72 * low
-            opposite = 0.58 * high
-        else:
-            first = 0.72 * high
-            opposite = 0.58 * low
+    # Exhaustion has priority over the coarse terminal classification: a stretched
+    # move that is visibly cooling is expected to complete a final push before the
+    # retrace, not reverse instantaneously.
+    if exhaustion and dynamic_sign > 0:
         points = (
             (0.0, 0.0),
-            (0.22, first),
-            (0.48, 0.16 * expected),
-            (0.74, opposite),
+            (0.18, 0.52 * high),
+            (0.34, 0.78 * high),
+            (0.66, 0.58 * low),
             (1.0, expected),
         )
         rationale = (
-            f"{source_timeframe}-nivåer og ATR tilsier range/mean-reversion: "
-            f"forventet arbeidsområde ca. {low * 100:+.2f}% til {high * 100:+.2f}% før terminal {expected * 100:+.2f}%."
+            f"{source_timeframe}: {dynamic_evidence}. Forventer siste bullish push mot lokal motstand, "
+            f"deretter momentum-exhaustion og retrace mot ca. {0.58 * low * 100:+.2f}%, før terminal {expected * 100:+.2f}%."
+        )
+        phases = ("SISTE PUSH OPP", "EXHAUSTION", "RETRACE", "NY BALANSE")
+    elif exhaustion and dynamic_sign < 0:
+        points = (
+            (0.0, 0.0),
+            (0.18, 0.52 * low),
+            (0.34, 0.78 * low),
+            (0.66, 0.58 * high),
+            (1.0, expected),
+        )
+        rationale = (
+            f"{source_timeframe}: {dynamic_evidence}. Forventer siste bearish push mot støtte, "
+            f"deretter exhaustion og rebound mot ca. {0.58 * high * 100:+.2f}%, før terminal {expected * 100:+.2f}%."
+        )
+        phases = ("SISTE PUSH NED", "EXHAUSTION", "REBOUND", "NY BALANSE")
+    elif normalized_shape == "MEAN_REVERTING_OR_RANGE":
+        first_sign = dynamic_sign or momentum_sign or trend_sign or structure_sign or (-terminal_sign if terminal_sign else 1)
+        if first_sign < 0:
+            first = 0.72 * low
+            opposite = 0.58 * high
+            phases = ("TEST NED", "MEAN REVERSION", "TEST OPP", "BALANSE")
+        else:
+            first = 0.72 * high
+            opposite = 0.58 * low
+            phases = ("TEST OPP", "MEAN REVERSION", "TEST NED", "BALANSE")
+        points = ((0.0, 0.0), (0.22, first), (0.48, 0.16 * expected), (0.74, opposite), (1.0, expected))
+        rationale = (
+            f"{source_timeframe}-nivåer og ATR tilsier range/mean-reversion: forventet arbeidsområde "
+            f"ca. {low * 100:+.2f}% til {high * 100:+.2f}% før terminal {expected * 100:+.2f}%."
         )
     elif momentum_conflicts:
         counter = 0.62 * (low if terminal_sign > 0 else high)
         continuation = 0.64 * (high if terminal_sign > 0 else low)
-        points = (
-            (0.0, 0.0),
-            (0.20, counter),
-            (0.44, 0.08 * expected),
-            (0.72, continuation),
-            (1.0, expected),
-        )
+        points = ((0.0, 0.0), (0.20, counter), (0.44, 0.08 * expected), (0.72, continuation), (1.0, expected))
         rationale = (
-            f"Momentum går mot terminalretningen; {source_timeframe}-ATR/nivåer peker mot en retest "
-            f"rundt {counter * 100:+.2f}% før eventuell fortsettelse mot {expected * 100:+.2f}%."
+            f"Momentum går mot terminalretningen; {source_timeframe}-ATR/nivåer peker mot retest rundt "
+            f"{counter * 100:+.2f}% før eventuell fortsettelse mot {expected * 100:+.2f}%."
         )
+        phases = ("MOTBEVEGELSE", "RETEST", "FORTSETTELSE")
     elif trend_conflicts or structure_conflicts:
         early = 0.28 * (high if terminal_sign > 0 else low)
         retest = 0.38 * (low if terminal_sign > 0 else high)
-        points = (
-            (0.0, 0.0),
-            (0.22, early),
-            (0.48, retest),
-            (0.74, 0.62 * expected),
-            (1.0, expected),
-        )
-        rationale = (
-            f"Trend/struktur er ikke fullt bekreftet; {source_timeframe}-nivåene tilsier fremdrift, retest og først deretter terminalmove."
-        )
+        points = ((0.0, 0.0), (0.22, early), (0.48, retest), (0.74, 0.62 * expected), (1.0, expected))
+        rationale = f"Trend/struktur er ikke fullt bekreftet; {source_timeframe}-nivåene tilsier fremdrift, retest og først deretter terminalmove."
+        phases = ("FREMDRIFT", "RETEST", "AVGJØRELSE")
     else:
         intermediate = high if terminal_sign > 0 else low
         points = (
@@ -246,13 +294,13 @@ def build_forecast_path_v2(
             (0.73, _clamp(0.78 * expected, min(0.0, intermediate), max(0.0, intermediate))),
             (1.0, expected),
         )
-        rationale = (
-            f"Trend, momentum og struktur støtter terminalretningen; {source_timeframe}-ATR/nivåer gir en relativt jevn fortsettelsesbane."
-        )
+        rationale = f"Trend, momentum og struktur støtter terminalretningen; {source_timeframe}-ATR/nivåer gir en relativt jevn fortsettelsesbane."
+        phases = ("DRIFT", "FORTSETTELSE")
 
     return ForecastPathV2(
         points=tuple((float(p), float(value)) for p, value in points),
         rationale=rationale,
+        phases=phases,
         source_timeframe=source_timeframe,
         expected_low_return=float(low),
         expected_high_return=float(high),
