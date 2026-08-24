@@ -50,3 +50,20 @@ A close attempt uses the RiskControl event UUID as its identity. The UI joins th
 ## Compatibility
 
 Existing `pg_v2_autotrader_*` tables and rows are reused. The normalization does not overwrite the active risk configuration and does not change close order payloads, precheck rules, idempotency or uncertainty handling.
+
+
+## Cadence boundary
+
+The complete Saxo portfolio remains observed every 10 seconds by default. A separate
+reaction loop runs every 2 seconds, but it reads active Auto-manage enrollments first
+and contacts Saxo only when at least one enrollment exists. Every returned position
+must still match the persisted enrollment exactly before evaluation.
+
+Both reaction and LIVE close loops use fixed start-to-start cadence. Saxo request time
+therefore consumes part of the interval instead of being added after it. The loops do
+not overlap RiskControl state mutation: full-portfolio and managed-only evaluation are
+serialized by a process lock.
+
+The Railway stream command declares the 10s portfolio, 2s managed reaction and 2s LIVE
+close intervals explicitly. This changes observation latency only; it does not alter
+risk thresholds, execution gates, precheck, order payloads, idempotency or reconciliation.

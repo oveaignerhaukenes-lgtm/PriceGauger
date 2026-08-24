@@ -95,3 +95,19 @@ def test_source_has_live_idempotency_and_per_position_guards() -> None:
     assert '"IsForceOpen": False' in source
     assert "is_position_managed_v1(current)" in source
     assert source.index("is_position_managed_v1(current)") < source.index('_post_once(client, "trade/v2/orders", payload)')
+
+
+def test_quiet_armed_cycle_does_not_contact_saxo(monkeypatch) -> None:
+    monkeypatch.setattr(close, "load_live_close_config_v1", lambda: close.LiveCloseConfigV1(armed=True))
+    monkeypatch.setattr(close, "code_gate_enabled_v1", lambda: True)
+    monkeypatch.setattr(close, "_latest_triggered_states", lambda: [])
+    monkeypatch.setattr(close, "_has_pending_reconciliation_v1", lambda: False)
+
+    def forbidden():
+        raise AssertionError("Quiet LIVE close cycle must not contact Saxo")
+
+    monkeypatch.setattr(close, "_require_live_client", forbidden)
+    summary = close.run_live_close_cycle_v1()
+    assert summary.armed is True
+    assert summary.candidates == 0
+    assert summary.submitted == 0

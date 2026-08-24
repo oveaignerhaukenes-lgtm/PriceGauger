@@ -9,7 +9,10 @@ import time
 
 from autotrader_live_close_v1 import run_live_close_forever_v1
 from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
-from autotrader_risk_control_v2 import run_risk_control_forever_v2
+from autotrader_risk_control_v2 import (
+    run_managed_risk_reaction_forever_v2,
+    run_risk_control_forever_v2,
+)
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import using_postgres
@@ -65,6 +68,14 @@ def _parser() -> argparse.ArgumentParser:
             )
         ),
         help="Cadence for the open-position RiskControl evaluator.",
+    )
+    parser.add_argument(
+        "--autotrader-managed-risk-reaction-seconds",
+        type=int,
+        default=int(
+            os.getenv("PRICEGAUGER_AUTOTRADER_MANAGED_RISK_REACTION_SECONDS", "2")
+        ),
+        help="Fast cadence for exact Auto-managed position risk reaction only.",
     )
     parser.add_argument(
         "--autotrader-live-close-seconds",
@@ -139,6 +150,27 @@ def _start_autotrader_risk_control(*, interval_seconds: int) -> threading.Thread
     )
     thread.start()
     LOGGER.info("AutoTrader RiskControl started interval_seconds=%d", max(5, interval_seconds))
+    return thread
+
+
+def _start_autotrader_managed_risk_reaction(
+    *,
+    interval_seconds: int,
+) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader managed risk reaction disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_managed_risk_reaction_forever_v2,
+        kwargs={"interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-managed-risk-reaction",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoTrader managed risk reaction started interval_seconds=%d",
+        max(1, interval_seconds),
+    )
     return thread
 
 
@@ -278,6 +310,9 @@ def main() -> None:
     )
     _start_autotrader_risk_control(
         interval_seconds=args.autotrader_risk_control_seconds,
+    )
+    _start_autotrader_managed_risk_reaction(
+        interval_seconds=args.autotrader_managed_risk_reaction_seconds,
     )
     _start_autotrader_live_close(
         interval_seconds=args.autotrader_live_close_seconds,
