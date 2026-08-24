@@ -10,133 +10,32 @@ from typing import Callable
 
 import pandas as pd
 
-from config import openai_api_key, openai_market_model
 from analysis_status import AnalysisStatusStore
-from database import connect, using_postgres
-from event_resolution import CanonicalEvent, canonical_event_from_plan
-from market_interpreter import MockMarketInterpreter, StructuredMarketInterpreter
-from market_state_service import process_market_event
-from market_state_store import MarketStateStore
+from config import openai_api_key, openai_market_model
+from database import using_postgres
 from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
 from news_context_store import NewsContextStore
-from openai_market_provider import OpenAIJsonProvider
-from signal_outcomes import SignalOutcomeStore, refresh_signal_outcomes, register_recommendations
 from telegram_flow_engine import OpenAITelegramFlowScorer, TelegramFlowAssessment, aggregate_scored_posts
 from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
-from test_protocol import PAPER_TEST_PROTOCOL
 
 LOGGER = logging.getLogger("pricegauger.worker")
 DEFAULT_DB_PATH = "pricegauger.db"
 DEFAULT_INTERVAL_SECONDS = 60
 FLOW_HEARTBEAT_SECONDS = 600
 FLOW_SCORE_DELTA = 0.02
-LEGACY_MAX_PER_CYCLE = 1
 
 
 @dataclass(frozen=True, slots=True)
 class WorkerRunSummary:
     fetched: int
-    pending: int
-    processed: int
-    skipped_bootstrap: int
-    outcomes_refreshed: int
-    interpreter: str
-
-
-class WorkerStateStore:
-    """Small persistent cursor store independent of Streamlit sessions."""
-
-    def __init__(self, path: str | Path = DEFAULT_DB_PATH) -> None:
-        self.path = str(path)
-        with self._connect() as db:
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS worker_messages (
-                    message_id TEXT PRIMARY KEY,
-                    status TEXT NOT NULL,
-                    recorded_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS worker_metadata (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-                """
-            )
-
-    def _connect(self):
-        return connect(self.path)
-
-    def is_initialized(self) -> bool:
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT value FROM worker_metadata WHERE key='telegram_initialized'"
-            ).fetchone()
-        return bool(row and row["value"] == "1")
-
-    def mark_initialized(self) -> None:
-        with self._connect() as db:
-            db.execute(
-                """
-                INSERT INTO worker_metadata(key, value) VALUES ('telegram_initialized', '1')
-                ON CONFLICT(key) DO UPDATE SET value=excluded.value
-                """
-            )
-
-    def seen(self, message_id: str) -> bool:
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT 1 AS present FROM worker_messages WHERE message_id=?", (str(message_id),)
-            ).fetchone()
-        return row is not None
-
-    def mark(self, message_id: str, status: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
-        with self._connect() as db:
-            db.execute(
-                """
-                INSERT INTO worker_messages(message_id, status, recorded_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(message_id) DO UPDATE SET
-                    status=excluded.status,
-                    recorded_at=excluded.recorded_at
-                """,
-                (str(message_id), status, now),
-            )
-
-
-def build_interpreter():
-    key = openai_api_key()
-    if not key:
-        return MockMarketInterpreter(), "mock-interpreter-v1"
-    model = openai_market_model()
-    provider = OpenAIJsonProvider(api_key=key, model_version=model)
-    return StructuredMarketInterpreter(provider), model
-
-
-def _pending_plans(
-    plans: list[TelegramSearchPlan],
-    state: WorkerStateStore,
-) -> tuple[list[TelegramSearchPlan], list[TelegramSearchPlan]]:
-    unseen = [plan for plan in plans if not state.seen(plan.message_id)]
-    if state.is_initialized() or not unseen:
-        return unseen, []
-
-    # Bootstrap deliberately processes only the newest currently visible event.
-    # This avoids a burst of historical OpenAI calls on first deployment.
-    return [unseen[-1]], unseen[:-1]
-
-
-def _ensure_event_timestamp(event: CanonicalEvent) -> CanonicalEvent:
-    if event.published_at:
-        return event
-    fallback = datetime.now(timezone.utc).isoformat()
-    LOGGER.warning(
-        "telegram event=%s has no publication timestamp; using ingestion time=%s",
-        event.event_id,
-        fallback,
-    )
-    return replace(event, published_at=fallback)
+    # Compatibility-only fields. The legacy per-event recommendation/outcome
+    # runtime is retired; these remain zero until its old callers are removed.
+    pending: int = 0
+    processed: int = 0
+    skipped_bootstrap: int = 0
+    outcomes_refreshed: int = 0
+    interpreter: str = "retired"
 
 
 def _asset_map(assessment: TelegramFlowAssessment) -> dict[str, object]:
@@ -158,7 +57,7 @@ def _snapshot_is_informative(
     if current.post_count != previous.post_count:
         return True, "post_count_changed"
     if current.event_cluster_count != previous.event_cluster_count:
-        return True, "cluster_count_changed"
+        return True, "event_cluster_count_changed"
 
     previous_assets = _asset_map(previous)
     for item in current.assets:
@@ -248,7 +147,6 @@ def _refresh_telegram_flow(
 
     if key and new_plans:
         status.running("telegram_scoring", f"AI-vurderer {min(8, len(new_plans))} nye poster.")
-        # Newest visible posts are scored first; older backlog is picked up later.
         selected = new_plans[-8:]
         try:
             scorer = OpenAITelegramFlowScorer(api_key=key)
@@ -319,22 +217,16 @@ def run_once(
     plans_fetcher: Callable[..., list[TelegramSearchPlan]] = fetch_search_plans,
     interpreter=None,
 ) -> WorkerRunSummary:
+    # minimum_signal/interpreter remain accepted only so the multi-worker and
+    # local callers do not need to move in the same bounded retirement PR.
+    del minimum_signal, interpreter
+
     status = AnalysisStatusStore(db_path)
     status.begin_cycle()
     status.running("telegram_fetch", f"Henter poster fra {channel}.")
-    state = WorkerStateStore(db_path)
-    market_store = MarketStateStore(db_path)
-    outcome_store = SignalOutcomeStore(db_path)
-    chosen_interpreter, interpreter_name = (
-        (interpreter, getattr(interpreter, "model_version", interpreter.__class__.__name__))
-        if interpreter is not None
-        else build_interpreter()
-    )
     LOGGER.info("cycle started channel=%s", channel)
 
     try:
-        # Fetch every text post for Telegram Flow. The old rule-based path still
-        # receives only plans that meet minimum_signal below.
         all_plans = plans_fetcher(channel, minimum_signal=0)
         status.complete("telegram_fetch", f"{len(all_plans)} poster hentet fra Telegram.")
     except Exception as exc:
@@ -342,93 +234,19 @@ def run_once(
         LOGGER.warning("telegram fetch failed; continuing with stored data: %s", exc)
         all_plans = []
 
-    # Fresh aggregate Telegram/Context state remains the production path. The
-    # retired Information/Decision/Recommendation runtime is deliberately not
-    # invoked from this worker after the v2 context/overview cutover.
     try:
         _refresh_telegram_flow(db_path=db_path, channel=channel, plans=all_plans)
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         status.fail_running(detail)
-        LOGGER.exception("telegram flow refresh failed; continuing with legacy/outcome maintenance")
+        LOGGER.exception("telegram/context refresh failed; next cycle will retry")
 
-    legacy_plans = [plan for plan in all_plans if plan.signal_score >= minimum_signal]
-    pending, bootstrap_ignored = _pending_plans(legacy_plans, state)
-    legacy_batch = pending[-LEGACY_MAX_PER_CYCLE:]
-    processed = 0
-    failed_legacy = 0
+    # Historical recommendation outcomes remain persisted for audit, but the
+    # worker no longer produces or refreshes the retired per-event runtime.
+    status.skipped("outcome_refresh", "Legacy per-event recommendation runtime er pensjonert.")
 
-    if len(pending) > len(legacy_batch):
-        LOGGER.info(
-            "legacy backlog pending=%s processing=%s deferred=%s",
-            len(pending),
-            len(legacy_batch),
-            len(pending) - len(legacy_batch),
-        )
-
-    for plan in legacy_batch:
-        try:
-            event = _ensure_event_timestamp(canonical_event_from_plan(plan))
-            result = process_market_event(
-                event,
-                interpreter=chosen_interpreter,
-                store=market_store,
-            )
-            register_recommendations(
-                result.interpretation,
-                result.recommendations,
-                store=outcome_store,
-            )
-            state.mark(plan.message_id, "processed")
-            processed += 1
-            LOGGER.info(
-                "processed telegram=%s event=%s recommendations=%s protocol=%s",
-                plan.message_id,
-                event.event_id,
-                len(result.recommendations),
-                PAPER_TEST_PROTOCOL.version,
-            )
-        except Exception:
-            # The aggregate Telegram/Context path above is independent from this
-            # still-audited legacy per-event outcome path. A malformed event must
-            # never keep the daemon stuck on the same post forever.
-            state.mark(plan.message_id, "failed")
-            failed_legacy += 1
-            LOGGER.exception("legacy event processing failed telegram=%s; continuing", plan.message_id)
-
-    if not state.is_initialized() and (processed or failed_legacy or not legacy_plans):
-        for plan in bootstrap_ignored:
-            state.mark(plan.message_id, "bootstrap_ignored")
-        state.mark_initialized()
-
-    status.running("outcome_refresh", "Oppdaterer resultatene for tidligere anbefalinger.")
-    try:
-        refreshed = refresh_signal_outcomes(store=outcome_store)
-        status.complete("outcome_refresh", f"{len(refreshed)} resultater kontrollert eller oppdatert.")
-    except Exception as exc:
-        refreshed = []
-        status.failed("outcome_refresh", f"{type(exc).__name__}: {exc}")
-        LOGGER.exception("outcome refresh failed; next cycle will retry")
-
-    summary = WorkerRunSummary(
-        fetched=len(all_plans),
-        pending=len(pending),
-        processed=processed,
-        skipped_bootstrap=len(bootstrap_ignored),
-        outcomes_refreshed=len(refreshed),
-        interpreter=str(interpreter_name),
-    )
-    LOGGER.info(
-        "cycle complete fetched=%s relevant=%s pending=%s processed=%s legacy_failed=%s bootstrap_skipped=%s outcomes=%s interpreter=%s",
-        summary.fetched,
-        len(legacy_plans),
-        summary.pending,
-        summary.processed,
-        failed_legacy,
-        summary.skipped_bootstrap,
-        summary.outcomes_refreshed,
-        summary.interpreter,
-    )
+    summary = WorkerRunSummary(fetched=len(all_plans))
+    LOGGER.info("cycle complete fetched=%s", summary.fetched)
     return summary
 
 
@@ -443,13 +261,7 @@ def run_forever(
         raise ValueError("interval must be at least 30 seconds")
 
     backend = "postgresql" if using_postgres() else f"sqlite:{db_path}"
-    LOGGER.info(
-        "worker started interval=%ss storage=%s channel=%s protocol=%s",
-        interval_seconds,
-        backend,
-        channel,
-        PAPER_TEST_PROTOCOL.version,
-    )
+    LOGGER.info("worker started interval=%ss storage=%s channel=%s", interval_seconds, backend, channel)
     while True:
         started = time.monotonic()
         try:
@@ -496,12 +308,7 @@ def main() -> None:
             channel=args.channel,
             minimum_signal=args.minimum_signal,
         )
-        print(
-            "WORKER_OK "
-            f"fetched={summary.fetched} pending={summary.pending} "
-            f"processed={summary.processed} bootstrap_skipped={summary.skipped_bootstrap} "
-            f"outcomes={summary.outcomes_refreshed} interpreter={summary.interpreter}"
-        )
+        print(f"WORKER_OK fetched={summary.fetched}")
         return
     run_forever(
         interval_seconds=args.interval,
