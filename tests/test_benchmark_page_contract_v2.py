@@ -5,8 +5,8 @@ from pathlib import Path
 from navigation_config import PAGE_GROUPS
 
 
-def test_benchmark_page_is_exposed_under_results():
-    pages = PAGE_GROUPS["Resultater"]
+def test_benchmark_page_is_exposed_under_developer_tools():
+    pages = PAGE_GROUPS["Utviklerverktøy"]
     benchmark = next(item for item in pages if item["page"] == "pages/7_Benchmark.py")
     assert benchmark["title"] == "Benchmark"
 
