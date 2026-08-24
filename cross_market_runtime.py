@@ -13,7 +13,6 @@ from cross_market_state import (
     CrossMarketStateStore,
     build_cross_market_state,
 )
-from response_divergence_runtime import produce_response_divergences
 
 
 LOGGER = logging.getLogger("pricegauger.cross_market_runtime")
@@ -27,9 +26,14 @@ def produce_cross_market_state(
 ) -> CrossMarketStateSnapshot | None:
     """Build and persist one descriptive CrossMarketState snapshot.
 
-    This producer is intentionally observational only. Missing/stale market data is
-    represented inside the snapshot and does not make the worker cycle fail. Only
-    unexpected producer/storage failures mark the stage FAILED.
+    This producer is intentionally observational only. It reads canonical market
+    history and persists only CrossMarketState. It must not depend on semantic
+    Information/Decision state, ResponseDivergence, TransmissionState, forecasts,
+    or execution. Higher analysis layers may consume the persisted snapshot later.
+
+    Missing/stale market data is represented inside the snapshot and does not make
+    the producer fail. Only unexpected producer/storage failures mark this stage
+    FAILED.
     """
     status = status_store or AnalysisStatusStore(db_path)
     status.running(
@@ -42,14 +46,6 @@ def produce_cross_market_state(
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"
         status.failed("cross_market_state", detail)
-        status.skipped(
-            "response_divergence",
-            "ResponseDivergence hoppet over fordi CrossMarketState ikke kunne produseres.",
-        )
-        status.skipped(
-            "transmission_state",
-            "TransmissionState hoppet over fordi CrossMarketState ikke kunne produseres.",
-        )
         LOGGER.exception("cross-market state production failed; analysis continues")
         return None
 
@@ -81,14 +77,5 @@ def produce_cross_market_state(
         fresh_markets,
         valid_windows,
         missing_yields,
-    )
-
-    # ResponseDivergence consumes the just-persisted observation and prior persisted
-    # Information State. TransmissionState then consumes only those mature response
-    # observations. This chain remains before the no-material-change early return.
-    produce_response_divergences(
-        db_path=db_path,
-        cross_market=snapshot,
-        status_store=status,
     )
     return snapshot
