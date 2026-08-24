@@ -15,7 +15,7 @@ def test_fixed_start_cadence_subtracts_cycle_duration() -> None:
     assert sleeps == [1.25]
 
 
-def test_fixed_start_cadence_does_not_sleep_after_overrun() -> None:
+def test_fixed_start_cadence_uses_bounded_backoff_after_overrun() -> None:
     sleeps: list[float] = []
     remaining = sleep_to_fixed_start_cadence_v2(
         started_at=100.0,
@@ -23,5 +23,5 @@ def test_fixed_start_cadence_does_not_sleep_after_overrun() -> None:
         monotonic=lambda: 102.5,
         sleep=sleeps.append,
     )
-    assert remaining == 0.0
-    assert sleeps == []
+    assert remaining == 1.0
+    assert sleeps == [1.0]
