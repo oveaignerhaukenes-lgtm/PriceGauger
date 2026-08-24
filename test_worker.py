@@ -35,9 +35,6 @@ def test_worker_fetches_all_posts_and_runs_aggregate_flow(tmp_path, monkeypatch)
     summary = worker.run_once(db_path=db_path, plans_fetcher=fetcher)
 
     assert summary.fetched == 2
-    assert summary.processed == 0
-    assert summary.outcomes_refreshed == 0
-    assert summary.interpreter == "retired"
     assert calls == [("Middle_East_Spectator", 2)]
 
 
@@ -49,13 +46,11 @@ def test_empty_cycle_is_valid_without_legacy_runtime(tmp_path):
     )
 
     assert summary.fetched == 0
-    assert summary.processed == 0
 
     statuses = {item.step_key: item for item in AnalysisStatusStore(db_path).load()}
     assert statuses["telegram_fetch"].status == "COMPLETE"
     assert statuses["event_clustering"].status == "SKIPPED"
-    assert statuses["outcome_refresh"].status == "SKIPPED"
-    assert "pensjonert" in statuses["outcome_refresh"].detail
+    assert "outcome_refresh" not in statuses
 
 
 def test_worker_records_fetch_failure_but_continues_with_stored_flow(tmp_path):

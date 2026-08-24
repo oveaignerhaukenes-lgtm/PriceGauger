@@ -29,7 +29,6 @@ def test_collect_configured_plans_namespaces_same_local_ids(tmp_path) -> None:
 
     plans = collect_configured_search_plans(
         store,
-        minimum_signal=0,
         fetcher=fetcher,
     )
 
@@ -43,11 +42,12 @@ def test_one_channel_failure_does_not_block_other_sources(tmp_path) -> None:
     store = TelegramChannelStore(tmp_path / "channels.db")
 
     def fetcher(channel: str, *, minimum_signal: int, timeout: int):
+        assert minimum_signal == 0
         if channel == "Middle_East_Spectator":
             raise RuntimeError("temporary source failure")
         return [_plan("7", "2026-08-10T00:01:00+00:00")]
 
-    plans = collect_configured_search_plans(store, minimum_signal=0, fetcher=fetcher)
+    plans = collect_configured_search_plans(store, fetcher=fetcher)
 
     assert [plan.message_id for plan in plans] == ["tabzlive:7"]
 

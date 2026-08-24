@@ -26,6 +26,9 @@ def test_worker_has_no_legacy_per_event_runtime_authority() -> None:
         "build_interpreter",
         "canonical_event_from_plan",
         "LEGACY_MAX_PER_CYCLE",
+        "outcome_refresh",
+        "interpreter=",
+        "--minimum-signal",
     ):
         assert forbidden not in source
 
@@ -48,9 +51,7 @@ def test_cycle_only_runs_aggregate_flow_after_fetch(tmp_path, monkeypatch):
 
     assert calls == ["flow"]
     assert summary.fetched == 1
-    assert summary.pending == 0
-    assert summary.processed == 0
-    assert summary.outcomes_refreshed == 0
+    assert tuple(summary.__dataclass_fields__) == ("fetched",)
 
 
 def test_scoring_failure_is_marked_and_pipeline_continues(tmp_path, monkeypatch):
