@@ -21,7 +21,6 @@ from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
 from news_context_store import NewsContextStore
 from openai_market_provider import OpenAIJsonProvider
 from signal_outcomes import SignalOutcomeStore, refresh_signal_outcomes, register_recommendations
-from state_runtime_pipeline import process_flow_snapshot
 from telegram_flow_engine import OpenAITelegramFlowScorer, TelegramFlowAssessment, aggregate_scored_posts
 from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
@@ -273,8 +272,6 @@ def _refresh_telegram_flow(
     if not stored:
         status.skipped("event_clustering", "Ingen godkjente poster å gruppere.")
         status.skipped("context_state", "Ingen godkjente poster å bygge nyhetskontekst fra.")
-        for step in ("information_state", "technical_state", "decision_state", "recommendation"):
-            status.skipped(step, "Ingen godkjente poster å analysere.")
         return
 
     _refresh_news_context(db_path=db_path, channel=channel, plans=plans)
@@ -313,35 +310,6 @@ def _refresh_telegram_flow(
             assessment.event_cluster_count,
         )
 
-    # The persistent runtime is authoritative. Run it even when the flow snapshot
-    # itself is unchanged so a new deployment can bootstrap missing Decision State.
-    try:
-        status.running("information_state", "Kontrollerer og oppdaterer samlet Information State.")
-        status.running("technical_state", "Kontrollerer prisdata og teknisk regime.")
-        status.running("decision_state", "Avventer oppdatert informasjons- og teknisk state.")
-        status.running("recommendation", "Avventer oppdatert Decision State.")
-        process_flow_snapshot(db_path=db_path, assessment=assessment, posts=stored)
-        # A successful runtime call must never leave a spinner behind. Individual
-        # runtime stages normally close their own status; this guard makes every
-        # successful return terminal, including no-material-change/bootstrap paths.
-        terminal = {
-            "information_state": ("complete", "Information State kontrollert."),
-            "technical_state": ("skipped", "Ingen ny teknisk analyse nødvendig."),
-            "decision_state": ("complete", "Decision State kontrollert; siste state beholdes."),
-            "recommendation": ("complete", "Anbefaling kontrollert; siste vurdering beholdes."),
-        }
-        current = {item.step_key: item for item in status.load()}
-        for step, (method, detail) in terminal.items():
-            if current[step].status == "RUNNING":
-                getattr(status, method)(step, detail)
-    except Exception as exc:
-        detail = f"{type(exc).__name__}: {exc}"
-        for step in ("information_state", "technical_state", "decision_state", "recommendation"):
-            current = {item.step_key: item for item in status.load()}[step]
-            if current.status == "RUNNING":
-                status.failed(step, detail)
-        LOGGER.exception("state runtime failed; Telegram Flow remains available")
-
 
 def run_once(
     *,
@@ -374,9 +342,9 @@ def run_once(
         LOGGER.warning("telegram fetch failed; continuing with stored data: %s", exc)
         all_plans = []
 
-    # Fresh aggregate state is the production-critical path. It must run before
-    # slower legacy per-event outcome work so the web UI remains a view into a
-    # continuously maintained state rather than a trigger for catch-up work.
+    # Fresh aggregate Telegram/Context state remains the production path. The
+    # retired Information/Decision/Recommendation runtime is deliberately not
+    # invoked from this worker after the v2 context/overview cutover.
     try:
         _refresh_telegram_flow(db_path=db_path, channel=channel, plans=all_plans)
     except Exception as exc:
@@ -421,8 +389,8 @@ def run_once(
                 PAPER_TEST_PROTOCOL.version,
             )
         except Exception:
-            # The aggregate Telegram Flow / Decision State pipeline above is
-            # authoritative. A malformed or transiently failing legacy event must
+            # The aggregate Telegram/Context path above is independent from this
+            # still-audited legacy per-event outcome path. A malformed event must
             # never keep the daemon stuck on the same post forever.
             state.mark(plan.message_id, "failed")
             failed_legacy += 1
