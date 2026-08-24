@@ -23,6 +23,7 @@ class TechnicalRegime:
 def _direction_score(snapshot: TechnicalSnapshot) -> float:
     weights = {
         "momentum": 1.0,
+        "momentum_dynamic": 0.0,
         "trend": 1.5,
         "structure": 1.5,
         "level": 0.5,
