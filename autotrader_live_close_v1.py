@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_risk_control_v2 import (
     ACTION_WOULD_CLOSE,
@@ -85,13 +86,24 @@ def _latest_triggered_states() -> list[dict[str, Any]]:
     with connect() as db:
         rows = db.execute(
             """
-            SELECT account_id, net_position_id, uic, asset_type, direction, amount,
-                   average_open_price, current_price, pnl_pct, high_water_pct,
-                   price_delay_minutes, can_be_closed, calculation_reliability,
-                   is_market_open, non_tradable_reason, triggered_reason, triggered_at
-            FROM pg_v2_autotrader_risk_state
-            WHERE active = TRUE AND triggered_reason IS NOT NULL
-            ORDER BY triggered_at ASC
+            SELECT state.account_id, state.net_position_id, state.uic, state.asset_type,
+                   state.direction, state.amount, state.average_open_price,
+                   state.current_price, state.pnl_pct, state.high_water_pct,
+                   state.price_delay_minutes, state.can_be_closed,
+                   state.calculation_reliability, state.is_market_open,
+                   state.non_tradable_reason, state.triggered_reason, state.triggered_at
+            FROM pg_v2_autotrader_risk_state AS state
+            JOIN pg_v2_autotrader_managed_positions AS managed
+              ON managed.account_id = state.account_id
+             AND managed.net_position_id = state.net_position_id
+             AND managed.managed = TRUE
+             AND managed.uic = state.uic
+             AND managed.asset_type = state.asset_type
+             AND LOWER(managed.direction) = LOWER(state.direction)
+             AND ABS(managed.amount - state.amount) <= 1e-12
+             AND ABS(managed.average_open_price - state.average_open_price) <= 1e-12
+            WHERE state.active = TRUE AND state.triggered_reason IS NOT NULL
+            ORDER BY state.triggered_at ASC
             """
         ).fetchall()
     return [dict(row) for row in rows]
@@ -296,6 +308,20 @@ def _same_trigger_basis(state: dict[str, Any], current: PositionObservationV2) -
     return True
 
 
+def _has_pending_reconciliation_v1() -> bool:
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_live_close_attempts
+            WHERE status = ?
+            LIMIT 1
+            """,
+            (STATUS_ORDER_ACCEPTED,),
+        ).fetchone()
+    return row is not None
+
+
 def _reconcile_accepted_attempts(client: SaxoClient) -> int:
     with connect() as db:
         rows = db.execute(
@@ -332,14 +358,18 @@ def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
             failed=0,
         )
 
+    states = _latest_triggered_states()
+    pending_reconciliation = _has_pending_reconciliation_v1()
+    if not states and not pending_reconciliation:
+        return LiveCloseCycleSummaryV1(True, 0, 0, 0, 0, 0)
+
     client = _require_live_client()
     netting_mode = _position_netting_mode(client)
     if netting_mode.lower() != "intraday":
         LOGGER.error("LIVE close-only blocked: PositionNettingMode=%s; Intraday required", netting_mode)
-        return LiveCloseCycleSummaryV1(True, 0, 0, 0, 1, 0)
+        return LiveCloseCycleSummaryV1(True, len(states), 0, 0, 1, 0)
 
     reconciled = _reconcile_accepted_attempts(client)
-    states = _latest_triggered_states()
     submitted = 0
     blocked = 0
     failed = 0
@@ -451,9 +481,16 @@ def run_live_close_forever_v1(*, interval_seconds: int = 2) -> None:
     interval = max(1, int(interval_seconds))
     ensure_live_close_schema_v1()
     while True:
+        started_at = time.monotonic()
         try:
             summary = run_live_close_cycle_v1()
-            if summary.armed or summary.submitted or summary.failed:
+            if (
+                summary.candidates
+                or summary.submitted
+                or summary.reconciled
+                or summary.blocked
+                or summary.failed
+            ):
                 LOGGER.info(
                     "LIVE close cycle armed=%s candidates=%d submitted=%d reconciled=%d blocked=%d failed=%d",
                     summary.armed,
@@ -463,6 +500,11 @@ def run_live_close_forever_v1(*, interval_seconds: int = 2) -> None:
                     summary.blocked,
                     summary.failed,
                 )
+            else:
+                LOGGER.debug("LIVE close cycle quiet armed=%s", summary.armed)
         except Exception as exc:
             LOGGER.exception("LIVE close cycle failed before candidate execution: %s", exc)
-        time.sleep(interval)
+        sleep_to_fixed_start_cadence_v2(
+            started_at=started_at,
+            interval_seconds=interval,
+        )

@@ -3,10 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+from threading import Lock
 import time
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
+from autotrader_managed_positions_v1 import (
+    load_active_managed_positions_v1,
+    managed_position_matches_v1,
+)
 from autotrader_schema_v2 import DEFAULT_HARD_STOP_PCT, ensure_autotrader_schema_v2
 from database import connect, using_postgres
 from saxo_provider import configured_client
@@ -14,6 +20,9 @@ from saxo_provider import configured_client
 
 LOGGER = logging.getLogger("pricegauger.autotrader.risk_control_v2")
 STRATEGY_KEY = "risk-control-v2"
+DEFAULT_PORTFOLIO_OBSERVATION_SECONDS = 10
+DEFAULT_MANAGED_RISK_REACTION_SECONDS = 2
+_RISK_CYCLE_LOCK = Lock()
 ACTION_HOLD = "HOLD"
 ACTION_WOULD_CLOSE = "WOULD_CLOSE"
 REASON_HARD_STOP = "HARD_STOP"
@@ -407,12 +416,12 @@ def _persist_observation(
         )
 
 
-def run_risk_control_cycle_v2() -> RiskCycleSummaryV2:
-    config = load_risk_config_v2()
-    client = configured_client()
-    if client is None:
-        raise RuntimeError("Saxo client is not configured")
-    observations = _position_observations_v2(client)
+def _evaluate_observations_v2(
+    observations: tuple[PositionObservationV2, ...],
+    *,
+    config: RiskConfigV2,
+    deactivate_missing: bool,
+) -> RiskCycleSummaryV2:
     seen = {(item.account_id, item.net_position_id) for item in observations}
     close_signals = 0
     failed = 0
@@ -459,26 +468,116 @@ def run_risk_control_cycle_v2() -> RiskCycleSummaryV2:
                 "risk control position failed id=%s: %s",
                 observation.net_position_id, exc, exc_info=True,
             )
-    with connect() as db:
-        db.execute("UPDATE pg_v2_autotrader_risk_state SET active = FALSE")
-        for account_id, net_position_id in seen:
-            db.execute(
-                "UPDATE pg_v2_autotrader_risk_state SET active = TRUE WHERE account_id = ? AND net_position_id = ?",
-                (account_id, net_position_id),
+    if deactivate_missing:
+        with connect() as db:
+            db.execute("UPDATE pg_v2_autotrader_risk_state SET active = FALSE")
+            for account_id, net_position_id in seen:
+                db.execute(
+                    "UPDATE pg_v2_autotrader_risk_state SET active = TRUE WHERE account_id = ? AND net_position_id = ?",
+                    (account_id, net_position_id),
+                )
+    return RiskCycleSummaryV2(
+        observed=len(observations),
+        close_signals=close_signals,
+        failed=failed,
+    )
+
+
+def run_risk_control_cycle_v2() -> RiskCycleSummaryV2:
+    """Observe the complete portfolio at the normal, lower-frequency cadence."""
+    with _RISK_CYCLE_LOCK:
+        config = load_risk_config_v2()
+        client = configured_client()
+        if client is None:
+            raise RuntimeError("Saxo client is not configured")
+        observations = _position_observations_v2(client)
+        return _evaluate_observations_v2(
+            observations,
+            config=config,
+            deactivate_missing=True,
+        )
+
+
+def run_managed_risk_reaction_cycle_v2() -> RiskCycleSummaryV2:
+    """Re-evaluate only exact Auto-managed positions on the fast reaction path.
+
+    The database enrollment is read before resolving the Saxo client. With no active
+    enrollments this cycle performs no Saxo request.
+    """
+    with _RISK_CYCLE_LOCK:
+        enrollments = load_active_managed_positions_v1()
+        if not enrollments:
+            return RiskCycleSummaryV2(observed=0, close_signals=0, failed=0)
+
+        client = configured_client()
+        if client is None:
+            raise RuntimeError("Saxo client is not configured")
+        current = {
+            (item.account_id, item.net_position_id): item
+            for item in _position_observations_v2(client)
+        }
+        managed_observations: list[PositionObservationV2] = []
+        for enrollment in enrollments:
+            identity = (
+                str(enrollment.get("account_id") or ""),
+                str(enrollment.get("net_position_id") or ""),
             )
-    return RiskCycleSummaryV2(observed=len(observations), close_signals=close_signals, failed=failed)
+            observation = current.get(identity)
+            if observation is not None and managed_position_matches_v1(enrollment, observation):
+                managed_observations.append(observation)
+
+        return _evaluate_observations_v2(
+            tuple(managed_observations),
+            config=load_risk_config_v2(),
+            deactivate_missing=False,
+        )
 
 
-def run_risk_control_forever_v2(*, interval_seconds: int = 10) -> None:
+def run_risk_control_forever_v2(
+    *,
+    interval_seconds: int = DEFAULT_PORTFOLIO_OBSERVATION_SECONDS,
+) -> None:
     interval = max(5, int(interval_seconds))
     ensure_risk_control_schema_v2()
     while True:
+        started_at = time.monotonic()
         try:
             summary = run_risk_control_cycle_v2()
             LOGGER.info(
-                "risk control cycle observed=%d close_signals=%d failed=%d",
+                "risk portfolio cycle observed=%d close_signals=%d failed=%d",
                 summary.observed, summary.close_signals, summary.failed,
             )
         except Exception as exc:
-            LOGGER.exception("risk control cycle failed before position evaluation: %s", exc)
-        time.sleep(interval)
+            LOGGER.exception("risk portfolio cycle failed before position evaluation: %s", exc)
+        sleep_to_fixed_start_cadence_v2(
+            started_at=started_at,
+            interval_seconds=interval,
+        )
+
+
+def run_managed_risk_reaction_forever_v2(
+    *,
+    interval_seconds: int = DEFAULT_MANAGED_RISK_REACTION_SECONDS,
+) -> None:
+    interval = max(1, int(interval_seconds))
+    ensure_risk_control_schema_v2()
+    while True:
+        started_at = time.monotonic()
+        try:
+            summary = run_managed_risk_reaction_cycle_v2()
+            if summary.close_signals or summary.failed:
+                LOGGER.info(
+                    "managed risk reaction observed=%d close_signals=%d failed=%d",
+                    summary.observed, summary.close_signals, summary.failed,
+                )
+            else:
+                LOGGER.debug(
+                    "managed risk reaction observed=%d close_signals=0 failed=0",
+                    summary.observed,
+                )
+        except Exception as exc:
+            LOGGER.exception("managed risk reaction failed before position evaluation: %s", exc)
+        sleep_to_fixed_start_cadence_v2(
+            started_at=started_at,
+            interval_seconds=interval,
+        )

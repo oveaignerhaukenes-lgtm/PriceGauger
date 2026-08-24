@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from autotrader_risk_control_v2 import PositionObservationV2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
-from database import connect, using_postgres
+from database import connect
+
+if TYPE_CHECKING:
+    from autotrader_risk_control_v2 import PositionObservationV2
 
 
 def ensure_managed_positions_schema_v1() -> None:
@@ -98,6 +100,22 @@ def stop_managing_position_v1(account_id: str, net_position_id: str) -> None:
             """,
             (str(account_id), str(net_position_id)),
         )
+
+
+def load_active_managed_positions_v1() -> tuple[dict[str, Any], ...]:
+    """Return only explicitly active enrollments, without contacting Saxo."""
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT account_id, net_position_id, uic, asset_type, direction,
+                   amount, average_open_price, managed
+            FROM pg_v2_autotrader_managed_positions
+            WHERE managed = TRUE
+            ORDER BY enrolled_at ASC
+            """
+        ).fetchall()
+    records = tuple(_record_dict(row) for row in rows)
+    return tuple(record for record in records if record is not None)
 
 
 def load_managed_position_v1(account_id: str, net_position_id: str) -> dict[str, Any] | None:
