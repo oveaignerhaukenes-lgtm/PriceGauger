@@ -31,17 +31,11 @@ class TechnicalSnapshot:
     timestamp: str
     price: float
     rsi_14: float | None
-    rsi_change_3: float | None
     macd: float | None
     macd_signal: float | None
     macd_histogram: float | None
-    macd_histogram_change_3: float | None
     ema_20: float | None
     ema_50: float | None
-    price_to_ema20_pct: float | None
-    price_to_ema50_pct: float | None
-    recent_return_3_pct: float | None
-    recent_return_8_pct: float | None
     atr_14: float | None
     atr_14_pct: float | None
     volume_ratio_20: float | None
@@ -51,6 +45,12 @@ class TechnicalSnapshot:
     distance_to_resistance_pct: float | None
     market_structure: str
     readings: tuple[TechnicalReading, ...]
+    rsi_change_3: float | None = None
+    macd_histogram_change_3: float | None = None
+    price_to_ema20_pct: float | None = None
+    price_to_ema50_pct: float | None = None
+    recent_return_3_pct: float | None = None
+    recent_return_8_pct: float | None = None
 
     def to_record(self) -> dict[str, Any]:
         record = asdict(self)
@@ -350,17 +350,11 @@ def build_technical_snapshot(frame: pd.DataFrame, *, asset: str, timeframe: str)
         "timestamp": data.iloc[-1]["timestamp"].isoformat(),
         "price": price,
         "rsi_14": rsi,
-        "rsi_change_3": rsi_change,
         "macd": _last(macd_line),
         "macd_signal": _last(macd_signal),
         "macd_histogram": histogram,
-        "macd_histogram_change_3": histogram_change,
         "ema_20": ema_20,
         "ema_50": ema_50,
-        "price_to_ema20_pct": ((price / ema_20) - 1.0) * 100.0 if ema_20 else None,
-        "price_to_ema50_pct": ((price / ema_50) - 1.0) * 100.0 if ema_50 else None,
-        "recent_return_3_pct": _return_pct(close, 3),
-        "recent_return_8_pct": _return_pct(close, 8),
         "atr_14": atr,
         "atr_14_pct": atr_pct,
         "volume_ratio_20": volume_ratio,
@@ -369,6 +363,13 @@ def build_technical_snapshot(frame: pd.DataFrame, *, asset: str, timeframe: str)
         "distance_to_support_pct": distance_to_support,
         "distance_to_resistance_pct": distance_to_resistance,
         "market_structure": _market_structure(data),
+        "readings": (),
+        "rsi_change_3": rsi_change,
+        "macd_histogram_change_3": histogram_change,
+        "price_to_ema20_pct": ((price / ema_20) - 1.0) * 100.0 if ema_20 else None,
+        "price_to_ema50_pct": ((price / ema_50) - 1.0) * 100.0 if ema_50 else None,
+        "recent_return_3_pct": _return_pct(close, 3),
+        "recent_return_8_pct": _return_pct(close, 8),
     }
     values["readings"] = _build_readings(values)
     return TechnicalSnapshot(**values)
