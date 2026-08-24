@@ -69,6 +69,9 @@ def test_projection_selects_nearest_requested_horizon_and_keeps_baseline_values(
     assert view.interpreter_available is True
     assert view.interpreter_confidence == 0.61
     assert "Momentum" in view.interpreter_summary
+    assert view.path_profile[0] == (0.0, 0.0)
+    assert view.path_profile[-1] == (1.0, view.expected_return)
+    assert "trendfortsettelse" in view.path_rationale.lower()
 
 
 def test_cached_interpreter_refines_same_baseline_without_reanalysis():
@@ -83,6 +86,7 @@ def test_cached_interpreter_refines_same_baseline_without_reanalysis():
     assert view.baseline_return == 0.008
     assert view.expected_return != view.baseline_return
     assert view.lower_return < view.expected_return < view.upper_return
+    assert view.path_profile[-1] == (1.0, view.expected_return)
 
 
 def test_projection_is_valid_without_interpreter_layer():
@@ -96,3 +100,36 @@ def test_projection_is_valid_without_interpreter_layer():
     assert view.interpreter_available is False
     assert view.interpreter_summary is None
     assert view.interpreter_confidence is None
+
+
+def test_bullish_terminal_with_bearish_momentum_gets_explicit_initial_dip():
+    workspace = _workspace()
+    workspace.technical_state.momentum_state = "BEARISH"
+
+    view = project_workspace_v2(workspace, requested_horizon_seconds=1800)
+
+    assert view.expected_return > 0
+    assert view.path_profile[1][1] < 0
+    assert view.path_profile[-1] == (1.0, view.expected_return)
+    assert "motbevegelse" in view.path_rationale.lower()
+
+
+def test_bearish_terminal_with_bullish_momentum_mirrors_counter_move_upward():
+    workspace = _workspace()
+    workspace.technical_state.trend_state = "BEARISH"
+    workspace.technical_state.momentum_state = "BULLISH"
+    workspace.technical_state.structure_state = "LH_LL"
+    workspace.technical_baselines[1800] = SimpleNamespace(
+        direction="BEARISH",
+        expected_return=-0.008,
+        lower_return=-0.014,
+        upper_return=-0.001,
+        confidence=0.72,
+        path_shape="TREND_CONTINUATION",
+    )
+
+    view = project_workspace_v2(workspace, requested_horizon_seconds=1800)
+
+    assert view.expected_return < 0
+    assert view.path_profile[1][1] > 0
+    assert view.path_profile[-1] == (1.0, view.expected_return)
