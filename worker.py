@@ -29,13 +29,6 @@ FLOW_SCORE_DELTA = 0.02
 @dataclass(frozen=True, slots=True)
 class WorkerRunSummary:
     fetched: int
-    # Compatibility-only fields. The legacy per-event recommendation/outcome
-    # runtime is retired; these remain zero until its old callers are removed.
-    pending: int = 0
-    processed: int = 0
-    skipped_bootstrap: int = 0
-    outcomes_refreshed: int = 0
-    interpreter: str = "retired"
 
 
 def _asset_map(assessment: TelegramFlowAssessment) -> dict[str, object]:
@@ -213,14 +206,8 @@ def run_once(
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
     channel: str = "Middle_East_Spectator",
-    minimum_signal: int = 2,
     plans_fetcher: Callable[..., list[TelegramSearchPlan]] = fetch_search_plans,
-    interpreter=None,
 ) -> WorkerRunSummary:
-    # minimum_signal/interpreter remain accepted only so the multi-worker and
-    # local callers do not need to move in the same bounded retirement PR.
-    del minimum_signal, interpreter
-
     status = AnalysisStatusStore(db_path)
     status.begin_cycle()
     status.running("telegram_fetch", f"Henter poster fra {channel}.")
@@ -241,10 +228,6 @@ def run_once(
         status.fail_running(detail)
         LOGGER.exception("telegram/context refresh failed; next cycle will retry")
 
-    # Historical recommendation outcomes remain persisted for audit, but the
-    # worker no longer produces or refreshes the retired per-event runtime.
-    status.skipped("outcome_refresh", "Legacy per-event recommendation runtime er pensjonert.")
-
     summary = WorkerRunSummary(fetched=len(all_plans))
     LOGGER.info("cycle complete fetched=%s", summary.fetched)
     return summary
@@ -255,7 +238,6 @@ def run_forever(
     interval_seconds: int = DEFAULT_INTERVAL_SECONDS,
     db_path: str | Path = DEFAULT_DB_PATH,
     channel: str = "Middle_East_Spectator",
-    minimum_signal: int = 2,
 ) -> None:
     if interval_seconds < 30:
         raise ValueError("interval must be at least 30 seconds")
@@ -268,7 +250,6 @@ def run_forever(
             run_once(
                 db_path=db_path,
                 channel=channel,
-                minimum_signal=minimum_signal,
             )
         except KeyboardInterrupt:
             raise
@@ -291,7 +272,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite fallback database path")
     parser.add_argument("--channel", default="Middle_East_Spectator")
-    parser.add_argument("--minimum-signal", type=int, default=2)
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -306,7 +286,6 @@ def main() -> None:
         summary = run_once(
             db_path=args.db,
             channel=args.channel,
-            minimum_signal=args.minimum_signal,
         )
         print(f"WORKER_OK fetched={summary.fetched}")
         return
@@ -314,7 +293,6 @@ def main() -> None:
         interval_seconds=args.interval,
         db_path=args.db,
         channel=args.channel,
-        minimum_signal=args.minimum_signal,
     )
 
 
