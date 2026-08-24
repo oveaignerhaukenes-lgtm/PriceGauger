@@ -51,14 +51,19 @@ class SourceAwareTelegramFlowScorer(OpenAITelegramFlowScorer):
 def collect_configured_search_plans(
     store: TelegramChannelStore,
     *,
-    minimum_signal: int,
     timeout: int = 30,
     fetcher: Callable[..., list[TelegramSearchPlan]] = fetch_search_plans,
 ) -> list[TelegramSearchPlan]:
+    """Collect every configured source before semantic scoring.
+
+    Source-level signal filtering is deliberately disabled here. The canonical
+    Bias/Context ingestion path needs the complete configured source stream so
+    downstream analysis, rather than the transport layer, decides relevance.
+    """
     collected: list[TelegramSearchPlan] = []
     for channel in store.list_enabled():
         try:
-            plans = fetcher(channel, minimum_signal=minimum_signal, timeout=timeout)
+            plans = fetcher(channel, minimum_signal=0, timeout=timeout)
         except Exception as exc:
             LOGGER.warning("telegram channel fetch failed channel=%s: %s", channel, exc)
             continue
@@ -73,35 +78,36 @@ def collect_configured_search_plans(
 def run_once(
     *,
     db_path: str | Path = worker_module.DEFAULT_DB_PATH,
-    minimum_signal: int = 2,
 ):
     channel_store = TelegramChannelStore(db_path)
 
     def configured_fetcher(_channel: str, *, minimum_signal: int, timeout: int = 30):
+        # worker.run_once requests the unfiltered source stream explicitly.
+        if minimum_signal != 0:
+            raise ValueError("configured source ingestion requires minimum_signal=0")
         return collect_configured_search_plans(
             channel_store,
-            minimum_signal=minimum_signal,
             timeout=timeout,
         )
 
-    # worker.py remains the authoritative legacy analysis/state pipeline during
-    # this bounded migration step. Only replace the scorer class so it sees the
-    # real channel for each namespaced source post.
+    # worker.py owns source ingestion plus the current Telegram/news semantic
+    # engines. Replace only the scorer class so namespaced posts retain their
+    # real configured source identity. No legacy Information/Decision runtime
+    # is invoked from this path.
     original_scorer = worker_module.OpenAITelegramFlowScorer
     worker_module.OpenAITelegramFlowScorer = SourceAwareTelegramFlowScorer
     try:
         result = worker_module.run_once(
             db_path=db_path,
             channel="configured-sources",
-            minimum_signal=minimum_signal,
             plans_fetcher=configured_fetcher,
         )
     finally:
         worker_module.OpenAITelegramFlowScorer = original_scorer
 
-    # Context v2 is an independent public output of the semantic engines. The
-    # bridge consumes their stored outputs only; it cannot call Technical Core,
-    # legacy Decision/Recommendation, Composer, an LLM, or execution.
+    # Context v2 is the independent public semantic output. The bridge consumes
+    # stored semantic outputs only; it cannot call Technical Core, legacy
+    # Decision/Recommendation, Composer, an LLM, or execution.
     try:
         snapshot, persisted = publish_latest_context_v2(db_path=db_path)
         if snapshot is not None:
@@ -112,9 +118,7 @@ def run_once(
                 persisted,
             )
     except Exception:
-        # Context-v2 publication must not make the existing ingestion daemon lose
-        # the already-produced Telegram/News state while migration is in progress.
-        LOGGER.exception("context v2 publication failed; existing semantic outputs remain available")
+        LOGGER.exception("context v2 publication failed; stored semantic outputs remain available")
 
     return result
 
@@ -123,7 +127,6 @@ def run_forever(
     *,
     interval_seconds: int = worker_module.DEFAULT_INTERVAL_SECONDS,
     db_path: str | Path = worker_module.DEFAULT_DB_PATH,
-    minimum_signal: int = 2,
 ) -> None:
     if interval_seconds < 30:
         raise ValueError("interval must be at least 30 seconds")
@@ -137,7 +140,7 @@ def run_forever(
     while True:
         started = time.monotonic()
         try:
-            run_once(db_path=db_path, minimum_signal=minimum_signal)
+            run_once(db_path=db_path)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
@@ -158,7 +161,6 @@ def _parser() -> argparse.ArgumentParser:
         help="continuous polling interval in seconds (default: 60)",
     )
     parser.add_argument("--db", default=worker_module.DEFAULT_DB_PATH, help="SQLite fallback database path")
-    parser.add_argument("--minimum-signal", type=int, default=2)
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -170,12 +172,11 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     if args.once:
-        run_once(db_path=args.db, minimum_signal=args.minimum_signal)
+        run_once(db_path=args.db)
         return
     run_forever(
         interval_seconds=args.interval,
         db_path=args.db,
-        minimum_signal=args.minimum_signal,
     )
 
 
