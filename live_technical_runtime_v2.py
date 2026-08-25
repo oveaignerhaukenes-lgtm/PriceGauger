@@ -214,6 +214,8 @@ def run_live_technical_cycle_v2(
                     benchmark.outcomes_resolved,
                 )
             except Exception as exc:
+                # Benchmark collection is observational. It must never make the
+                # authoritative Technical Core runtime unhealthy.
                 LOGGER.warning(
                     "v2 parallel benchmark failed market=%s: %s",
                     market,
