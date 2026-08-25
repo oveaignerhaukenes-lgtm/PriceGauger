@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from statistics import pstdev
 from typing import Any, Iterable, Mapping
 
 
@@ -35,7 +36,10 @@ class TechnicalScenarioV2:
 
     def to_record(self) -> dict[str, Any]:
         record = asdict(self)
-        record["path_profile"] = [[float(x), float(value)] for x, value in self.path_profile]
+        record["path_profile"] = [
+            {"progress": float(x), "cumulative_return": float(value)}
+            for x, value in self.path_profile
+        ]
         return record
 
 
@@ -176,6 +180,59 @@ def derive_level_candidates_v2(
     return tuple(result)
 
 
+def _ema(prices: list[float], span: int) -> float | None:
+    if len(prices) < span:
+        return None
+    alpha = 2.0 / (span + 1.0)
+    value = float(prices[0])
+    for price in prices[1:]:
+        value = alpha * float(price) + (1.0 - alpha) * value
+    return value
+
+
+def derive_series_features_v2(price_history: Iterable[tuple[str, float]]) -> dict[str, float | None]:
+    """Small deterministic close-series feature pack for the LLM specialist.
+
+    This supplements, but never mutates, Technical Core. It is deliberately data-only:
+    no news/context/position inputs and no model interpretation.
+    """
+    prices = [float(price) for _, price in price_history if float(price) > 0][-120:]
+    if not prices:
+        return {}
+    last = prices[-1]
+
+    def ret(periods: int) -> float | None:
+        if len(prices) <= periods:
+            return None
+        start = prices[-1 - periods]
+        return None if not start else last / start - 1.0
+
+    step_returns = [
+        prices[index] / prices[index - 1] - 1.0
+        for index in range(1, len(prices))
+        if prices[index - 1]
+    ]
+    recent_returns = step_returns[-20:]
+    realized_vol = pstdev(recent_returns) if len(recent_returns) >= 3 else None
+    ema8 = _ema(prices, 8)
+    ema21 = _ema(prices, 21)
+    recent = prices[-20:]
+    recent_high = max(recent)
+    recent_low = min(recent)
+    return {
+        "return_1": ret(1),
+        "return_3": ret(3),
+        "return_8": ret(8),
+        "return_20": ret(20),
+        "realized_vol_20": realized_vol,
+        "price_to_ema8": None if ema8 is None else last / ema8 - 1.0,
+        "price_to_ema21": None if ema21 is None else last / ema21 - 1.0,
+        "ema8_to_ema21": None if ema8 is None or ema21 is None else ema8 / ema21 - 1.0,
+        "distance_from_recent_high": last / recent_high - 1.0,
+        "distance_from_recent_low": last / recent_low - 1.0,
+    }
+
+
 def _activity_mode(value: str) -> str:
     mode = str(value or "NORMAL").upper()
     if mode not in TA_ACTIVITY_MODES:
@@ -213,6 +270,7 @@ def build_companion_payload_v2(
             "horizon_seconds": int(view.horizon_seconds),
         },
         "technical_snapshots": technical_snapshots,
+        "series_features": derive_series_features_v2(recent_history),
         "level_candidates": [item.to_record() for item in levels],
         "recent_price_history": [[str(stamp), float(price)] for stamp, price in recent_history],
         "previous_analysis": None if previous_analysis is None else previous_analysis.to_record(),
@@ -259,10 +317,14 @@ def _validate_scenarios(record: Mapping[str, Any]) -> tuple[TechnicalScenarioV2,
         points: list[tuple[float, float]] = []
         previous_x = -1.0
         for point in raw_profile:
-            if not isinstance(point, (list, tuple)) or len(point) != 2:
-                raise ValueError("scenario path points must be [progress, return]")
-            x = float(point[0])
-            value = float(point[1])
+            if isinstance(point, Mapping):
+                x = float(point.get("progress", -1.0))
+                value = float(point.get("cumulative_return", 0.0))
+            elif isinstance(point, (list, tuple)) and len(point) == 2:
+                x = float(point[0])
+                value = float(point[1])
+            else:
+                raise ValueError("scenario path points must contain progress and cumulative_return")
             if not 0.0 <= x <= 1.0 or x <= previous_x:
                 raise ValueError("scenario path progress must increase from zero to one")
             if abs(value) > 0.25:
