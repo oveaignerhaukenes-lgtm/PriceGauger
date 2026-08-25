@@ -8,7 +8,8 @@ from autotrader_execution_context_v2 import AutoTraderExecutionContextV2
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
 from realtime_market_data import RealtimeMarketDataStore
-from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars, utc
+from time_display_v2 import localize_plotly_figure_v2, oslo_label
+from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars
 from trading_desk_chart import (
     OVERLAY_ACTUAL,
     OVERLAY_NORMALIZED,
@@ -259,7 +260,7 @@ def _render_v2_analysis() -> None:
     identity = f"market_id {context.market_id}"
     if context.instrument is not None:
         identity += f" · instrument_id {context.instrument.instrument_id} · {context.instrument.provider}:{context.instrument.provider_instrument_id}"
-    st.caption(f"{identity} · {view.recipe_label} · snapshot {view.as_of} · {status_label}")
+    st.caption(f"{identity} · {view.recipe_label} · snapshot {oslo_label(view.as_of)} · {status_label}")
 
     chart = render_v2_forecast_chart(view)
     explanation = render_v2_technical_explanation(view)
@@ -312,7 +313,7 @@ def _render_live_chart() -> None:
         latest_label = resolved_end - timedelta(minutes=1)
         st.caption(
             f"Markedet har ingen bars i siste {window_hours}t fra nå. Viser siste tilgjengelige "
-            f"{window_hours}t frem til {latest_label:%Y-%m-%d %H:%M} UTC."
+            f"{window_hours}t frem til {oslo_label(latest_label)}."
         )
 
     loaded_overlays: dict[str, tuple] = {}
@@ -344,7 +345,7 @@ def _render_live_chart() -> None:
 
     latest_display = "ingen data"
     if primary:
-        latest_display = f"{primary[-1].close:g} @ {utc(primary[-1].bar_time):%Y-%m-%d %H:%M} UTC"
+        latest_display = f"{primary[-1].close:g} @ {oslo_label(primary[-1].bar_time)}"
 
     st.subheader("Live chart")
     st.caption(
@@ -366,6 +367,7 @@ def _render_live_chart() -> None:
     )
     if primary and INDICATOR_SWING_BANDS in indicator_names:
         add_swing_bands_to_figure(fig, primary)
+    localize_plotly_figure_v2(fig)
 
     st.plotly_chart(
         fig,
