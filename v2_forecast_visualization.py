@@ -109,9 +109,6 @@ def render_v2_forecast_chart(view) -> str:
         upper_raw.append((x, high))
         baseline_raw.append((x, baseline))
 
-    # Freeze historical forecasts on the same time/price coordinate system as the
-    # observed history. Each ghost is anchored only to information available at its
-    # own as_of time; no future price is used as its reference.
     ghost_raw: list[tuple[list[tuple[datetime, float]], list[tuple[datetime, float]], list[tuple[datetime, float]]]] = []
     if parsed_history:
         history_last = parsed_history[-1][0]
@@ -183,25 +180,29 @@ def render_v2_forecast_chart(view) -> str:
     baseline_xy = [(x, ymap(price)) for x, price in baseline_raw]
     fan = _points(tuple(upper_xy) + tuple(reversed(lower_xy)))
 
-    ghost_markup_parts: list[str] = []
+    ghost_fan_parts: list[str] = []
+    ghost_path_parts: list[str] = []
     ghost_count = len(ghost_raw)
     for index, (center_points, low_points, high_points) in enumerate(ghost_raw):
         if first is None:
             break
-        # Older ghosts are deliberately faint; newer ghosts are progressively
-        # stronger so convergence or repeated misses are visible without spaghetti.
+        # Historical uncertainty should remain subordinate to observed price, while
+        # the path itself must remain visible even when it tracked reality closely.
         rank = (index + 1) / max(1, ghost_count)
-        line_opacity = 0.08 + 0.22 * rank
-        fan_opacity = 0.018 + 0.052 * rank
+        line_opacity = 0.20 + 0.38 * rank
+        fan_opacity = 0.035 + 0.085 * rank
         center_xy = [(history_x(stamp), ymap(price)) for stamp, price in center_points]
         low_xy = [(history_x(stamp), ymap(price)) for stamp, price in low_points]
         high_xy = [(history_x(stamp), ymap(price)) for stamp, price in high_points]
         ghost_fan = _points(tuple(high_xy) + tuple(reversed(low_xy)))
-        ghost_markup_parts.append(
+        ghost_fan_parts.append(
             f'<polygon class="pg-v2-ghost-fan" style="fill-opacity:{fan_opacity:.3f}" points="{ghost_fan}" />'
+        )
+        ghost_path_parts.append(
             f'<polyline class="pg-v2-ghost-path" style="stroke-opacity:{line_opacity:.3f}" points="{_points(center_xy)}" />'
         )
-    ghost_markup = "".join(ghost_markup_parts)
+    ghost_fans = "".join(ghost_fan_parts)
+    ghost_paths = "".join(ghost_path_parts)
 
     history_markup = ""
     if len(history_xy) >= 2:
@@ -232,9 +233,11 @@ def render_v2_forecast_chart(view) -> str:
         '<svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" '
         'aria-label="Persisted v2 technical forecast with observed history, historical forecasts and uncertainty">'
         '<line class="pg-v2-now" x1="66" x2="66" y1="7" y2="95" />'
-        f'{ghost_markup}'
+        f'{ghost_fans}'
         f'<polygon class="pg-v2-fan" points="{fan}" />'
-        f'{history_markup}{baseline_markup}'
+        f'{history_markup}'
+        f'{ghost_paths}'
+        f'{baseline_markup}'
         f'<polyline class="pg-v2-path" points="{_points(forecast_xy)}" />'
         '</svg>'
         '<div class="pg-v2-chart-foot">'
@@ -286,7 +289,7 @@ V2_FORECAST_CSS = """
 .pg-v2-chart,.pg-v2-explain{border:1px solid rgba(128,128,128,.24);border-radius:.7rem;background:rgba(128,128,128,.025);padding:.65rem .75rem}
 .pg-v2-chart-head,.pg-v2-chart-foot,.pg-v2-zones{display:flex;justify-content:space-between;gap:.6rem;font-size:.66rem;line-height:1.25}
 .pg-v2-chart-head{font-weight:760;letter-spacing:.055em;opacity:.74}.pg-v2-zones{font-size:.56rem;font-weight:700;opacity:.55;margin-top:.25rem}.pg-v2-zones span:last-child{width:32%;text-align:center}
-.pg-v2-chart svg{display:block;width:100%;height:12rem;margin:.05rem 0}.pg-v2-now{stroke:rgba(71,85,105,.7);stroke-width:.8;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke}.pg-v2-history{fill:none;stroke:currentColor;stroke-width:1.55;vector-effect:non-scaling-stroke}.pg-v2-fan{fill:var(--primary-color,#4f6f9f);fill-opacity:.13;stroke:none}.pg-v2-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:2;vector-effect:non-scaling-stroke}.pg-v2-ghost-fan{fill:var(--primary-color,#4f6f9f);stroke:none}.pg-v2-ghost-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:1.15;stroke-dasharray:1.3 1.1;vector-effect:non-scaling-stroke}.pg-v2-baseline-compare{fill:none;stroke:rgba(100,116,139,.72);stroke-width:1;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke}.pg-v2-note{display:block;font-size:.58rem;opacity:.6;margin-top:.2rem}
+.pg-v2-chart svg{display:block;width:100%;height:12rem;margin:.05rem 0}.pg-v2-now{stroke:rgba(71,85,105,.7);stroke-width:.8;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke}.pg-v2-history{fill:none;stroke:currentColor;stroke-width:1.55;vector-effect:non-scaling-stroke}.pg-v2-fan{fill:var(--primary-color,#4f6f9f);fill-opacity:.13;stroke:none}.pg-v2-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:2;vector-effect:non-scaling-stroke}.pg-v2-ghost-fan{fill:var(--primary-color,#4f6f9f);stroke:none}.pg-v2-ghost-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:1.3;stroke-dasharray:1.7 1.15;vector-effect:non-scaling-stroke}.pg-v2-baseline-compare{fill:none;stroke:rgba(100,116,139,.72);stroke-width:1;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke}.pg-v2-note{display:block;font-size:.58rem;opacity:.6;margin-top:.2rem}
 .pg-v2-recipe{font-size:.68rem;font-weight:760;letter-spacing:.035em;opacity:.7;margin-bottom:.6rem}.pg-v2-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}.pg-v2-state-grid div{border-top:1px solid rgba(128,128,128,.18);padding-top:.3rem}.pg-v2-state-grid small{display:block;font-size:.59rem;opacity:.62}.pg-v2-state-grid strong{display:block;font-size:.77rem;margin-top:.05rem}.pg-v2-driver{font-size:.72rem;line-height:1.4;margin:.65rem 0 0}.pg-v2-interpreter{font-size:.71rem;line-height:1.4;margin-top:.55rem;padding:.5rem;border-radius:.45rem;background:rgba(128,128,128,.07)}
 @media(max-width:900px){.pg-v2-layout{grid-template-columns:1fr}.pg-v2-chart svg{height:9.5rem}}
 </style>
