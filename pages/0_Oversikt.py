@@ -136,7 +136,7 @@ def _render_context_v2() -> None:
         st.caption(f"snapshot_id {context.snapshot_id}")
 
 
-def _render_market_cards() -> None:
+def _render_live_market_cards() -> None:
     render_v2_overview_market_cards(
         st,
         asset_color=asset_color,
@@ -148,7 +148,7 @@ _render_context_v2()
 
 st.divider()
 st.subheader("Teknisk analyse og prognose · v2")
-_render_market_cards()
+_render_live_market_cards()
 
 st.caption(
     "Overview leser canonical ContextSnapshotV2 for semantisk kontekst og canonical v2 workspace for Technical Core. "
