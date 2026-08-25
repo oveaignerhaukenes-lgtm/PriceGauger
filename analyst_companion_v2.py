@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
 
-COMPANION_RECIPE_V2 = "analyst-companion-v2.2"
+COMPANION_RECIPE_V2 = "analyst-companion-v2.3"
 TA_ACTIVITY_MODES = ("QUIET", "NORMAL", "ACTIVE")
 
 
@@ -19,6 +19,24 @@ class CompanionLevelCandidateV2:
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class TechnicalScenarioV2:
+    scenario_id: str
+    label: str
+    probability: float
+    terminal_return: float
+    lower_return: float
+    upper_return: float
+    path_profile: tuple[tuple[float, float], ...]
+    rationale: str
+    invalidation: str
+
+    def to_record(self) -> dict[str, Any]:
+        record = asdict(self)
+        record["path_profile"] = [[float(x), float(value)] for x, value in self.path_profile]
+        return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,12 +54,14 @@ class CompanionAnalysisV2:
     what_changed: str
     commentary: str
     watch_conditions: tuple[str, ...]
+    scenarios: tuple[TechnicalScenarioV2, ...] = ()
 
     def to_record(self) -> dict[str, Any]:
         record = asdict(self)
         record["watched_support_ids"] = list(self.watched_support_ids)
         record["watched_resistance_ids"] = list(self.watched_resistance_ids)
         record["watch_conditions"] = list(self.watch_conditions)
+        record["scenarios"] = [scenario.to_record() for scenario in self.scenarios]
         return record
 
 
@@ -172,6 +192,7 @@ def build_companion_payload_v2(
     history = tuple(getattr(view, "price_history", ()) or ())
     levels = derive_level_candidates_v2(history)
     recent_history = history[-90:]
+    technical_snapshots = getattr(view, "technical_snapshots", {}) or {}
     return {
         "market": str(view.market),
         "as_of": str(view.as_of),
@@ -179,11 +200,11 @@ def build_companion_payload_v2(
         "activity_mode": _activity_mode(activity_mode),
         "technical": {
             "direction": str(view.direction),
-            "expected_return": float(view.expected_return),
-            "lower_return": float(view.lower_return),
-            "upper_return": float(view.upper_return),
-            "confidence": float(view.confidence),
-            "path_shape": str(view.path_shape),
+            "expected_return_baseline": float(view.expected_return),
+            "lower_return_baseline": float(view.lower_return),
+            "upper_return_baseline": float(view.upper_return),
+            "confidence_baseline": float(view.confidence),
+            "path_shape_baseline": str(view.path_shape),
             "trend_state": str(view.trend_state),
             "momentum_state": str(view.momentum_state),
             "volatility_state": str(view.volatility_state),
@@ -191,10 +212,93 @@ def build_companion_payload_v2(
             "technical_score": float(view.technical_score),
             "horizon_seconds": int(view.horizon_seconds),
         },
+        "technical_snapshots": technical_snapshots,
         "level_candidates": [item.to_record() for item in levels],
         "recent_price_history": [[str(stamp), float(price)] for stamp, price in recent_history],
         "previous_analysis": None if previous_analysis is None else previous_analysis.to_record(),
     }
+
+
+def _validate_scenarios(record: Mapping[str, Any]) -> tuple[TechnicalScenarioV2, ...]:
+    raw = record.get("scenarios") or ()
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("scenarios must be a list")
+    if not 2 <= len(raw) <= 4:
+        raise ValueError("TA Analyst must return between two and four scenarios")
+
+    result: list[TechnicalScenarioV2] = []
+    seen_ids: set[str] = set()
+    probability_total = 0.0
+    for item in raw:
+        if not isinstance(item, Mapping):
+            raise ValueError("each scenario must be an object")
+        scenario_id = str(item.get("scenario_id", "")).strip()
+        label = str(item.get("label", "")).strip()
+        if not scenario_id or scenario_id in seen_ids:
+            raise ValueError("scenario_id must be unique and non-empty")
+        if not label or len(label) > 80:
+            raise ValueError("scenario label is required and must remain concise")
+        seen_ids.add(scenario_id)
+
+        probability = float(item.get("probability", -1.0))
+        if not 0.0 < probability < 1.0:
+            raise ValueError("scenario probability must be between zero and one")
+        probability_total += probability
+
+        terminal = float(item.get("terminal_return", 0.0))
+        lower = float(item.get("lower_return", terminal))
+        upper = float(item.get("upper_return", terminal))
+        if lower > terminal or terminal > upper:
+            raise ValueError("scenario interval must contain terminal_return")
+        if max(abs(lower), abs(upper), abs(terminal)) > 0.25:
+            raise ValueError("scenario return outside bounded technical forecast range")
+
+        raw_profile = item.get("path_profile") or ()
+        if not isinstance(raw_profile, (list, tuple)) or not 4 <= len(raw_profile) <= 8:
+            raise ValueError("scenario path_profile must contain four to eight points")
+        points: list[tuple[float, float]] = []
+        previous_x = -1.0
+        for point in raw_profile:
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise ValueError("scenario path points must be [progress, return]")
+            x = float(point[0])
+            value = float(point[1])
+            if not 0.0 <= x <= 1.0 or x <= previous_x:
+                raise ValueError("scenario path progress must increase from zero to one")
+            if abs(value) > 0.25:
+                raise ValueError("scenario path return outside bounded technical forecast range")
+            previous_x = x
+            points.append((x, value))
+        if abs(points[0][0]) > 1e-9 or abs(points[0][1]) > 0.002:
+            raise ValueError("scenario path must start at current price")
+        if abs(points[-1][0] - 1.0) > 1e-9:
+            raise ValueError("scenario path must end at progress 1.0")
+        if abs(points[-1][1] - terminal) > 0.003:
+            raise ValueError("scenario terminal_return must match the final path point")
+
+        rationale = str(item.get("rationale", "")).strip()
+        invalidation = str(item.get("invalidation", "")).strip()
+        if not rationale or len(rationale) > 360:
+            raise ValueError("scenario rationale is required and must remain concise")
+        if not invalidation or len(invalidation) > 240:
+            raise ValueError("scenario invalidation is required and must remain concise")
+        result.append(
+            TechnicalScenarioV2(
+                scenario_id=scenario_id,
+                label=label,
+                probability=probability,
+                terminal_return=terminal,
+                lower_return=lower,
+                upper_return=upper,
+                path_profile=tuple(points),
+                rationale=rationale,
+                invalidation=invalidation,
+            )
+        )
+
+    if not 0.97 <= probability_total <= 1.03:
+        raise ValueError("scenario probabilities must sum to approximately one")
+    return tuple(sorted(result, key=lambda scenario: scenario.probability, reverse=True))
 
 
 def validate_companion_analysis_v2(
@@ -267,4 +371,5 @@ def validate_companion_analysis_v2(
         what_changed=what_changed,
         commentary=commentary,
         watch_conditions=watch_conditions,
+        scenarios=_validate_scenarios(record),
     )
