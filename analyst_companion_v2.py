@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
 
-COMPANION_RECIPE_V2 = "analyst-companion-v2.1"
+COMPANION_RECIPE_V2 = "analyst-companion-v2.2"
+TA_ACTIVITY_MODES = ("QUIET", "NORMAL", "ACTIVE")
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +89,7 @@ def derive_level_candidates_v2(
 ) -> tuple[CompanionLevelCandidateV2, ...]:
     """Derive deterministic support/resistance candidates from observed history.
 
-    The Companion may choose among these identifiers but must not invent numeric
+    TA Analyst may choose among these identifiers but must not invent numeric
     support/resistance levels in its structured state.
     """
     points: list[tuple[datetime, float]] = []
@@ -155,10 +156,18 @@ def derive_level_candidates_v2(
     return tuple(result)
 
 
+def _activity_mode(value: str) -> str:
+    mode = str(value or "NORMAL").upper()
+    if mode not in TA_ACTIVITY_MODES:
+        raise ValueError(f"activity_mode must be one of {', '.join(TA_ACTIVITY_MODES)}")
+    return mode
+
+
 def build_companion_payload_v2(
     view,
     *,
     previous_analysis: CompanionAnalysisV2 | None = None,
+    activity_mode: str = "NORMAL",
 ) -> dict[str, Any]:
     history = tuple(getattr(view, "price_history", ()) or ())
     levels = derive_level_candidates_v2(history)
@@ -167,6 +176,7 @@ def build_companion_payload_v2(
         "market": str(view.market),
         "as_of": str(view.as_of),
         "recipe": COMPANION_RECIPE_V2,
+        "activity_mode": _activity_mode(activity_mode),
         "technical": {
             "direction": str(view.direction),
             "expected_return": float(view.expected_return),
