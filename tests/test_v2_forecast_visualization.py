@@ -87,10 +87,18 @@ def test_historical_forecasts_render_as_faded_paths_with_their_uncertainty():
 
 
 def test_long_context_history_is_zoomed_to_recent_ghost_window():
-    history = tuple(
+    old_history = tuple(
         (f"2026-08-{day:02d}T10:00:00+00:00", 95.0 + day * 0.2)
-        for day in range(1, 16)
+        for day in range(1, 15)
     )
+    recent_history = (
+        ("2026-08-15T06:00:00+00:00", 99.0),
+        ("2026-08-15T07:00:00+00:00", 99.2),
+        ("2026-08-15T08:00:00+00:00", 99.5),
+        ("2026-08-15T09:00:00+00:00", 99.8),
+        ("2026-08-15T10:00:00+00:00", 100.0),
+    )
+    history = old_history + recent_history
     ghost = SimpleNamespace(
         as_of="2026-08-15T09:00:00+00:00",
         horizon_seconds=3600,
