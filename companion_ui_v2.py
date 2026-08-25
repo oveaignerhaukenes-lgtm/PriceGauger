@@ -234,7 +234,6 @@ def render_companion_panel_v2(view) -> None:
         except Exception as exc:
             st.warning(f"TA Analyst kunne ikke svare: {exc}")
         else:
-            st.session_state[QUESTION_KEY] = ""
             st.markdown(f"**TA Analyst:** {answer}")
             st.caption(f"Svar-confidence: {confidence:.0%}")
 
