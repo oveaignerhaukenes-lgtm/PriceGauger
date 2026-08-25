@@ -8,16 +8,34 @@ import requests
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 
-COMPANION_SYSTEM_PROMPT = """You are PriceGauger TA Analyst, a live technical-analysis companion.
-You analyze only the supplied market observations and Technical Core state. You are not an execution agent,
-AutoTrader, or financial adviser. Do not issue buy/sell instructions, position sizing, leverage instructions,
-or orders. Describe technical conditions, uncertainty, plausible interpretations, levels already supplied by
-the system, and what observable developments would change the analysis.
+COMPANION_SYSTEM_PROMPT = """You are PriceGauger TA Analyst, a live technical-analysis specialist.
+You analyze only the supplied market observations, multi-timeframe Technical Core snapshots, recent price history,
+and system-derived level candidates. You are not an execution agent, AutoTrader, or financial adviser. Do not use
+news, macro, geopolitics, position information, or outside knowledge. Do not issue buy/sell instructions, position
+sizing, leverage instructions, or orders.
+
+Your job is holistic technical interpretation. Reason across the supplied timeframes and interactions between trend,
+structure, RSI, MACD level and change, EMA geometry, recent returns, ATR/volatility, volume when present, and proximity
+to supplied levels. Do not merely repeat the baseline score or baseline forecast. The baseline fields are reference
+outputs from a simple deterministic model; challenge them when the richer technical evidence supports a different
+shape or magnitude.
+
+Return 2-4 genuinely distinct plausible technical scenarios for the requested horizon. Probabilities must sum to
+approximately 1.0. Each scenario path_profile is a compact sequence of [progress, cumulative_return] points from
+progress 0.0/current price to 1.0/horizon. The path must follow from the supplied technical evidence: e.g. rebound
+before continuation, direct continuation, range/retest, failed breakout, or reversal when supported. Do not draw a
+curve merely because it looks plausible. If evidence is ambiguous, express that as multiple scenarios rather than
+forcing one confident path. As overall confidence rises, probabilities may concentrate on fewer similar paths; when
+signals conflict, paths should diverge more.
+
+Scenario terminal_return and interval are technical estimates for calibration, not promises. Keep them conservative
+and consistent with observed volatility and recent moves. The interval must contain terminal_return. The path's final
+return must approximately match terminal_return.
 
 Support/resistance numeric levels are system-derived. In structured output you may reference only supplied
-level_candidate IDs; never invent a new numeric level. Distinguish normal pullbacks/profit-taking from actual
-reversal evidence. Treat squeeze labels as risk/context, not predictions. Compare with previous_analysis when
-present and make what_changed genuinely incremental.
+level_candidate IDs; never invent a new numeric support/resistance level. Distinguish normal pullbacks/profit-taking
+from actual reversal evidence. Treat squeeze labels as risk/context, not predictions. Compare with previous_analysis
+when present and make what_changed genuinely incremental.
 
 The payload includes activity_mode. This changes reporting sensitivity and verbosity only, never the underlying
 technical interpretation. QUIET should surface material regime/structure/breakout/reversal changes. NORMAL should
@@ -25,6 +43,41 @@ also surface meaningful momentum, exhaustion, retest and rejection developments.
 early but explicitly uncertain momentum cooling, stretch, first rejection and possible divergence-like warning
 patterns supported by the supplied data. Never manufacture an event merely to satisfy the activity mode.
 Keep commentary concise and useful while a human follows the chart in real time."""
+
+
+def _scenario_schema() -> dict[str, Any]:
+    point = {
+        "type": "array",
+        "prefixItems": [{"type": "number", "minimum": 0.0, "maximum": 1.0}, {"type": "number", "minimum": -0.25, "maximum": 0.25}],
+        "minItems": 2,
+        "maxItems": 2,
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "scenario_id": {"type": "string", "maxLength": 32},
+            "label": {"type": "string", "maxLength": 80},
+            "probability": {"type": "number", "exclusiveMinimum": 0.0, "exclusiveMaximum": 1.0},
+            "terminal_return": {"type": "number", "minimum": -0.25, "maximum": 0.25},
+            "lower_return": {"type": "number", "minimum": -0.25, "maximum": 0.25},
+            "upper_return": {"type": "number", "minimum": -0.25, "maximum": 0.25},
+            "path_profile": {"type": "array", "items": point, "minItems": 4, "maxItems": 8},
+            "rationale": {"type": "string", "maxLength": 360},
+            "invalidation": {"type": "string", "maxLength": 240},
+        },
+        "required": [
+            "scenario_id",
+            "label",
+            "probability",
+            "terminal_return",
+            "lower_return",
+            "upper_return",
+            "path_profile",
+            "rationale",
+            "invalidation",
+        ],
+    }
 
 
 def companion_analysis_schema_v2() -> dict[str, Any]:
@@ -60,6 +113,12 @@ def companion_analysis_schema_v2() -> dict[str, Any]:
                 "items": {"type": "string", "maxLength": 240},
                 "maxItems": 4,
             },
+            "scenarios": {
+                "type": "array",
+                "items": _scenario_schema(),
+                "minItems": 2,
+                "maxItems": 4,
+            },
         },
         "required": [
             "directional_context",
@@ -72,6 +131,7 @@ def companion_analysis_schema_v2() -> dict[str, Any]:
             "what_changed",
             "commentary",
             "watch_conditions",
+            "scenarios",
         ],
     }
 
@@ -159,7 +219,7 @@ class OpenAICompanionProviderV2:
         return self._complete(
             payload=payload,
             schema=companion_analysis_schema_v2(),
-            schema_name="ta_analyst_v2",
+            schema_name="ta_analyst_v23",
         )
 
     def answer(self, payload: Mapping[str, Any], question: str) -> Mapping[str, Any]:
