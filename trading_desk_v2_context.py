@@ -43,7 +43,7 @@ def _health_for_view(
     *,
     instrument: InstrumentSourceV2 | None,
 ) -> TradingDeskV2Health:
-    """Use the runtime's canonical feed health; never re-age a 30m TA snapshot."""
+    """Use runtime canonical feed health; never re-age a 30m TA snapshot."""
     delay = view.feed_delay_minutes
     if persisted is None:
         status = "NO_DATA"
@@ -56,7 +56,7 @@ def _health_for_view(
         parts.append(f"feed delay={delay:g}m")
 
     if instrument is None:
-        status = "DEGRADED" if status != "NO_DATA" else status
+        status = "DEGRADED"
         parts.append("ingen aktiv/subscribed v2-instrumentkilde")
 
     return TradingDeskV2Health(
