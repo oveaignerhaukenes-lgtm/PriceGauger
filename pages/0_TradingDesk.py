@@ -7,7 +7,8 @@ import streamlit as st
 from autotrader_execution_context_v2 import AutoTraderExecutionContextV2
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
-from realtime_market_data import RealtimeMarketDataStore
+from live_quote_bus import latest_live_pulse
+from realtime_market_data import RealtimeBar1m, RealtimeMarketDataStore, utc
 from time_display_v2 import localize_plotly_figure_v2, oslo_label
 from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars
 from trading_desk_chart import (
@@ -33,11 +34,13 @@ from v2_forecast_visualization import (
 )
 
 
-LIVE_CHART_REFRESH_SECONDS = 30
+LIVE_CHART_REFRESH_SECONDS = 1
+CANONICAL_CHART_CACHE_SECONDS = 30
 V2_ANALYSIS_REFRESH_SECONDS = 60
 QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
+LIVE_PULSE_STATE_KEY = "tradingdesk_live_pulse"
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
@@ -59,6 +62,9 @@ st.markdown(
     div[data-testid="stPlotlyChart"] .modebar-group {
         display: flex !important;
         flex-direction: column !important;
+    }
+    [data-stale="true"] {
+        opacity: 1 !important;
     }
     </style>
     """,
@@ -93,6 +99,8 @@ if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
     st.session_state[TIMEFRAME_STATE_KEY] = "5m"
 if AUTO_REFRESH_STATE_KEY not in st.session_state:
     st.session_state[AUTO_REFRESH_STATE_KEY] = False
+if LIVE_PULSE_STATE_KEY not in st.session_state:
+    st.session_state[LIVE_PULSE_STATE_KEY] = True
 
 
 def _select_timeframe(value: str) -> None:
@@ -225,28 +233,90 @@ with controls_column:
             st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
 
     with st.expander("Status", expanded=False):
-        auto_refresh = st.toggle(
-            "Auto-oppdater TradingDesk",
-            key=AUTO_REFRESH_STATE_KEY,
+        live_pulse = st.toggle(
+            "Live candle · 1s",
+            key=LIVE_PULSE_STATE_KEY,
             help=(
-                "Av som standard for å unngå at Streamlit rerenderer og gråer ut analyse/graf mens du leser. "
-                "Når aktivert oppdateres chart rolig hvert 30. sekund og analyse hvert 60. sekund."
+                "Bruker Saxo-streamens pågående candle som flyktig UI-state. Tickene lagres ikke som historikk; "
+                "bare ferdige canonical 1m-bars persisteres."
             ),
         )
-        if auto_refresh:
+        auto_refresh = st.toggle(
+            "Auto-oppdater analyse",
+            key=AUTO_REFRESH_STATE_KEY,
+            help=(
+                "Av som standard for å unngå unødvendig rerender mens du leser. "
+                "Når aktivert oppdateres workspace/health/TA Analyst hvert 60. sekund."
+            ),
+        )
+        if live_pulse:
             st.caption(
-                f"Canonical chart-bars oppdateres hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
-                f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
+                f"Pågående candle oppdateres hvert {LIVE_CHART_REFRESH_SECONDS}. sekund fra transient stream. "
+                f"Canonical historikk caches i {CANONICAL_CHART_CACHE_SECONDS}s."
             )
         else:
-            st.caption("Auto-oppdatering er av. Siden oppdateres ved brukerhandling eller nettleser-refresh.")
+            st.caption("Live candle er av; chart oppdateres ved brukerhandling/refresh.")
+        if auto_refresh:
+            st.caption(f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund.")
         st.caption(
-            "Chartet og v2-runtime konsumerer canonical 1m-data. Kjent Saxo-forsinkelse vises eksplisitt og regnes ikke som feed-feil når strømmen ellers er konsistent."
+            "Ekte markedsvolum vises bare når Saxo leverer volume. Quote/sample-count blir aldri presentert som volum."
         )
+
+
+@st.cache_data(ttl=CANONICAL_CHART_CACHE_SECONDS, show_spinner=False)
+def _load_completed_1m(
+    name: str,
+    *,
+    range_start: datetime,
+    range_end: datetime,
+    limit: int,
+) -> tuple[RealtimeBar1m, ...]:
+    return tuple(store.load_range(market=name, start=range_start, end=range_end, limit=limit))
+
+
+def _merge_live_bar(
+    name: str,
+    bars: tuple[RealtimeBar1m, ...],
+    *,
+    range_start: datetime,
+    range_end: datetime,
+) -> tuple[RealtimeBar1m, ...]:
+    pulse = latest_live_pulse(name, max_age_seconds=5.0)
+    if pulse is None:
+        return bars
+    live = pulse.bar
+    live_time = utc(live.bar_time)
+    if live_time < range_start or live_time > range_end + timedelta(minutes=1):
+        return bars
+    merged = list(bars)
+    for index in range(len(merged) - 1, -1, -1):
+        current_time = utc(merged[index].bar_time)
+        if current_time == live_time:
+            merged[index] = live
+            return tuple(merged)
+        if current_time < live_time:
+            merged.insert(index + 1, live)
+            return tuple(merged)
+    merged.insert(0, live)
+    return tuple(merged)
 
 
 def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
-    raw = store.load_range(market=name, start=range_start, end=range_end, limit=limit)
+    canonical_start = range_start.replace(second=0, microsecond=0)
+    canonical_end = range_end.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    raw = _load_completed_1m(
+        name,
+        range_start=canonical_start,
+        range_end=canonical_end,
+        limit=limit,
+    )
+    if live_pulse:
+        raw = _merge_live_bar(
+            name,
+            raw,
+            range_start=canonical_start,
+            range_end=canonical_end,
+        )
     return resample_bars(raw, timeframe=timeframe)
 
 
@@ -411,12 +481,11 @@ with chart_column:
             analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis)()
         else:
             _render_v2_analysis()
-
-        chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-        if chart_fragment is not None:
-            chart_fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
-        else:
-            _render_live_chart()
     else:
         _render_v2_analysis()
+
+    chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+    if live_pulse and chart_fragment is not None:
+        chart_fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
+    else:
         _render_live_chart()
