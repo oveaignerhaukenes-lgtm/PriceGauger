@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from autotrader_product_scanner_v2 import _quote_fields, candidate_rows_for_ui_v2
 from autotrader_product_scanner_v2 import ProductScanRowV2
 
@@ -45,3 +47,10 @@ def test_candidate_ui_keeps_pg_eligibility_and_scan_error_explicit():
     assert rendered["AutoTrader eligible"] is False
     assert rendered["Blokkert fordi"] == "NOT_IN_PG_PRODUCT_UNIVERSE"
     assert rendered["Spread %"] > 0
+
+
+def test_scanner_ui_does_not_depend_on_sim_only_trading_adapter():
+    source = Path("autotrader_product_scanner_ui_v2.py").read_text(encoding="utf-8")
+    assert "configured_client" in source
+    assert "configured_trading_client" not in source
+    assert "SaxoTradingSafetyError" not in source

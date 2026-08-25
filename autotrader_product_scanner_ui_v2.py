@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from autotrader_product_scanner_v2 import ProductScanResultV2, candidate_rows_for_ui_v2, scan_saxo_candidates_v2
-from saxo_trading import SaxoTradingSafetyError, configured_trading_client
+from saxo_provider import configured_client
 from trading_desk_products import MARKET_SEARCH_TERMS
 
 
@@ -18,16 +18,19 @@ def render_product_scanner_v2() -> None:
     )
 
     try:
-        trading = configured_trading_client()
-    except SaxoTradingSafetyError as exc:
-        st.error(str(exc))
-        return
+        client = configured_client()
     except Exception as exc:
         st.warning(f"Kunne ikke initialisere Saxo for scanner: {exc}")
         return
-    if trading is None:
-        st.info("Koble til Saxo SIM først for å kjøre Product Scanner.")
+    if client is None:
+        st.info("Koble til Saxo først for å kjøre Product Scanner.")
         return
+
+    environment = "LIVE" if "gateway.saxobank.com/openapi" in client.base_url.lower() else "SIM"
+    st.caption(
+        f"Scanner leser Saxo {environment} read-only. Dette gir ingen execution-authority; "
+        "ordre- og entry-klientene beholder sine egne separate sikkerhetsporter."
+    )
 
     left, right = st.columns([2, 1])
     market = left.selectbox("Marked for scanning", tuple(MARKET_SEARCH_TERMS), key="autotrader_scanner_market")
@@ -36,7 +39,7 @@ def render_product_scanner_v2() -> None:
     if st.button("Scan kandidater", type="primary", key="autotrader_scan_products"):
         with st.spinner(f"Inspiserer opptil {limit} Saxo-kandidater for {market} …"):
             st.session_state[_SCAN_KEY] = scan_saxo_candidates_v2(
-                trading.client,
+                client,
                 market=market,
                 max_products=int(limit),
             )
