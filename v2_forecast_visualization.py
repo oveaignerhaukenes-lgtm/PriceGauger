@@ -15,7 +15,7 @@ def _utc(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _sample(points: tuple[tuple[str, float], ...], limit: int = 180) -> tuple[tuple[str, float], ...]:
+def _sample(points: tuple, limit: int = 180) -> tuple:
     if len(points) <= limit:
         return points
     last = len(points) - 1
@@ -75,16 +75,57 @@ def _history_reference(parsed_history: list[tuple[datetime, float]], when: datet
     return None if not candidates else float(candidates[-1])
 
 
+def _forecast_history_window(
+    full_history: list[tuple[datetime, float]],
+    ghosts: tuple,
+) -> list[tuple[datetime, float]]:
+    """Keep enough context to compare recent forecasts without compressing them into pixels.
+
+    The read model may carry weeks/months of price history. Historical forecast ghosts
+    usually span only hours or days. This renderer therefore chooses a display window
+    around the oldest visible ghost while preserving the full history separately for
+    T0 anchoring. The chart is an evaluation surface, not a long-range context chart.
+    """
+    if not full_history or not ghosts:
+        return list(_sample(tuple(full_history)))
+
+    first_available = full_history[0][0]
+    last_available = full_history[-1][0]
+    valid: list[tuple[datetime, int]] = []
+    for ghost in ghosts:
+        start = _utc(getattr(ghost, "as_of", None))
+        if start is None or start < first_available or start > last_available:
+            continue
+        try:
+            horizon = max(1, int(getattr(ghost, "horizon_seconds", 1)))
+        except (TypeError, ValueError):
+            horizon = 1
+        valid.append((start, horizon))
+    if not valid:
+        return list(_sample(tuple(full_history)))
+
+    earliest = min(start for start, _ in valid)
+    max_horizon = max(horizon for _, horizon in valid)
+    ghost_span = max(float(max_horizon), (last_available - earliest).total_seconds())
+    padding_seconds = max(900.0, float(max_horizon) * 0.35, ghost_span * 0.15)
+    window_start = max(first_available, earliest - timedelta(seconds=padding_seconds))
+    visible = [item for item in full_history if item[0] >= window_start]
+    return list(_sample(tuple(visible)))
+
+
 def render_v2_forecast_chart(view) -> str:
-    history = _sample(tuple(getattr(view, "price_history", ()) or ()))
-    parsed_history: list[tuple[datetime, float]] = []
-    for stamp, price in history:
+    raw_history = tuple(getattr(view, "price_history", ()) or ())
+    full_history: list[tuple[datetime, float]] = []
+    for stamp, price in raw_history:
         parsed = _utc(stamp)
         if parsed is not None:
-            parsed_history.append((parsed, float(price)))
-    parsed_history.sort(key=lambda item: item[0])
+            full_history.append((parsed, float(price)))
+    full_history.sort(key=lambda item: item[0])
 
-    reference_price = parsed_history[-1][1] if parsed_history else 100.0
+    ghosts = tuple(getattr(view, "forecast_ghosts", ()) or ())[-10:]
+    parsed_history = _forecast_history_window(full_history, ghosts)
+
+    reference_price = full_history[-1][1] if full_history else 100.0
     history_prices = [price for _, price in parsed_history]
     expected_return = float(view.expected_return)
     lower_return = float(view.lower_return)
@@ -110,13 +151,13 @@ def render_v2_forecast_chart(view) -> str:
         baseline_raw.append((x, baseline))
 
     ghost_raw: list[tuple[list[tuple[datetime, float]], list[tuple[datetime, float]], list[tuple[datetime, float]]]] = []
-    if parsed_history:
-        history_last = parsed_history[-1][0]
-        for ghost in tuple(getattr(view, "forecast_ghosts", ()) or ())[-10:]:
+    if full_history:
+        history_last = full_history[-1][0]
+        for ghost in ghosts:
             ghost_start = _utc(ghost.as_of)
-            if ghost_start is None or ghost_start < parsed_history[0][0] or ghost_start > history_last:
+            if ghost_start is None or ghost_start < full_history[0][0] or ghost_start > history_last:
                 continue
-            ghost_reference = _history_reference(parsed_history, ghost_start)
+            ghost_reference = _history_reference(full_history, ghost_start)
             if ghost_reference is None:
                 continue
             horizon = max(1, int(ghost.horizon_seconds))
@@ -186,8 +227,6 @@ def render_v2_forecast_chart(view) -> str:
     for index, (center_points, low_points, high_points) in enumerate(ghost_raw):
         if first is None:
             break
-        # Historical uncertainty should remain subordinate to observed price, while
-        # the path itself must remain visible even when it tracked reality closely.
         rank = (index + 1) / max(1, ghost_count)
         line_opacity = 0.20 + 0.38 * rank
         fan_opacity = 0.035 + 0.085 * rank
