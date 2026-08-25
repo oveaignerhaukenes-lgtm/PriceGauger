@@ -88,16 +88,19 @@ def add_swing_bands_to_figure(fig, bars: Sequence[ChartBar]) -> tuple[SwingBand,
     bands = derive_swing_bands(bars)
     for band in bands:
         is_low = band.kind == "LOW"
-        fill = "rgba(22,163,74,0.10)" if is_low else "rgba(220,38,38,0.09)"
-        line = "rgba(22,163,74,0.42)" if is_low else "rgba(220,38,38,0.40)"
+        # Keep structural zones visible without competing with price/forecast data.
+        fill = "rgba(22,163,74,0.045)" if is_low else "rgba(220,38,38,0.040)"
+        line = "rgba(22,163,74,0.20)" if is_low else "rgba(220,38,38,0.18)"
+        annotation = "rgba(22,163,74,0.62)" if is_low else "rgba(220,38,38,0.60)"
         label = "Swing low" if is_low else "Swing high"
         fig.add_hrect(
             y0=band.lower,
             y1=band.upper,
             fillcolor=fill,
-            line={"color": line, "width": 0.8},
+            line={"color": line, "width": 0.6},
             annotation_text=f"{label} · {band.pivot_price:g}",
             annotation_position="right",
+            annotation_font={"color": annotation, "size": 10},
             row=1,
             col=1,
         )
