@@ -55,9 +55,11 @@ class FakeProvider:
     def __init__(self):
         self.analysis_calls = 0
         self.answer_calls = 0
+        self.payloads = []
 
     def analyze(self, payload):
         self.analysis_calls += 1
+        self.payloads.append(payload)
         return _record(payload)
 
     def answer(self, payload, question):
@@ -83,6 +85,18 @@ def test_analysis_may_reference_only_system_derived_level_ids():
         validate_companion_analysis_v2(payload, record)
 
 
+def test_activity_mode_is_explicit_and_does_not_add_nontechnical_inputs():
+    payload = build_companion_payload_v2(_view(), activity_mode="ACTIVE")
+
+    assert payload["activity_mode"] == "ACTIVE"
+    assert "technical" in payload
+    for forbidden in ("news", "telegram", "bias", "position", "execution", "autotrader"):
+        assert forbidden not in payload
+
+    with pytest.raises(ValueError, match="activity_mode"):
+        build_companion_payload_v2(_view(), activity_mode="MAXIMUM")
+
+
 def test_session_refreshes_only_when_snapshot_changes_and_carries_previous_analysis():
     provider = FakeProvider()
     session = CompanionSessionV2.activate("Gold")
@@ -90,6 +104,7 @@ def test_session_refreshes_only_when_snapshot_changes_and_carries_previous_analy
 
     assert refresh_companion_session_v2(session, view=first, provider=provider) is True
     assert provider.analysis_calls == 1
+    assert provider.payloads[-1]["activity_mode"] == "NORMAL"
     assert session.analysis is not None
     assert refresh_companion_session_v2(session, view=first, provider=provider) is False
     assert provider.analysis_calls == 1
@@ -98,6 +113,20 @@ def test_session_refreshes_only_when_snapshot_changes_and_carries_previous_analy
     assert refresh_companion_session_v2(session, view=second, provider=provider) is True
     assert provider.analysis_calls == 2
     assert session.last_snapshot_as_of == second.as_of
+
+
+def test_changing_activity_mode_forces_reinterpretation_without_changing_market():
+    provider = FakeProvider()
+    session = CompanionSessionV2.activate("Gold", activity_mode="QUIET")
+    view = _view()
+
+    refresh_companion_session_v2(session, view=view, provider=provider)
+    assert provider.payloads[-1]["activity_mode"] == "QUIET"
+
+    assert session.set_activity_mode("ACTIVE") is True
+    assert refresh_companion_session_v2(session, view=view, provider=provider) is True
+    assert provider.payloads[-1]["activity_mode"] == "ACTIVE"
+    assert session.market == "Gold"
 
 
 def test_session_is_market_bound_and_has_no_execution_surface():

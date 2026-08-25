@@ -8,8 +8,8 @@ import requests
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 
-COMPANION_SYSTEM_PROMPT = """You are PriceGauger Analyst Companion, a live technical-analysis companion.
-You analyze the supplied market observations and Technical Core state. You are not an execution agent,
+COMPANION_SYSTEM_PROMPT = """You are PriceGauger TA Analyst, a live technical-analysis companion.
+You analyze only the supplied market observations and Technical Core state. You are not an execution agent,
 AutoTrader, or financial adviser. Do not issue buy/sell instructions, position sizing, leverage instructions,
 or orders. Describe technical conditions, uncertainty, plausible interpretations, levels already supplied by
 the system, and what observable developments would change the analysis.
@@ -17,8 +17,14 @@ the system, and what observable developments would change the analysis.
 Support/resistance numeric levels are system-derived. In structured output you may reference only supplied
 level_candidate IDs; never invent a new numeric level. Distinguish normal pullbacks/profit-taking from actual
 reversal evidence. Treat squeeze labels as risk/context, not predictions. Compare with previous_analysis when
-present and make what_changed genuinely incremental. Keep commentary concise and useful while a human follows
-the chart in real time."""
+present and make what_changed genuinely incremental.
+
+The payload includes activity_mode. This changes reporting sensitivity and verbosity only, never the underlying
+technical interpretation. QUIET should surface material regime/structure/breakout/reversal changes. NORMAL should
+also surface meaningful momentum, exhaustion, retest and rejection developments. ACTIVE may additionally mention
+early but explicitly uncertain momentum cooling, stretch, first rejection and possible divergence-like warning
+patterns supported by the supplied data. Never manufacture an event merely to satisfy the activity mode.
+Keep commentary concise and useful while a human follows the chart in real time."""
 
 
 def companion_analysis_schema_v2() -> dict[str, Any]:
@@ -95,7 +101,7 @@ def _response_output_text(payload: Mapping[str, Any]) -> str:
             if content.get("type") == "output_text" and isinstance(content.get("text"), str):
                 return str(content["text"])
             if content.get("type") == "refusal":
-                raise ValueError(f"model refused Companion request: {content.get('refusal', 'unknown reason')}")
+                raise ValueError(f"model refused TA Analyst request: {content.get('refusal', 'unknown reason')}")
     raise ValueError("OpenAI response did not contain output text")
 
 
@@ -139,21 +145,21 @@ class OpenAICompanionProviderV2:
             response.raise_for_status()
         except requests.HTTPError as exc:
             detail = response.text[:500].replace(self.api_key, "[redacted]")
-            raise RuntimeError(f"OpenAI Companion request failed ({response.status_code}): {detail}") from exc
+            raise RuntimeError(f"OpenAI TA Analyst request failed ({response.status_code}): {detail}") from exc
         try:
             raw = response.json()
             parsed = json.loads(_response_output_text(raw))
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise ValueError("OpenAI Companion returned invalid structured JSON") from exc
+            raise ValueError("OpenAI TA Analyst returned invalid structured JSON") from exc
         if not isinstance(parsed, Mapping):
-            raise ValueError("OpenAI Companion structured output must be an object")
+            raise ValueError("OpenAI TA Analyst structured output must be an object")
         return parsed
 
     def analyze(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         return self._complete(
             payload=payload,
             schema=companion_analysis_schema_v2(),
-            schema_name="analyst_companion_v2",
+            schema_name="ta_analyst_v2",
         )
 
     def answer(self, payload: Mapping[str, Any], question: str) -> Mapping[str, Any]:
@@ -166,5 +172,5 @@ class OpenAICompanionProviderV2:
         return self._complete(
             payload=request,
             schema=companion_answer_schema_v2(),
-            schema_name="analyst_companion_answer_v2",
+            schema_name="ta_analyst_answer_v2",
         )

@@ -11,6 +11,13 @@ from openai_companion_provider import OpenAICompanionProviderV2
 
 
 SESSION_KEY = "pg-v2-analyst-companion-session"
+ENABLED_KEY = "pg-v2-ta-analyst-enabled"
+MODE_KEY = "pg-v2-ta-analyst-mode"
+MODE_LABELS = {
+    "QUIET": "Rolig",
+    "NORMAL": "Normal",
+    "ACTIVE": "Aktiv",
+}
 
 
 def _provider() -> OpenAICompanionProviderV2:
@@ -33,73 +40,97 @@ def _level_text(view, analysis) -> str:
     supports = [item for item in supports if item is not None]
     resistances = [item for item in resistances if item is not None]
     if supports:
-        parts.append("Support: " + ", ".join(f"{item.price:g} ({item.level_id})" for item in supports))
+        parts.append("Støtte: " + ", ".join(f"{item.price:g} ({item.level_id})" for item in supports))
     if resistances:
-        parts.append("Resistance: " + ", ".join(f"{item.price:g} ({item.level_id})" for item in resistances))
+        parts.append("Motstand: " + ", ".join(f"{item.price:g} ({item.level_id})" for item in resistances))
     return " · ".join(parts)
 
 
 def render_companion_panel_v2(view) -> None:
-    """Render one session-scoped, analysis-only Companion beside the live v2 chart."""
+    """Render the practical, technical-only TA Analyst for the active market."""
     st.divider()
-    st.subheader("Analyst Companion")
+    st.subheader("TA Analyst")
     st.caption(
-        "Session-basert teknisk analyse for markedet du følger. Companion kan analysere og svare på spørsmål, "
-        "men har ingen ordre-, posisjons- eller AutoTrader-tilgang."
+        "Leser bare chart/Technical Core og følger markedet du har valgt. Ingen nyheter, Bias, posisjon eller execution inngår."
     )
 
-    session = _session()
     has_key = bool(openai_api_key())
+    if ENABLED_KEY not in st.session_state:
+        st.session_state[ENABLED_KEY] = False
+    if MODE_KEY not in st.session_state:
+        st.session_state[MODE_KEY] = "NORMAL"
 
-    if session is None or not session.active:
-        if not has_key:
-            st.info("OPENAI_API_KEY må være konfigurert før Companion kan aktiveres.")
-            return
-        if st.button("Activate Companion", type="primary", key=f"activate-companion:{view.market}"):
-            session = CompanionSessionV2.activate(view.market)
-            st.session_state[SESSION_KEY] = session
-            try:
-                refresh_companion_session_v2(session, view=view, provider=_provider(), force=True)
-            except Exception as exc:
-                st.warning(f"Companion kunne ikke starte analysen: {exc}")
-            st.rerun()
+    controls = st.columns([1, 2])
+    with controls[0]:
+        enabled = st.toggle(
+            "TA Analyst på",
+            key=ENABLED_KEY,
+            disabled=not has_key,
+            help="Aktiver løpende teknisk chart-lesning for valgt marked.",
+        )
+    with controls[1]:
+        activity_mode = st.select_slider(
+            "Følsomhet",
+            options=("QUIET", "NORMAL", "ACTIVE"),
+            value=st.session_state[MODE_KEY],
+            format_func=lambda value: MODE_LABELS[value],
+            key=MODE_KEY,
+            disabled=not enabled,
+            help=(
+                "Rolig viser hovedsakelig regimeskifte, breakout og tydelig reversal. Normal tar også med momentum, "
+                "exhaustion og retest. Aktiv viser tidligere, mer usikre tekniske varsler."
+            ),
+        )
+
+    if not has_key:
+        st.info("OPENAI_API_KEY må være konfigurert før TA Analyst kan aktiveres.")
         return
 
-    if session.market != str(view.market):
-        st.warning(
-            f"Companion-sessionen følger {session.market}. Avslutt den før du aktiverer Companion for {view.market}."
-        )
-        if st.button("End session", key="end-companion-other-market"):
+    session = _session()
+    if not enabled:
+        if session is not None and session.active:
             session.end()
-            st.rerun()
+        st.caption("TA Analyst er av. Forecast og Technical Core fortsetter uavhengig.")
+        return
+
+    # Practical use should follow the market selector without forcing the user to
+    # manage a separate session lifecycle. A market switch starts a fresh blind
+    # technical session and never carries analysis across instruments.
+    if session is None or not session.active or session.market != str(view.market):
+        session = CompanionSessionV2.activate(str(view.market), activity_mode=activity_mode)
+        st.session_state[SESSION_KEY] = session
+        force_refresh = True
+    else:
+        force_refresh = session.set_activity_mode(activity_mode)
+
+    try:
+        refreshed = refresh_companion_session_v2(
+            session,
+            view=view,
+            provider=_provider(),
+            force=force_refresh,
+        )
+        if refreshed:
+            st.caption(f"Oppdatert fra Technical Core · {view.as_of} · {MODE_LABELS[session.activity_mode]}")
+    except Exception as exc:
+        st.warning(f"TA Analyst-oppdatering feilet: {exc}")
+
+    analysis = session.analysis
+    if analysis is None:
+        st.info("TA Analyst venter på første gyldige analyse.")
         return
 
     top_left, top_right = st.columns([3, 1])
     with top_left:
-        st.markdown(f"**Companion active · {html.escape(session.market)}**")
-        st.caption(f"Session {session.session_id[:8]} · activated {session.activated_at}")
+        st.markdown(f"**{html.escape(session.market)} · {MODE_LABELS[session.activity_mode]}**")
     with top_right:
-        if st.button("End session", key=f"end-companion:{view.market}"):
-            session.end()
-            st.rerun()
-
-    try:
-        refreshed = refresh_companion_session_v2(session, view=view, provider=_provider())
-        if refreshed:
-            st.caption(f"Oppdatert fra nytt Technical Core-snapshot: {view.as_of}")
-    except Exception as exc:
-        st.warning(f"Companion-oppdatering feilet: {exc}")
-
-    analysis = session.analysis
-    if analysis is None:
-        st.info("Companion venter på første gyldige analyse.")
-        return
+        st.caption(f"confidence {analysis.confidence:.0%}")
 
     metrics = st.columns(4)
-    metrics[0].metric("Kontekst", analysis.directional_context)
+    metrics[0].metric("Retning", analysis.directional_context)
     metrics[1].metric("Breakout", analysis.breakout_status)
     metrics[2].metric("Pullback", analysis.pullback_type)
-    metrics[3].metric("Squeeze risk", analysis.squeeze_risk)
+    metrics[3].metric("Squeeze", analysis.squeeze_risk)
 
     st.write(analysis.commentary)
     if analysis.what_changed:
@@ -107,19 +138,18 @@ def render_companion_panel_v2(view) -> None:
     levels = _level_text(view, analysis)
     if levels:
         st.caption(levels)
-    st.caption(f"Companion confidence: {analysis.confidence:.0%}")
 
     if analysis.watch_conditions:
-        st.markdown("**Følger nå:**")
+        st.markdown("**Følg med på:**")
         for condition in analysis.watch_conditions:
             st.markdown(f"- {condition}")
 
-    with st.form(f"ask-companion-form:{view.market}", clear_on_submit=True):
+    with st.form(f"ask-ta-analyst-form:{view.market}", clear_on_submit=True):
         question = st.text_input(
-            "Ask Companion",
-            placeholder="F.eks. ser dette ut som en normal pullback eller økende reversal-risk?",
+            "Spør TA Analyst",
+            placeholder="F.eks. normal pullback eller økende reversal-risk?",
         )
-        submitted = st.form_submit_button("Ask Companion")
+        submitted = st.form_submit_button("Spør")
     if submitted:
         try:
             answer, confidence = ask_companion_v2(
@@ -129,14 +159,14 @@ def render_companion_panel_v2(view) -> None:
                 question=question,
             )
         except Exception as exc:
-            st.warning(f"Companion kunne ikke svare: {exc}")
+            st.warning(f"TA Analyst kunne ikke svare: {exc}")
         else:
-            st.markdown(f"**Companion:** {answer}")
+            st.markdown(f"**TA Analyst:** {answer}")
             st.caption(f"Svar-confidence: {confidence:.0%}")
 
     recent_answers = [turn for turn in session.turns if turn.kind == "answer"][-3:]
     if recent_answers:
-        with st.expander("Recent Companion answers"):
+        with st.expander("Siste TA-svar"):
             for turn in reversed(recent_answers):
                 st.write(turn.text)
                 st.caption(turn.as_of)
