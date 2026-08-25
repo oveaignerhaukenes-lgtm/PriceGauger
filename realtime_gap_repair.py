@@ -6,6 +6,7 @@ import threading
 import time
 
 from canonical_market_bars_v2 import QUALITY_BACKFILL
+from live_quote_bus import LiveBarPulse, LiveQuotePublisher
 from realtime_market_data import RealtimeMarketDataStore, RealtimeQuote, minute_start, utc
 from saxo_chart_live import (
     ChartStreamStatus,
@@ -86,6 +87,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         self._chart_reference_to_market: dict[str, str] = {}
         self._chart_delays: dict[str, float | None] = {}
         self._chart_actual_refresh: dict[str, int | None] = {}
+        self._live_quote_publisher = LiveQuotePublisher()
 
     def _save_chart_status(
         self,
@@ -196,6 +198,15 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         previous = self._status_cache.get(quote.market)
         first_observation = previous is None or previous.last_quote_at is None
         super()._consume_quote(quote)
+        live_bar = self.aggregators[quote.market].snapshot()
+        if live_bar is not None:
+            self._live_quote_publisher.publish(
+                LiveBarPulse(
+                    market=quote.market,
+                    observed_at=datetime.now(timezone.utc).isoformat(),
+                    bar=live_bar,
+                )
+            )
         if first_observation:
             current = self._status_cache.get(quote.market)
             if current is not None:
