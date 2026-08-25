@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 
@@ -33,19 +33,19 @@ def _path_progress(shape: str, progress: float) -> float:
     return p
 
 
-def _path_return(view, progress: float) -> float:
+def _profile_return(item, progress: float) -> float:
     p = max(0.0, min(1.0, float(progress)))
-    raw = tuple(getattr(view, "path_profile", ()) or ())
+    raw = tuple(getattr(item, "path_profile", ()) or ())
     profile: list[tuple[float, float]] = []
-    for item in raw:
+    for point in raw:
         try:
-            x, value = item
+            x, value = point
             profile.append((max(0.0, min(1.0, float(x))), float(value)))
         except (TypeError, ValueError):
             continue
-    profile.sort(key=lambda item: item[0])
+    profile.sort(key=lambda point: point[0])
     if not profile:
-        return float(view.expected_return) * _path_progress(view.path_shape, p)
+        return float(item.expected_return) * _path_progress(item.path_shape, p)
     if p <= profile[0][0]:
         return profile[0][1]
     if p >= profile[-1][0]:
@@ -58,12 +58,21 @@ def _path_return(view, progress: float) -> float:
     return profile[-1][1]
 
 
+def _path_return(view, progress: float) -> float:
+    return _profile_return(view, progress)
+
+
 def _points(points: Iterable[tuple[float, float]]) -> str:
     return " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
 
 
 def _state_label(value: str) -> str:
     return str(value or "UNDETERMINED").replace("_", " ")
+
+
+def _history_reference(parsed_history: list[tuple[datetime, float]], when: datetime) -> float | None:
+    candidates = [price for stamp, price in parsed_history if stamp <= when]
+    return None if not candidates else float(candidates[-1])
 
 
 def render_v2_forecast_chart(view) -> str:
@@ -100,7 +109,50 @@ def render_v2_forecast_chart(view) -> str:
         upper_raw.append((x, high))
         baseline_raw.append((x, baseline))
 
-    scale_values = history_prices + [price for _, price in lower_raw] + [price for _, price in upper_raw]
+    # Freeze historical forecasts on the same time/price coordinate system as the
+    # observed history. Each ghost is anchored only to information available at its
+    # own as_of time; no future price is used as its reference.
+    ghost_raw: list[tuple[list[tuple[datetime, float]], list[tuple[datetime, float]], list[tuple[datetime, float]]]] = []
+    if parsed_history:
+        history_last = parsed_history[-1][0]
+        for ghost in tuple(getattr(view, "forecast_ghosts", ()) or ())[-10:]:
+            ghost_start = _utc(ghost.as_of)
+            if ghost_start is None or ghost_start < parsed_history[0][0] or ghost_start > history_last:
+                continue
+            ghost_reference = _history_reference(parsed_history, ghost_start)
+            if ghost_reference is None:
+                continue
+            horizon = max(1, int(ghost.horizon_seconds))
+            ghost_end = ghost_start + timedelta(seconds=horizon)
+            visible_end = min(ghost_end, history_last)
+            visible_fraction = max(0.0, min(1.0, (visible_end - ghost_start).total_seconds() / horizon))
+            if visible_fraction <= 0.0:
+                continue
+            center_points: list[tuple[datetime, float]] = []
+            low_points: list[tuple[datetime, float]] = []
+            high_points: list[tuple[datetime, float]] = []
+            for index in range(step_count + 1):
+                p = visible_fraction * index / step_count
+                stamp = ghost_start + timedelta(seconds=horizon * p)
+                path_return = _profile_return(ghost, p)
+                center = ghost_reference * (1.0 + path_return)
+                low = ghost_reference * (
+                    1.0 + path_return + (float(ghost.lower_return) - float(ghost.expected_return)) * p
+                )
+                high = ghost_reference * (
+                    1.0 + path_return + (float(ghost.upper_return) - float(ghost.expected_return)) * p
+                )
+                center_points.append((stamp, center))
+                low_points.append((stamp, low))
+                high_points.append((stamp, high))
+            ghost_raw.append((center_points, low_points, high_points))
+
+    ghost_prices = [
+        price
+        for center_points, low_points, high_points in ghost_raw
+        for _, price in (*center_points, *low_points, *high_points)
+    ]
+    scale_values = history_prices + ghost_prices + [price for _, price in lower_raw] + [price for _, price in upper_raw]
     if not scale_values:
         scale_values = [reference_price]
     low_price = min(scale_values)
@@ -113,19 +165,43 @@ def render_v2_forecast_chart(view) -> str:
         return 92.0 - (float(price) - low_price) / (high_price - low_price) * 80.0
 
     history_xy: list[tuple[float, float]] = []
+    first = parsed_history[0][0] if parsed_history else None
+    last = parsed_history[-1][0] if parsed_history else None
+    duration = max(1.0, (last - first).total_seconds()) if first is not None and last is not None else 1.0
+
+    def history_x(stamp: datetime) -> float:
+        assert first is not None
+        return 2.0 + 63.0 * (stamp - first).total_seconds() / duration
+
     if parsed_history:
-        first = parsed_history[0][0]
-        last = parsed_history[-1][0]
-        duration = max(1.0, (last - first).total_seconds())
         for stamp, price in parsed_history:
-            x = 2.0 + 63.0 * (stamp - first).total_seconds() / duration
-            history_xy.append((x, ymap(price)))
+            history_xy.append((history_x(stamp), ymap(price)))
 
     forecast_xy = [(x, ymap(price)) for x, price in forecast_raw]
     lower_xy = [(x, ymap(price)) for x, price in lower_raw]
     upper_xy = [(x, ymap(price)) for x, price in upper_raw]
     baseline_xy = [(x, ymap(price)) for x, price in baseline_raw]
     fan = _points(tuple(upper_xy) + tuple(reversed(lower_xy)))
+
+    ghost_markup_parts: list[str] = []
+    ghost_count = len(ghost_raw)
+    for index, (center_points, low_points, high_points) in enumerate(ghost_raw):
+        if first is None:
+            break
+        # Older ghosts are deliberately faint; newer ghosts are progressively
+        # stronger so convergence or repeated misses are visible without spaghetti.
+        rank = (index + 1) / max(1, ghost_count)
+        line_opacity = 0.08 + 0.22 * rank
+        fan_opacity = 0.018 + 0.052 * rank
+        center_xy = [(history_x(stamp), ymap(price)) for stamp, price in center_points]
+        low_xy = [(history_x(stamp), ymap(price)) for stamp, price in low_points]
+        high_xy = [(history_x(stamp), ymap(price)) for stamp, price in high_points]
+        ghost_fan = _points(tuple(high_xy) + tuple(reversed(low_xy)))
+        ghost_markup_parts.append(
+            f'<polygon class="pg-v2-ghost-fan" style="fill-opacity:{fan_opacity:.3f}" points="{ghost_fan}" />'
+            f'<polyline class="pg-v2-ghost-path" style="stroke-opacity:{line_opacity:.3f}" points="{_points(center_xy)}" />'
+        )
+    ghost_markup = "".join(ghost_markup_parts)
 
     history_markup = ""
     if len(history_xy) >= 2:
@@ -145,16 +221,18 @@ def render_v2_forecast_chart(view) -> str:
     delay_label = "live" if delay is None or float(delay) <= 0 else f"delay {float(delay):g}m"
     header_right = f"{recipe} · {html.escape(delay_label)}"
     path = html.escape(_state_label(view.path_shape))
+    ghost_note = f" · {ghost_count} ghosts" if ghost_count else ""
     empty_note = "" if parsed_history else '<span class="pg-v2-note">Ingen canonical prishistorikk i read-modellen; grafen er indeksert til 100.</span>'
 
     return (
         '<div class="pg-v2-chart" data-recipe="' + recipe + '">'
         '<div class="pg-v2-chart-head"><span>PROGNOSE VS. VIRKELIGHET</span>'
         f'<span>{header_right}</span></div>'
-        '<div class="pg-v2-zones"><span>HISTORIKK</span><span>NÅ → PROGNOSE</span></div>'
+        '<div class="pg-v2-zones"><span>HISTORIKK' + ghost_note + '</span><span>NÅ → PROGNOSE</span></div>'
         '<svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" '
-        'aria-label="Persisted v2 technical forecast with observed price history and uncertainty">'
+        'aria-label="Persisted v2 technical forecast with observed history, historical forecasts and uncertainty">'
         '<line class="pg-v2-now" x1="66" x2="66" y1="7" y2="95" />'
+        f'{ghost_markup}'
         f'<polygon class="pg-v2-fan" points="{fan}" />'
         f'{history_markup}{baseline_markup}'
         f'<polyline class="pg-v2-path" points="{_points(forecast_xy)}" />'
@@ -208,7 +286,7 @@ V2_FORECAST_CSS = """
 .pg-v2-chart,.pg-v2-explain{border:1px solid rgba(128,128,128,.24);border-radius:.7rem;background:rgba(128,128,128,.025);padding:.65rem .75rem}
 .pg-v2-chart-head,.pg-v2-chart-foot,.pg-v2-zones{display:flex;justify-content:space-between;gap:.6rem;font-size:.66rem;line-height:1.25}
 .pg-v2-chart-head{font-weight:760;letter-spacing:.055em;opacity:.74}.pg-v2-zones{font-size:.56rem;font-weight:700;opacity:.55;margin-top:.25rem}.pg-v2-zones span:last-child{width:32%;text-align:center}
-.pg-v2-chart svg{display:block;width:100%;height:12rem;margin:.05rem 0}.pg-v2-now{stroke:rgba(71,85,105,.7);stroke-width:.8;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke}.pg-v2-history{fill:none;stroke:currentColor;stroke-width:1.55;vector-effect:non-scaling-stroke}.pg-v2-fan{fill:var(--primary-color,#4f6f9f);fill-opacity:.13;stroke:none}.pg-v2-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:2;vector-effect:non-scaling-stroke}.pg-v2-baseline-compare{fill:none;stroke:rgba(100,116,139,.72);stroke-width:1;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke}.pg-v2-note{display:block;font-size:.58rem;opacity:.6;margin-top:.2rem}
+.pg-v2-chart svg{display:block;width:100%;height:12rem;margin:.05rem 0}.pg-v2-now{stroke:rgba(71,85,105,.7);stroke-width:.8;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke}.pg-v2-history{fill:none;stroke:currentColor;stroke-width:1.55;vector-effect:non-scaling-stroke}.pg-v2-fan{fill:var(--primary-color,#4f6f9f);fill-opacity:.13;stroke:none}.pg-v2-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:2;vector-effect:non-scaling-stroke}.pg-v2-ghost-fan{fill:var(--primary-color,#4f6f9f);stroke:none}.pg-v2-ghost-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:1.15;stroke-dasharray:1.3 1.1;vector-effect:non-scaling-stroke}.pg-v2-baseline-compare{fill:none;stroke:rgba(100,116,139,.72);stroke-width:1;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke}.pg-v2-note{display:block;font-size:.58rem;opacity:.6;margin-top:.2rem}
 .pg-v2-recipe{font-size:.68rem;font-weight:760;letter-spacing:.035em;opacity:.7;margin-bottom:.6rem}.pg-v2-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}.pg-v2-state-grid div{border-top:1px solid rgba(128,128,128,.18);padding-top:.3rem}.pg-v2-state-grid small{display:block;font-size:.59rem;opacity:.62}.pg-v2-state-grid strong{display:block;font-size:.77rem;margin-top:.05rem}.pg-v2-driver{font-size:.72rem;line-height:1.4;margin:.65rem 0 0}.pg-v2-interpreter{font-size:.71rem;line-height:1.4;margin-top:.55rem;padding:.5rem;border-radius:.45rem;background:rgba(128,128,128,.07)}
 @media(max-width:900px){.pg-v2-layout{grid-template-columns:1fr}.pg-v2-chart svg{height:9.5rem}}
 </style>

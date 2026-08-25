@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Iterable, Mapping
 
 from database import connect
@@ -10,6 +11,17 @@ from realtime_market_data import RealtimeMarketDataStore
 from recipe_registry_v2 import TA_INTERPRETER_V1, TA_ONLY_V1
 from workspace_composer_v2 import AnalysisRecipeV2, compose_forecast
 from workspace_loader_v2 import load_workspace_v2
+
+
+@dataclass(frozen=True, slots=True)
+class ForecastGhostV2:
+    as_of: str
+    horizon_seconds: int
+    expected_return: float
+    lower_return: float
+    upper_return: float
+    path_shape: str
+    path_profile: tuple[tuple[float, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +55,7 @@ class OverviewTechnicalV2:
     expected_high_return: float | None = None
     price_history: tuple[tuple[str, float], ...] = ()
     feed_delay_minutes: float | None = None
+    forecast_ghosts: tuple[ForecastGhostV2, ...] = ()
 
 
 def _closest_horizon(available: Iterable[int], requested: int | None) -> int:
@@ -69,13 +82,9 @@ def project_workspace_v2(
     enable_interpreter: bool = False,
     price_history: Iterable[tuple[str, float]] = (),
     feed_delay_minutes: float | None = None,
+    forecast_ghosts: Iterable[ForecastGhostV2] = (),
 ) -> OverviewTechnicalV2:
-    """Project one coherent persisted workspace into a visualization read model.
-
-    Layer switching remains composition-only. The forecast path is derived only
-    from already-persisted Technical Core state and the selected composed terminal
-    forecast; this function does not invoke Saxo, an LLM or persistence.
-    """
+    """Project one coherent persisted workspace into a visualization read model."""
     horizon = _closest_horizon(workspace.technical_baselines, requested_horizon_seconds)
     layer_key, interpreter = _matching_interpreter(workspace)
     use_interpreter = bool(enable_interpreter and interpreter is not None and layer_key is not None)
@@ -143,6 +152,7 @@ def project_workspace_v2(
         expected_high_return=path.expected_high_return,
         price_history=tuple(price_history),
         feed_delay_minutes=None if feed_delay_minutes is None else float(feed_delay_minutes),
+        forecast_ghosts=tuple(forecast_ghosts),
     )
 
 
@@ -155,6 +165,87 @@ def _feed_delay_by_market(db_path: str) -> dict[str, float | None]:
         status.market: (None if status.delay_minutes is None else float(status.delay_minutes))
         for status in statuses
     }
+
+
+def _path_profile_from_spec(raw) -> tuple[tuple[float, float], ...]:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw = {}
+    if not isinstance(raw, dict):
+        return ()
+    points = raw.get("path_profile") or ()
+    result: list[tuple[float, float]] = []
+    for item in points:
+        try:
+            x, value = item
+            result.append((float(x), float(value)))
+        except (TypeError, ValueError):
+            continue
+    return tuple(result)
+
+
+def _recent_forecast_ghosts(
+    db_path: str,
+    *,
+    market_id: int,
+    current_as_of: str,
+    horizon_seconds: int,
+    limit: int = 8,
+) -> tuple[ForecastGhostV2, ...]:
+    """Load prior immutable TA-only forecasts for visual forecast-vs-reality comparison."""
+    with connect(db_path) as db:
+        rows = db.execute(
+            """
+            SELECT as_of, horizon_seconds,
+                   COALESCE(composed_return, baseline_return, 0.0) AS expected_return,
+                   lower_return, upper_return, path_spec_json
+            FROM pg_v2_forecasts
+            WHERE market_id = ?
+              AND horizon_seconds = ?
+              AND analysis_recipe_id = ?
+              AND as_of < ?
+            ORDER BY as_of DESC
+            LIMIT ?
+            """,
+            (
+                int(market_id),
+                int(horizon_seconds),
+                str(TA_ONLY_V1.recipe_id),
+                current_as_of,
+                max(1, min(10, int(limit))),
+            ),
+        ).fetchall()
+
+    result: list[ForecastGhostV2] = []
+    for row in rows:
+        get = (lambda key, index: row[key]) if isinstance(row, dict) else (lambda key, index: row[index])
+        raw_spec = get("path_spec_json", 5)
+        if isinstance(raw_spec, str):
+            try:
+                spec = json.loads(raw_spec)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                spec = {}
+        elif isinstance(raw_spec, dict):
+            spec = raw_spec
+        else:
+            spec = {}
+        expected = float(get("expected_return", 2) or 0.0)
+        lower = get("lower_return", 3)
+        upper = get("upper_return", 4)
+        result.append(
+            ForecastGhostV2(
+                as_of=str(get("as_of", 0)),
+                horizon_seconds=int(get("horizon_seconds", 1)),
+                expected_return=expected,
+                lower_return=expected if lower is None else float(lower),
+                upper_return=expected if upper is None else float(upper),
+                path_shape=str(spec.get("path_shape") or "DRIFT"),
+                path_profile=_path_profile_from_spec(spec),
+            )
+        )
+    return tuple(reversed(result))
 
 
 def load_v2_overview_snapshots(
@@ -192,12 +283,20 @@ def load_v2_overview_snapshots(
                 technical_limit=360,
                 recent_1m_limit=600,
             )
+            ghosts = _recent_forecast_ghosts(
+                db_path,
+                market_id=market_id,
+                current_as_of=workspace.as_of,
+                horizon_seconds=horizon,
+                limit=8,
+            )
             result[market] = project_workspace_v2(
                 workspace,
                 requested_horizon_seconds=horizon,
                 enable_interpreter=bool(interpreter_by_market.get(market, False)),
                 price_history=history,
                 feed_delay_minutes=delay_by_market.get(market),
+                forecast_ghosts=ghosts,
             )
         except (KeyError, LookupError):
             continue
