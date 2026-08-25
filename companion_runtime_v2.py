@@ -35,6 +35,7 @@ class CompanionSessionV2:
     activity_mode: str = "NORMAL"
     last_snapshot_as_of: str | None = None
     analysis: CompanionAnalysisV2 | None = None
+    analysis_history: list[CompanionAnalysisV2] = field(default_factory=list)
     turns: list[CompanionTurnV2] = field(default_factory=list)
     last_error: str | None = None
 
@@ -68,6 +69,14 @@ class CompanionSessionV2:
         if len(self.turns) > 12:
             del self.turns[:-12]
 
+    def append_analysis(self, analysis: CompanionAnalysisV2) -> None:
+        if self.analysis_history and self.analysis_history[-1].as_of == analysis.as_of:
+            self.analysis_history[-1] = analysis
+        else:
+            self.analysis_history.append(analysis)
+        if len(self.analysis_history) > 10:
+            del self.analysis_history[:-10]
+
 
 def refresh_companion_session_v2(
     session: CompanionSessionV2,
@@ -97,6 +106,7 @@ def refresh_companion_session_v2(
         raise
 
     session.analysis = analysis
+    session.append_analysis(analysis)
     session.last_snapshot_as_of = str(view.as_of)
     session.last_error = None
     session.append_turn("analysis", analysis.commentary, as_of=str(view.as_of))
