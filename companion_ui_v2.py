@@ -8,6 +8,7 @@ from analyst_companion_v2 import derive_level_candidates_v2
 from companion_runtime_v2 import CompanionSessionV2, ask_companion_v2, refresh_companion_session_v2
 from config import openai_api_key, openai_companion_model
 from openai_companion_provider import OpenAICompanionProviderV2
+from ta_scenario_visualization_v2 import TA_SCENARIO_CSS, render_ta_scenario_chart_v2
 
 
 SESSION_KEY = "pg-v2-analyst-companion-session"
@@ -48,6 +49,7 @@ def _level_text(view, analysis) -> str:
 
 def render_companion_panel_v2(view) -> None:
     """Render the practical, technical-only TA Analyst for the active market."""
+    st.markdown(TA_SCENARIO_CSS, unsafe_allow_html=True)
     st.divider()
     st.subheader("TA Analyst")
     st.caption(
@@ -93,9 +95,8 @@ def render_companion_panel_v2(view) -> None:
         st.caption("TA Analyst er av. Forecast og Technical Core fortsetter uavhengig.")
         return
 
-    # Practical use should follow the market selector without forcing the user to
-    # manage a separate session lifecycle. A market switch starts a fresh blind
-    # technical session and never carries analysis across instruments.
+    # Practical use follows the market selector. A market switch starts a fresh,
+    # blind technical session and never carries interpretation across instruments.
     if session is None or not session.active or session.market != str(view.market):
         session = CompanionSessionV2.activate(str(view.market), activity_mode=activity_mode)
         st.session_state[SESSION_KEY] = session
@@ -131,6 +132,20 @@ def render_companion_panel_v2(view) -> None:
     metrics[1].metric("Breakout", analysis.breakout_status)
     metrics[2].metric("Pullback", analysis.pullback_type)
     metrics[3].metric("Squeeze", analysis.squeeze_risk)
+
+    scenario_chart = render_ta_scenario_chart_v2(view, analysis)
+    if scenario_chart:
+        st.markdown(scenario_chart, unsafe_allow_html=True)
+        st.caption(
+            "Scenarioene er strukturert LLM-tolkning av den tekniske inputen. Den enkle deterministiske v2-prognosen over beholdes som baseline/benchmark."
+        )
+        with st.expander("Scenario-grunnlag", expanded=False):
+            for scenario in analysis.scenarios:
+                st.markdown(f"**{scenario.label} · {scenario.probability:.0%}**")
+                st.write(scenario.rationale)
+                st.caption(
+                    f"Terminal {scenario.terminal_return * 100:+.3f}% · intervall {scenario.lower_return * 100:+.3f}% … {scenario.upper_return * 100:+.3f}% · invalidasjon: {scenario.invalidation}"
+                )
 
     st.write(analysis.commentary)
     if analysis.what_changed:
