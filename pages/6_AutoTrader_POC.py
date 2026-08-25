@@ -5,6 +5,7 @@ import streamlit as st
 from autotrader_live_close_ui_v1 import render_live_close_v1
 from autotrader_macd_dry_run_ui_v2 import render_macd_dry_run_monitor_v2
 from autotrader_product_explorer_ui import render_saxo_product_explorer
+from autotrader_product_scanner_ui_v2 import render_product_scanner_v2
 from autotrader_risk_control_ui_v2 import render_risk_control_monitor_v2
 from build_info import render_build_badge
 from trading_desk_product_panel import render_saxo_product_panel
@@ -32,6 +33,9 @@ render_risk_control_monitor_v2()
 
 st.divider()
 render_macd_dry_run_monitor_v2()
+
+st.divider()
+render_product_scanner_v2()
 
 st.divider()
 markets = tuple(MARKET_SEARCH_TERMS.keys())
