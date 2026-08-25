@@ -31,3 +31,35 @@ def oslo_label(value, *, include_date: bool = True) -> str:
     if include_date:
         return f"{parsed:%d.%m.%Y %H:%M} {suffix}"
     return f"{parsed:%H:%M} {suffix}"
+
+
+def localize_plotly_figure_v2(fig) -> None:
+    """Mutate a Plotly figure for Norwegian wall-clock presentation only.
+
+    Stored timestamps remain UTC. Trace x-values are converted at the final UI
+    boundary so analysis, resampling and database contracts stay timezone-neutral.
+    """
+    for trace in getattr(fig, "data", ()):
+        values = getattr(trace, "x", None)
+        if values is not None:
+            converted = []
+            for value in values:
+                try:
+                    converted.append(oslo_chart_time(value))
+                except (TypeError, ValueError):
+                    converted.append(value)
+            trace.x = tuple(converted)
+        hover = getattr(trace, "hovertemplate", None)
+        if isinstance(hover, str) and "UTC" in hover:
+            trace.hovertemplate = hover.replace("UTC", "norsk tid")
+
+    layout = getattr(fig, "layout", None)
+    if layout is None:
+        return
+    for key in layout:
+        if not str(key).startswith("xaxis"):
+            continue
+        axis = layout[key]
+        title = getattr(getattr(axis, "title", None), "text", None)
+        if title == "Tid · UTC":
+            axis.title.text = "Tid · norsk tid"
