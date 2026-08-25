@@ -21,8 +21,8 @@ outputs from a simple deterministic model; challenge them when the richer techni
 shape or magnitude.
 
 Return 2-4 genuinely distinct plausible technical scenarios for the requested horizon. Probabilities must sum to
-approximately 1.0. Each scenario path_profile is a compact sequence of [progress, cumulative_return] points from
-progress 0.0/current price to 1.0/horizon. The path must follow from the supplied technical evidence: e.g. rebound
+approximately 1.0. Each scenario path_profile is a compact sequence of objects with progress and cumulative_return,
+from progress 0.0/current price to 1.0/horizon. The path must follow from supplied technical evidence: e.g. rebound
 before continuation, direct continuation, range/retest, failed breakout, or reversal when supported. Do not draw a
 curve merely because it looks plausible. If evidence is ambiguous, express that as multiple scenarios rather than
 forcing one confident path. As overall confidence rises, probabilities may concentrate on fewer similar paths; when
@@ -47,10 +47,13 @@ Keep commentary concise and useful while a human follows the chart in real time.
 
 def _scenario_schema() -> dict[str, Any]:
     point = {
-        "type": "array",
-        "prefixItems": [{"type": "number", "minimum": 0.0, "maximum": 1.0}, {"type": "number", "minimum": -0.25, "maximum": 0.25}],
-        "minItems": 2,
-        "maxItems": 2,
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "progress": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "cumulative_return": {"type": "number", "minimum": -0.25, "maximum": 0.25},
+        },
+        "required": ["progress", "cumulative_return"],
     }
     return {
         "type": "object",
@@ -58,7 +61,7 @@ def _scenario_schema() -> dict[str, Any]:
         "properties": {
             "scenario_id": {"type": "string", "maxLength": 32},
             "label": {"type": "string", "maxLength": 80},
-            "probability": {"type": "number", "exclusiveMinimum": 0.0, "exclusiveMaximum": 1.0},
+            "probability": {"type": "number", "minimum": 0.001, "maximum": 0.999},
             "terminal_return": {"type": "number", "minimum": -0.25, "maximum": 0.25},
             "lower_return": {"type": "number", "minimum": -0.25, "maximum": 0.25},
             "upper_return": {"type": "number", "minimum": -0.25, "maximum": 0.25},
