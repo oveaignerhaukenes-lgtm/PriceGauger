@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from v2_forecast_visualization import _path_return, render_v2_forecast_chart, render_v2_technical_explanation
 
 
-def _view(*, interpreted: bool = False, counter_move: bool = False):
+def _view(*, interpreted: bool = False, counter_move: bool = False, ghosts=()):
     expected = 0.006 if interpreted else 0.004
     path_profile = (
         (0.0, 0.0),
@@ -44,10 +44,13 @@ def _view(*, interpreted: bool = False, counter_move: bool = False):
             if counter_move
             else "Trend, momentum og struktur støtter terminalretningen: relativt jevn trendfortsettelse."
         ),
+        feed_delay_minutes=10.0,
+        forecast_ghosts=tuple(ghosts),
         price_history=(
-            ("2026-08-15T09:57:00+00:00", 100.0),
-            ("2026-08-15T09:58:00+00:00", 100.2),
-            ("2026-08-15T09:59:00+00:00", 100.1),
+            ("2026-08-15T08:00:00+00:00", 99.4),
+            ("2026-08-15T08:30:00+00:00", 99.8),
+            ("2026-08-15T09:00:00+00:00", 100.0),
+            ("2026-08-15T09:30:00+00:00", 100.2),
             ("2026-08-15T10:00:00+00:00", 100.3),
         ),
     )
@@ -61,7 +64,27 @@ def test_chart_keeps_forecast_as_primary_object_with_history_and_uncertainty():
     assert 'class="pg-v2-path"' in markup
     assert "NÅ → PROGNOSE" in markup
     assert "TA-only v1" in markup
+    assert "delay 10m" in markup
     assert "pg-v2-baseline-compare" not in markup
+
+
+def test_historical_forecasts_render_as_faded_paths_with_their_uncertainty():
+    ghost = SimpleNamespace(
+        as_of="2026-08-15T08:30:00+00:00",
+        horizon_seconds=3600,
+        expected_return=0.003,
+        lower_return=-0.002,
+        upper_return=0.008,
+        path_shape="TREND_CONTINUATION",
+        path_profile=(),
+    )
+    markup = render_v2_forecast_chart(_view(ghosts=(ghost,)))
+
+    assert 'class="pg-v2-ghost-path"' in markup
+    assert 'class="pg-v2-ghost-fan"' in markup
+    assert "1 ghosts" in markup
+    assert "stroke-opacity:" in markup
+    assert "fill-opacity:" in markup
 
 
 def test_interpreter_view_shows_baseline_comparison_without_replacing_forecast():
