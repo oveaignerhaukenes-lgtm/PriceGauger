@@ -12,6 +12,7 @@ from db_workspace_persistence_v2 import (
     persist_technical_recipe,
     persist_technical_state,
 )
+from forecast_path_model_v2 import build_forecast_path_v2
 from market_history_store import MarketHistoryStore
 from technical_core_v2 import (
     TECHNICAL_CORE_V2_RECIPE,
@@ -86,6 +87,29 @@ def produce_technical_runtime_v2(
     )
 
 
+def _frozen_path_spec(produced: ProducedTechnicalRuntimeV2, baseline: TechnicalBaselineForecast) -> dict[str, object]:
+    """Capture exactly the phase path that the UI can render for this T0 forecast."""
+    path = build_forecast_path_v2(
+        state=produced.technical_state,
+        horizon_seconds=int(baseline.horizon_seconds),
+        direction=baseline.direction,
+        expected_return=float(baseline.expected_return),
+        lower_return=float(baseline.lower_return),
+        upper_return=float(baseline.upper_return),
+        path_shape=baseline.path_shape,
+    )
+    return {
+        "path_profile": [[float(x), float(value)] for x, value in path.points],
+        "path_rationale": path.rationale,
+        "path_phases": list(path.phases),
+        "path_source_timeframe": path.source_timeframe,
+        "expected_low_return": path.expected_low_return,
+        "expected_high_return": path.expected_high_return,
+        "path_snapshot_version": "forecast-path-v2",
+        "frozen_at_generation": True,
+    }
+
+
 def persist_produced_runtime_v2(
     produced: ProducedTechnicalRuntimeV2,
     *,
@@ -120,4 +144,5 @@ def persist_produced_runtime_v2(
             technical_state_id=technical_state_id,
             analysis_recipe_id=analysis_recipe_id,
             baseline=baseline,
+            frozen_path_spec=_frozen_path_spec(produced, baseline),
         )
