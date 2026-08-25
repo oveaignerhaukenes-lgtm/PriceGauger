@@ -6,6 +6,7 @@ from typing import Iterable, Mapping
 from database import connect
 from forecast_path_model_v2 import build_forecast_path_v2
 from overview_chart_history import load_overview_chart_history
+from realtime_market_data import RealtimeMarketDataStore
 from recipe_registry_v2 import TA_INTERPRETER_V1, TA_ONLY_V1
 from workspace_composer_v2 import AnalysisRecipeV2, compose_forecast
 from workspace_loader_v2 import load_workspace_v2
@@ -41,6 +42,7 @@ class OverviewTechnicalV2:
     expected_low_return: float | None = None
     expected_high_return: float | None = None
     price_history: tuple[tuple[str, float], ...] = ()
+    feed_delay_minutes: float | None = None
 
 
 def _closest_horizon(available: Iterable[int], requested: int | None) -> int:
@@ -66,6 +68,7 @@ def project_workspace_v2(
     requested_horizon_seconds: int | None = None,
     enable_interpreter: bool = False,
     price_history: Iterable[tuple[str, float]] = (),
+    feed_delay_minutes: float | None = None,
 ) -> OverviewTechnicalV2:
     """Project one coherent persisted workspace into a visualization read model.
 
@@ -139,7 +142,19 @@ def project_workspace_v2(
         expected_low_return=path.expected_low_return,
         expected_high_return=path.expected_high_return,
         price_history=tuple(price_history),
+        feed_delay_minutes=None if feed_delay_minutes is None else float(feed_delay_minutes),
     )
+
+
+def _feed_delay_by_market(db_path: str) -> dict[str, float | None]:
+    try:
+        statuses = RealtimeMarketDataStore(db_path).load_statuses()
+    except Exception:
+        return {}
+    return {
+        status.market: (None if status.delay_minutes is None else float(status.delay_minutes))
+        for status in statuses
+    }
 
 
 def load_v2_overview_snapshots(
@@ -157,6 +172,7 @@ def load_v2_overview_snapshots(
     result: dict[str, OverviewTechnicalV2] = {}
     requested_horizons = requested_horizons or {}
     interpreter_by_market = interpreter_by_market or {}
+    delay_by_market = _feed_delay_by_market(db_path)
     for row in rows:
         market_id = int(row["market_id"] if isinstance(row, dict) else row[0])
         market = str(row["name"] if isinstance(row, dict) else row[1])
@@ -181,6 +197,7 @@ def load_v2_overview_snapshots(
                 requested_horizon_seconds=horizon,
                 enable_interpreter=bool(interpreter_by_market.get(market, False)),
                 price_history=history,
+                feed_delay_minutes=delay_by_market.get(market),
             )
         except (KeyError, LookupError):
             continue

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping
 
@@ -17,6 +18,7 @@ from instrument_registry_v2 import (
 )
 from market_history_store import MarketHistoryStore
 from parallel_forecast_runtime_v2 import run_parallel_forecast_runtime_cycle_v2
+from realtime_market_data import RealtimeMarketDataStore
 from recipe_registry_v2 import TA_ONLY_V1, TECHNICAL_CORE_RECIPE_V2_1
 from runtime_health_v2 import RuntimeHealthV2, freshness_health_v2, record_runtime_health_v2
 from runtime_technical_producer_v2 import (
@@ -120,29 +122,50 @@ def _record_failure(market: str, exc: Exception) -> None:
     )
 
 
-def _canonical_freshness_health(*, market: str, db_path: str, fallback_as_of: str) -> RuntimeHealthV2:
-    """Report freshness from the newest canonical 1m bar, not the 30m TA snapshot timestamp.
+def _feed_delay_by_market(db_path: str) -> dict[str, float]:
+    try:
+        statuses = RealtimeMarketDataStore(db_path).load_statuses()
+    except Exception:
+        return {}
+    return {
+        status.market: max(0.0, float(status.delay_minutes))
+        for status in statuses
+        if status.delay_minutes is not None
+    }
 
-    ``TechnicalCoreState.as_of`` follows the preferred/primary technical timeframe
-    (currently 30m), so using it as a feed-freshness clock can make a healthy stream
-    look tens of minutes older than the data actually available to the runtime.
+
+def _canonical_freshness_health(
+    *,
+    market: str,
+    db_path: str,
+    fallback_as_of: str,
+    delay_minutes: float = 0.0,
+) -> RuntimeHealthV2:
+    """Measure canonical 1m freshness relative to the feed's known entitlement delay.
+
+    Provider-delayed data is healthy when it arrives consistently at the entitled
+    delay. Technical Core ``as_of`` is not a feed freshness clock.
     """
     latest = CanonicalMarketBarStoreV2(db_path).load_latest(market=market)
     observed_at = latest.bar_time if latest is not None else fallback_as_of
+    delay = max(0.0, float(delay_minutes))
+    effective_now = datetime.now(timezone.utc) - timedelta(minutes=delay)
     health = freshness_health_v2(
         service=SERVICE_NAME,
         stage=market,
         observed_at=observed_at,
+        now=effective_now,
     )
     source = "canonical 1m" if latest is not None else "technical snapshot fallback"
+    delay_text = f" · feed delay={delay:g}m" if delay > 0.0 else ""
     return RuntimeHealthV2(
         service=health.service,
         stage=health.stage,
         status=health.status,
         detail=(
-            f"{source} age={health.age_seconds:.1f}s"
+            f"{source} effective age={health.age_seconds:.1f}s{delay_text}"
             if health.age_seconds is not None
-            else f"{source} unavailable"
+            else f"{source} unavailable{delay_text}"
         ),
         age_seconds=health.age_seconds,
     )
@@ -154,16 +177,11 @@ def run_live_technical_cycle_v2(
     db_path: str = "pricegauger.db",
     ensure_schema: bool = True,
 ) -> LiveTechnicalCycleSummaryV2:
-    """Produce and persist one TA-only v2 snapshot for every active runtime market.
-
-    The existing ``realtime_bars_1m`` / ``MarketHistoryStore`` path remains the
-    canonical market-history bridge during this controlled v2 cutover. Runtime
-    instrument discovery is driven by enabled v2 collection subscriptions; this
-    producer consumes the resulting market set and does not create a second feed.
-    """
+    """Produce and persist one TA-only v2 snapshot for every active runtime market."""
     if ensure_schema:
         ensure_db_v2_schema()
     history_store = MarketHistoryStore(db_path)
+    delay_by_market = _feed_delay_by_market(db_path)
     produced_count = 0
     failed_count = 0
 
@@ -209,6 +227,7 @@ def run_live_technical_cycle_v2(
                     market=market,
                     db_path=db_path,
                     fallback_as_of=produced.as_of,
+                    delay_minutes=delay_by_market.get(market, 0.0),
                 )
             )
             produced_count += 1

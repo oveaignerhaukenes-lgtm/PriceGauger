@@ -24,7 +24,6 @@ def _sample(points: tuple[tuple[str, float], ...], limit: int = 180) -> tuple[tu
 
 
 def _path_progress(shape: str, progress: float) -> float:
-    """Compatibility fallback for views that predate explicit path profiles."""
     p = max(0.0, min(1.0, float(progress)))
     normalized = str(shape or "").upper()
     if normalized == "TREND_CONTINUATION":
@@ -35,7 +34,6 @@ def _path_progress(shape: str, progress: float) -> float:
 
 
 def _path_return(view, progress: float) -> float:
-    """Interpolate the explicit read-model path; never infer new analysis here."""
     p = max(0.0, min(1.0, float(progress)))
     raw = tuple(getattr(view, "path_profile", ()) or ())
     profile: list[tuple[float, float]] = []
@@ -69,12 +67,6 @@ def _state_label(value: str) -> str:
 
 
 def render_v2_forecast_chart(view) -> str:
-    """Render one persisted/composed v2 forecast without running analysis.
-
-    Terminal return and uncertainty remain authoritative. Intermediate geometry is
-    consumed from the explicit v2 read-model ``path_profile``. Older callers fall
-    back to the historical coarse path-shape interpolation for compatibility.
-    """
     history = _sample(tuple(getattr(view, "price_history", ()) or ()))
     parsed_history: list[tuple[datetime, float]] = []
     for stamp, price in history:
@@ -149,13 +141,16 @@ def render_v2_forecast_chart(view) -> str:
     interval = f"{lower_return * 100:+.3f}% … {upper_return * 100:+.3f}%"
     expected = f"{expected_return * 100:+.3f}%"
     recipe = html.escape(str(view.recipe_label))
+    delay = getattr(view, "feed_delay_minutes", None)
+    delay_label = "live" if delay is None or float(delay) <= 0 else f"delay {float(delay):g}m"
+    header_right = f"{recipe} · {html.escape(delay_label)}"
     path = html.escape(_state_label(view.path_shape))
     empty_note = "" if parsed_history else '<span class="pg-v2-note">Ingen canonical prishistorikk i read-modellen; grafen er indeksert til 100.</span>'
 
     return (
         '<div class="pg-v2-chart" data-recipe="' + recipe + '">'
         '<div class="pg-v2-chart-head"><span>PROGNOSE VS. VIRKELIGHET</span>'
-        f'<span>{recipe}</span></div>'
+        f'<span>{header_right}</span></div>'
         '<div class="pg-v2-zones"><span>HISTORIKK</span><span>NÅ → PROGNOSE</span></div>'
         '<svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" '
         'aria-label="Persisted v2 technical forecast with observed price history and uncertainty">'
