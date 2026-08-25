@@ -70,6 +70,7 @@ def test_register_saxo_instrument_reuses_explicit_onboarded_source(monkeypatch):
 def test_live_cycle_persists_canonical_ta_only_recipe_and_isolates_market_failure(monkeypatch):
     monkeypatch.setattr(runtime, "ensure_db_v2_schema", lambda: None)
     monkeypatch.setattr(runtime, "MarketHistoryStore", lambda path: object())
+    monkeypatch.setattr(runtime, "_feed_delay_by_market", lambda path: {"Gold": 10.0})
     monkeypatch.setattr(
         runtime,
         "CanonicalMarketBarStoreV2",
@@ -132,14 +133,14 @@ def test_live_cycle_persists_canonical_ta_only_recipe_and_isolates_market_failur
             "analysis_recipe_version": TA_ONLY_V1.version,
         }
     ]
-    assert freshness_calls == [
-        {
-            "service": "v2-technical-runtime",
-            "stage": "Gold",
-            "observed_at": "2026-08-15T08:29:00+00:00",
-        }
-    ]
-    assert any(getattr(item, "detail", "") == "canonical 1m age=42.0s" for item in health)
+    assert len(freshness_calls) == 1
+    call = freshness_calls[0]
+    assert call["service"] == "v2-technical-runtime"
+    assert call["stage"] == "Gold"
+    assert call["observed_at"] == "2026-08-15T08:29:00+00:00"
+    assert "now" in call
+    assert any("canonical 1m effective age=42.0s" in getattr(item, "detail", "") for item in health)
+    assert any("feed delay=10m" in getattr(item, "detail", "") for item in health)
     assert any(getattr(item, "status", None) == "DEGRADED" for item in health)
 
 
