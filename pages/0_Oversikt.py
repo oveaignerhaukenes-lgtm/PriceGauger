@@ -38,18 +38,20 @@ with saxo_col:
 
 st.markdown(f"<style>{ANALYSIS_STATUS_CSS}</style>", unsafe_allow_html=True)
 
+refresh_col, refresh_note_col = st.columns([1, 4])
+with refresh_col:
+    st.button("Oppdater nå", key="overview-manual-refresh", use_container_width=True)
+with refresh_note_col:
+    st.caption("Oversikt oppdateres ved brukerhandling/refresh. Ingen automatisk redraw av grafkort mens du leser siden.")
 
-def _render_live_analysis_status() -> None:
+
+def _render_analysis_status() -> None:
     progress_html = render_analysis_status(AnalysisStatusStore().load())
     if progress_html:
         st.markdown(progress_html, unsafe_allow_html=True)
 
 
-_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-if _fragment is not None:
-    _fragment(run_every="2s")(_render_live_analysis_status)()
-else:
-    _render_live_analysis_status()
+_render_analysis_status()
 
 
 def _fmt_time(value: str) -> str:
@@ -134,7 +136,7 @@ def _render_context_v2() -> None:
         st.caption(f"snapshot_id {context.snapshot_id}")
 
 
-def _render_live_market_cards() -> None:
+def _render_market_cards() -> None:
     render_v2_overview_market_cards(
         st,
         asset_color=asset_color,
@@ -146,12 +148,9 @@ _render_context_v2()
 
 st.divider()
 st.subheader("Teknisk analyse og prognose · v2")
-if _fragment is not None:
-    _fragment(run_every="15s")(_render_live_market_cards)()
-else:
-    _render_live_market_cards()
+_render_market_cards()
 
 st.caption(
-    "Overview leser nå canonical ContextSnapshotV2 for semantisk kontekst og canonical v2 workspace for Technical Core. "
+    "Overview leser canonical ContextSnapshotV2 for semantisk kontekst og canonical v2 workspace for Technical Core. "
     "Legacy Information/Decision/Recommendation brukes ikke som skjult Overview-fallback."
 )
