@@ -17,11 +17,13 @@ from trading_desk_chart import (
 from trading_desk_indicators import (
     DEFAULT_INDICATORS,
     INDICATOR_OPTIONS,
+    INDICATOR_SWING_BANDS,
     INDICATOR_WARMUP_PERIODS,
     calculate_indicators,
     clip_indicators,
 )
 from trading_desk_product_panel import render_saxo_product_panel
+from trading_desk_swing_bands import add_swing_bands_to_figure
 from trading_desk_v2_context import TradingDeskV2Context, load_trading_desk_contexts_v2
 from v2_forecast_visualization import (
     V2_FORECAST_CSS,
@@ -40,7 +42,6 @@ st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", la
 render_build_badge()
 st.markdown(V2_FORECAST_CSS, unsafe_allow_html=True)
 
-# Keep Plotly's graph operators accessible without covering the chart title/legend.
 st.markdown(
     """
     <style>
@@ -67,7 +68,7 @@ with header_left:
     st.title("TradingDesk")
     st.caption(
         "V2 cockpit: valgt marked og instrument kommer fra den dynamiske v2-registryen; "
-        "forecast, runtime health og Analyst Companion følger samme persisterte v2-workspace."
+        "forecast, runtime health og TA Analyst følger samme persisterte v2-workspace."
     )
 with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
@@ -178,8 +179,8 @@ with controls_column:
             list(INDICATOR_OPTIONS),
             default=list(DEFAULT_INDICATORS),
             help=(
-                "Bollinger/EMA/SMA ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
-                "De tre opprinnelige indikatorene er valgt som standard."
+                "Bollinger/EMA/SMA og Swing high/low ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
+                "Swing-sonene er bekreftede lokale pivoter og er kun en teknisk visualisering."
             ),
         )
 
@@ -222,11 +223,10 @@ with controls_column:
     with st.expander("Status", expanded=False):
         st.caption(
             f"Canonical chart-bars leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
-            f"V2 workspace/health/Companion oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
+            f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
         )
         st.caption(
-            "Under kontrollert v2-cutover følger chartet den eksisterende canonical 1m-adapteren som v2-runtime også konsumerer. "
-            "Markeds- og instrumentidentiteten som autoriserer chartet kommer fra v2-registryen."
+            "Chartet og v2-runtime konsumerer canonical 1m-data. Kjent Saxo-forsinkelse vises eksplisitt og regnes ikke som feed-feil når strømmen ellers er konsistent."
         )
 
 
@@ -364,6 +364,8 @@ def _render_live_chart() -> None:
         chart_height=chart_height,
         price_panel_share=price_panel_pct / 100.0,
     )
+    if primary and INDICATOR_SWING_BANDS in indicator_names:
+        add_swing_bands_to_figure(fig, primary)
 
     st.plotly_chart(
         fig,
