@@ -33,10 +33,11 @@ from v2_forecast_visualization import (
 )
 
 
-LIVE_CHART_REFRESH_SECONDS = 5
-V2_ANALYSIS_REFRESH_SECONDS = 15
+LIVE_CHART_REFRESH_SECONDS = 30
+V2_ANALYSIS_REFRESH_SECONDS = 60
 QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
+AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
@@ -90,6 +91,8 @@ if not available_markets:
 
 if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
     st.session_state[TIMEFRAME_STATE_KEY] = "5m"
+if AUTO_REFRESH_STATE_KEY not in st.session_state:
+    st.session_state[AUTO_REFRESH_STATE_KEY] = False
 
 
 def _select_timeframe(value: str) -> None:
@@ -222,10 +225,21 @@ with controls_column:
             st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
 
     with st.expander("Status", expanded=False):
-        st.caption(
-            f"Canonical chart-bars leses på nytt hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
-            f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
+        auto_refresh = st.toggle(
+            "Auto-oppdater TradingDesk",
+            key=AUTO_REFRESH_STATE_KEY,
+            help=(
+                "Av som standard for å unngå at Streamlit rerenderer og gråer ut analyse/graf mens du leser. "
+                "Når aktivert oppdateres chart rolig hvert 30. sekund og analyse hvert 60. sekund."
+            ),
         )
+        if auto_refresh:
+            st.caption(
+                f"Canonical chart-bars oppdateres hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
+                f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
+            )
+        else:
+            st.caption("Auto-oppdatering er av. Siden oppdateres ved brukerhandling eller nettleser-refresh.")
         st.caption(
             "Chartet og v2-runtime konsumerer canonical 1m-data. Kjent Saxo-forsinkelse vises eksplisitt og regnes ikke som feed-feil når strømmen ellers er konsistent."
         )
@@ -391,14 +405,18 @@ def _render_live_chart() -> None:
 
 
 with chart_column:
-    analysis_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-    if analysis_fragment is not None:
-        analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis)()
+    if auto_refresh:
+        analysis_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+        if analysis_fragment is not None:
+            analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis)()
+        else:
+            _render_v2_analysis()
+
+        chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+        if chart_fragment is not None:
+            chart_fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
+        else:
+            _render_live_chart()
     else:
         _render_v2_analysis()
-
-    chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-    if chart_fragment is not None:
-        chart_fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
-    else:
         _render_live_chart()
