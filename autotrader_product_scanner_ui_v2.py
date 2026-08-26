@@ -9,6 +9,11 @@ from autotrader_product_scanner_v2 import (
     diagnostic_rows_for_ui_v2,
     scan_saxo_candidates_v2,
 )
+from saxo_low_friction_candidates_v2 import (
+    LowFrictionScanResultV2,
+    low_friction_rows_for_ui_v2,
+    scan_low_friction_margin_candidates_v2,
+)
 from saxo_market_inventory_v2 import (
     SaxoMarketInventoryResultV2,
     asset_type_rows_for_ui_v2,
@@ -24,13 +29,14 @@ from saxo_provider import configured_client
 
 _SCAN_KEY = "autotrader_product_scanner_v2"
 _INVENTORY_KEY = "autotrader_saxo_market_inventory_v2"
+_LOW_FRICTION_KEY = "autotrader_saxo_low_friction_v2"
 
 
 def render_product_scanner_v2() -> None:
     st.subheader("AutoTrader Product Scanner")
     st.caption(
         "Read-only kartlegging av Saxo-markedet før PriceGauger filtrerer kandidater. "
-        "Først listes alt kontoen kan se for valgt marked uten produktfilter; deretter vurderes aktuelle AutoTrader-familier."
+        "Først listes alt kontoen kan se for valgt marked uten produktfilter; deretter vurderes lave handelskostnader og risikoprofil."
     )
 
     try:
@@ -58,10 +64,17 @@ def render_product_scanner_v2() -> None:
 
     if st.button("Kartlegg marked", type="primary", key="autotrader_scan_products"):
         with st.spinner(f"Lister Saxo-treff for {market} uten produktfilter …"):
-            st.session_state[_INVENTORY_KEY] = scan_saxo_market_inventory_v2(
+            inventory_now = scan_saxo_market_inventory_v2(
                 client,
                 market=market,
                 max_per_query=250,
+            )
+            st.session_state[_INVENTORY_KEY] = inventory_now
+        with st.spinner(f"Kostnadsanalyserer opptil {limit} presise FX/CFD-kandidater …"):
+            st.session_state[_LOW_FRICTION_KEY] = scan_low_friction_margin_candidates_v2(
+                client,
+                inventory=inventory_now,
+                max_products=int(limit),
             )
         with st.spinner(f"Filtrerer og kostnadsanalyserer opptil {limit} strukturerte kandidater …"):
             st.session_state[_SCAN_KEY] = scan_saxo_candidates_v2(
@@ -71,8 +84,13 @@ def render_product_scanner_v2() -> None:
             )
 
     inventory = st.session_state.get(_INVENTORY_KEY)
+    low_friction = st.session_state.get(_LOW_FRICTION_KEY)
     result = st.session_state.get(_SCAN_KEY)
-    if not isinstance(inventory, SaxoMarketInventoryResultV2) or not isinstance(result, ProductScanResultV2):
+    if (
+        not isinstance(inventory, SaxoMarketInventoryResultV2)
+        or not isinstance(low_friction, LowFrictionScanResultV2)
+        or not isinstance(result, ProductScanResultV2)
+    ):
         st.info("Kjør kartleggingen for å se hele Saxo-markedsinventaret før kandidatfiltrering.")
         return
 
@@ -152,7 +170,44 @@ def render_product_scanner_v2() -> None:
             hide_index=True,
         )
 
-    st.markdown("### 2. AutoTrader-kandidater · etter produktfilter")
+    st.markdown("### 2. Lavfriksjon / margin-kandidater")
+    st.caption(
+        "PG undersøker nå presise FxSpot- og CFD-treff selv om de bruker margin. Målet er å finne produkter der inn/ut-kostnaden "
+        "primært er spread og der små posisjoner er praktisk mulige. Dette er fortsatt read-only discovery."
+    )
+    lf_cols = st.columns(4)
+    lf_cols[0].metric("Marginfamilier funnet", low_friction.candidate_rows_seen)
+    lf_cols[1].metric("Kostnadsanalysert", low_friction.inspected)
+    lf_cols[2].metric(
+        "0 kurtasje LONG+SHORT",
+        sum(1 for row in low_friction.rows if row.zero_commission_both_sides is True),
+    )
+    lf_cols[3].metric("LIVE eligible", sum(1 for row in low_friction.rows if row.live_execution_eligible))
+
+    st.info(
+        "Utviklingsantakelse: kontoen behandles som retail/ESMA med negativ-saldo-beskyttelse mens vi kartlegger kostnader. "
+        "Denne antakelsen åpner marginprodukter i scanneren, men åpner ikke LIVE execution. Kontostatus/beskyttelse må "
+        "bekreftes før et marginprodukt kan flyttes inn i PGs execution-univers."
+    )
+
+    if low_friction.rows:
+        st.dataframe(
+            low_friction_rows_for_ui_v2(low_friction.rows),
+            use_container_width=True,
+            hide_index=True,
+            height=min(680, 110 + 35 * min(len(low_friction.rows), 16)),
+        )
+        st.caption(
+            "* Kurtasje/Total kost hentes fra Saxos read-only pre-trade cost illustration når endpointet støtter produktet. "
+            "Total kost kan også inkludere andre kostnadskomponenter ved den valgte 1-dags illustrasjonen. Spread vises separat."
+        )
+    else:
+        st.warning(
+            "Ingen presise FxSpot/CfdOnFutures/CfdOnIndex-treff ble funnet i dette markedet. "
+            "AssetType-tabellen over viser hvilke andre familier som faktisk finnes."
+        )
+
+    st.markdown("### 3. Strukturerte AutoTrader-kandidater")
     st.caption(
         f"{result.market}: fant {result.discovered} strukturerte kandidater via markedssøk · "
         f"inspiserte {result.inspected} · feil {result.failed}."
@@ -175,8 +230,8 @@ def render_product_scanner_v2() -> None:
         if inventory.rows:
             st.warning(
                 "Saxo har markedsrelaterte instrumenter på kontoen, men ingen av dem ligger i de strukturerte produktfamiliene "
-                "PG foreløpig analyserer som AutoTrader-kandidater. Bruk den presise AssetType-fordelingen over som fasit for "
-                "hvilke faktiske produktfamilier vi bør kostnads- og risikoanalysere videre."
+                "PG foreløpig analyserer som AutoTrader-kandidater. Det er ikke lenger en blocker: margin/FX/CFD-sporet over "
+                "undersøkes separat etter faktisk kostnad."
             )
         elif result.structured_universe_count == 0:
             st.warning("Kontoen eksponerer heller ingen produkter i de strukturerte produktfamiliene scanneren undersøker.")
@@ -200,13 +255,13 @@ def render_product_scanner_v2() -> None:
         in_universe = [row for row in result.rows if row.in_pg_universe]
         if not in_universe:
             st.info(
-                "PG-universet er foreløpig tomt. Scannerfunn blir aldri automatisk godkjent: limited-loss, ingen åpen "
-                "marginforpliktelse og kostnadsprofil må verifiseres før en eksakt UIC/AssetType-identitet tillates."
+                "PG-universet er foreløpig tomt. Scannerfunn blir aldri automatisk godkjent: kostnads- og risikoprofil må "
+                "verifiseres før en eksakt UIC/AssetType-identitet tillates."
             )
 
     with st.expander("Structured/CATS-diagnostikk", expanded=False):
         st.caption(
-            "Dette er andre trinn og bruker eksplisitte structured AssetTypes. Det skal ikke tolkes som hele Saxo-markedet."
+            "Dette er tredje trinn og bruker eksplisitte structured AssetTypes. Det skal ikke tolkes som hele Saxo-markedet."
         )
         if result.diagnostics:
             st.dataframe(
