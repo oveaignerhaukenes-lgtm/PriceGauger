@@ -8,3 +8,4 @@ psycopg[binary]>=3.2
 google-cloud-bigquery>=3.25
 telethon>=1.44,<2
 websockets>=15,<17
+mcp>=2,<3
