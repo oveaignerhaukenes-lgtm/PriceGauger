@@ -5,7 +5,7 @@ import os
 from external_market_read_v2 import ExternalMarketReadServiceV2
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server import MCPServer
 except ImportError as exc:  # pragma: no cover - deployment/configuration failure
     raise RuntimeError(
         "PriceGauger MCP requires the 'mcp' package. Install project requirements first."
@@ -20,7 +20,7 @@ service = ExternalMarketReadServiceV2(
     stale_after_seconds=STALE_AFTER_SECONDS,
 )
 
-mcp = FastMCP(
+mcp = MCPServer(
     "PriceGauger Market Data",
     instructions=(
         "Read-only PriceGauger market-data server. Data comes from the canonical v2 "
