@@ -12,8 +12,11 @@ from autotrader_product_scanner_v2 import (
 from saxo_market_inventory_v2 import (
     SaxoMarketInventoryResultV2,
     asset_type_rows_for_ui_v2,
+    broad_recall_rows_v2,
     inventory_query_rows_for_ui_v2,
     market_inventory_rows_for_ui_v2,
+    precise_asset_type_rows_for_ui_v2,
+    precise_market_rows_v2,
     scan_saxo_market_inventory_v2,
 )
 from saxo_provider import configured_client
@@ -73,45 +76,75 @@ def render_product_scanner_v2() -> None:
         st.info("Kjør kartleggingen for å se hele Saxo-markedsinventaret før kandidatfiltrering.")
         return
 
+    precise_rows = precise_market_rows_v2(inventory)
+    broad_rows = broad_recall_rows_v2(inventory)
+    precise_types = precise_asset_type_rows_for_ui_v2(inventory)
+
     st.markdown("### 1. Saxo-markedsinventar · uten produktfilter")
     st.caption(
-        "Dette er første kontrollpunkt: alle unike account-aware instrumenttreff Saxo returnerer for markedsaliasene, "
-        "uten at PG på forhånd begrenser AssetType. Tabellen viser derfor også futures, CFD-er, ETC/ETF-er, aksjer osv."
+        "Saxo-søk er først kjørt helt uten AssetType-filter. Generiske ord som Gold/Oil kan gi store mengder navnetreff, "
+        "så PG viser presise markedsaliaser først og beholder bred recall separat under."
     )
 
-    inventory_cols = st.columns(3)
-    inventory_cols[0].metric("Unike markedstreff", len(inventory.rows))
-    inventory_cols[1].metric("AssetTypes funnet", inventory.asset_type_count)
-    inventory_cols[2].metric("Søk med treff", sum(1 for item in inventory.queries if item.returned > 0))
+    inventory_cols = st.columns(4)
+    inventory_cols[0].metric("Presise markedstreff", len(precise_rows))
+    inventory_cols[1].metric("AssetTypes presise", len(precise_types))
+    inventory_cols[2].metric("Bred recall", len(broad_rows))
+    inventory_cols[3].metric("Totale unike treff", len(inventory.rows))
 
     if inventory.account_labels:
         st.caption("Inventar evalueres mot aktiv Saxo-konto: " + ", ".join(inventory.account_labels))
 
-    if inventory.asset_type_counts:
+    if precise_types:
+        st.markdown("#### Presis AssetType-fordeling")
         st.dataframe(
-            asset_type_rows_for_ui_v2(inventory),
+            precise_types,
             use_container_width=True,
             hide_index=True,
-            height=min(360, 80 + 35 * min(len(inventory.asset_type_counts), 8)),
+            height=min(360, 80 + 35 * min(len(precise_types), 8)),
         )
 
-    if inventory.rows:
+    if precise_rows:
+        st.markdown("#### Presise markedsrelaterte treff")
         st.dataframe(
-            market_inventory_rows_for_ui_v2(inventory.rows),
+            market_inventory_rows_for_ui_v2(precise_rows),
             use_container_width=True,
             hide_index=True,
-            height=min(620, 110 + 35 * min(len(inventory.rows), 15)),
+            height=min(620, 110 + 35 * min(len(precise_rows), 15)),
+        )
+        st.caption(
+            "Dette er første kandidatgrunnlag videre: treff via markedsnære aliaser som XAU/XAUUSD/Gold Spot eller "
+            "Brent/ICE Brent/UKOIL. Ingen suitability eller execution-eligibility er utledet ennå."
         )
     else:
-        st.warning(
-            "Saxo returnerte ingen instrumenter for noen av markedsaliasene, selv uten AssetType-filter. "
-            "Da er neste spørsmål selve markedsnavnet/account-access — ikke AutoTrader-filteret."
-        )
+        st.warning("Ingen treff via de presise markedsaliasene. Se bred recall og rå søkediagnostikk under.")
 
-    with st.expander("Rå markedsalias-søk", expanded=not bool(inventory.rows)):
+    with st.expander(f"Bred recall / navnetreff ({len(broad_rows)})", expanded=False):
         st.caption(
-            "Hver rad er samme account-aware Saxo instrumentsøk uten AssetTypes-filter. Dette viser om f.eks. Gold, XAU, Oil "
-            "eller Brent faktisk gir treff før PG forsøker å klassifisere produktene."
+            "Dette er treff som bare kom via brede ord som Gold, Oil eller Gas. De er nyttige for recall, men kan inneholde "
+            "Goldman Sachs, gruveselskaper, oljeselskaper, obligasjoner osv. og brukes derfor ikke som primær shortlist."
+        )
+        if broad_rows:
+            st.dataframe(
+                market_inventory_rows_for_ui_v2(broad_rows),
+                use_container_width=True,
+                hide_index=True,
+                height=min(520, 110 + 35 * min(len(broad_rows), 12)),
+            )
+
+    with st.expander("Hele AssetType-fordelingen inkl. bred recall", expanded=False):
+        if inventory.asset_type_counts:
+            st.dataframe(
+                asset_type_rows_for_ui_v2(inventory),
+                use_container_width=True,
+                hide_index=True,
+                height=min(420, 80 + 35 * min(len(inventory.asset_type_counts), 10)),
+            )
+
+    with st.expander("Rå markedsalias-søk", expanded=False):
+        st.caption(
+            "Hver rad er samme account-aware Saxo instrumentsøk uten AssetTypes-filter. Et søk som treffer 250 er på "
+            "API-grensen for denne scannen og bør tolkes som bred recall, ikke som 250 relevante markedsprodukter."
         )
         st.dataframe(
             inventory_query_rows_for_ui_v2(inventory.queries),
@@ -142,13 +175,11 @@ def render_product_scanner_v2() -> None:
         if inventory.rows:
             st.warning(
                 "Saxo har markedsrelaterte instrumenter på kontoen, men ingen av dem ligger i de strukturerte produktfamiliene "
-                "PG foreløpig analyserer som AutoTrader-kandidater. Se AssetType-fordelingen over — den er nå fasiten for "
-                "hvilke produktfamilier vi faktisk bør undersøke videre."
+                "PG foreløpig analyserer som AutoTrader-kandidater. Bruk den presise AssetType-fordelingen over som fasit for "
+                "hvilke faktiske produktfamilier vi bør kostnads- og risikoanalysere videre."
             )
         elif result.structured_universe_count == 0:
-            st.warning(
-                "Kontoen eksponerer heller ingen produkter i de strukturerte produktfamiliene scanneren undersøker."
-            )
+            st.warning("Kontoen eksponerer heller ingen produkter i de strukturerte produktfamiliene scanneren undersøker.")
         if result.cats_universe_count == 0:
             st.info(
                 "Ingen CATS-produkter er synlige for kontoen. Den dokumenterte 0-kurtasje Turbo-serien er derfor ikke "
@@ -175,7 +206,7 @@ def render_product_scanner_v2() -> None:
 
     with st.expander("Structured/CATS-diagnostikk", expanded=False):
         st.caption(
-            "Dette er andre trinn og bruker eksplisitte structured AssetTypes. Det skal ikke lenger tolkes som hele Saxo-markedet."
+            "Dette er andre trinn og bruker eksplisitte structured AssetTypes. Det skal ikke tolkes som hele Saxo-markedet."
         )
         if result.diagnostics:
             st.dataframe(
