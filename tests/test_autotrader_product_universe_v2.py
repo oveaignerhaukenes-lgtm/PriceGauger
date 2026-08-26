@@ -114,6 +114,84 @@ def test_market_direction_and_tradability_must_match_curated_contract() -> None:
     assert "NOT_TRADABLE" in result.reasons
 
 
+def test_verified_margin_product_still_requires_active_margin_envelope() -> None:
+    product = _product(asset_type="CfdOnFutures", direction="Long")
+    entry = AutoTraderProductUniverseEntryV2(
+        uic=123,
+        asset_type="CfdOnFutures",
+        market="Gold",
+        direction="Both",
+        enabled=True,
+        transaction_costs_verified=True,
+        margin_product_allowed=True,
+        negative_balance_protection_verified=True,
+    )
+
+    blocked = evaluate_product_eligibility_v2(
+        market="Gold",
+        product=product,
+        universe=(entry,),
+    )
+    assert blocked.eligible is False
+    assert "MARGIN_ENVELOPE_NOT_ACTIVE" in blocked.reasons
+
+    allowed = evaluate_product_eligibility_v2(
+        market="Gold",
+        product=product,
+        universe=(entry,),
+        margin_envelope_active=True,
+    )
+    assert allowed.eligible is True
+    assert allowed.reasons == ()
+    assert entry.hard_eligible is True
+
+
+def test_margin_product_fails_without_negative_balance_protection_verification() -> None:
+    product = _product(asset_type="FxSpot", direction="Short")
+    entry = AutoTraderProductUniverseEntryV2(
+        uic=123,
+        asset_type="FxSpot",
+        market="Gold",
+        direction="Both",
+        enabled=True,
+        transaction_costs_verified=True,
+        margin_product_allowed=True,
+        negative_balance_protection_verified=False,
+    )
+    result = evaluate_product_eligibility_v2(
+        market="Gold",
+        product=product,
+        universe=(entry,),
+        margin_envelope_active=True,
+    )
+    assert result.eligible is False
+    assert "NEGATIVE_BALANCE_PROTECTION_NOT_VERIFIED" in result.reasons
+    assert entry.hard_eligible is False
+
+
+def test_both_direction_contract_accepts_long_or_short_for_same_margin_instrument() -> None:
+    entry = AutoTraderProductUniverseEntryV2(
+        uic=123,
+        asset_type="CfdOnFutures",
+        market="Gold",
+        direction="Both",
+        enabled=True,
+        transaction_costs_verified=True,
+        margin_product_allowed=True,
+        negative_balance_protection_verified=True,
+    )
+    for direction in ("Long", "Short"):
+        product = _product(asset_type="CfdOnFutures", direction=direction)
+        result = evaluate_product_eligibility_v2(
+            market="Gold",
+            product=product,
+            universe=(entry,),
+            margin_envelope_active=True,
+        )
+        assert result.eligible is True
+        assert "DIRECTION_MISMATCH" not in result.reasons
+
+
 def test_duplicate_curated_identity_is_rejected() -> None:
     product = _product()
     one = AutoTraderProductUniverseEntryV2(
