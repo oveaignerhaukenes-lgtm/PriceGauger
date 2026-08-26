@@ -7,7 +7,30 @@ from typing import Any, Iterable
 from saxo_provider import SaxoClient
 
 
+# Exact Saxo Index Tracker symbols documented on Saxo's CFD pricing pages. Keeping
+# this as an aggregate discovery market lets PG compare a family of small,
+# spread-priced CfdOnIndex instruments without assuming the user already knows
+# which underlying market to trade.
+INDEX_CFD_TRAINING_TERMS: tuple[str, ...] = (
+    "US30.I",
+    "US500.I",
+    "USNAS100.I",
+    "EU50.I",
+    "FRA40.I",
+    "GER40.I",
+    "ITALY40.I",
+    "NETH25.I",
+    "SPAIN35.I",
+    "SWE30.I",
+    "SWISS20.I",
+    "UK100.I",
+    "AUS200.I",
+    "HK50.I",
+)
+
+
 MARKET_INVENTORY_SEARCH_TERMS: dict[str, tuple[str, ...]] = {
+    "Index CFDs · training": INDEX_CFD_TRAINING_TERMS,
     "Gold": ("Gold", "XAU", "XAUUSD", "Gold Spot"),
     "Silver": ("Silver", "XAG", "XAGUSD", "Silver Spot"),
     "Brent": ("Oil", "Brent", "Brent Crude", "Crude Oil", "ICE Brent", "UKOIL"),
@@ -20,6 +43,7 @@ MARKET_INVENTORY_SEARCH_TERMS: dict[str, tuple[str, ...]] = {
 # These precise aliases are therefore the first shortlist for market-linked products.
 # Broad terms remain visible in a separate recall section; nothing is silently discarded.
 MARKET_INVENTORY_PRECISE_TERMS: dict[str, tuple[str, ...]] = {
+    "Index CFDs · training": INDEX_CFD_TRAINING_TERMS,
     "Gold": ("XAU", "XAUUSD", "Gold Spot"),
     "Silver": ("XAG", "XAGUSD", "Silver Spot"),
     "Brent": ("Brent", "Brent Crude", "ICE Brent", "UKOIL"),
