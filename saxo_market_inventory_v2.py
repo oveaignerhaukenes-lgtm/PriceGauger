@@ -15,6 +15,18 @@ MARKET_INVENTORY_SEARCH_TERMS: dict[str, tuple[str, ...]] = {
     "DXY": ("US Dollar Index", "Dollar Index", "DXY", "USDX"),
 }
 
+# Generic words such as "Gold" and "Oil" are useful for recall, but Saxo can return
+# hundreds of unrelated names (Goldman Sachs, gold miners, oil companies, etc.).
+# These precise aliases are therefore the first shortlist for market-linked products.
+# Broad terms remain visible in a separate recall section; nothing is silently discarded.
+MARKET_INVENTORY_PRECISE_TERMS: dict[str, tuple[str, ...]] = {
+    "Gold": ("XAU", "XAUUSD", "Gold Spot"),
+    "Silver": ("XAG", "XAGUSD", "Silver Spot"),
+    "Brent": ("Brent", "Brent Crude", "ICE Brent", "UKOIL"),
+    "Natural Gas": ("Natural Gas", "Nat Gas", "Henry Hub"),
+    "DXY": ("US Dollar Index", "DXY", "USDX"),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class SaxoMarketInventoryAccountV2:
@@ -220,6 +232,27 @@ def scan_saxo_market_inventory_v2(
     )
 
 
+def precise_market_rows_v2(result: SaxoMarketInventoryResultV2) -> tuple[SaxoMarketInventoryRowV2, ...]:
+    precise_terms = set(MARKET_INVENTORY_PRECISE_TERMS.get(result.market, ()))
+    if not precise_terms:
+        return result.rows
+    rows = [item for item in result.rows if precise_terms.intersection(item.matched_queries)]
+    rows.sort(
+        key=lambda item: (
+            item.asset_type.lower(),
+            item.description.lower(),
+            item.symbol.lower(),
+            item.identifier,
+        )
+    )
+    return tuple(rows)
+
+
+def broad_recall_rows_v2(result: SaxoMarketInventoryResultV2) -> tuple[SaxoMarketInventoryRowV2, ...]:
+    precise_ids = {item.identity for item in precise_market_rows_v2(result)}
+    return tuple(item for item in result.rows if item.identity not in precise_ids)
+
+
 def market_inventory_rows_for_ui_v2(rows: Iterable[SaxoMarketInventoryRowV2]) -> list[dict[str, object]]:
     return [
         {
@@ -241,6 +274,12 @@ def market_inventory_rows_for_ui_v2(rows: Iterable[SaxoMarketInventoryRowV2]) ->
 
 def asset_type_rows_for_ui_v2(result: SaxoMarketInventoryResultV2) -> list[dict[str, object]]:
     return [{"AssetType": name, "Treff": count} for name, count in result.asset_type_counts]
+
+
+def precise_asset_type_rows_for_ui_v2(result: SaxoMarketInventoryResultV2) -> list[dict[str, object]]:
+    counts = Counter(item.asset_type for item in precise_market_rows_v2(result))
+    ordered = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0].lower()))
+    return [{"AssetType": name, "Presise treff": count} for name, count in ordered]
 
 
 def inventory_query_rows_for_ui_v2(queries: Iterable[SaxoMarketInventoryQueryV2]) -> list[dict[str, object]]:
