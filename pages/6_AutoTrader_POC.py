@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from autotrader_index_training_scanner_ui_v2 import render_index_training_scanner_v2
 from autotrader_live_close_ui_v1 import render_live_close_v1
 from autotrader_macd_dry_run_ui_v2 import render_macd_dry_run_monitor_v2
 from autotrader_margin_precheck_ui_v2 import render_margin_precheck_v2
@@ -37,6 +38,9 @@ render_macd_dry_run_monitor_v2()
 
 st.divider()
 render_product_scanner_v2()
+
+st.divider()
+render_index_training_scanner_v2()
 
 st.divider()
 render_margin_precheck_v2()
