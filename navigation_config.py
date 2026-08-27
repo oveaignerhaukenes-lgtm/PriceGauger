@@ -53,6 +53,12 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "url_path": "Saxo_OpenAPI",
         },
         {
+            "page": "pages/1_Product_Browser.py",
+            "title": "Produktbrowser",
+            "icon": "🧭",
+            "url_path": "Product_Browser",
+        },
+        {
             "page": "pages/6_AutoTrader_POC.py",
             "title": "AutoTrader",
             "icon": "⚙️",
