@@ -41,6 +41,14 @@ def test_product_analysis_menu_uses_canonical_v2_technical_surface() -> None:
     assert all(page["page"] != "pages/2_Direct_Technical.py" for page in analysis)
 
 
+def test_connections_menu_separates_saxo_browser_and_autotrader() -> None:
+    trading = PAGE_GROUPS["Tilkoblinger og handel"]
+    assert [page["title"] for page in trading] == ["Saxo", "Produktbrowser", "AutoTrader"]
+    browser = trading[1]
+    assert browser["page"] == "pages/1_Product_Browser.py"
+    assert browser["url_path"] == "Product_Browser"
+
+
 def test_legacy_surfaces_are_visibly_isolated_from_product_groups() -> None:
     product_groups = ("", "Analyse", "Tilkoblinger og handel")
     product_pages = [page for group in product_groups for page in PAGE_GROUPS[group]]
