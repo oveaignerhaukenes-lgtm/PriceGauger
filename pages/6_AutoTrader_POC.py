@@ -14,8 +14,9 @@ st.set_page_config(page_title="AutoTrader · PriceGauger", page_icon="⚙️", l
 render_build_badge()
 st.title("AutoTrader")
 st.caption(
-    "Execution, posisjonshåndtering og risikokontroll. Produktkartlegging og kostnads-/margin-browser ligger nå "
-    "separat under Produktbrowser, slik at AutoTrader kun konsumerer eksplisitt valgte/autoriserte instrumenter."
+    "Execution, posisjonshåndtering og risikokontroll. Risk-control fortsetter å produsere WOULD_CLOSE når tersklene treffes. "
+    "Produktkartlegging og kostnads-/margin-browser ligger nå separat under Produktbrowser, slik at AutoTrader kun konsumerer "
+    "eksplisitt valgte/autoriserte instrumenter."
 )
 
 st.warning(
