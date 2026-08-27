@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_product_explorer_exposes_bounded_v2_onboarding_without_execution_path() -> None:
     explorer_source = (ROOT / "autotrader_product_explorer_ui.py").read_text(encoding="utf-8")
     onboarding_source = (ROOT / "instrument_onboarding_v2.py").read_text(encoding="utf-8")
-    page_source = (ROOT / "pages" / "6_AutoTrader_POC.py").read_text(encoding="utf-8")
+    page_source = (ROOT / "pages" / "1_Product_Browser.py").read_text(encoding="utf-8")
 
     assert "Saxo Product Explorer" in explorer_source
     assert "IncludeNonTradable" in explorer_source
