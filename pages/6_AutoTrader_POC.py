@@ -20,8 +20,8 @@ st.caption(
 )
 
 st.warning(
-    "LIVE close-only er fortsatt den eneste autonome execution-authority som er aktiv. Ingen automatisk OPEN/ADD er aktivert "
-    "av operasjonsmodus-kontrakten under."
+    "LIVE close-only er fortsatt den eneste autonome execution-authority som er aktiv. RiskControl fortsetter å produsere "
+    "WOULD_CLOSE ved gyldige exit-triggere; ingen automatisk OPEN/ADD er aktivert av operasjonsmodus-kontrakten under."
 )
 
 render_operating_modes_v2()
