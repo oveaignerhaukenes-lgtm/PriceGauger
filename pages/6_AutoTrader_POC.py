@@ -4,6 +4,7 @@ import streamlit as st
 
 from autotrader_live_close_ui_v1 import render_live_close_v1
 from autotrader_macd_dry_run_ui_v2 import render_macd_dry_run_monitor_v2
+from autotrader_operating_mode_ui_v2 import render_operating_modes_v2
 from autotrader_risk_control_ui_v2 import render_risk_control_monitor_v2
 from build_info import render_build_badge
 from trading_desk_product_panel import render_saxo_product_panel
@@ -14,16 +15,18 @@ st.set_page_config(page_title="AutoTrader · PriceGauger", page_icon="⚙️", l
 render_build_badge()
 st.title("AutoTrader")
 st.caption(
-    "Execution, posisjonshåndtering og risikokontroll. Risk-control fortsetter å produsere WOULD_CLOSE når tersklene treffes. "
-    "Produktkartlegging og kostnads-/margin-browser ligger nå separat under Produktbrowser, slik at AutoTrader kun konsumerer "
-    "eksplisitt valgte/autoriserte instrumenter."
+    "Execution, posisjonshåndtering og risikokontroll. Produktbrowseren finner egnede instrumenter; AutoTrader skal "
+    "konsumere bare eksplisitt autoriserte identiteter og operere innen harde kapital-/marginrammer."
 )
 
 st.warning(
-    "LIVE close-only er fysisk avgrenset fra entry-logikken: ingen automatisk kjøps-/entry-strategi er aktiv. "
-    "MACD-laget er fortsatt kun dry-run."
+    "LIVE close-only er fortsatt den eneste autonome execution-authority som er aktiv. Ingen automatisk OPEN/ADD er aktivert "
+    "av operasjonsmodus-kontrakten under."
 )
 
+render_operating_modes_v2()
+
+st.divider()
 render_live_close_v1()
 
 st.divider()
