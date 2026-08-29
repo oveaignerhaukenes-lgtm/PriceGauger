@@ -372,11 +372,13 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
             preflight_amount DOUBLE PRECISION,
             preflight_cost_account DOUBLE PRECISION,
             preflight_initial_margin_account DOUBLE PRECISION,
+            preflight_notional_account DOUBLE PRECISION,
             verified_at TIMESTAMPTZ,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             PRIMARY KEY(account_id, uic, asset_type, direction)
         )
         """,
+        "ALTER TABLE pg_v2_autotrader_product_admissions ADD COLUMN IF NOT EXISTS preflight_notional_account DOUBLE PRECISION",
         """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_margin_configs (
             pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
