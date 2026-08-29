@@ -49,4 +49,4 @@ def test_execution_panel_separates_close_authority_from_entry_behavior():
     assert "Arm automatisk LIVE CLOSE" in source
     assert "Godkjenn denne {direction}-entryen" in source
     assert "approve_open_request_v2" in source
-    assert "MANUAL_ENTRY_ONLY" in source
+    assert "ENTRY_MODE_MANUAL_ONLY" in source
