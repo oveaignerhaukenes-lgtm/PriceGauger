@@ -12,6 +12,7 @@ from autotrader_closed_position_reconciliation_v2 import (
     run_closed_position_equity_reconciliation_forever_v2,
 )
 from autotrader_live_close_v1 import run_live_close_forever_v1
+from autotrader_live_open_v2 import run_live_open_forever_v2
 from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
 from autotrader_risk_control_v2 import (
     run_managed_risk_reaction_forever_v2,
@@ -99,6 +100,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_STRATEGY_LIVE_CLOSE_SECONDS", "2")),
         help="Cadence for consuming strategy CLOSE requests through the hardened LIVE close gate.",
+    )
+    parser.add_argument(
+        "--autotrader-live-open-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_LIVE_OPEN_SECONDS", "2")),
+        help="Cadence for guarded LIVE OPEN/re-entry requests. No Saxo POST occurs while disarmed.",
     )
     parser.add_argument(
         "--autotrader-equity-reconciliation-seconds",
@@ -246,6 +253,24 @@ def _start_autotrader_strategy_live_close(*, interval_seconds: int) -> threading
     thread.start()
     LOGGER.info(
         "AutoManage strategy LIVE close bridge started interval_seconds=%d; global close gate still authoritative",
+        max(1, interval_seconds),
+    )
+    return thread
+
+
+def _start_autotrader_live_open(*, interval_seconds: int) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader LIVE OPEN disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_live_open_forever_v2,
+        kwargs={"interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-live-open",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoTrader LIVE OPEN runtime started interval_seconds=%d; product/pilot/global gates remain fail-closed",
         max(1, interval_seconds),
     )
     return thread
@@ -400,6 +425,9 @@ def main() -> None:
     )
     _start_autotrader_strategy_live_close(
         interval_seconds=args.autotrader_strategy_live_close_seconds,
+    )
+    _start_autotrader_live_open(
+        interval_seconds=args.autotrader_live_open_seconds,
     )
     _start_autotrader_equity_reconciliation(
         interval_seconds=args.autotrader_equity_reconciliation_seconds,
