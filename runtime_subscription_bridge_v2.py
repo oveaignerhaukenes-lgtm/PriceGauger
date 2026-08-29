@@ -5,7 +5,7 @@ import logging
 from typing import Mapping
 
 from instrument_registry_v2 import InstrumentSourceV2, list_subscribed_sources_v2
-from saxo_discovered_history_seed_v2 import seed_discovered_saxo_history_once_v2
+from saxo_discovered_history_seed_v2 import start_discovered_saxo_history_seed_v2
 from saxo_open_position_discovery_v2 import discover_open_saxo_positions_once_v2
 from saxo_provider import SaxoInstrument
 
@@ -68,26 +68,14 @@ def _discover_open_positions_best_effort() -> None:
         )
 
 
-def _seed_discovered_history_best_effort() -> None:
-    """Give newly discovered products enough exact history for strategy bootstrap."""
+def _schedule_discovered_history_best_effort() -> None:
+    """Schedule deep seed without delaying registry/stream startup."""
     try:
-        summary = seed_discovered_saxo_history_once_v2()
+        start_discovered_saxo_history_seed_v2()
     except Exception as exc:
-        # Deep history is useful for immediate strategy readiness but must never
-        # make an otherwise valid registry unavailable. The seed module throttles
-        # retries for incomplete/failed products.
-        LOGGER.warning("Saxo discovered-history seed cycle failed: %s", exc, exc_info=True)
-        return
-    if summary.attempted or summary.failed:
-        LOGGER.info(
-            "Saxo discovered-history seed candidates=%d ready=%d attempted=%d saved=%d ready_after=%d failed=%d",
-            summary.candidates,
-            summary.already_ready,
-            summary.attempted,
-            summary.bars_saved,
-            summary.ready_after_seed,
-            summary.failed,
-        )
+        # Scheduling is additive and has no execution authority. Strategy consumers
+        # remain fail-closed until sufficient exact canonical history exists.
+        LOGGER.warning("Saxo discovered-history seed scheduling failed: %s", exc, exc_info=True)
 
 
 def load_runtime_instruments_v2(
@@ -96,15 +84,17 @@ def load_runtime_instruments_v2(
     """Overlay explicit v2 collection subscriptions on the legacy configured feed set.
 
     The registry refresh performs best-effort discovery of currently open Saxo
-    positions and a deeper one-time history seed for products discovered through
-    that path. Unknown exact UIC+AssetType identities are onboarded through the same
-    canonical boundary as Product Explorer, but no AutoManage/execution authority is
-    granted. PriceGauger's current realtime/Technical-Core bridge remains
-    single-feed-per-market, so multiple enabled instruments for the same canonical
-    market fail closed instead of silently mixing two price series.
+    positions and schedules a deeper one-time history seed for products discovered
+    through that path. Unknown exact UIC+AssetType identities are onboarded through
+    the same canonical boundary as Product Explorer, but no AutoManage/execution
+    authority is granted. The deep seed runs off-thread so realtime subscription
+    startup is never blocked by thousands of historical bar writes. PriceGauger's
+    current realtime/Technical-Core bridge remains single-feed-per-market, so
+    multiple enabled instruments for the same canonical market fail closed instead
+    of silently mixing two price series.
     """
     _discover_open_positions_best_effort()
-    _seed_discovered_history_best_effort()
+    _schedule_discovered_history_best_effort()
 
     result = dict(configured)
     sources = list_subscribed_sources_v2(provider="saxo")
