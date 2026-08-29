@@ -7,7 +7,8 @@ import streamlit as st
 from autotrader_automanage_container_v2 import AutoManageProductV2, resolve_saxo_automanage_product_v2
 from autotrader_pilot_equity_v2 import DEFAULT_PILOT_SEED_CAPITAL, load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
-from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2, AutoTraderStrategySpecV2
+from autotrader_shadow_benchmark_v2 import load_shadow_benchmark_state_v2
+from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2, AutoTraderStrategySpecV2, strategy_spec_v2
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     EXECUTION_MODE_SHADOW,
@@ -168,6 +169,33 @@ def _strategy_label(spec: AutoTraderStrategySpecV2) -> str:
     return spec.label
 
 
+def _render_strategy_scorecard(enrollments: tuple[StrategyEnrollmentV2, ...]) -> None:
+    if not enrollments:
+        return
+    st.markdown("**Strategitest**")
+    rows: list[tuple[StrategyEnrollmentV2, object | None]] = []
+    for enrollment in enrollments:
+        try:
+            benchmark = load_shadow_benchmark_state_v2(enrollment.pilot_key)
+        except Exception:
+            benchmark = None
+        rows.append((enrollment, benchmark))
+
+    columns = st.columns(len(rows))
+    for column, (enrollment, benchmark) in zip(columns, rows):
+        spec = strategy_spec_v2(enrollment.strategy_key)
+        mode = "LIVE" if enrollment.execution_mode == EXECUTION_MODE_LIVE else "shadow"
+        with column:
+            st.caption(f"{spec.label}\n{mode}")
+            if benchmark is None:
+                st.metric("Paper P/L", "—")
+                st.caption("venter på første benchmark-bar")
+            else:
+                st.metric("Paper P/L", f"{benchmark.return_pct:+.2f}%")
+                st.caption(f"{benchmark.position_state} · {benchmark.transitions} skifter")
+    st.caption("Paper-kurvene bruker samme canonical 30m-bars og startkapital; faktisk Saxo-P/L føres separat.")
+
+
 def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> None:
     """Compact right-side context for strategy-neutral product AutoManage."""
     st.markdown("**AutoManage**")
@@ -237,13 +265,14 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             for item in product_enrollments
         )
         st.caption(f"Aktive piloter: {state_text}")
+        _render_strategy_scorecard(product_enrollments)
 
     active = bool(snapshot.enrollment and snapshot.enrollment.enabled)
     if active:
         e1, e2 = st.columns(2)
         e1.metric("Pilotkapital", _metric_money(snapshot.equity, currency))
-        e2.metric("Realisert", _metric_money(snapshot.realized_net_pnl, currency))
-        status_bits = [snapshot.enrollment.execution_mode, f"trades {snapshot.realized_events}"]
+        e2.metric("Realisert LIVE", _metric_money(snapshot.realized_net_pnl, currency))
+        status_bits = [snapshot.enrollment.execution_mode, f"fills {snapshot.realized_events}"]
         if snapshot.last_action:
             status_bits.append(f"siste {snapshot.last_action}")
         if snapshot.last_signal:
