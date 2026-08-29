@@ -41,6 +41,7 @@ OPEN_SIGNAL_MAX_AGE = timedelta(minutes=90)
 
 STATUS_PENDING = "PENDING"
 STATUS_APPROVED = "APPROVED"
+STATUS_SUPERSEDED = "SUPERSEDED"
 STATUS_SUBMITTING = "SUBMITTING"
 STATUS_ORDER_ACCEPTED = "ORDER_ACCEPTED"
 STATUS_RECONCILED = "RECONCILED"
@@ -238,6 +239,29 @@ def _update_request(
             """,
             (status, block_reason, order_id, str(request_id)),
         )
+
+
+def _newer_strategy_request_exists(request: dict[str, Any]) -> bool:
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_execution_requests
+            WHERE pilot_key = ? AND request_id <> ? AND created_at > ?
+              AND status IN (?, ?, ?, ?)
+            LIMIT 1
+            """,
+            (
+                str(request["pilot_key"]),
+                str(request["request_id"]),
+                request["created_at"],
+                STATUS_PENDING,
+                STATUS_APPROVED,
+                STATUS_SUBMITTING,
+                STATUS_ORDER_ACCEPTED,
+            ),
+        ).fetchone()
+    return row is not None
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -491,15 +515,25 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
     config = load_live_open_config_v2()
     armed = bool(config.armed and code_gate_enabled_v2())
     candidates = _candidate_open_requests()
-    if not armed:
-        return LiveOpenCycleV2(False, len(candidates), 0, 0, 0, 0)
 
-    client = _require_live_client()
+    # Reconciliation is a safety duty, not new order authority. If a prior POST was
+    # already accepted, keep adopting the exact Saxo position into managed state
+    # even after the user or deployment disarms future OPEN submissions.
+    client = None
+    reconciled = 0
+    if _accepted_attempts():
+        client = _require_live_client()
+        reconciled = reconcile_live_open_attempts_v2(client)
+
+    if not armed:
+        return LiveOpenCycleV2(False, len(candidates), 0, reconciled, 0, 0)
+
+    if client is None:
+        client = _require_live_client()
     if _position_netting_mode(client).lower() != "intraday":
         LOGGER.error("LIVE OPEN blocked: Saxo PositionNettingMode must be Intraday")
-        return LiveOpenCycleV2(True, len(candidates), 0, 0, 1, 0)
+        return LiveOpenCycleV2(True, len(candidates), 0, reconciled, 1, 0)
 
-    reconciled = reconcile_live_open_attempts_v2(client)
     candidates = _candidate_open_requests()
     if not candidates:
         return LiveOpenCycleV2(True, 0, 0, reconciled, 0, 0)
@@ -540,6 +574,15 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
             if enrollment.entry_mode == ENTRY_MODE_APPROVAL_REQUIRED and request_status != STATUS_APPROVED:
                 continue
             if enrollment.entry_mode == ENTRY_MODE_AUTO and request_status not in {STATUS_PENDING, STATUS_APPROVED}:
+                continue
+
+            if _newer_strategy_request_exists(request):
+                _update_request(
+                    request_id,
+                    status=STATUS_SUPERSEDED,
+                    block_reason="NEWER_STRATEGY_REQUEST",
+                )
+                blocked += 1
                 continue
 
             signal_at = _utc(request["signal_at"])
