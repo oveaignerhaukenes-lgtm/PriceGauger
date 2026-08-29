@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Mapping
 
 from instrument_registry_v2 import InstrumentSourceV2, list_subscribed_sources_v2
+from saxo_open_position_discovery_v2 import discover_open_saxo_positions_once_v2
 from saxo_provider import SaxoInstrument
+
+
+LOGGER = logging.getLogger("pricegauger.runtime_subscription_bridge_v2")
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,16 +46,41 @@ def _saxo_instrument(source: InstrumentSourceV2) -> SaxoInstrument:
     )
 
 
+def _discover_open_positions_best_effort() -> None:
+    """Populate the registry from externally opened Saxo positions without blocking feeds."""
+    try:
+        summary = discover_open_saxo_positions_once_v2()
+    except Exception as exc:
+        # Registry loading must remain available during a temporary Saxo GET or
+        # Reference Data outage. Discovery is additive and grants no execution
+        # authority, so a failed discovery cycle is safe to retry on the next poll.
+        LOGGER.warning("Saxo open-position discovery cycle failed: %s", exc, exc_info=True)
+        return
+    if summary.onboarded or summary.subscriptions_reactivated or summary.failed:
+        LOGGER.info(
+            "Saxo open-position discovery observed=%d known=%d reactivated=%d onboarded=%d failed=%d",
+            summary.observed_products,
+            summary.already_subscribed,
+            summary.subscriptions_reactivated,
+            summary.onboarded,
+            summary.failed,
+        )
+
+
 def load_runtime_instruments_v2(
     configured: Mapping[str, SaxoInstrument],
 ) -> RuntimeInstrumentSetV2:
     """Overlay explicit v2 collection subscriptions on the legacy configured feed set.
 
-    The v2 registry is authoritative for a market once it has an enabled Saxo
-    subscription. PriceGauger's current realtime/Technical-Core bridge remains
+    The registry refresh also performs best-effort discovery of currently open Saxo
+    positions. Unknown exact UIC+AssetType identities are onboarded through the same
+    canonical boundary as Product Explorer, but no AutoManage/execution authority is
+    granted. PriceGauger's current realtime/Technical-Core bridge remains
     single-feed-per-market, so multiple enabled instruments for the same canonical
     market fail closed instead of silently mixing two price series.
     """
+    _discover_open_positions_best_effort()
+
     result = dict(configured)
     sources = list_subscribed_sources_v2(provider="saxo")
     by_market: dict[str, list[InstrumentSourceV2]] = {}
