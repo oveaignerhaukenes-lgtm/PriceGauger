@@ -246,6 +246,48 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         CREATE INDEX IF NOT EXISTS pg_v2_autotrader_pilot_equity_event_time_idx
         ON pg_v2_autotrader_pilot_equity_events(pilot_key, created_at ASC)
         """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_strategy_enrollments (
+            pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),
+            strategy_key TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            anchor_net_position_id TEXT NOT NULL,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+            instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+            market_name TEXT NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            live_open_armed BOOLEAN NOT NULL DEFAULT FALSE,
+            enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(account_id, uic, asset_type, strategy_key)
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_strategy_enrollment_active_idx
+        ON pg_v2_autotrader_strategy_enrollments(enabled, updated_at DESC)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_equity_reconciliations (
+            close_event_id UUID PRIMARY KEY REFERENCES pg_v2_autotrader_live_close_attempts(event_id),
+            pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),
+            closing_external_reference TEXT NOT NULL,
+            closed_position_unique_ids TEXT NOT NULL,
+            closing_position_ids TEXT NOT NULL,
+            gross_pnl_base DOUBLE PRECISION NOT NULL,
+            opening_cost_base DOUBLE PRECISION NOT NULL,
+            closing_cost_base DOUBLE PRECISION NOT NULL,
+            realized_net_pnl DOUBLE PRECISION NOT NULL,
+            currency TEXT NOT NULL,
+            reconciled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(pilot_key, closing_external_reference)
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_equity_reconciliation_time_idx
+        ON pg_v2_autotrader_equity_reconciliations(pilot_key, reconciled_at DESC)
+        """,
     )
     with connect() as db:
         for statement in statements:
