@@ -149,6 +149,27 @@ def enroll_strategy_position_v2(
 
     product = resolve_saxo_automanage_product_v2(observation)
     pilot_key = product.pilot_key(strategy_key)
+
+    if mode == EXECUTION_MODE_LIVE:
+        # The PostgreSQL partial unique index is the final hard invariant, but fail
+        # before equity/managed-position side effects so a second LIVE strategy
+        # produces a clean domain error rather than an integrity exception.
+        existing_live = tuple(
+            item
+            for item in load_product_strategy_enrollments_v2(
+                account_id=product.account_id,
+                uic=int(product.provider_instrument_id),
+                asset_type=product.asset_type,
+            )
+            if item.execution_mode == EXECUTION_MODE_LIVE and item.pilot_key != pilot_key
+        )
+        if existing_live:
+            controller = existing_live[0]
+            raise ValueError(
+                "product already has an active LIVE AutoManage controller: "
+                f"{controller.strategy_key} ({controller.pilot_key})"
+            )
+
     equity = initialize_pilot_equity_v2(
         pilot_key=pilot_key,
         seed_capital=float(seed_capital),
