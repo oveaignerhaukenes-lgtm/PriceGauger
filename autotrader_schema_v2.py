@@ -250,6 +250,7 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_strategy_enrollments (
             pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),
             strategy_key TEXT NOT NULL,
+            execution_mode TEXT NOT NULL DEFAULT 'LIVE_MANAGE',
             account_id TEXT NOT NULL,
             anchor_net_position_id TEXT NOT NULL,
             uic BIGINT NOT NULL,
@@ -264,9 +265,15 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
             UNIQUE(account_id, uic, asset_type, strategy_key)
         )
         """,
+        "ALTER TABLE pg_v2_autotrader_strategy_enrollments ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'LIVE_MANAGE'",
         """
         CREATE INDEX IF NOT EXISTS pg_v2_autotrader_strategy_enrollment_active_idx
         ON pg_v2_autotrader_strategy_enrollments(enabled, updated_at DESC)
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS pg_v2_autotrader_one_live_strategy_per_product_idx
+        ON pg_v2_autotrader_strategy_enrollments(account_id, uic, asset_type)
+        WHERE enabled = TRUE AND execution_mode = 'LIVE_MANAGE'
         """,
         """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_equity_reconciliations (
