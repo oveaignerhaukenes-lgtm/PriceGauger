@@ -122,6 +122,23 @@ def _candidate_open_requests() -> tuple[dict[str, Any], ...]:
     return tuple(_row_dict(row) for row in rows)
 
 
+def _entry_authority_changed_after_request(request: dict[str, Any]) -> bool:
+    """Entry authority is prospective; mode/arming changes never revive old signals."""
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT updated_at
+            FROM pg_v2_autotrader_strategy_enrollments
+            WHERE pilot_key = ? AND enabled = TRUE
+            """,
+            (str(request["pilot_key"]),),
+        ).fetchone()
+    if row is None:
+        return True
+    updated_at = row.get("updated_at") if isinstance(row, dict) else row[0]
+    return _utc(updated_at) > _utc(request["created_at"])
+
+
 def load_open_requests_waiting_approval_v2(pilot_key: str) -> tuple[dict[str, Any], ...]:
     ensure_autotrader_schema_v2()
     enrollment = load_strategy_enrollment_v2(pilot_key)
@@ -143,7 +160,8 @@ def load_open_requests_waiting_approval_v2(pilot_key: str) -> tuple[dict[str, An
             """,
             (str(pilot_key), STATUS_PENDING),
         ).fetchall()
-    return tuple(_row_dict(row) for row in rows)
+    requests = tuple(_row_dict(row) for row in rows)
+    return tuple(item for item in requests if not _entry_authority_changed_after_request(item))
 
 
 def approve_open_request_v2(
@@ -173,8 +191,8 @@ def approve_open_request_v2(
     with connect() as db:
         row = db.execute(
             """
-            SELECT request_id, signal_at, status, created_at, desired_direction, signal,
-                   budget_amount, budget_currency
+            SELECT request_id, pilot_key, signal_at, status, created_at,
+                   desired_direction, signal, budget_amount, budget_currency
             FROM pg_v2_autotrader_execution_requests
             WHERE request_id = ? AND pilot_key = ? AND action = 'OPEN'
             """,
@@ -185,6 +203,8 @@ def approve_open_request_v2(
         item = _row_dict(row)
         if str(item["status"]) != STATUS_PENDING:
             raise ValueError("OPEN request is no longer waiting for approval")
+        if _entry_authority_changed_after_request(item):
+            raise ValueError("OPEN request predates the current entry authority")
         signal_at = _utc(item["signal_at"])
         age = current_time - signal_at
         if age < timedelta(0) or age > OPEN_SIGNAL_MAX_AGE:
@@ -241,13 +261,7 @@ def _update_request(
 
 
 def _newer_strategy_request_exists(request: dict[str, Any]) -> bool:
-    """Treat any later MACD cross as authoritative, even when it plans HOLD.
-
-    A long/flat or short/flat cross can legitimately target FLAT while the product is
-    already flat, producing no newer execution request. Looking at strategy
-    evaluations instead of only execution requests prevents an older pending or
-    one-shot-approved OPEN from surviving that newer cross.
-    """
+    """Treat any later MACD cross as authoritative, even when it plans HOLD."""
     with connect() as db:
         row = db.execute(
             """
@@ -571,6 +585,15 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
             if enrollment.entry_mode == ENTRY_MODE_APPROVAL_REQUIRED and request_status != STATUS_APPROVED:
                 continue
             if enrollment.entry_mode == ENTRY_MODE_AUTO and request_status not in {STATUS_PENDING, STATUS_APPROVED}:
+                continue
+
+            if _entry_authority_changed_after_request(request):
+                _update_request(
+                    request_id,
+                    status=STATUS_SUPERSEDED,
+                    block_reason="ENTRY_AUTHORITY_CHANGED",
+                )
+                blocked += 1
                 continue
 
             if _newer_strategy_request_exists(request):
