@@ -20,12 +20,13 @@ def test_automanage_panel_is_generic_product_strategy_enrollment_not_order_submi
     assert "enroll_strategy_position_v2" in source
     assert "EXECUTION_MODE_LIVE" in source
     assert "EXECUTION_MODE_SHADOW" in source
-    assert "Kjør den andre MACD-strategien som shadow for sammenligning" in source
+    assert "Kjør øvrige MACD-strategier som shadow for sammenligning" in source
     assert "Startkapital" in source
     assert "Pilotkapital" in source
     assert "Realisert" in source
-    assert "AutoTrade · entry/re-entry" in source
-    assert "disabled=True" in source
+    assert "ENTRY_MODE_LABELS" in source
+    assert "render_tradingdesk_autotrade_entry_gate_v2" in source
+    assert "Standard er Manage-only" in source
     assert "session.post" not in source
     assert "_post_once" not in source
     assert "CREATE TABLE" not in source
@@ -38,3 +39,14 @@ def test_automanage_enrollment_requires_explicit_user_acknowledgement():
     assert 'disabled=not acknowledge' in source
     assert '"Aktiver AutoManage"' in source
     assert '"Stopp denne piloten"' in source
+
+
+def test_execution_panel_separates_close_authority_from_entry_behavior():
+    source = Path("tradingdesk_autotrade_entry_gate_v2.py").read_text(encoding="utf-8")
+    assert "Manage-only · jeg åpner, PG lukker" in source
+    assert "Full auto · signal → ordre" in source
+    assert "Godkjenn entry · PG lukker automatisk" in source
+    assert "Arm automatisk LIVE CLOSE" in source
+    assert "Godkjenn denne {direction}-entryen" in source
+    assert "approve_open_request_v2" in source
+    assert "MANUAL_ENTRY_ONLY" in source
