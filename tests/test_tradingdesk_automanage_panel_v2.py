@@ -23,13 +23,22 @@ def test_automanage_panel_is_generic_product_strategy_enrollment_not_order_submi
     assert "Kjør den andre MACD-strategien som shadow for sammenligning" in source
     assert "Startkapital" in source
     assert "Pilotkapital" in source
-    assert "Realisert" in source
+    assert "Realisert LIVE" in source
     assert "AutoTrade · entry/re-entry" in source
     assert "disabled=True" in source
     assert "session.post" not in source
     assert "_post_once" not in source
     assert "CREATE TABLE" not in source
     assert "4912" not in source
+
+
+def test_automanage_panel_shows_same_basis_strategy_scorecard():
+    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    assert "load_shadow_benchmark_state_v2" in source
+    assert "Strategitest" in source
+    assert "Paper P/L" in source
+    assert "samme canonical 30m-bars og startkapital" in source
+    assert "faktisk Saxo-P/L føres separat" in source
 
 
 def test_automanage_enrollment_requires_explicit_user_acknowledgement():
