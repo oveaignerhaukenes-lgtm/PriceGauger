@@ -355,6 +355,77 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         ON pg_v2_autotrader_execution_requests(status, action, created_at ASC)
         """,
         """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_product_admissions (
+            account_id TEXT NOT NULL,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+            instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+            market_name TEXT NOT NULL,
+            direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+            enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            transaction_costs_verified BOOLEAN NOT NULL DEFAULT FALSE,
+            margin_product_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+            negative_balance_protection_verified BOOLEAN NOT NULL DEFAULT FALSE,
+            limited_loss_verified BOOLEAN NOT NULL DEFAULT FALSE,
+            no_margin_obligation_verified BOOLEAN NOT NULL DEFAULT FALSE,
+            preflight_amount DOUBLE PRECISION,
+            preflight_cost_account DOUBLE PRECISION,
+            preflight_initial_margin_account DOUBLE PRECISION,
+            verified_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY(account_id, uic, asset_type, direction)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_margin_configs (
+            pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
+            enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            max_effective_leverage DOUBLE PRECISION NOT NULL CHECK (max_effective_leverage > 0),
+            minimum_free_capital DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (minimum_free_capital >= 0),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_open_config (
+            config_id SMALLINT PRIMARY KEY CHECK (config_id = 1),
+            armed BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        INSERT INTO pg_v2_autotrader_live_open_config (config_id, armed)
+        VALUES (1, FALSE)
+        ON CONFLICT (config_id) DO NOTHING
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_open_attempts (
+            request_id UUID PRIMARY KEY REFERENCES pg_v2_autotrader_execution_requests(request_id),
+            account_id TEXT NOT NULL,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            desired_direction TEXT NOT NULL CHECK (desired_direction IN ('LONG', 'SHORT')),
+            buy_sell TEXT NOT NULL,
+            amount DOUBLE PRECISION NOT NULL,
+            budget_amount DOUBLE PRECISION NOT NULL,
+            currency TEXT NOT NULL,
+            external_reference TEXT NOT NULL,
+            status TEXT NOT NULL,
+            order_id TEXT,
+            precheck_result TEXT NOT NULL,
+            precheck_initial_margin DOUBLE PRECISION NOT NULL,
+            precheck_notional DOUBLE PRECISION NOT NULL,
+            precheck_cost DOUBLE PRECISION NOT NULL,
+            error_message TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_live_open_status_idx
+        ON pg_v2_autotrader_live_open_attempts(status, updated_at ASC)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_equity_reconciliations (
             close_event_id UUID PRIMARY KEY REFERENCES pg_v2_autotrader_live_close_attempts(event_id),
             pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),
