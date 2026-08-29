@@ -22,6 +22,15 @@ EXECUTION_MODE_LIVE = "LIVE_MANAGE"
 EXECUTION_MODE_SHADOW = "SHADOW"
 _EXECUTION_MODES = {EXECUTION_MODE_LIVE, EXECUTION_MODE_SHADOW}
 
+ENTRY_MODE_AUTO = "AUTO"
+ENTRY_MODE_APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+ENTRY_MODE_MANUAL_ONLY = "MANUAL_ENTRY_ONLY"
+ENTRY_MODES = {
+    ENTRY_MODE_AUTO,
+    ENTRY_MODE_APPROVAL_REQUIRED,
+    ENTRY_MODE_MANUAL_ONLY,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class StrategyEnrollmentV2:
@@ -37,6 +46,7 @@ class StrategyEnrollmentV2:
     market_name: str
     enabled: bool
     live_open_armed: bool
+    entry_mode: str
 
     @property
     def product(self) -> AutoManageProductV2:
@@ -81,7 +91,11 @@ def _row_to_enrollment(row: Any) -> StrategyEnrollmentV2 | None:
         "market_name": row[9],
         "enabled": row[10],
         "live_open_armed": row[11],
+        "entry_mode": row[12],
     }
+    entry_mode = str(values.get("entry_mode") or ENTRY_MODE_MANUAL_ONLY).strip().upper()
+    if entry_mode not in ENTRY_MODES:
+        entry_mode = ENTRY_MODE_MANUAL_ONLY
     return StrategyEnrollmentV2(
         pilot_key=str(values["pilot_key"]),
         strategy_key=str(values["strategy_key"]),
@@ -95,13 +109,14 @@ def _row_to_enrollment(row: Any) -> StrategyEnrollmentV2 | None:
         market_name=str(values["market_name"]),
         enabled=bool(values["enabled"]),
         live_open_armed=bool(values["live_open_armed"]),
+        entry_mode=entry_mode,
     )
 
 
 def _select_columns() -> str:
     return (
         "pilot_key, strategy_key, execution_mode, account_id, anchor_net_position_id, "
-        "uic, asset_type, market_id, instrument_id, market_name, enabled, live_open_armed"
+        "uic, asset_type, market_id, instrument_id, market_name, enabled, live_open_armed, entry_mode"
     )
 
 
@@ -112,18 +127,25 @@ def enroll_strategy_position_v2(
     execution_mode: str = EXECUTION_MODE_LIVE,
     seed_capital: float = DEFAULT_PILOT_SEED_CAPITAL,
     currency: str = "NOK",
+    entry_mode: str = ENTRY_MODE_MANUAL_ONLY,
 ) -> tuple[StrategyEnrollmentV2, PilotEquitySnapshotV2]:
     """Attach any supported strategy to any exact subscribed Saxo product.
 
-    The product container is strategy-neutral. Several strategies may be enrolled
-    against one product in SHADOW mode for comparison, while a PostgreSQL partial
-    unique index permits at most one enabled LIVE_MANAGE strategy per exact product.
+    Product identity, strategy policy and entry authority are deliberately separate.
+    CLOSE authority comes from LIVE_MANAGE + the existing close gates. `entry_mode`
+    controls only whether PriceGauger may create a new position automatically, after
+    one-shot approval, or not at all.
     """
     ensure_autotrader_schema_v2()
     strategy_spec_v2(strategy_key)
     mode = str(execution_mode or "").strip().upper()
     if mode not in _EXECUTION_MODES:
         raise ValueError(f"unsupported execution_mode: {execution_mode}")
+    normalized_entry_mode = str(entry_mode or "").strip().upper()
+    if normalized_entry_mode not in ENTRY_MODES:
+        raise ValueError(f"unsupported entry_mode: {entry_mode}")
+    if mode == EXECUTION_MODE_SHADOW:
+        normalized_entry_mode = ENTRY_MODE_MANUAL_ONLY
 
     product = resolve_saxo_automanage_product_v2(observation)
     pilot_key = product.pilot_key(strategy_key)
@@ -142,8 +164,8 @@ def enroll_strategy_position_v2(
             INSERT INTO pg_v2_autotrader_strategy_enrollments(
                 pilot_key, strategy_key, execution_mode, account_id, anchor_net_position_id,
                 uic, asset_type, market_id, instrument_id, market_name,
-                enabled, live_open_armed, enrolled_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE, now(), now())
+                enabled, live_open_armed, entry_mode, enrolled_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE, ?, now(), now())
             ON CONFLICT (pilot_key) DO UPDATE SET
                 strategy_key=EXCLUDED.strategy_key,
                 execution_mode=EXCLUDED.execution_mode,
@@ -156,6 +178,7 @@ def enroll_strategy_position_v2(
                 market_name=EXCLUDED.market_name,
                 enabled=TRUE,
                 live_open_armed=FALSE,
+                entry_mode=EXCLUDED.entry_mode,
                 enrolled_at=now(),
                 updated_at=now()
             """,
@@ -170,6 +193,7 @@ def enroll_strategy_position_v2(
                 product.market_id,
                 product.instrument_id,
                 product.market_name,
+                normalized_entry_mode,
             ),
         )
     enrollment = load_strategy_enrollment_v2(pilot_key)
@@ -272,6 +296,31 @@ def find_strategy_enrollment_for_close_v2(
     return matches[0] if matches else None
 
 
+def set_entry_mode_v2(pilot_key: str, entry_mode: str) -> StrategyEnrollmentV2:
+    ensure_autotrader_schema_v2()
+    enrollment = load_strategy_enrollment_v2(pilot_key)
+    if enrollment is None or not enrollment.enabled:
+        raise LookupError(f"no active strategy enrollment for {pilot_key}")
+    if enrollment.execution_mode != EXECUTION_MODE_LIVE:
+        raise ValueError("entry mode can only be changed for a LIVE strategy")
+    normalized = str(entry_mode or "").strip().upper()
+    if normalized not in ENTRY_MODES:
+        raise ValueError(f"unsupported entry_mode: {entry_mode}")
+    with connect() as db:
+        db.execute(
+            """
+            UPDATE pg_v2_autotrader_strategy_enrollments
+            SET entry_mode = ?, live_open_armed = FALSE, updated_at = now()
+            WHERE pilot_key = ? AND enabled = TRUE AND execution_mode = ?
+            """,
+            (normalized, str(pilot_key), EXECUTION_MODE_LIVE),
+        )
+    refreshed = load_strategy_enrollment_v2(pilot_key)
+    if refreshed is None:
+        raise RuntimeError("strategy enrollment disappeared after entry-mode update")
+    return refreshed
+
+
 def set_live_open_armed_v2(pilot_key: str, armed: bool) -> StrategyEnrollmentV2:
     ensure_autotrader_schema_v2()
     enrollment = load_strategy_enrollment_v2(pilot_key)
@@ -279,6 +328,8 @@ def set_live_open_armed_v2(pilot_key: str, armed: bool) -> StrategyEnrollmentV2:
         raise LookupError(f"no active strategy enrollment for {pilot_key}")
     if enrollment.execution_mode != EXECUTION_MODE_LIVE:
         raise ValueError("LIVE OPEN cannot be armed for a SHADOW strategy")
+    if bool(armed) and enrollment.entry_mode == ENTRY_MODE_MANUAL_ONLY:
+        raise ValueError("MANUAL_ENTRY_ONLY cannot arm LIVE OPEN")
     with connect() as db:
         db.execute(
             """
@@ -312,6 +363,10 @@ def stop_strategy_enrollment_v2(pilot_key: str) -> None:
 
 
 __all__ = [
+    "ENTRY_MODE_APPROVAL_REQUIRED",
+    "ENTRY_MODE_AUTO",
+    "ENTRY_MODE_MANUAL_ONLY",
+    "ENTRY_MODES",
     "EXECUTION_MODE_LIVE",
     "EXECUTION_MODE_SHADOW",
     "StrategyEnrollmentV2",
@@ -321,6 +376,7 @@ __all__ = [
     "load_active_strategy_enrollments_v2",
     "load_product_strategy_enrollments_v2",
     "load_strategy_enrollment_v2",
+    "set_entry_mode_v2",
     "set_live_open_armed_v2",
     "stop_strategy_enrollment_v2",
 ]
