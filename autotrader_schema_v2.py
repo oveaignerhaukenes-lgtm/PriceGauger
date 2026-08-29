@@ -260,12 +260,14 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
             market_name TEXT NOT NULL,
             enabled BOOLEAN NOT NULL DEFAULT TRUE,
             live_open_armed BOOLEAN NOT NULL DEFAULT FALSE,
+            entry_mode TEXT NOT NULL DEFAULT 'MANUAL_ENTRY_ONLY' CHECK (entry_mode IN ('AUTO', 'APPROVAL_REQUIRED', 'MANUAL_ENTRY_ONLY')),
             enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE(account_id, uic, asset_type, strategy_key)
         )
         """,
         "ALTER TABLE pg_v2_autotrader_strategy_enrollments ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'LIVE_MANAGE'",
+        "ALTER TABLE pg_v2_autotrader_strategy_enrollments ADD COLUMN IF NOT EXISTS entry_mode TEXT NOT NULL DEFAULT 'MANUAL_ENTRY_ONLY'",
         """
         CREATE INDEX IF NOT EXISTS pg_v2_autotrader_strategy_enrollment_active_idx
         ON pg_v2_autotrader_strategy_enrollments(enabled, updated_at DESC)
@@ -346,10 +348,14 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
             status TEXT NOT NULL,
             block_reason TEXT,
             order_id TEXT,
+            approved_at TIMESTAMPTZ,
+            approval_source TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """,
+        "ALTER TABLE pg_v2_autotrader_execution_requests ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ",
+        "ALTER TABLE pg_v2_autotrader_execution_requests ADD COLUMN IF NOT EXISTS approval_source TEXT",
         """
         CREATE INDEX IF NOT EXISTS pg_v2_autotrader_execution_request_status_idx
         ON pg_v2_autotrader_execution_requests(status, action, created_at ASC)
