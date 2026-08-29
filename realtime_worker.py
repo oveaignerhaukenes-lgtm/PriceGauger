@@ -17,6 +17,7 @@ from autotrader_risk_control_v2 import (
     run_risk_control_forever_v2,
 )
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
+from autotrader_shadow_benchmark_v2 import run_shadow_benchmark_forever_v2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import using_postgres
 from live_technical_runtime_v2 import run_live_technical_forever_v2
@@ -91,6 +92,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_EQUITY_RECONCILIATION_SECONDS", "5")),
         help="Cadence for authoritative Saxo closed-position P/L booking.",
+    )
+    parser.add_argument(
+        "--autotrader-shadow-benchmark-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_SHADOW_BENCHMARK_SECONDS", "60")),
+        help="Cadence for product-generic MACD strategy A/B benchmark updates.",
     )
     parser.add_argument(
         "--saxo-infoprice-probe-seconds",
@@ -215,6 +222,28 @@ def _start_autotrader_equity_reconciliation(*, interval_seconds: int) -> threadi
     LOGGER.info(
         "AutoTrader authoritative P/L reconciliation started interval_seconds=%d",
         max(2, interval_seconds),
+    )
+    return thread
+
+
+def _start_autotrader_shadow_benchmark(
+    *,
+    db_path: str,
+    interval_seconds: int,
+) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader shadow benchmark disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_shadow_benchmark_forever_v2,
+        kwargs={"db_path": db_path, "interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-shadow-benchmark",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoTrader strategy A/B shadow benchmark started interval_seconds=%d",
+        max(30, interval_seconds),
     )
     return thread
 
@@ -346,6 +375,10 @@ def main() -> None:
     )
     _start_autotrader_equity_reconciliation(
         interval_seconds=args.autotrader_equity_reconciliation_seconds,
+    )
+    _start_autotrader_shadow_benchmark(
+        db_path=args.db,
+        interval_seconds=args.autotrader_shadow_benchmark_seconds,
     )
     watcher = threading.Thread(
         target=_watch_v2_registry,
