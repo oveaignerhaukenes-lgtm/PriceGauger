@@ -19,20 +19,33 @@ from autotrader_live_close_v1 import (
 )
 from autotrader_live_open_v2 import (
     LiveOpenConfigV2,
+    approve_open_request_v2,
     code_gate_enabled_v2 as live_open_code_gate_enabled_v2,
     load_live_open_config_v2,
+    load_open_requests_waiting_approval_v2,
     save_live_open_config_v2,
 )
 from autotrader_open_sizing_v2 import EntrySizingError, preflight_minimum_entry_v2
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_strategy_catalog_v2 import strategy_spec_v2
 from autotrader_strategy_enrollment_v2 import (
+    ENTRY_MODE_APPROVAL_REQUIRED,
+    ENTRY_MODE_AUTO,
+    ENTRY_MODE_MANUAL_ONLY,
     EXECUTION_MODE_LIVE,
     load_active_strategy_enrollments_v2,
+    set_entry_mode_v2,
     set_live_open_armed_v2,
 )
 from saxo_provider import LIVE_BASE_URL, SaxoInstrument, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
+
+
+ENTRY_MODE_LABELS = {
+    ENTRY_MODE_MANUAL_ONLY: "Manage-only · jeg åpner, PG lukker",
+    ENTRY_MODE_AUTO: "Full auto · signal → ordre",
+    ENTRY_MODE_APPROVAL_REQUIRED: "Godkjenn entry · PG lukker automatisk",
+}
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -57,7 +70,12 @@ def _account_info(client, account_id: str) -> tuple[str, str]:
 
 def _required_entry_directions(strategy_key: str) -> tuple[str, ...]:
     spec = strategy_spec_v2(strategy_key)
-    return ("LONG", "SHORT") if spec.can_short else ("LONG",)
+    directions: list[str] = []
+    if spec.can_long:
+        directions.append("LONG")
+    if spec.can_short:
+        directions.append("SHORT")
+    return tuple(directions)
 
 
 def _pilot_label(enrollment) -> str:
@@ -71,10 +89,68 @@ def _money(value: float | None, currency: str) -> str:
     return f"{float(value):,.2f} {currency}".replace(",", " ")
 
 
+def _render_close_gate(enrollment) -> None:
+    close_config = load_live_close_config_v1()
+    close_code = live_close_code_gate_enabled_v1()
+    st.caption(
+        f"CLOSE gate · code={'ON' if close_code else 'OFF'} · master={'ON' if close_config.armed else 'OFF'}"
+    )
+    if close_config.armed:
+        st.success("LIVE CLOSE er armed. Strategiens exits krever ingen ny manuell godkjenning.")
+        return
+    close_ack = st.checkbox(
+        "Jeg godkjenner automatisk LIVE CLOSE for eksplisitt AutoManaged posisjon gjennom PriceGaugers safety gates.",
+        key=f"td-close-master-ack:{enrollment.pilot_key}",
+    )
+    if st.button(
+        "Arm automatisk LIVE CLOSE",
+        disabled=not close_ack,
+        key=f"td-close-master-arm:{enrollment.pilot_key}",
+        use_container_width=True,
+    ):
+        save_live_close_config_v1(LiveCloseConfigV1(armed=True))
+        st.success("LIVE CLOSE master er armed. Code-gaten må også være ON i deployment.")
+        st.rerun()
+
+
+def _render_pending_approvals(enrollment, currency: str) -> None:
+    requests = load_open_requests_waiting_approval_v2(enrollment.pilot_key)
+    if not requests:
+        st.caption("Ingen fersk entry venter på godkjenning.")
+        return
+    st.markdown("**Venter på godkjenning**")
+    for request in requests:
+        signal_at = str(request.get("signal_at") or "")
+        direction = str(request.get("desired_direction") or "?")
+        signal = str(request.get("signal") or "?")
+        budget = float(request.get("budget_amount") or 0.0)
+        request_id = str(request["request_id"])
+        st.caption(
+            f"{direction} · {signal} · {signal_at} · signalbudsjett {_money(budget, currency)}"
+        )
+        if st.button(
+            f"Godkjenn denne {direction}-entryen",
+            type="primary",
+            key=f"td-approve-open:{request_id}",
+            use_container_width=True,
+        ):
+            try:
+                approve_open_request_v2(
+                    pilot_key=enrollment.pilot_key,
+                    request_id=request_id,
+                    source="TRADINGDESK",
+                )
+            except Exception as exc:
+                st.error(f"Entry kunne ikke godkjennes: {exc}")
+                return
+            st.success("Kun denne execution-requesten er godkjent. Runtime revaliderer alle gates før POST.")
+            st.rerun()
+
+
 def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) -> None:
-    """Configure explicit entry admission and execution arming for active LIVE pilots."""
-    st.markdown("**LIVE entry-gate**")
-    st.caption("Produkt-admission · margin envelope · Saxo precheck · separat arming")
+    """Configure how an active AutoManage pilot is allowed to create new exposure."""
+    st.markdown("**AutoManage execution**")
+    st.caption("Exit kan være automatisk selv om entry er manuell eller krever godkjenning")
 
     enrollments = tuple(
         item
@@ -94,11 +170,10 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         key=f"td-entry-pilot:{context.market_id}",
     )
     spec = strategy_spec_v2(enrollment.strategy_key)
-    required_directions = _required_entry_directions(enrollment.strategy_key)
 
     client = configured_client()
     if client is None or client.base_url.rstrip("/").lower() != LIVE_BASE_URL.lower():
-        st.warning("Saxo LIVE er ikke tilgjengelig; entry-gaten kan ikke preflightes eller armes.")
+        st.warning("Saxo LIVE er ikke tilgjengelig; execution-gaten kan ikke konfigureres.")
         return
 
     try:
@@ -113,8 +188,46 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
 
     st.caption(
         f"{spec.label} · pilotkapital {_money(equity.equity, currency)} · "
-        f"entry-retninger {', '.join(required_directions)}"
+        f"entry-mode {ENTRY_MODE_LABELS.get(enrollment.entry_mode, enrollment.entry_mode)}"
     )
+
+    mode_options = (
+        ENTRY_MODE_MANUAL_ONLY,
+        ENTRY_MODE_AUTO,
+        ENTRY_MODE_APPROVAL_REQUIRED,
+    )
+    selected_mode = st.selectbox(
+        "Entry-adferd",
+        mode_options,
+        index=mode_options.index(enrollment.entry_mode) if enrollment.entry_mode in mode_options else 0,
+        format_func=lambda item: ENTRY_MODE_LABELS[item],
+        key=f"td-entry-mode:{enrollment.pilot_key}",
+        help=(
+            "Manage-only: du åpner selv og PG kan lukke. Full auto: signal går direkte gjennom execution-gatene. "
+            "Godkjenn entry: exits er automatiske, men hver ny OPEN må godkjennes one-shot."
+        ),
+    )
+    if selected_mode != enrollment.entry_mode:
+        if st.button(
+            "Lagre entry-adferd",
+            key=f"td-entry-mode-save:{enrollment.pilot_key}",
+            use_container_width=True,
+        ):
+            set_entry_mode_v2(enrollment.pilot_key, selected_mode)
+            st.success("Entry-adferd er endret og LIVE OPEN er disarmed inntil eventuell ny arming.")
+            st.rerun()
+
+    _render_close_gate(enrollment)
+
+    if enrollment.entry_mode == ENTRY_MODE_MANUAL_ONLY:
+        st.info(
+            "Manage-only: PriceGauger sender aldri OPEN. Du kan sette LONG/SHORT manuelt og la strategien håndtere exit. "
+            "Ingen Product Admission eller Margin Envelope kreves for denne modusen."
+        )
+        return
+
+    required_directions = _required_entry_directions(enrollment.strategy_key)
+    st.caption(f"Automatisk/approvable entry krever: {', '.join(required_directions)}")
 
     margin_product = is_margin_product_v2(enrollment.asset_type)
     if margin_product:
@@ -259,40 +372,26 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
     )
     margin_ready = bool(margin_config and margin_config.enabled)
 
-    close_config = load_live_close_config_v1()
     open_config = load_live_open_config_v2()
-    close_code = live_close_code_gate_enabled_v1()
     open_code = live_open_code_gate_enabled_v2()
     st.caption(
-        "Execution gates · "
-        f"CLOSE code={'ON' if close_code else 'OFF'} / master={'ON' if close_config.armed else 'OFF'} · "
-        f"OPEN code={'ON' if open_code else 'OFF'} / master={'ON' if open_config.armed else 'OFF'} / "
+        "OPEN gate · "
+        f"code={'ON' if open_code else 'OFF'} · master={'ON' if open_config.armed else 'OFF'} · "
         f"pilot={'ON' if enrollment.live_open_armed else 'OFF'}"
     )
 
-    close_ack = st.checkbox(
-        "Jeg godkjenner LIVE CLOSE for eksplisitt AutoManaged posisjon gjennom PriceGaugers safety gates.",
-        key=f"td-close-master-ack:{enrollment.pilot_key}",
-    )
-    if not close_config.armed:
-        if st.button(
-            "Arm LIVE CLOSE master",
-            disabled=not close_ack,
-            key=f"td-close-master-arm:{enrollment.pilot_key}",
-            use_container_width=True,
-        ):
-            save_live_close_config_v1(LiveCloseConfigV1(armed=True))
-            st.success("LIVE CLOSE master er armed. Code-gaten må også være ON i deployment.")
-            st.rerun()
-
     entry_ack = st.checkbox(
-        "Jeg godkjenner at denne LIVE-piloten kan åpne/re-entere ekte Saxo-posisjoner innenfor Product Universe, Margin Envelope og precheck.",
+        (
+            "Jeg godkjenner at denne LIVE-piloten kan sende ekte OPEN etter signal uten ny bekreftelse."
+            if enrollment.entry_mode == ENTRY_MODE_AUTO
+            else "Jeg godkjenner at denne LIVE-piloten kan sende en OPEN når jeg eksplisitt godkjenner den konkrete requesten."
+        ),
         key=f"td-open-pilot-ack:{enrollment.pilot_key}",
     )
     can_arm_open = admissions_ready and margin_ready and bool(entry_ack)
     if not enrollment.live_open_armed:
         if st.button(
-            "Arm LIVE entry/re-entry",
+            "Arm LIVE entry",
             type="primary",
             disabled=not can_arm_open,
             key=f"td-open-pilot-arm:{enrollment.pilot_key}",
@@ -300,25 +399,31 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         ):
             save_live_open_config_v2(LiveOpenConfigV2(armed=True))
             set_live_open_armed_v2(enrollment.pilot_key, True)
-            st.success("LIVE entry/re-entry er armed for denne piloten. Alle runtime-gater revalideres før hver ordre.")
+            st.success("LIVE entry er armed. Alle runtime-gater revalideres før hver ordre.")
             st.rerun()
     else:
-        st.success("LIVE entry/re-entry er armed for denne piloten.")
+        if enrollment.entry_mode == ENTRY_MODE_AUTO:
+            st.success("Full-auto entry er armed; ingen per-signal godkjenning kreves.")
+        else:
+            st.success("Entry execution er armed, men hver OPEN krever one-shot godkjenning.")
         if st.button(
-            "Disarm LIVE entry/re-entry",
+            "Disarm LIVE entry",
             key=f"td-open-pilot-disarm:{enrollment.pilot_key}",
             use_container_width=True,
         ):
             set_live_open_armed_v2(enrollment.pilot_key, False)
-            st.warning("LIVE entry/re-entry er disarmed for denne piloten.")
+            st.warning("LIVE entry er disarmed for denne piloten. Automatisk CLOSE påvirkes ikke.")
             st.rerun()
 
+    if enrollment.entry_mode == ENTRY_MODE_APPROVAL_REQUIRED and enrollment.live_open_armed:
+        _render_pending_approvals(enrollment, currency)
+
     if not admissions_ready:
-        st.caption("OPEN er fortsatt fail-closed: alle nødvendige retninger må være eksplisitt produktgodkjent.")
+        st.caption("OPEN er fail-closed: alle retninger strategien kan åpne må være eksplisitt produktgodkjent.")
     elif not margin_ready:
-        st.caption("OPEN er fortsatt fail-closed: Margin Envelope må lagres.")
+        st.caption("OPEN er fail-closed: Margin Envelope må lagres.")
     elif not open_code:
         st.caption("Pilot/master kan konfigureres nå, men deployment code-gaten må være ON før noen LIVE OPEN POST er mulig.")
 
 
-__all__ = ["render_tradingdesk_autotrade_entry_gate_v2"]
+__all__ = ["ENTRY_MODE_LABELS", "render_tradingdesk_autotrade_entry_gate_v2"]
