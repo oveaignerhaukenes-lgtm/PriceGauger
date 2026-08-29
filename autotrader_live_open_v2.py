@@ -10,7 +10,6 @@ from typing import Any
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from autotrader_entry_policy_v2 import require_entry_policy_v2
 from autotrader_live_close_v1 import (
-    _account_key_for_account_id,
     _position_netting_mode,
     _post_once,
     _require_live_client,
@@ -194,10 +193,56 @@ def _open_orders_exist(client, *, account_key: str, uic: int) -> bool:
     )
 
 
+def _settled_close_provenance(pilot_key: str) -> tuple[bool, bool]:
+    """Return (settled_close_exists, unresolved_close_exists) since latest enrollment."""
+    with connect() as db:
+        enrollment = db.execute(
+            """
+            SELECT account_id, uic, asset_type, enrolled_at
+            FROM pg_v2_autotrader_strategy_enrollments
+            WHERE pilot_key = ? AND enabled = TRUE
+            """,
+            (str(pilot_key),),
+        ).fetchone()
+        if enrollment is None:
+            return False, True
+        item = _row_dict(enrollment)
+        settled = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_live_close_attempts AS close
+            JOIN pg_v2_autotrader_equity_reconciliations AS rec
+              ON rec.close_event_id = close.event_id
+            WHERE close.account_id = ? AND close.uic = ? AND close.asset_type = ?
+              AND close.created_at >= ? AND close.status = 'RECONCILED'
+            ORDER BY close.created_at DESC
+            LIMIT 1
+            """,
+            (str(item["account_id"]), int(item["uic"]), str(item["asset_type"]), item["enrolled_at"]),
+        ).fetchone()
+        unresolved = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_live_close_attempts AS close
+            LEFT JOIN pg_v2_autotrader_equity_reconciliations AS rec
+              ON rec.close_event_id = close.event_id
+            WHERE close.account_id = ? AND close.uic = ? AND close.asset_type = ?
+              AND close.created_at >= ?
+              AND close.status IN ('SUBMITTING', 'ORDER_ACCEPTED', 'RECONCILED', 'UNCERTAIN')
+              AND rec.close_event_id IS NULL
+            ORDER BY close.created_at DESC
+            LIMIT 1
+            """,
+            (str(item["account_id"]), int(item["uic"]), str(item["asset_type"]), item["enrolled_at"]),
+        ).fetchone()
+    return settled is not None, unresolved is not None
+
+
 def _record_attempt_before_submit(
     *,
     request: dict[str, Any],
     amount: float,
+    budget_amount: float,
     account_currency: str,
     buy_sell: str,
     external_reference: str,
@@ -227,7 +272,7 @@ def _record_attempt_before_submit(
                 str(request["desired_direction"]),
                 str(buy_sell),
                 float(amount),
-                float(request["budget_amount"]),
+                float(budget_amount),
                 account_currency,
                 external_reference,
                 STATUS_SUBMITTING,
@@ -325,7 +370,11 @@ def reconcile_live_open_attempts_v2(client) -> int:
         request_id = str(attempt["request_id"])
         _rotate_managed_basis_and_anchor(request_id, current)
         _update_attempt(request_id, status=STATUS_RECONCILED)
-        _update_request(request_id, status=STATUS_RECONCILED, order_id=None if attempt.get("order_id") is None else str(attempt["order_id"]))
+        _update_request(
+            request_id,
+            status=STATUS_RECONCILED,
+            order_id=None if attempt.get("order_id") is None else str(attempt["order_id"]),
+        )
         reconciled += 1
     return reconciled
 
@@ -394,9 +443,16 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 blocked += 1
                 continue
 
+            settled_close, unresolved_close = _settled_close_provenance(enrollment.pilot_key)
+            if unresolved_close:
+                continue
+            if not settled_close:
+                _update_request(request_id, status=STATUS_BLOCKED, block_reason="FLAT_WITHOUT_SETTLED_PG_CLOSE")
+                blocked += 1
+                continue
+
             account_key, account_currency = _account_info(client, enrollment.account_id)
             if _open_orders_exist(client, account_key=account_key, uic=enrollment.uic):
-                # A still-open Saxo order is not a safe flat execution basis.
                 continue
 
             equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
@@ -404,7 +460,7 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 _update_request(request_id, status=STATUS_BLOCKED, block_reason="PILOT_ACCOUNT_CURRENCY_MISMATCH")
                 blocked += 1
                 continue
-            budget = min(float(request["budget_amount"]), float(equity.entry_budget))
+            budget = float(equity.entry_budget)
             if budget <= 0:
                 _update_request(request_id, status=STATUS_BLOCKED, block_reason="PILOT_EQUITY_EXHAUSTED")
                 blocked += 1
@@ -432,8 +488,6 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 external_reference_prefix=f"pg-size-{request_id.replace('-', '')[:24]}",
             )
 
-            # Final execution precheck is deliberately repeated after sizing so no
-            # cached proposal can authorize a real order.
             final = precheck_entry_amount_v2(
                 client,
                 account_key=account_key,
@@ -466,13 +520,12 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
             if not _record_attempt_before_submit(
                 request=request,
                 amount=sizing.amount,
+                budget_amount=budget,
                 account_currency=account_currency,
                 buy_sell=final.buy_sell,
                 external_reference=external_reference,
                 precheck=final,
             ):
-                # An attempt already crossed the durable idempotency boundary.
-                # Never repeat POST based on the strategy request alone.
                 continue
             _update_request(request_id, status=STATUS_SUBMITTING)
 
