@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+import math
 from typing import Iterable
 from uuid import NAMESPACE_URL, uuid5
 
@@ -46,8 +47,10 @@ class PilotEquitySnapshotV2:
             raise ValueError("pilot_key is required")
         if not self.currency.strip():
             raise ValueError("currency is required")
-        if float(self.seed_capital) <= 0:
-            raise ValueError("seed_capital must be positive")
+        if not math.isfinite(float(self.seed_capital)) or float(self.seed_capital) <= 0:
+            raise ValueError("seed_capital must be finite and positive")
+        if not math.isfinite(float(self.realized_net_pnl)):
+            raise ValueError("realized_net_pnl must be finite")
 
     @property
     def equity(self) -> float:
@@ -67,11 +70,12 @@ def pilot_equity_snapshot_v2(
     currency: str = DEFAULT_PILOT_CURRENCY,
 ) -> PilotEquitySnapshotV2:
     """Pure equity calculation used by persistence and unit tests."""
+    realized = sum(float(item) for item in realized_net_pnl_entries)
     return PilotEquitySnapshotV2(
         pilot_key=str(pilot_key).strip(),
         currency=str(currency).strip().upper(),
         seed_capital=float(seed_capital),
-        realized_net_pnl=sum(float(item) for item in realized_net_pnl_entries),
+        realized_net_pnl=realized,
     )
 
 
@@ -88,8 +92,8 @@ def initialize_pilot_equity_v2(
     capital = float(seed_capital)
     if not key:
         raise ValueError("pilot_key is required")
-    if capital <= 0:
-        raise ValueError("seed_capital must be positive")
+    if not math.isfinite(capital) or capital <= 0:
+        raise ValueError("seed_capital must be finite and positive")
     if not normalized_currency:
         raise ValueError("currency is required")
 
@@ -179,6 +183,8 @@ def record_realized_net_pnl_v2(
         raise ValueError("pilot_key and source_reference are required")
     if not normalized_currency or not normalized_kind:
         raise ValueError("currency and source_kind are required")
+    if not math.isfinite(amount):
+        raise ValueError("realized_net_pnl must be finite")
 
     current = load_pilot_equity_v2(pilot_key=key)
     if current.currency != normalized_currency:
@@ -226,22 +232,40 @@ def refresh_pending_reversal_budget_v2(
     state: LivePilotPlanningStateV2,
     equity: PilotEquitySnapshotV2,
 ) -> LivePilotPlanningStateV2:
-    """Refresh execution sizing while preserving the original MACD signal identity.
+    """Refresh pending reversal sizing from settled equity when capital is available.
 
     A reversal signal can be created while the old leg is still open. Once that leg
     closes, newly realized profit belongs to the pilot and may fund the opposite
-    OPEN. Direction/signal data stay unchanged; only the capital snapshot is fresh.
+    OPEN. If equity is exhausted we preserve the old intent so CLOSE remains
+    plannable, but a later flat-state OPEN is blocked by `planning_budget_v2`.
     """
-    if state.pending_intent is None:
+    if state.pending_intent is None or equity.entry_budget <= 0:
         return state
-    if equity.entry_budget <= 0:
-        raise ValueError("pilot equity is exhausted; pending reversal cannot reopen")
     refreshed = replace(
         state.pending_intent,
         budget_amount=equity.entry_budget,
         budget_currency=equity.currency,
     )
     return replace(state, pending_intent=refreshed, reversal_pending=True)
+
+
+def planning_budget_v2(
+    *,
+    equity: PilotEquitySnapshotV2,
+    position_is_flat: bool,
+) -> float:
+    """Return a positive planner budget without letting exhaustion block CLOSE.
+
+    The MACD intent contract requires a positive budget even for a CLOSE decision,
+    though sizing is irrelevant to that risk-reducing action. When a position still
+    exists, seed capital is therefore used only as a non-executing planner placeholder
+    if settled equity is exhausted. Once FLAT, zero equity fails closed before OPEN.
+    """
+    if equity.entry_budget > 0:
+        return equity.entry_budget
+    if position_is_flat:
+        raise ValueError("pilot equity is exhausted; no new exposure may be opened")
+    return equity.seed_capital
 
 
 def run_compounding_live_pilot_planning_once_v2(
@@ -268,9 +292,6 @@ def run_compounding_live_pilot_planning_once_v2(
         seed_capital=seed_capital,
         currency=currency,
     )
-    if equity.entry_budget <= 0:
-        raise ValueError("pilot equity is exhausted; no new exposure may be opened")
-
     state = refresh_pending_reversal_budget_v2(
         state=load_live_pilot_state_v2(binding),
         equity=equity,
@@ -305,6 +326,7 @@ def run_compounding_live_pilot_planning_once_v2(
         if anchor and observed.net_position_id != anchor:
             raise ValueError("initial live position does not match the requested anchor net-position identity")
 
+    budget = planning_budget_v2(equity=equity, position_is_flat=observed is None)
     evaluation = plan_live_pilot_step_v2(
         binding=binding,
         state=state,
@@ -312,7 +334,7 @@ def run_compounding_live_pilot_planning_once_v2(
         observed_net_position_id=None if observed is None else observed.net_position_id,
         previous=observations[-2],
         current=observations[-1],
-        budget_amount=equity.entry_budget,
+        budget_amount=budget,
         budget_currency=equity.currency,
     )
     persist_live_pilot_evaluation_v2(evaluation)
@@ -326,6 +348,7 @@ __all__ = [
     "initialize_pilot_equity_v2",
     "load_pilot_equity_v2",
     "pilot_equity_snapshot_v2",
+    "planning_budget_v2",
     "record_realized_net_pnl_v2",
     "refresh_pending_reversal_budget_v2",
     "run_compounding_live_pilot_planning_once_v2",
