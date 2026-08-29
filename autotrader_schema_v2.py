@@ -276,6 +276,45 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         WHERE enabled = TRUE AND execution_mode = 'LIVE_MANAGE'
         """,
         """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_shadow_benchmark_state (
+            pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),
+            strategy_key TEXT NOT NULL,
+            market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+            instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+            currency TEXT NOT NULL,
+            seed_equity DOUBLE PRECISION NOT NULL CHECK (seed_equity > 0),
+            equity DOUBLE PRECISION NOT NULL CHECK (equity >= 0),
+            position_state TEXT NOT NULL CHECK (position_state IN ('FLAT','LONG','SHORT')),
+            last_bar_time TIMESTAMPTZ NOT NULL,
+            last_close DOUBLE PRECISION NOT NULL CHECK (last_close > 0),
+            transitions INTEGER NOT NULL DEFAULT 0 CHECK (transitions >= 0),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_shadow_benchmark_events (
+            event_id UUID PRIMARY KEY,
+            pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_shadow_benchmark_state(pilot_key),
+            strategy_key TEXT NOT NULL,
+            bar_time TIMESTAMPTZ NOT NULL,
+            signal TEXT,
+            prior_state TEXT NOT NULL CHECK (prior_state IN ('FLAT','LONG','SHORT')),
+            next_state TEXT NOT NULL CHECK (next_state IN ('FLAT','LONG','SHORT')),
+            prior_close DOUBLE PRECISION NOT NULL CHECK (prior_close > 0),
+            close DOUBLE PRECISION NOT NULL CHECK (close > 0),
+            price_return DOUBLE PRECISION NOT NULL,
+            equity_before DOUBLE PRECISION NOT NULL CHECK (equity_before >= 0),
+            equity_after DOUBLE PRECISION NOT NULL CHECK (equity_after >= 0),
+            transitioned BOOLEAN NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(pilot_key, bar_time)
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_shadow_benchmark_event_time_idx
+        ON pg_v2_autotrader_shadow_benchmark_events(pilot_key, bar_time ASC)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_equity_reconciliations (
             close_event_id UUID PRIMARY KEY REFERENCES pg_v2_autotrader_live_close_attempts(event_id),
             pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),
