@@ -11,27 +11,30 @@ def test_tradingdesk_renders_compact_automanage_context_in_right_controls():
     assert source.index('with st.expander(f"AutoManage · {market}"') < source.index('with st.expander("Status"')
 
 
-def test_automanage_panel_is_exact_live_position_strategy_enrollment_not_order_submitter():
+def test_automanage_panel_is_generic_product_strategy_enrollment_not_order_submitter():
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "_position_observations_v2" in source
-    assert "resolve_live_pilot_binding_v2" in source
-    assert "int(binding.market_id) == int(context.market_id)" in source
-    assert "enroll_macd_flip_position_v2" in source
-    assert "MACD_FLIP_STRATEGY_V2" in source
-    assert "30m MACD flip" in source
+    assert "resolve_saxo_automanage_product_v2" in source
+    assert "int(product.market_id) == int(context.market_id)" in source
+    assert "AUTOTRADER_STRATEGIES_V2" in source
+    assert "enroll_strategy_position_v2" in source
+    assert "EXECUTION_MODE_LIVE" in source
+    assert "EXECUTION_MODE_SHADOW" in source
+    assert "Kjør den andre MACD-strategien som shadow for sammenligning" in source
     assert "Startkapital" in source
     assert "Pilotkapital" in source
     assert "Realisert" in source
-    assert "AutoTrade · flip/re-entry" in source
+    assert "AutoTrade · entry/re-entry" in source
     assert "disabled=True" in source
     assert "session.post" not in source
     assert "_post_once" not in source
     assert "CREATE TABLE" not in source
+    assert "4912" not in source
 
 
 def test_automanage_enrollment_requires_explicit_user_acknowledgement():
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-    assert "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen." in source
+    assert "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi." in source
     assert 'disabled=not acknowledge' in source
     assert '"Aktiver AutoManage"' in source
-    assert '"Stopp AutoManage"' in source
+    assert '"Stopp denne piloten"' in source
