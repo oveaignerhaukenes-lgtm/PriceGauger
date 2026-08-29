@@ -7,6 +7,9 @@ import os
 import threading
 import time
 
+from autotrader_closed_position_reconciliation_v2 import (
+    run_closed_position_equity_reconciliation_forever_v2,
+)
 from autotrader_live_close_v1 import run_live_close_forever_v1
 from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
 from autotrader_risk_control_v2 import (
@@ -82,6 +85,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_LIVE_CLOSE_SECONDS", "2")),
         help="Cadence for the guarded LIVE close-only executor. No Saxo calls occur while disarmed.",
+    )
+    parser.add_argument(
+        "--autotrader-equity-reconciliation-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_EQUITY_RECONCILIATION_SECONDS", "5")),
+        help="Cadence for authoritative Saxo closed-position P/L booking.",
     )
     parser.add_argument(
         "--saxo-infoprice-probe-seconds",
@@ -188,6 +197,24 @@ def _start_autotrader_live_close(*, interval_seconds: int) -> threading.Thread |
     LOGGER.info(
         "AutoTrader LIVE close-only runtime started interval_seconds=%d; execution remains two-key gated",
         max(1, interval_seconds),
+    )
+    return thread
+
+
+def _start_autotrader_equity_reconciliation(*, interval_seconds: int) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader equity reconciliation disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_closed_position_equity_reconciliation_forever_v2,
+        kwargs={"interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-equity-reconciliation",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoTrader authoritative P/L reconciliation started interval_seconds=%d",
+        max(2, interval_seconds),
     )
     return thread
 
@@ -316,6 +343,9 @@ def main() -> None:
     )
     _start_autotrader_live_close(
         interval_seconds=args.autotrader_live_close_seconds,
+    )
+    _start_autotrader_equity_reconciliation(
+        interval_seconds=args.autotrader_equity_reconciliation_seconds,
     )
     watcher = threading.Thread(
         target=_watch_v2_registry,
