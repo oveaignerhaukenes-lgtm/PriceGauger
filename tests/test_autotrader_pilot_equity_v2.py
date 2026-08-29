@@ -8,6 +8,7 @@ from autotrader_macd_flip_policy_v2 import macd_flip_intent_from_pair_v2
 from autotrader_pilot_equity_v2 import (
     PilotEquitySnapshotV2,
     pilot_equity_snapshot_v2,
+    planning_budget_v2,
     refresh_pending_reversal_budget_v2,
 )
 
@@ -65,6 +66,18 @@ def test_pilot_never_opens_from_negative_or_exhausted_equity():
     )
     assert equity.equity == pytest.approx(-100.0)
     assert equity.entry_budget == 0.0
+    with pytest.raises(ValueError, match="no new exposure"):
+        planning_budget_v2(equity=equity, position_is_flat=True)
+
+
+def test_exhausted_equity_does_not_block_close_planning_of_existing_position():
+    equity = PilotEquitySnapshotV2(
+        pilot_key="pilot-1",
+        currency="NOK",
+        seed_capital=500.0,
+        realized_net_pnl=-500.0,
+    )
+    assert planning_budget_v2(equity=equity, position_is_flat=False) == pytest.approx(500.0)
 
 
 def test_pending_reversal_uses_newly_settled_profit_without_changing_signal_identity():
@@ -91,11 +104,12 @@ def test_pending_reversal_uses_newly_settled_profit_without_changing_signal_iden
     assert refreshed.pending_intent.budget_currency == "NOK"
 
 
-def test_pending_reversal_refuses_reopen_when_pilot_equity_is_exhausted():
+def test_exhausted_equity_preserves_pending_intent_for_close_but_cannot_fund_reopen():
+    pending = pending_short()
     state = LivePilotPlanningStateV2(
         last_evaluated_bar_time=T1,
         reversal_pending=True,
-        pending_intent=pending_short(),
+        pending_intent=pending,
     )
     equity = PilotEquitySnapshotV2(
         pilot_key="pilot-1",
@@ -103,5 +117,18 @@ def test_pending_reversal_refuses_reopen_when_pilot_equity_is_exhausted():
         seed_capital=500.0,
         realized_net_pnl=-500.0,
     )
-    with pytest.raises(ValueError, match="equity is exhausted"):
-        refresh_pending_reversal_budget_v2(state=state, equity=equity)
+    refreshed = refresh_pending_reversal_budget_v2(state=state, equity=equity)
+    assert refreshed.pending_intent == pending
+    assert planning_budget_v2(equity=equity, position_is_flat=False) == pytest.approx(500.0)
+    with pytest.raises(ValueError, match="no new exposure"):
+        planning_budget_v2(equity=equity, position_is_flat=True)
+
+
+def test_non_finite_capital_is_rejected():
+    with pytest.raises(ValueError, match="finite"):
+        PilotEquitySnapshotV2(
+            pilot_key="pilot-1",
+            currency="NOK",
+            seed_capital=500.0,
+            realized_net_pnl=float("nan"),
+        )
