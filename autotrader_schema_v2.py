@@ -276,6 +276,85 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         WHERE enabled = TRUE AND execution_mode = 'LIVE_MANAGE'
         """,
         """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_strategy_runtime_state (
+            pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
+            strategy_key TEXT NOT NULL,
+            last_evaluated_bar_time TIMESTAMPTZ,
+            pending_intent_id UUID,
+            pending_signal_at TIMESTAMPTZ,
+            pending_signal TEXT,
+            pending_target_direction TEXT,
+            pending_previous_macd DOUBLE PRECISION,
+            pending_previous_signal DOUBLE PRECISION,
+            pending_current_macd DOUBLE PRECISION,
+            pending_current_signal DOUBLE PRECISION,
+            pending_budget_amount DOUBLE PRECISION,
+            pending_budget_currency TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_strategy_evaluations (
+            evaluation_id UUID PRIMARY KEY,
+            pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
+            strategy_key TEXT NOT NULL,
+            latest_closed_bar_time TIMESTAMPTZ NOT NULL,
+            observed_net_position_id TEXT,
+            observed_direction TEXT NOT NULL,
+            outcome_reason TEXT NOT NULL,
+            intent_id UUID,
+            signal_at TIMESTAMPTZ,
+            signal TEXT,
+            target_direction TEXT,
+            previous_macd DOUBLE PRECISION,
+            previous_signal DOUBLE PRECISION,
+            current_macd DOUBLE PRECISION,
+            current_signal DOUBLE PRECISION,
+            requested_action TEXT,
+            desired_direction TEXT,
+            budget_amount DOUBLE PRECISION,
+            budget_currency TEXT,
+            execution_request_id UUID,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_strategy_eval_time_idx
+        ON pg_v2_autotrader_strategy_evaluations(pilot_key, created_at DESC)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_execution_requests (
+            request_id UUID PRIMARY KEY,
+            evaluation_id UUID NOT NULL REFERENCES pg_v2_autotrader_strategy_evaluations(evaluation_id),
+            pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
+            strategy_key TEXT NOT NULL,
+            action TEXT NOT NULL CHECK (action IN ('OPEN', 'CLOSE')),
+            desired_direction TEXT NOT NULL CHECK (desired_direction IN ('FLAT', 'LONG', 'SHORT')),
+            signal_at TIMESTAMPTZ NOT NULL,
+            signal TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            observed_net_position_id TEXT,
+            observed_direction TEXT NOT NULL,
+            observed_amount DOUBLE PRECISION,
+            observed_average_open_price DOUBLE PRECISION,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+            instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+            budget_amount DOUBLE PRECISION NOT NULL CHECK (budget_amount >= 0),
+            budget_currency TEXT NOT NULL,
+            status TEXT NOT NULL,
+            block_reason TEXT,
+            order_id TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_execution_request_status_idx
+        ON pg_v2_autotrader_execution_requests(status, action, created_at ASC)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_equity_reconciliations (
             close_event_id UUID PRIMARY KEY REFERENCES pg_v2_autotrader_live_close_attempts(event_id),
             pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),

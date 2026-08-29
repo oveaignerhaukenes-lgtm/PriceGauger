@@ -7,6 +7,7 @@ import os
 import threading
 import time
 
+from autotrader_automanage_runtime_v2 import run_automanage_strategy_forever_v2
 from autotrader_closed_position_reconciliation_v2 import (
     run_closed_position_equity_reconciliation_forever_v2,
 )
@@ -17,6 +18,7 @@ from autotrader_risk_control_v2 import (
     run_risk_control_forever_v2,
 )
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
+from autotrader_strategy_live_close_v2 import run_strategy_live_close_forever_v2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import using_postgres
 from live_technical_runtime_v2 import run_live_technical_forever_v2
@@ -60,6 +62,12 @@ def _parser() -> argparse.ArgumentParser:
         help="Cadence for the read-only 30m MACD LONG/FLAT dry-run evaluator.",
     )
     parser.add_argument(
+        "--autotrader-strategy-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_STRATEGY_SECONDS", "15")),
+        help="Cadence for active LIVE AutoManage strategy planning. Closed 30m bars remain the signal clock.",
+    )
+    parser.add_argument(
         "--autotrader-risk-control-seconds",
         "--autotrader-risk-dry-run-seconds",
         dest="autotrader_risk_control_seconds",
@@ -85,6 +93,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_LIVE_CLOSE_SECONDS", "2")),
         help="Cadence for the guarded LIVE close-only executor. No Saxo calls occur while disarmed.",
+    )
+    parser.add_argument(
+        "--autotrader-strategy-live-close-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_STRATEGY_LIVE_CLOSE_SECONDS", "2")),
+        help="Cadence for consuming strategy CLOSE requests through the hardened LIVE close gate.",
     )
     parser.add_argument(
         "--autotrader-equity-reconciliation-seconds",
@@ -147,6 +161,24 @@ def _start_autotrader_macd_dry_run(
     return thread
 
 
+def _start_autotrader_strategy(*, db_path: str, interval_seconds: int) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoManage strategy runtime disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_automanage_strategy_forever_v2,
+        kwargs={"db_path": db_path, "interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-strategy-runtime",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoManage strategy runtime started interval_seconds=%d; signals remain closed-30m only",
+        max(5, interval_seconds),
+    )
+    return thread
+
+
 def _start_autotrader_risk_control(*, interval_seconds: int) -> threading.Thread | None:
     if not using_postgres():
         LOGGER.info("AutoTrader RiskControl disabled: PostgreSQL is not configured")
@@ -196,6 +228,24 @@ def _start_autotrader_live_close(*, interval_seconds: int) -> threading.Thread |
     thread.start()
     LOGGER.info(
         "AutoTrader LIVE close-only runtime started interval_seconds=%d; execution remains two-key gated",
+        max(1, interval_seconds),
+    )
+    return thread
+
+
+def _start_autotrader_strategy_live_close(*, interval_seconds: int) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoManage strategy LIVE close bridge disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_strategy_live_close_forever_v2,
+        kwargs={"interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-strategy-live-close",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoManage strategy LIVE close bridge started interval_seconds=%d; global close gate still authoritative",
         max(1, interval_seconds),
     )
     return thread
@@ -335,6 +385,10 @@ def main() -> None:
         db_path=args.db,
         interval_seconds=args.autotrader_macd_dry_run_seconds,
     )
+    _start_autotrader_strategy(
+        db_path=args.db,
+        interval_seconds=args.autotrader_strategy_seconds,
+    )
     _start_autotrader_risk_control(
         interval_seconds=args.autotrader_risk_control_seconds,
     )
@@ -343,6 +397,9 @@ def main() -> None:
     )
     _start_autotrader_live_close(
         interval_seconds=args.autotrader_live_close_seconds,
+    )
+    _start_autotrader_strategy_live_close(
+        interval_seconds=args.autotrader_strategy_live_close_seconds,
     )
     _start_autotrader_equity_reconciliation(
         interval_seconds=args.autotrader_equity_reconciliation_seconds,
