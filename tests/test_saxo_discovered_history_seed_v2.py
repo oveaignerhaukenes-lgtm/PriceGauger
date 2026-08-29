@@ -29,7 +29,7 @@ def _source(*, discovered: bool = True) -> InstrumentSourceV2:
 
 def test_only_open_position_discovered_sources_are_seed_candidates(monkeypatch):
     monkeypatch.setattr(seed_v2, "using_postgres", lambda: True)
-    monkeypatch.setattr(seed_v2, "list_subscribed_sources_v2", lambda **_kwargs: (_source(False),))
+    monkeypatch.setattr(seed_v2, "list_subscribed_sources_v2", lambda **_kwargs: (_source(discovered=False),))
 
     summary = seed_v2.seed_discovered_saxo_history_once_v2(client=object())
 
