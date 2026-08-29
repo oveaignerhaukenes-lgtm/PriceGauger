@@ -25,6 +25,9 @@ from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_enrollment_v2 import (
+    ENTRY_MODE_APPROVAL_REQUIRED,
+    ENTRY_MODE_AUTO,
+    ENTRY_MODE_MANUAL_ONLY,
     EXECUTION_MODE_LIVE,
     load_strategy_enrollment_v2,
 )
@@ -37,6 +40,7 @@ CODE_GATE_ENV = "PRICEGAUGER_AUTOTRADER_LIVE_OPEN_CODE_ENABLED"
 OPEN_SIGNAL_MAX_AGE = timedelta(minutes=90)
 
 STATUS_PENDING = "PENDING"
+STATUS_APPROVED = "APPROVED"
 STATUS_SUBMITTING = "SUBMITTING"
 STATUS_ORDER_ACCEPTED = "ORDER_ACCEPTED"
 STATUS_RECONCILED = "RECONCILED"
@@ -101,20 +105,121 @@ def _utc(value: Any) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _pending_open_requests() -> tuple[dict[str, Any], ...]:
+def _candidate_open_requests() -> tuple[dict[str, Any], ...]:
     with connect() as db:
         rows = db.execute(
             """
             SELECT request_id, pilot_key, strategy_key, desired_direction,
                    signal_at, signal, account_id, uic, asset_type, market_id,
-                   instrument_id, budget_amount, budget_currency
+                   instrument_id, budget_amount, budget_currency, status, created_at
             FROM pg_v2_autotrader_execution_requests
-            WHERE action = 'OPEN' AND status = ?
+            WHERE action = 'OPEN' AND status IN (?, ?)
             ORDER BY created_at ASC
             """,
-            (STATUS_PENDING,),
+            (STATUS_PENDING, STATUS_APPROVED),
         ).fetchall()
     return tuple(_row_dict(row) for row in rows)
+
+
+def load_open_requests_waiting_approval_v2(pilot_key: str) -> tuple[dict[str, Any], ...]:
+    ensure_autotrader_schema_v2()
+    enrollment = load_strategy_enrollment_v2(pilot_key)
+    if (
+        enrollment is None
+        or not enrollment.enabled
+        or enrollment.execution_mode != EXECUTION_MODE_LIVE
+        or enrollment.entry_mode != ENTRY_MODE_APPROVAL_REQUIRED
+    ):
+        return ()
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT request_id, pilot_key, strategy_key, desired_direction,
+                   signal_at, signal, budget_amount, budget_currency, created_at
+            FROM pg_v2_autotrader_execution_requests
+            WHERE pilot_key = ? AND action = 'OPEN' AND status = ?
+            ORDER BY created_at DESC
+            """,
+            (str(pilot_key), STATUS_PENDING),
+        ).fetchall()
+    return tuple(_row_dict(row) for row in rows)
+
+
+def approve_open_request_v2(
+    *,
+    pilot_key: str,
+    request_id: str,
+    source: str = "TRADINGDESK",
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """One-shot approval for exactly one still-current OPEN request."""
+    ensure_autotrader_schema_v2()
+    enrollment = load_strategy_enrollment_v2(pilot_key)
+    if enrollment is None or not enrollment.enabled:
+        raise LookupError("active AutoManage pilot not found")
+    if enrollment.execution_mode != EXECUTION_MODE_LIVE:
+        raise ValueError("only a LIVE strategy can approve an OPEN request")
+    if enrollment.entry_mode != ENTRY_MODE_APPROVAL_REQUIRED:
+        raise ValueError("pilot is not configured for per-entry approval")
+    if not enrollment.live_open_armed:
+        raise ValueError("LIVE OPEN must be armed before a one-shot request can be approved")
+
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        raise ValueError("approval time must be timezone-aware")
+    current_time = current_time.astimezone(timezone.utc)
+
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT request_id, signal_at, status, created_at, desired_direction, signal,
+                   budget_amount, budget_currency
+            FROM pg_v2_autotrader_execution_requests
+            WHERE request_id = ? AND pilot_key = ? AND action = 'OPEN'
+            """,
+            (str(request_id), str(pilot_key)),
+        ).fetchone()
+        if row is None:
+            raise LookupError("OPEN request not found")
+        item = _row_dict(row)
+        if str(item["status"]) != STATUS_PENDING:
+            raise ValueError("OPEN request is no longer waiting for approval")
+        signal_at = _utc(item["signal_at"])
+        age = current_time - signal_at
+        if age < timedelta(0) or age > OPEN_SIGNAL_MAX_AGE:
+            raise ValueError("OPEN request signal is stale")
+        newer = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_execution_requests
+            WHERE pilot_key = ? AND action = 'OPEN'
+              AND status IN (?, ?) AND created_at > ?
+            LIMIT 1
+            """,
+            (str(pilot_key), STATUS_PENDING, STATUS_APPROVED, item["created_at"]),
+        ).fetchone()
+        if newer is not None:
+            raise ValueError("a newer OPEN request exists; approve the latest signal instead")
+        db.execute(
+            """
+            UPDATE pg_v2_autotrader_execution_requests
+            SET status = ?, approved_at = ?, approval_source = ?,
+                block_reason = NULL, updated_at = now()
+            WHERE request_id = ? AND pilot_key = ? AND status = ?
+            """,
+            (
+                STATUS_APPROVED,
+                current_time,
+                str(source or "TRADINGDESK"),
+                str(request_id),
+                str(pilot_key),
+                STATUS_PENDING,
+            ),
+        )
+    item["status"] = STATUS_APPROVED
+    item["approved_at"] = current_time
+    item["approval_source"] = str(source or "TRADINGDESK")
+    return item
 
 
 def _update_request(
@@ -385,18 +490,18 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
     ensure_autotrader_schema_v2()
     config = load_live_open_config_v2()
     armed = bool(config.armed and code_gate_enabled_v2())
-    pending = _pending_open_requests()
+    candidates = _candidate_open_requests()
     if not armed:
-        return LiveOpenCycleV2(False, len(pending), 0, 0, 0, 0)
+        return LiveOpenCycleV2(False, len(candidates), 0, 0, 0, 0)
 
     client = _require_live_client()
     if _position_netting_mode(client).lower() != "intraday":
         LOGGER.error("LIVE OPEN blocked: Saxo PositionNettingMode must be Intraday")
-        return LiveOpenCycleV2(True, len(pending), 0, 0, 1, 0)
+        return LiveOpenCycleV2(True, len(candidates), 0, 0, 1, 0)
 
     reconciled = reconcile_live_open_attempts_v2(client)
-    pending = _pending_open_requests()
-    if not pending:
+    candidates = _candidate_open_requests()
+    if not candidates:
         return LiveOpenCycleV2(True, 0, 0, reconciled, 0, 0)
 
     observations = _position_observations_v2(client)
@@ -405,7 +510,7 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
     failed = 0
     now = datetime.now(timezone.utc)
 
-    for request in pending:
+    for request in candidates:
         request_id = str(request["request_id"])
         try:
             enrollment = load_strategy_enrollment_v2(str(request["pilot_key"]))
@@ -413,7 +518,6 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 enrollment is None
                 or not enrollment.enabled
                 or enrollment.execution_mode != EXECUTION_MODE_LIVE
-                or not enrollment.live_open_armed
                 or enrollment.strategy_key != str(request["strategy_key"])
                 or enrollment.account_id != str(request["account_id"])
                 or int(enrollment.uic) != int(request["uic"])
@@ -423,6 +527,19 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
             ):
                 _update_request(request_id, status=STATUS_BLOCKED, block_reason="LIVE_ENTRY_ENROLLMENT_MISMATCH")
                 blocked += 1
+                continue
+
+            request_status = str(request["status"])
+            if enrollment.entry_mode == ENTRY_MODE_MANUAL_ONLY:
+                if request_status == STATUS_APPROVED:
+                    _update_request(request_id, status=STATUS_BLOCKED, block_reason="ENTRY_MODE_MANUAL_ONLY")
+                    blocked += 1
+                continue
+            if not enrollment.live_open_armed:
+                continue
+            if enrollment.entry_mode == ENTRY_MODE_APPROVAL_REQUIRED and request_status != STATUS_APPROVED:
+                continue
+            if enrollment.entry_mode == ENTRY_MODE_AUTO and request_status not in {STATUS_PENDING, STATUS_APPROVED}:
                 continue
 
             signal_at = _utc(request["signal_at"])
@@ -564,7 +681,7 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
             LOGGER.warning("LIVE OPEN cycle failed request=%s: %s", request_id, exc, exc_info=True)
             failed += 1
 
-    return LiveOpenCycleV2(True, len(pending), submitted, reconciled, blocked, failed)
+    return LiveOpenCycleV2(True, len(candidates), submitted, reconciled, blocked, failed)
 
 
 def run_live_open_forever_v2(*, interval_seconds: int = 2) -> None:
@@ -583,8 +700,11 @@ __all__ = [
     "LiveOpenConfigV2",
     "LiveOpenCycleV2",
     "OPEN_SIGNAL_MAX_AGE",
+    "STATUS_APPROVED",
+    "approve_open_request_v2",
     "code_gate_enabled_v2",
     "load_live_open_config_v2",
+    "load_open_requests_waiting_approval_v2",
     "reconcile_live_open_attempts_v2",
     "run_live_open_cycle_v2",
     "run_live_open_forever_v2",
