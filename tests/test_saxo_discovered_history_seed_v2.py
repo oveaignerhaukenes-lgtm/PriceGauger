@@ -113,7 +113,44 @@ def test_incomplete_seed_retry_is_throttled(monkeypatch):
     assert repairs == [1]
 
 
-def test_registry_refresh_survives_deep_seed_failure(monkeypatch):
+def test_scheduler_starts_daemon_without_running_seed_inline(monkeypatch):
+    captured = {}
+
+    class _FakeThread:
+        def __init__(self, *, target, kwargs, name, daemon):
+            captured.update(target=target, kwargs=kwargs, name=name, daemon=daemon)
+            self.started = False
+
+        def is_alive(self):
+            return self.started
+
+        def start(self):
+            self.started = True
+            captured["started"] = True
+
+    monkeypatch.setattr(seed_v2.threading, "Thread", _FakeThread)
+    seed_v2._SEED_THREAD = None
+    seed_v2._LAST_SEED_SCHEDULE_MONO = 0.0
+    try:
+        assert seed_v2.start_discovered_saxo_history_seed_v2(
+            db_path="test.db",
+            monotonic_now=100.0,
+        ) is True
+        assert captured["started"] is True
+        assert captured["target"] is seed_v2._run_scheduled_seed
+        assert captured["kwargs"] == {"db_path": "test.db"}
+        assert captured["name"] == "pricegauger-discovered-history-seed"
+        assert captured["daemon"] is True
+        assert seed_v2.start_discovered_saxo_history_seed_v2(
+            db_path="test.db",
+            monotonic_now=101.0,
+        ) is False
+    finally:
+        seed_v2._SEED_THREAD = None
+        seed_v2._LAST_SEED_SCHEDULE_MONO = 0.0
+
+
+def test_registry_refresh_survives_deep_seed_scheduling_failure(monkeypatch):
     configured = {
         "Gold": SaxoInstrument(asset="Gold", uic=123, asset_type="ContractFutures"),
     }
@@ -126,8 +163,8 @@ def test_registry_refresh_survives_deep_seed_failure(monkeypatch):
     ))
     monkeypatch.setattr(
         bridge_v2,
-        "seed_discovered_saxo_history_once_v2",
-        lambda: (_ for _ in ()).throw(RuntimeError("history endpoint timeout")),
+        "start_discovered_saxo_history_seed_v2",
+        lambda: (_ for _ in ()).throw(RuntimeError("scheduler unavailable")),
     )
     monkeypatch.setattr(bridge_v2, "list_subscribed_sources_v2", lambda **_kwargs: ())
 
