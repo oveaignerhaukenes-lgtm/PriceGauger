@@ -280,26 +280,34 @@ def _conversion_factor(
     return float(rate)
 
 
+def _sum_cost_data(value: Any) -> float | None:
+    if not isinstance(value, dict):
+        return None
+    total = 0.0
+    found = False
+    for item in value.values():
+        parsed = _number(item)
+        if parsed is None:
+            continue
+        total += abs(parsed)
+        found = True
+    return total if found else None
+
+
 def _cost_account(precheck: dict[str, Any]) -> float:
-    direct = _number(precheck.get("CostInAccountCurrency"))
+    total = _number(precheck.get("EstimatedTotalCostInAccountCurrency"))
+    if total is not None:
+        return max(0.0, abs(total))
+    direct = _sum_cost_data(precheck.get("CostInAccountCurrency"))
     if direct is not None:
         return max(0.0, direct)
-    costs = precheck.get("Costs")
-    if isinstance(costs, dict):
-        direct = _number(costs.get("CostInAccountCurrency") or costs.get("EstimatedCostInAccountCurrency"))
-        if direct is not None:
-            return max(0.0, direct)
-        total = 0.0
-        found = False
-        for value in costs.values():
-            if not isinstance(value, dict):
-                continue
-            item = _number(value.get("CostInAccountCurrency") or value.get("EstimatedCostInAccountCurrency"))
-            if item is not None:
-                total += abs(item)
-                found = True
-        if found:
-            return total
+    # Some Saxo responses expose only instrument-currency Cost plus a conversion
+    # rate. The caller converts this fallback through the documented rate.
+    direct = _sum_cost_data(precheck.get("Cost"))
+    if direct is not None:
+        rate = _positive(precheck.get("InstrumentToAccountConversionRate"))
+        if rate is not None:
+            return max(0.0, direct * rate)
     return 0.0
 
 
@@ -346,11 +354,19 @@ def precheck_entry_amount_v2(
     if not isinstance(impact, dict):
         raise EntrySizingError("Saxo precheck did not return MarginImpactBuySell")
     impact_currency = str(impact.get("Currency") or rules.currency).strip().upper()
-    factor = _conversion_factor(
-        precheck,
-        source_currency=impact_currency,
-        account_currency=account_currency,
-    )
+    if impact_currency == account_currency.upper():
+        impact_factor = 1.0
+    elif impact_currency == rules.currency.upper():
+        impact_factor = _conversion_factor(
+            precheck,
+            source_currency=rules.currency,
+            account_currency=account_currency,
+        )
+    else:
+        raise EntrySizingError(
+            f"margin-impact currency {impact_currency} cannot be proven convertible from instrument currency {rules.currency}"
+        )
+
     suffix = "Buy" if side == "Buy" else "Sell"
     margin = _number(impact.get(f"InitialMargin{suffix}"))
     available_current = _number(impact.get("InitialMarginAvailableCurrent"))
@@ -358,8 +374,6 @@ def precheck_entry_amount_v2(
     if margin is None or available_current is None or available_after is None:
         raise EntrySizingError("Saxo precheck returned incomplete initial-margin impact")
 
-    # Saxo's traded-value relationship is price * fill amount * contract size.
-    # Convert the instrument-price currency to account currency only when required.
     notional_factor = _conversion_factor(
         precheck,
         source_currency=rules.currency,
@@ -373,14 +387,14 @@ def precheck_entry_amount_v2(
         controlled_capital=float(controlled_capital),
         initial_margin_used=0.0,
         gross_notional_exposure=0.0,
-        free_capital=max(0.0, available_current * factor),
+        free_capital=max(0.0, available_current * impact_factor),
     )
     proposal = AutoTraderMarginProposalV2(
         currency=account_currency,
         resulting_controlled_capital=float(controlled_capital),
-        resulting_initial_margin=max(0.0, margin * factor),
+        resulting_initial_margin=max(0.0, margin * impact_factor),
         resulting_gross_notional=max(0.0, notional),
-        resulting_free_capital=max(0.0, available_after * factor),
+        resulting_free_capital=max(0.0, available_after * impact_factor),
         estimated_transaction_cost=max(0.0, cost),
         source="saxo-precheck",
     )
@@ -390,9 +404,9 @@ def precheck_entry_amount_v2(
         buy_sell=side,
         price=price,
         notional_account=max(0.0, notional),
-        initial_margin_account=max(0.0, margin * factor),
-        available_margin_current_account=max(0.0, available_current * factor),
-        available_margin_after_account=max(0.0, available_after * factor),
+        initial_margin_account=max(0.0, margin * impact_factor),
+        available_margin_current_account=max(0.0, available_current * impact_factor),
+        available_margin_after_account=max(0.0, available_after * impact_factor),
         estimated_cost_account=max(0.0, cost),
         precheck_result=result,
         disclaimers_present=disclaimers,
