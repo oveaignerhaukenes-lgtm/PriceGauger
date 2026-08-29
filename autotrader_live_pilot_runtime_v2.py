@@ -135,11 +135,11 @@ def resolve_live_pilot_binding_v2(
 def _position_state_from_observation_v2(
     observation: PositionObservationV2 | None,
 ) -> PositionStateV2:
-    """Map the deliberately binary first pilot to the generic lifecycle controller.
+    """Map the binary first pilot into the generic lifecycle controller.
 
-    The first pilot has no pyramiding or fractional rebalancing: an exact live
-    product position is therefore treated as the pilot's full current exposure.
-    Margin/notional sizing remains downstream and is not inferred here.
+    The pilot has no pyramiding or fractional rebalancing. One exact live product
+    position is therefore the pilot's full current exposure. Margin/notional sizing
+    remains downstream and is never inferred here.
     """
     if observation is None:
         return PositionStateV2(direction=DIRECTION_FLAT, deployed_fraction=0.0)
@@ -183,13 +183,13 @@ def plan_live_pilot_step_v2(
     budget_amount: float,
     budget_currency: str = "NOK",
 ) -> LivePilotEvaluationV2:
-    """Plan exactly one non-executing lifecycle step from the latest closed 30m pair.
+    """Plan one lifecycle step from the latest fully closed 30m MACD pair.
 
-    Bootstrap deliberately consumes the latest bar without replaying historical
-    crosses. After bootstrap, only a cross on a newly observed latest closed bar may
-    create a new entry/reversal intent. A reversal intent may survive across cycles
-    only while completing CLOSE -> confirmed FLAT -> OPEN. This means a separate
-    hard stop cannot cause stale-signal re-entry.
+    The first observation bootstraps without replaying an old cross. Thereafter a
+    new cross may create an entry/reversal intent. Only an intent that actually
+    initiated an opposite-side CLOSE may persist across cycles to complete
+    CLOSE -> observed FLAT -> OPEN. A separate hard stop therefore cannot reopen
+    from a stale strategy signal.
     """
     if float(budget_amount) <= 0:
         raise ValueError("budget_amount must be positive")
@@ -199,23 +199,27 @@ def plan_live_pilot_step_v2(
         raise ValueError("MACD observation pair must be strictly ordered")
 
     prior_bar = state.last_evaluated_bar_time
+    pending = state.pending_intent
     intent: MacdFlipIntentV2 | None = None
     decision: PositionDecisionV2 | None = None
-    pending: MacdFlipIntentV2 | None = state.pending_intent
     outcome = "NO_NEW_CROSS"
 
     if prior_bar is None:
         pending = None
         outcome = "BOOTSTRAP_NO_REPLAY"
-    elif current.bar_time > prior_bar:
-        intent = _fresh_cross_intent_v2(
-            binding=binding,
-            previous=previous,
-            current=current,
-            budget_amount=budget_amount,
-            budget_currency=budget_currency,
-        )
-        if intent is not None:
+    else:
+        fresh_intent = None
+        if current.bar_time > prior_bar:
+            fresh_intent = _fresh_cross_intent_v2(
+                binding=binding,
+                previous=previous,
+                current=current,
+                budget_amount=budget_amount,
+                budget_currency=budget_currency,
+            )
+
+        if fresh_intent is not None:
+            intent = fresh_intent
             decision = plan_macd_flip_action_v2(current=observed_state, intent=intent)
             outcome = "FRESH_MACD_CROSS"
             if (
@@ -225,20 +229,22 @@ def plan_live_pilot_step_v2(
             ):
                 pending = intent
             else:
-                # A fresh cross supersedes any older reversal. Only a CLOSE-origin
-                # reversal is permitted to reuse an intent on a later flat cycle.
+                # Any fresh cross supersedes an older reversal. Only a CLOSE-origin
+                # reversal is allowed to carry its signal into a later flat cycle.
                 pending = None
-    elif state.reversal_pending and pending is not None:
-        intent = pending
-        decision = plan_macd_flip_action_v2(current=observed_state, intent=pending)
-        if (
-            observed_state.direction == pending.target_direction
-            and observed_state.deployed_fraction > 1e-12
-        ):
-            pending = None
-            outcome = "REVERSAL_TARGET_OBSERVED"
-        else:
-            outcome = "REVERSAL_PENDING"
+        elif pending is not None:
+            # A pending reversal remains actionable even when a newer closed bar has
+            # no cross. Do not insert a one-cycle gap just because the MACD bar moved.
+            intent = pending
+            decision = plan_macd_flip_action_v2(current=observed_state, intent=pending)
+            if (
+                observed_state.direction == pending.target_direction
+                and observed_state.deployed_fraction > 1e-12
+            ):
+                pending = None
+                outcome = "REVERSAL_TARGET_OBSERVED"
+            else:
+                outcome = "REVERSAL_PENDING"
 
     latest = current.bar_time if prior_bar is None or current.bar_time > prior_bar else prior_bar
     next_state = LivePilotPlanningStateV2(
@@ -325,11 +331,14 @@ def load_live_pilot_state_v2(binding: LivePilotBindingV2) -> LivePilotPlanningSt
     pending_id = _row_value(row, "pending_intent_id", 10)
     pending = None
     if pending_id is not None:
+        signal_at = _utc(_row_value(row, "pending_signal_at", 11))
+        if signal_at is None:
+            raise ValueError("persisted pending pilot intent is missing signal_at")
         pending = MacdFlipIntentV2(
             event_id=str(pending_id),
             market_id=binding.market_id,
             market_name=binding.market_name,
-            signal_at=_utc(_row_value(row, "pending_signal_at", 11)),
+            signal_at=signal_at,
             signal=str(_row_value(row, "pending_signal", 12)),
             target_direction=str(_row_value(row, "pending_target_direction", 13)),
             previous_macd=float(_row_value(row, "pending_previous_macd", 14)),
@@ -370,12 +379,21 @@ def persist_live_pilot_evaluation_v2(evaluation: LivePilotEvaluationV2) -> None:
             ON CONFLICT (evaluation_id) DO NOTHING
             """,
             (
-                evaluation.evaluation_id, binding.pilot_key, MACD_FLIP_STRATEGY_V2,
-                binding.account_id, evaluation.observed_net_position_id or binding.anchor_net_position_id,
-                binding.uic, binding.asset_type, binding.market_id, binding.instrument_id,
-                binding.market_name, binding.source_fingerprint,
-                evaluation.latest_closed_bar_time, evaluation.observed_state.direction,
-                evaluation.observed_state.deployed_fraction, evaluation.outcome_reason,
+                evaluation.evaluation_id,
+                binding.pilot_key,
+                MACD_FLIP_STRATEGY_V2,
+                binding.account_id,
+                evaluation.observed_net_position_id or binding.anchor_net_position_id,
+                binding.uic,
+                binding.asset_type,
+                binding.market_id,
+                binding.instrument_id,
+                binding.market_name,
+                binding.source_fingerprint,
+                evaluation.latest_closed_bar_time,
+                evaluation.observed_state.direction,
+                evaluation.observed_state.deployed_fraction,
+                evaluation.outcome_reason,
                 None if intent is None else intent.event_id,
                 None if intent is None else intent.signal_at,
                 None if intent is None else intent.signal,
@@ -405,10 +423,14 @@ def persist_live_pilot_evaluation_v2(evaluation: LivePilotEvaluationV2) -> None:
                 pending_budget_amount, pending_budget_currency, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())
             ON CONFLICT (pilot_key) DO UPDATE SET
-                strategy_key=EXCLUDED.strategy_key, account_id=EXCLUDED.account_id,
-                net_position_id=EXCLUDED.net_position_id, uic=EXCLUDED.uic,
-                asset_type=EXCLUDED.asset_type, market_id=EXCLUDED.market_id,
-                instrument_id=EXCLUDED.instrument_id, market_name=EXCLUDED.market_name,
+                strategy_key=EXCLUDED.strategy_key,
+                account_id=EXCLUDED.account_id,
+                net_position_id=EXCLUDED.net_position_id,
+                uic=EXCLUDED.uic,
+                asset_type=EXCLUDED.asset_type,
+                market_id=EXCLUDED.market_id,
+                instrument_id=EXCLUDED.instrument_id,
+                market_name=EXCLUDED.market_name,
                 last_evaluated_bar_time=EXCLUDED.last_evaluated_bar_time,
                 reversal_pending=EXCLUDED.reversal_pending,
                 pending_intent_id=EXCLUDED.pending_intent_id,
@@ -425,10 +447,17 @@ def persist_live_pilot_evaluation_v2(evaluation: LivePilotEvaluationV2) -> None:
                 updated_at=now()
             """,
             (
-                binding.pilot_key, MACD_FLIP_STRATEGY_V2, binding.account_id,
-                binding.anchor_net_position_id, binding.uic, binding.asset_type,
-                binding.market_id, binding.instrument_id, binding.market_name,
-                state.last_evaluated_bar_time, state.reversal_pending,
+                binding.pilot_key,
+                MACD_FLIP_STRATEGY_V2,
+                binding.account_id,
+                binding.anchor_net_position_id,
+                binding.uic,
+                binding.asset_type,
+                binding.market_id,
+                binding.instrument_id,
+                binding.market_name,
+                state.last_evaluated_bar_time,
+                state.reversal_pending,
                 None if pending is None else pending.event_id,
                 None if pending is None else pending.signal_at,
                 None if pending is None else pending.signal,
@@ -471,7 +500,7 @@ def run_live_pilot_planning_once_v2(
     db_path: str = "pricegauger.db",
     now: datetime | None = None,
 ) -> LivePilotEvaluationV2:
-    """Read live state and canonical history, then persist a plan; never submit an order."""
+    """Read live Saxo state + exact canonical history and persist a plan only."""
     ensure_autotrader_schema_v2()
     binding = resolve_live_pilot_binding_v2(
         account_id=account_id,
@@ -480,10 +509,12 @@ def run_live_pilot_planning_once_v2(
         asset_type=asset_type,
     )
     state = load_live_pilot_state_v2(binding)
+
     end = now or datetime.now(timezone.utc)
     if end.tzinfo is None:
         raise ValueError("now must be timezone-aware")
-    start = end.astimezone(timezone.utc) - timedelta(days=14)
+    end = end.astimezone(timezone.utc)
+    start = end - timedelta(days=14)
     bars = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
         instrument_id=binding.instrument_id,
         start=start,
@@ -491,24 +522,26 @@ def run_live_pilot_planning_once_v2(
         limit=50000,
     )
     points = tuple(item.point for item in bars)
+    if not points:
+        raise ValueError("live pilot has no exact canonical 1m history")
     closed = closed_30m_bars_v2(points, market=binding.market_name)
     observations = macd_observations_v2(closed)
     if len(observations) < 2:
         raise ValueError("live pilot requires enough exact canonical 1m history for MACD 12/26/9")
 
-    # Reuse the proven read-only Saxo net-position parser. This call performs GET
-    # only; the pilot runtime intentionally imports no order submission adapter.
+    # Reuse the proven read-only Saxo net-position parser. This performs GET only;
+    # this runtime intentionally imports no execution/order adapter.
     live_positions = _position_observations_v2(configured_client())
     observed = _exact_observation_v2(binding, live_positions)
     if state.last_evaluated_bar_time is None and observed is not None:
         anchor = binding.anchor_net_position_id
         if anchor and observed.net_position_id != anchor:
             raise ValueError("initial live position does not match the requested anchor net-position identity")
-    position_state = _position_state_from_observation_v2(observed)
+
     evaluation = plan_live_pilot_step_v2(
         binding=binding,
         state=state,
-        observed_state=position_state,
+        observed_state=_position_state_from_observation_v2(observed),
         observed_net_position_id=None if observed is None else observed.net_position_id,
         previous=observations[-2],
         current=observations[-1],
