@@ -9,8 +9,12 @@ import autotrader_strategy_enrollment_v2 as enrollment_v2
 
 class _Product:
     account_id = "acct-1"
+    anchor_position_id = "position-1"
     provider_instrument_id = "4912"
     asset_type = "CfdOnIndex"
+    market_id = 17
+    instrument_id = 23
+    market_name = "sp500 CFD"
 
     def pilot_key(self, strategy_key: str) -> str:
         return f"pilot:{strategy_key}"
