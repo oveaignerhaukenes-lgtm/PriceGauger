@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 import math
 import time
@@ -16,6 +17,7 @@ from saxo_provider import configured_client
 LOGGER = logging.getLogger("pricegauger.autotrader.closed_position_reconciliation_v2")
 ELIGIBLE_ATTEMPT_STATUSES = ("ORDER_ACCEPTED", "RECONCILED")
 SOURCE_KIND = "SAXO_CLOSED_POSITION"
+RISK_REENTRY_BLOCK_REASON = "RISK_CLOSE_REQUIRES_FRESH_SIGNAL"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +56,13 @@ def _finite(value: Any, *, field: str, default: float | None = None) -> float:
     if not math.isfinite(number):
         raise ValueError(f"closed position {field} must be finite")
     return number
+
+
+def _utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def closed_position_realizations_v2(payload: dict[str, Any]) -> tuple[ClosedPositionRealizationV2, ...]:
@@ -148,6 +157,26 @@ def realized_net_pnl_v2(items: tuple[ClosedPositionRealizationV2, ...]) -> float
     return value
 
 
+def risk_flat_since_v2(items: tuple[ClosedPositionRealizationV2, ...]) -> datetime | None:
+    """Return authoritative latest Saxo close execution time, or None fail-closed.
+
+    A split close is considered flat only after its latest closing execution. If any
+    matched row lacks a trustworthy close time, callers conservatively invalidate
+    every still-unstarted re-entry rather than guessing a freshness boundary.
+    """
+    if not items:
+        return None
+    times: list[datetime] = []
+    for item in items:
+        if not item.execution_time_close:
+            return None
+        try:
+            times.append(_utc(item.execution_time_close))
+        except (TypeError, ValueError):
+            return None
+    return max(times) if times else None
+
+
 def _account_contexts_v2(client) -> dict[str, dict[str, str]]:
     payload = client._get("port/v1/accounts/me")
     rows = payload.get("Data") or []
@@ -187,6 +216,79 @@ def _candidate_attempts_v2() -> tuple[dict[str, Any], ...]:
             ELIGIBLE_ATTEMPT_STATUSES,
         ).fetchall()
     return tuple(dict(row) for row in rows)
+
+
+def invalidate_stale_reentry_after_risk_close_v2(
+    *,
+    close_event_id: str,
+    pilot_key: str,
+    flat_since: datetime | None,
+) -> bool:
+    """Invalidate only stale, unstarted entry authority after a PG risk-origin close.
+
+    Strategy-origin reversal CLOSE requests use execution-request IDs and therefore
+    do not exist in `pg_v2_autotrader_risk_events`; they keep their normal pending
+    CLOSE -> FLAT -> OPEN intent. Risk-origin exits instead establish a freshness
+    boundary: only a MACD cross strictly after Saxo's confirmed flat time may open.
+    """
+    with connect() as db:
+        risk_event = db.execute(
+            "SELECT reason FROM pg_v2_autotrader_risk_events WHERE event_id = ?",
+            (str(close_event_id),),
+        ).fetchone()
+        if risk_event is None:
+            return False
+
+        if flat_since is None:
+            db.execute(
+                """
+                UPDATE pg_v2_autotrader_execution_requests
+                SET status = 'SUPERSEDED', block_reason = ?, updated_at = now()
+                WHERE pilot_key = ? AND action = 'OPEN'
+                  AND status IN ('PENDING', 'APPROVED')
+                """,
+                (RISK_REENTRY_BLOCK_REASON, str(pilot_key)),
+            )
+            db.execute(
+                """
+                UPDATE pg_v2_autotrader_strategy_runtime_state
+                SET pending_intent_id = NULL, pending_signal_at = NULL,
+                    pending_signal = NULL, pending_target_direction = NULL,
+                    pending_previous_macd = NULL, pending_previous_signal = NULL,
+                    pending_current_macd = NULL, pending_current_signal = NULL,
+                    pending_budget_amount = NULL, pending_budget_currency = NULL,
+                    updated_at = now()
+                WHERE pilot_key = ? AND pending_intent_id IS NOT NULL
+                """,
+                (str(pilot_key),),
+            )
+        else:
+            boundary = flat_since.astimezone(timezone.utc)
+            db.execute(
+                """
+                UPDATE pg_v2_autotrader_execution_requests
+                SET status = 'SUPERSEDED', block_reason = ?, updated_at = now()
+                WHERE pilot_key = ? AND action = 'OPEN'
+                  AND status IN ('PENDING', 'APPROVED')
+                  AND signal_at <= ?
+                """,
+                (RISK_REENTRY_BLOCK_REASON, str(pilot_key), boundary),
+            )
+            db.execute(
+                """
+                UPDATE pg_v2_autotrader_strategy_runtime_state
+                SET pending_intent_id = NULL, pending_signal_at = NULL,
+                    pending_signal = NULL, pending_target_direction = NULL,
+                    pending_previous_macd = NULL, pending_previous_signal = NULL,
+                    pending_current_macd = NULL, pending_current_signal = NULL,
+                    pending_budget_amount = NULL, pending_budget_currency = NULL,
+                    updated_at = now()
+                WHERE pilot_key = ? AND pending_intent_id IS NOT NULL
+                  AND (pending_signal_at IS NULL OR pending_signal_at <= ?)
+                """,
+                (str(pilot_key), boundary),
+            )
+    return True
 
 
 def _record_reconciliation_v2(
@@ -302,6 +404,15 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
             currency=account_currency,
             source_kind=SOURCE_KIND,
         )
+
+        # OPEN already blocks while this close lacks an equity reconciliation row.
+        # Invalidate stale risk-stop intent before inserting that row, so there is
+        # no interval where a reconciled risk close can release an old OPEN request.
+        risk_invalidated = invalidate_stale_reentry_after_risk_close_v2(
+            close_event_id=str(attempt["event_id"]),
+            pilot_key=enrollment.pilot_key,
+            flat_since=risk_flat_since_v2(matches),
+        )
         _record_reconciliation_v2(
             close_event_id=str(attempt["event_id"]),
             pilot_key=enrollment.pilot_key,
@@ -312,12 +423,13 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
         )
         booked += 1
         LOGGER.info(
-            "AutoTrader realized P/L booked pilot=%s event=%s net_pnl=%+.4f %s rows=%d",
+            "AutoTrader realized P/L booked pilot=%s event=%s net_pnl=%+.4f %s rows=%d risk_reentry_invalidated=%s",
             enrollment.pilot_key,
             attempt["event_id"],
             net_pnl,
             account_currency,
             len(matches),
+            risk_invalidated,
         )
     return booked
 
@@ -334,9 +446,12 @@ def run_closed_position_equity_reconciliation_forever_v2(*, interval_seconds: in
 
 __all__ = [
     "ClosedPositionRealizationV2",
+    "RISK_REENTRY_BLOCK_REASON",
     "closed_position_realizations_v2",
+    "invalidate_stale_reentry_after_risk_close_v2",
     "match_close_realizations_v2",
     "realized_net_pnl_v2",
     "reconcile_closed_position_equity_once_v2",
+    "risk_flat_since_v2",
     "run_closed_position_equity_reconciliation_forever_v2",
 ]
