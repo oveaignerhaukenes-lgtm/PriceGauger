@@ -47,6 +47,7 @@ class ProductAdmissionV2:
     preflight_amount: float | None
     preflight_cost_account: float | None
     preflight_initial_margin_account: float | None
+    preflight_notional_account: float | None
 
     @property
     def universe_entry(self) -> AutoTraderProductUniverseEntryV2:
@@ -124,6 +125,7 @@ def save_product_admission_v2(
     preflight_amount: float | None = None,
     preflight_cost_account: float | None = None,
     preflight_initial_margin_account: float | None = None,
+    preflight_notional_account: float | None = None,
     enabled: bool = True,
 ) -> ProductAdmissionV2:
     """Persist explicit account/product/direction admission after runtime preflight.
@@ -152,8 +154,9 @@ def save_product_admission_v2(
                 margin_product_allowed, negative_balance_protection_verified,
                 limited_loss_verified, no_margin_obligation_verified,
                 preflight_amount, preflight_cost_account,
-                preflight_initial_margin_account, verified_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now())
+                preflight_initial_margin_account, preflight_notional_account,
+                verified_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now())
             ON CONFLICT (account_id, uic, asset_type, direction) DO UPDATE SET
                 market_id=EXCLUDED.market_id,
                 instrument_id=EXCLUDED.instrument_id,
@@ -167,6 +170,7 @@ def save_product_admission_v2(
                 preflight_amount=EXCLUDED.preflight_amount,
                 preflight_cost_account=EXCLUDED.preflight_cost_account,
                 preflight_initial_margin_account=EXCLUDED.preflight_initial_margin_account,
+                preflight_notional_account=EXCLUDED.preflight_notional_account,
                 verified_at=now(),
                 updated_at=now()
             """,
@@ -187,6 +191,7 @@ def save_product_admission_v2(
                 None if preflight_amount is None else float(preflight_amount),
                 None if preflight_cost_account is None else float(preflight_cost_account),
                 None if preflight_initial_margin_account is None else float(preflight_initial_margin_account),
+                None if preflight_notional_account is None else float(preflight_notional_account),
             ),
         )
     admission = load_product_admission_v2(
@@ -217,7 +222,7 @@ def load_product_admission_v2(
                    margin_product_allowed, negative_balance_protection_verified,
                    limited_loss_verified, no_margin_obligation_verified,
                    preflight_amount, preflight_cost_account,
-                   preflight_initial_margin_account
+                   preflight_initial_margin_account, preflight_notional_account
             FROM pg_v2_autotrader_product_admissions
             WHERE account_id = ? AND uic = ? AND asset_type = ? AND direction = ?
             """,
@@ -243,6 +248,7 @@ def load_product_admission_v2(
         preflight_amount=None if item["preflight_amount"] is None else float(item["preflight_amount"]),
         preflight_cost_account=None if item["preflight_cost_account"] is None else float(item["preflight_cost_account"]),
         preflight_initial_margin_account=None if item["preflight_initial_margin_account"] is None else float(item["preflight_initial_margin_account"]),
+        preflight_notional_account=None if item["preflight_notional_account"] is None else float(item["preflight_notional_account"]),
     )
 
 
