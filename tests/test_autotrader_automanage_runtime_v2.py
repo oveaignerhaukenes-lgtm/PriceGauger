@@ -3,13 +3,18 @@ from datetime import datetime, timedelta, timezone
 from autotrader_automanage_runtime_v2 import (
     AutoManageRuntimeStateV2,
     MACD_LONG_FLAT_STRATEGY_V2,
+    MACD_SHORT_FLAT_STRATEGY_V2,
     plan_automanage_step_v2,
 )
 from autotrader_macd_dry_run_v2 import MacdObservationV2
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 from autotrader_position_controller_v2 import ACTION_CLOSE, ACTION_OPEN, DIRECTION_LONG, DIRECTION_SHORT
 from autotrader_risk_control_v2 import PositionObservationV2
-from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, StrategyEnrollmentV2
+from autotrader_strategy_enrollment_v2 import (
+    ENTRY_MODE_MANUAL_ONLY,
+    EXECUTION_MODE_LIVE,
+    StrategyEnrollmentV2,
+)
 
 
 T0 = datetime(2026, 8, 29, 0, 0, tzinfo=timezone.utc)
@@ -31,6 +36,7 @@ def enrollment(strategy_key: str) -> StrategyEnrollmentV2:
         market_name="Australia Tech",
         enabled=True,
         live_open_armed=False,
+        entry_mode=ENTRY_MODE_MANUAL_ONLY,
     )
 
 
@@ -48,6 +54,25 @@ def live_long() -> PositionObservationV2:
         amount=0.01,
         average_open_price=100.0,
         current_price=101.0,
+        pnl_pct=1.0,
+        price_delay_minutes=0,
+        can_be_closed=True,
+        calculation_reliability="Ok",
+        is_market_open=True,
+        non_tradable_reason="None",
+    )
+
+
+def live_short() -> PositionObservationV2:
+    return PositionObservationV2(
+        account_id="ACC-1",
+        net_position_id="NET-1",
+        uic=4912,
+        asset_type="CfdOnIndex",
+        direction="Sell",
+        amount=0.01,
+        average_open_price=100.0,
+        current_price=99.0,
         pnl_pct=1.0,
         price_delay_minutes=0,
         can_be_closed=True,
@@ -88,6 +113,40 @@ def test_long_flat_bearish_cross_closes_to_cash_and_never_shortens():
     assert result.decision.action == ACTION_CLOSE
     assert result.decision.desired_direction == "FLAT"
     assert result.next_state.pending_intent is None
+
+
+def test_short_flat_bullish_cross_closes_to_cash_and_never_longs():
+    result = plan_automanage_step_v2(
+        enrollment=enrollment(MACD_SHORT_FLAT_STRATEGY_V2),
+        state=AutoManageRuntimeStateV2(last_evaluated_bar_time=T0),
+        observed_position=live_short(),
+        previous=macd(T0, -0.3, -0.1),
+        current=macd(T1, 0.2, 0.1),
+        budget_amount=500.0,
+        budget_currency="NOK",
+    )
+    assert result.intent is not None
+    assert result.intent.target_direction == "FLAT"
+    assert result.decision is not None
+    assert result.decision.action == ACTION_CLOSE
+    assert result.decision.desired_direction == "FLAT"
+    assert result.next_state.pending_intent is None
+
+
+def test_short_flat_fresh_bearish_cross_opens_short_from_flat():
+    result = plan_automanage_step_v2(
+        enrollment=enrollment(MACD_SHORT_FLAT_STRATEGY_V2),
+        state=AutoManageRuntimeStateV2(last_evaluated_bar_time=T1),
+        observed_position=None,
+        previous=macd(T1, 0.3, 0.1),
+        current=macd(T2, -0.2, -0.1),
+        budget_amount=620.0,
+        budget_currency="NOK",
+    )
+    assert result.intent is not None and result.intent.target_direction == DIRECTION_SHORT
+    assert result.decision is not None
+    assert result.decision.action == ACTION_OPEN
+    assert result.intent.budget_amount == 620.0
 
 
 def test_flip_bearish_cross_closes_long_then_carries_short_intent():

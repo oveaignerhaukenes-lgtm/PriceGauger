@@ -20,6 +20,7 @@ from autotrader_strategy_enrollment_v2 import (
 from database import connect, using_postgres
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
+from tradingdesk_autotrade_entry_gate_v2 import ENTRY_MODE_LABELS, render_tradingdesk_autotrade_entry_gate_v2
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +77,7 @@ def _latest_pilot_stats(pilot_key: str) -> tuple[int, str | None, str | None, st
         latest = db.execute(
             """
             SELECT requested_action, outcome_reason, signal, signal_at
-            FROM pg_v2_autotrader_live_pilot_evaluations
+            FROM pg_v2_autotrader_strategy_evaluations
             WHERE pilot_key = ?
             ORDER BY created_at DESC
             LIMIT 1
@@ -171,7 +172,7 @@ def _strategy_label(spec: AutoTraderStrategySpecV2) -> str:
 def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> None:
     """Compact right-side context for strategy-neutral product AutoManage."""
     st.markdown("**AutoManage**")
-    st.caption("Eksakt LIVE-produkt · strategivalg · separat execution-gate")
+    st.caption("Eksakt LIVE-produkt · strategivalg · separat execution-policy")
 
     if not using_postgres():
         st.info("AutoManage krever PostgreSQL-runtime.")
@@ -183,6 +184,11 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         st.info("Saxo LIVE er ikke tilgjengelig i web-runtime.")
         return
 
+    # This stays visible even while the strategy is FLAT, unlike the position
+    # enrollment controls below which naturally require a currently open position.
+    render_tradingdesk_autotrade_entry_gate_v2(context)
+    st.divider()
+
     try:
         observations = _position_observations_v2(client)
         candidates = _candidate_positions_for_context(context, observations)
@@ -191,7 +197,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         return
 
     if not candidates:
-        st.caption("Ingen åpen LIVE-posisjon matcher dette canonical markedet.")
+        st.caption("Ingen åpen LIVE-posisjon matcher dette canonical markedet. Aktiv pilot/execution-policy over forblir synlig.")
         return
 
     observation, product = st.selectbox(
@@ -244,6 +250,8 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         e1.metric("Pilotkapital", _metric_money(snapshot.equity, currency))
         e2.metric("Realisert", _metric_money(snapshot.realized_net_pnl, currency))
         status_bits = [snapshot.enrollment.execution_mode, f"trades {snapshot.realized_events}"]
+        if snapshot.enrollment.execution_mode == EXECUTION_MODE_LIVE:
+            status_bits.append(ENTRY_MODE_LABELS.get(snapshot.enrollment.entry_mode, snapshot.enrollment.entry_mode))
         if snapshot.last_action:
             status_bits.append(f"siste {snapshot.last_action}")
         if snapshot.last_signal:
@@ -252,16 +260,8 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         if snapshot.last_outcome:
             st.caption(f"Runtime: {snapshot.last_outcome}")
 
-        st.toggle(
-            "AutoTrade · entry/re-entry",
-            value=bool(snapshot.enrollment.live_open_armed),
-            disabled=True,
-            help=(
-                "LIVE OPEN holdes låst til den generelle product-universe/margin/precheck-gaten er landet. "
-                "Containeren og strategi-evalueringen er ikke hardkodet til dette produktet."
-            ),
-            key=f"td-autotrade-locked:{pilot_key}",
-        )
+        if snapshot.enrollment.execution_mode == EXECUTION_MODE_LIVE:
+            st.caption("Execution-adferd og gates for denne piloten konfigureres i seksjonen over.")
         if st.button("Stopp denne piloten", key=f"td-stop-automanage:{pilot_key}", use_container_width=True):
             stop_strategy_enrollment_v2(pilot_key)
             st.success("Piloten er slått av.")
@@ -277,10 +277,10 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         help="Isolert pilotkapital. LIVE bruker senere realisert netto P/L til compounding.",
     )
     compare_shadow = st.checkbox(
-        "Kjør den andre MACD-strategien som shadow for sammenligning",
+        "Kjør øvrige MACD-strategier som shadow for sammenligning",
         value=True,
         key=f"td-automanage-shadow:{product.product_key}:{strategy.key}",
-        help="Shadow får egen pilotidentitet og resultatserie, men ingen Saxo order-authority.",
+        help="Hver shadow-strategi får egen pilotidentitet og resultatserie, men ingen Saxo order-authority.",
     )
     acknowledge = st.checkbox(
         "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi.",
@@ -317,8 +317,8 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             return
         st.success(
             f"{strategy.label} er koblet LIVE til produktcontaineren"
-            + ("; alternativet er startet som shadow." if compare_shadow else ".")
-            + " LIVE entry/re-entry er fortsatt låst."
+            + ("; øvrige strategier er startet som shadow." if compare_shadow else ".")
+            + " Standard er Manage-only; velg Auto eller Godkjenn entry i execution-seksjonen hvis PG også skal åpne posisjoner."
         )
         st.rerun()
 

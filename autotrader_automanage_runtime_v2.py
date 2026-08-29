@@ -31,6 +31,7 @@ from autotrader_position_controller_v2 import (
 )
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
+from autotrader_strategy_catalog_v2 import MACD_SHORT_FLAT_STRATEGY_V2
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
@@ -44,7 +45,11 @@ from saxo_provider import configured_client
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_runtime_v2")
 MACD_LONG_FLAT_STRATEGY_V2 = "macd-30m-long-flat-v1"
 AUTOMANAGE_RECIPE_V2 = "automanage-closed-30m-macd-v2.1"
-SUPPORTED_STRATEGIES = {MACD_LONG_FLAT_STRATEGY_V2, MACD_FLIP_STRATEGY_V2}
+SUPPORTED_STRATEGIES = {
+    MACD_LONG_FLAT_STRATEGY_V2,
+    MACD_SHORT_FLAT_STRATEGY_V2,
+    MACD_FLIP_STRATEGY_V2,
+}
 REQUEST_PENDING = "PENDING"
 REQUEST_SUPERSEDED = "SUPERSEDED"
 
@@ -149,12 +154,21 @@ def _cross(previous: MacdObservationV2, current: MacdObservationV2) -> str | Non
 
 
 def _target_direction(strategy_key: str, signal: str) -> str:
-    if signal == SIGNAL_UP:
-        return DIRECTION_LONG
-    if signal == SIGNAL_DOWN and strategy_key == MACD_LONG_FLAT_STRATEGY_V2:
-        return DIRECTION_FLAT
-    if signal == SIGNAL_DOWN and strategy_key == MACD_FLIP_STRATEGY_V2:
-        return DIRECTION_SHORT
+    if strategy_key == MACD_LONG_FLAT_STRATEGY_V2:
+        if signal == SIGNAL_UP:
+            return DIRECTION_LONG
+        if signal == SIGNAL_DOWN:
+            return DIRECTION_FLAT
+    if strategy_key == MACD_SHORT_FLAT_STRATEGY_V2:
+        if signal == SIGNAL_UP:
+            return DIRECTION_FLAT
+        if signal == SIGNAL_DOWN:
+            return DIRECTION_SHORT
+    if strategy_key == MACD_FLIP_STRATEGY_V2:
+        if signal == SIGNAL_UP:
+            return DIRECTION_LONG
+        if signal == SIGNAL_DOWN:
+            return DIRECTION_SHORT
     raise ValueError(f"unsupported strategy/signal combination: {strategy_key}/{signal}")
 
 
@@ -640,6 +654,7 @@ __all__ = [
     "AutoManageIntentV2",
     "AutoManageRuntimeStateV2",
     "MACD_LONG_FLAT_STRATEGY_V2",
+    "MACD_SHORT_FLAT_STRATEGY_V2",
     "REQUEST_PENDING",
     "REQUEST_SUPERSEDED",
     "load_automanage_runtime_state_v2",
