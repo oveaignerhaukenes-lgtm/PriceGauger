@@ -26,6 +26,7 @@ from trading_desk_indicators import (
 from trading_desk_product_panel import render_saxo_product_panel
 from trading_desk_swing_bands import add_swing_bands_to_figure
 from trading_desk_v2_context import TradingDeskV2Context, load_trading_desk_contexts_v2
+from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_v2
 from v2_forecast_visualization import (
     V2_FORECAST_CSS,
     render_v2_forecast_chart,
@@ -223,6 +224,9 @@ with controls_column:
                 execution_context_v2=execution_context_v2,
             )
             st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
+
+    with st.expander(f"AutoManage · {market}", expanded=True):
+        render_tradingdesk_automanage_panel_v2(baseline_context)
 
     with st.expander("Status", expanded=False):
         auto_refresh = st.toggle(
