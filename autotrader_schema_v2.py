@@ -221,6 +221,31 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         CREATE INDEX IF NOT EXISTS pg_v2_autotrader_live_pilot_eval_time_idx
         ON pg_v2_autotrader_live_pilot_evaluations(pilot_key, created_at DESC)
         """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_pilot_equity_state (
+            pilot_key TEXT PRIMARY KEY,
+            seed_capital DOUBLE PRECISION NOT NULL CHECK (seed_capital > 0),
+            currency TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_pilot_equity_events (
+            event_id UUID PRIMARY KEY,
+            pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_pilot_equity_state(pilot_key),
+            source_kind TEXT NOT NULL,
+            source_reference TEXT NOT NULL,
+            realized_net_pnl DOUBLE PRECISION NOT NULL,
+            currency TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE(pilot_key, source_kind, source_reference)
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_pilot_equity_event_time_idx
+        ON pg_v2_autotrader_pilot_equity_events(pilot_key, created_at ASC)
+        """,
     )
     with connect() as db:
         for statement in statements:
