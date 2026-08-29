@@ -113,6 +113,29 @@ def test_pending_reversal_opens_only_after_observed_flat():
     assert evaluation.next_state.reversal_pending
 
 
+def test_pending_reversal_continues_across_new_bar_without_cross():
+    pending = short_intent()
+    evaluation = plan_live_pilot_step_v2(
+        binding=binding(),
+        state=LivePilotPlanningStateV2(
+            last_evaluated_bar_time=T1,
+            reversal_pending=True,
+            pending_intent=pending,
+        ),
+        observed_state=PositionStateV2(direction=DIRECTION_LONG, deployed_fraction=1.0),
+        observed_net_position_id="NET-1",
+        previous=obs(T1, 0.3, 0.1),
+        current=obs(T2, 0.4, 0.2),
+        budget_amount=500.0,
+    )
+    assert evaluation.outcome_reason == "REVERSAL_PENDING"
+    assert evaluation.intent == pending
+    assert evaluation.decision is not None
+    assert evaluation.decision.action == ACTION_CLOSE
+    assert evaluation.next_state.last_evaluated_bar_time == T2
+    assert evaluation.next_state.reversal_pending
+
+
 def test_pending_reversal_settles_when_target_position_is_observed():
     pending = short_intent()
     evaluation = plan_live_pilot_step_v2(
