@@ -189,18 +189,17 @@ def approve_open_request_v2(
         age = current_time - signal_at
         if age < timedelta(0) or age > OPEN_SIGNAL_MAX_AGE:
             raise ValueError("OPEN request signal is stale")
-        newer = db.execute(
+        newer_signal = db.execute(
             """
             SELECT 1
-            FROM pg_v2_autotrader_execution_requests
-            WHERE pilot_key = ? AND action = 'OPEN'
-              AND status IN (?, ?) AND created_at > ?
+            FROM pg_v2_autotrader_strategy_evaluations
+            WHERE pilot_key = ? AND intent_id IS NOT NULL AND signal_at > ?
             LIMIT 1
             """,
-            (str(pilot_key), STATUS_PENDING, STATUS_APPROVED, item["created_at"]),
+            (str(pilot_key), signal_at),
         ).fetchone()
-        if newer is not None:
-            raise ValueError("a newer OPEN request exists; approve the latest signal instead")
+        if newer_signal is not None:
+            raise ValueError("a newer strategy signal exists; approve the latest signal instead")
         db.execute(
             """
             UPDATE pg_v2_autotrader_execution_requests
@@ -242,24 +241,22 @@ def _update_request(
 
 
 def _newer_strategy_request_exists(request: dict[str, Any]) -> bool:
+    """Treat any later MACD cross as authoritative, even when it plans HOLD.
+
+    A long/flat or short/flat cross can legitimately target FLAT while the product is
+    already flat, producing no newer execution request. Looking at strategy
+    evaluations instead of only execution requests prevents an older pending or
+    one-shot-approved OPEN from surviving that newer cross.
+    """
     with connect() as db:
         row = db.execute(
             """
             SELECT 1
-            FROM pg_v2_autotrader_execution_requests
-            WHERE pilot_key = ? AND request_id <> ? AND created_at > ?
-              AND status IN (?, ?, ?, ?)
+            FROM pg_v2_autotrader_strategy_evaluations
+            WHERE pilot_key = ? AND intent_id IS NOT NULL AND signal_at > ?
             LIMIT 1
             """,
-            (
-                str(request["pilot_key"]),
-                str(request["request_id"]),
-                request["created_at"],
-                STATUS_PENDING,
-                STATUS_APPROVED,
-                STATUS_SUBMITTING,
-                STATUS_ORDER_ACCEPTED,
-            ),
+            (str(request["pilot_key"]), request["signal_at"]),
         ).fetchone()
     return row is not None
 
@@ -580,7 +577,7 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 _update_request(
                     request_id,
                     status=STATUS_SUPERSEDED,
-                    block_reason="NEWER_STRATEGY_REQUEST",
+                    block_reason="NEWER_STRATEGY_SIGNAL",
                 )
                 blocked += 1
                 continue
