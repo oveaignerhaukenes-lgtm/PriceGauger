@@ -83,6 +83,18 @@ class CanonicalMarketBarStoreV2:
         )
         self.save(source=source, bar=bar, quality_flags=quality_flags)
 
+    @staticmethod
+    def _bars_from_rows(rows) -> tuple[CanonicalMarketBarV2, ...]:
+        return tuple(
+            CanonicalMarketBarV2(
+                instrument_id=int(row["instrument_id"]), market_id=int(row["market_id"]),
+                market_name=str(row["market_name"]), bar_time=_utc(row["bar_time"]).isoformat(),
+                open=float(row["open"]), high=float(row["high"]), low=float(row["low"]), close=float(row["close"]),
+                volume=None if row["volume"] is None else float(row["volume"]), quality_flags=int(row["quality_flags"]),
+            )
+            for row in rows
+        )
+
     def load_range(
         self,
         *,
@@ -109,15 +121,43 @@ class CanonicalMarketBarStoreV2:
                 """,
                 (market, start_at, end_at, max(1, int(limit))),
             ).fetchall()
-        return tuple(
-            CanonicalMarketBarV2(
-                instrument_id=int(row["instrument_id"]), market_id=int(row["market_id"]),
-                market_name=str(row["market_name"]), bar_time=_utc(row["bar_time"]).isoformat(),
-                open=float(row["open"]), high=float(row["high"]), low=float(row["low"]), close=float(row["close"]),
-                volume=None if row["volume"] is None else float(row["volume"]), quality_flags=int(row["quality_flags"]),
-            )
-            for row in rows
-        )
+        return self._bars_from_rows(rows)
+
+    def load_instrument_range(
+        self,
+        *,
+        instrument_id: int,
+        start: str | datetime,
+        end: str | datetime,
+        limit: int = 5000,
+    ) -> tuple[CanonicalMarketBarV2, ...]:
+        """Load canonical 1m bars for exactly one subscribed v2 instrument.
+
+        Execution-sensitive consumers must not merge two provider instruments merely
+        because they share a canonical market name. The exact instrument identity is
+        therefore part of the query boundary.
+        """
+        if int(instrument_id) <= 0:
+            raise ValueError("instrument_id must be positive")
+        start_at, end_at = _utc(start), _utc(end)
+        if end_at < start_at:
+            start_at, end_at = end_at, start_at
+        with connect(self.path) as db:
+            rows = db.execute(
+                """
+                SELECT b.instrument_id, i.market_id, m.name AS market_name, b.bar_time,
+                       b.open, b.high, b.low, b.close, b.volume, COALESCE(b.quality_flags, 0) AS quality_flags
+                FROM pg_v2_market_bars_1m b
+                JOIN pg_v2_instruments i ON i.instrument_id=b.instrument_id AND i.active=TRUE
+                JOIN pg_v2_markets m ON m.market_id=i.market_id AND m.active=TRUE
+                JOIN pg_v2_collection_subscriptions c ON c.instrument_id=i.instrument_id AND c.enabled=TRUE
+                WHERE b.instrument_id=? AND b.bar_time>=? AND b.bar_time<=?
+                ORDER BY b.bar_time ASC
+                LIMIT ?
+                """,
+                (int(instrument_id), start_at, end_at, max(1, int(limit))),
+            ).fetchall()
+        return self._bars_from_rows(rows)
 
     def load_latest(self, *, market: str) -> CanonicalMarketBarV2 | None:
         with connect(self.path) as db:
@@ -137,9 +177,4 @@ class CanonicalMarketBarStoreV2:
             ).fetchone()
         if row is None:
             return None
-        return CanonicalMarketBarV2(
-            instrument_id=int(row["instrument_id"]), market_id=int(row["market_id"]), market_name=str(row["market_name"]),
-            bar_time=_utc(row["bar_time"]).isoformat(), open=float(row["open"]), high=float(row["high"]),
-            low=float(row["low"]), close=float(row["close"]), volume=None if row["volume"] is None else float(row["volume"]),
-            quality_flags=int(row["quality_flags"]),
-        )
+        return self._bars_from_rows((row,))[0]

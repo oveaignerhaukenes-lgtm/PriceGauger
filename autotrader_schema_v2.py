@@ -154,6 +154,73 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         CREATE INDEX IF NOT EXISTS pg_v2_autotrader_live_close_status_idx
         ON pg_v2_autotrader_live_close_attempts(status, updated_at DESC)
         """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_pilot_state (
+            pilot_key TEXT PRIMARY KEY,
+            strategy_key TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            net_position_id TEXT NOT NULL,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+            instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+            market_name TEXT NOT NULL,
+            last_evaluated_bar_time TIMESTAMPTZ,
+            reversal_pending BOOLEAN NOT NULL DEFAULT FALSE,
+            pending_intent_id UUID,
+            pending_signal_at TIMESTAMPTZ,
+            pending_signal TEXT,
+            pending_target_direction TEXT,
+            pending_previous_macd DOUBLE PRECISION,
+            pending_previous_signal DOUBLE PRECISION,
+            pending_current_macd DOUBLE PRECISION,
+            pending_current_signal DOUBLE PRECISION,
+            pending_target_fraction DOUBLE PRECISION,
+            pending_budget_amount DOUBLE PRECISION,
+            pending_budget_currency TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_pilot_evaluations (
+            evaluation_id UUID PRIMARY KEY,
+            pilot_key TEXT NOT NULL,
+            strategy_key TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            net_position_id TEXT NOT NULL,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+            instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+            market_name TEXT NOT NULL,
+            canonical_source_fingerprint TEXT NOT NULL,
+            latest_closed_bar_time TIMESTAMPTZ NOT NULL,
+            observed_direction TEXT NOT NULL,
+            observed_fraction DOUBLE PRECISION NOT NULL,
+            outcome_reason TEXT NOT NULL,
+            intent_id UUID,
+            signal_at TIMESTAMPTZ,
+            signal TEXT,
+            target_direction TEXT,
+            previous_macd DOUBLE PRECISION,
+            previous_signal DOUBLE PRECISION,
+            current_macd DOUBLE PRECISION,
+            current_signal DOUBLE PRECISION,
+            requested_action TEXT,
+            prior_direction TEXT,
+            desired_direction TEXT,
+            prior_fraction DOUBLE PRECISION,
+            target_fraction DOUBLE PRECISION,
+            delta_fraction DOUBLE PRECISION,
+            decision_rationale TEXT,
+            reversal_pending BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS pg_v2_autotrader_live_pilot_eval_time_idx
+        ON pg_v2_autotrader_live_pilot_evaluations(pilot_key, created_at DESC)
+        """,
     )
     with connect() as db:
         for statement in statements:
