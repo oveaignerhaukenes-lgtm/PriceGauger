@@ -25,6 +25,8 @@ def test_schema_owns_all_active_autotrader_tables() -> None:
         "pg_v2_autotrader_pilot_equity_state",
         "pg_v2_autotrader_pilot_equity_events",
         "pg_v2_autotrader_strategy_enrollments",
+        "pg_v2_autotrader_shadow_benchmark_state",
+        "pg_v2_autotrader_shadow_benchmark_events",
         "pg_v2_autotrader_equity_reconciliations",
     ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in source
@@ -39,6 +41,7 @@ def test_runtime_modules_and_ui_do_not_own_ddl() -> None:
         "autotrader_pilot_equity_v2.py",
         "autotrader_strategy_enrollment_v2.py",
         "autotrader_closed_position_reconciliation_v2.py",
+        "autotrader_shadow_benchmark_v2.py",
         "autotrader_risk_control_ui_v2.py",
         "autotrader_live_close_ui_v1.py",
     ):
