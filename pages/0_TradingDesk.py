@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 
-from autotrader_execution_context_v2 import AutoTraderExecutionContextV2
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
 from realtime_market_data import RealtimeMarketDataStore
@@ -23,7 +22,6 @@ from trading_desk_indicators import (
     calculate_indicators,
     clip_indicators,
 )
-from trading_desk_product_panel import render_saxo_product_panel
 from trading_desk_swing_bands import add_swing_bands_to_figure
 from trading_desk_v2_context import TradingDeskV2Context, load_trading_desk_contexts_v2
 from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_v2
@@ -143,7 +141,7 @@ with controls_column:
 
         st.caption(f"market_id {baseline_context.market_id}")
         if baseline_context.instrument is None:
-            st.warning("Ingen aktiv/subscribed v2-instrumentkilde. Chart og hurtighandel er deaktivert for markedet.")
+            st.warning("Ingen aktiv/subscribed v2-instrumentkilde. Chart og AutoManager er deaktivert for markedet.")
         else:
             st.caption(
                 f"instrument_id {baseline_context.instrument.instrument_id} · {baseline_context.instrument_label}"
@@ -205,28 +203,6 @@ with controls_column:
             step=5,
             help="Fordeler mer eller mindre av høyden til candlestick-panelet. Resten deles mellom underpanelene.",
         )
-
-    with st.expander(f"Handel · {market}", expanded=False):
-        if baseline_context.instrument is None:
-            st.warning("Hurtighandel krever eksplisitt v2-instrumentidentitet og er derfor deaktivert.")
-        else:
-            execution_context_v2 = AutoTraderExecutionContextV2.from_source(
-                market_id=baseline_context.market_id,
-                market_name=baseline_context.market_name,
-                source=baseline_context.instrument,
-            )
-            st.caption(
-                "Produktvalg er separat fra analyse/feed-instrumentet, men enhver TradingDesk-ordre bindes nå til "
-                "den eksakte canonical v2-identiteten og revalideres før pre-check og submit."
-            )
-            render_saxo_product_panel(
-                market,
-                execution_context_v2=execution_context_v2,
-            )
-            st.page_link("pages/6_AutoTrader_POC.py", label="Åpne full AutoTrader", icon="🧪")
-
-    with st.expander(f"AutoManage · {market}", expanded=True):
-        render_tradingdesk_automanage_panel_v2(baseline_context)
 
     with st.expander("Status", expanded=False):
         auto_refresh = st.toggle(
@@ -408,6 +384,25 @@ def _render_live_chart() -> None:
             )
 
 
+def _render_automanager_workspace() -> None:
+    context = _load_active_context()
+    st.divider()
+    header_left, header_right = st.columns([5, 1])
+    with header_left:
+        st.subheader(f"AutoManager · {market}")
+        st.caption(
+            "Forvaltning av det valgte canonical produktmandatet. LIVE og shadow bruker samme lukkede 30m-signalgrunnlag; "
+            "Position Guardian/risk-laget kan fortsatt redusere eller lukke defensivt."
+        )
+    with header_right:
+        st.page_link("pages/6_AutoTrader_POC.py", label="Full AutoTrader", icon="⚙️")
+    if context is None:
+        st.info("AutoManager venter på aktivt v2-workspace.")
+        return
+    with st.container(border=True):
+        render_tradingdesk_automanage_panel_v2(context)
+
+
 with chart_column:
     if auto_refresh:
         analysis_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
@@ -424,3 +419,5 @@ with chart_column:
     else:
         _render_v2_analysis()
         _render_live_chart()
+
+    _render_automanager_workspace()
