@@ -23,7 +23,9 @@ def test_streamlit_service_has_web_start_and_healthcheck():
 def test_worker_service_runs_without_sqlite_volume_path():
     deploy = _load("railway.worker.toml")["deploy"]
 
-    assert deploy["startCommand"] == "python telegram_multi_worker.py --interval 60"
+    assert deploy["startCommand"] == (
+        "python runtime_entrypoint.py telegram_multi_worker.py --interval 60"
+    )
     assert "/data" not in deploy["startCommand"]
 
 
@@ -31,7 +33,7 @@ def test_realtime_stream_service_is_isolated_and_requests_one_second_updates():
     deploy = _load("railway.stream.toml")["deploy"]
 
     assert deploy["startCommand"] == (
-        "python realtime_worker.py --refresh-ms 1000 "
+        "python runtime_entrypoint.py realtime_worker.py --refresh-ms 1000 "
         "--autotrader-risk-control-seconds 10 "
         "--autotrader-managed-risk-reaction-seconds 2 "
         "--autotrader-live-close-seconds 2"
