@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
 
 from autotrader_managed_positions_v1 import enroll_position_v1, is_position_managed_v1
-from autotrader_risk_control_v2 import PositionObservationV2
+from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_enrollment_v2 import (
     ENTRY_MODE_MANUAL_ONLY,
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
+    load_active_strategy_enrollments_v2,
 )
-from database import connect
+from database import connect, using_postgres
+from saxo_provider import configured_client
 
 
 REQUEST_SUPERSEDED = "SUPERSEDED"
@@ -18,13 +20,12 @@ UNSTARTED_REQUEST_STATUSES = ("PENDING", "APPROVED")
 INFLIGHT_OPEN_STATUSES = ("SUBMITTING", "ORDER_ACCEPTED", "UNCERTAIN")
 
 
-def _row_value(row: Any, key: str, index: int) -> Any:
-    if isinstance(row, dict):
-        return row.get(key)
-    try:
-        return row[key]
-    except (TypeError, IndexError, KeyError):
-        return row[index]
+@dataclass(frozen=True, slots=True)
+class ManualEntryAdoptionCycleV2:
+    candidates: int
+    adopted: int
+    unchanged: int
+    failed: int
 
 
 def _require_manual_manage_identity_v2(
@@ -118,7 +119,7 @@ def _retire_prior_manual_basis_v2(
 
     The transaction deliberately removes authority first. If the process dies before
     `enroll_position_v1`, the system is left fail-closed with no managed position;
-    the next strategy cycle can safely retry adoption.
+    the next adoption cycle can safely retry.
     """
     with connect() as db:
         db.execute(
@@ -175,8 +176,8 @@ def adopt_manual_entry_position_v2(
 
     This function grants *no* OPEN authority. It only rotates the exact managed
     position basis after the user has independently created/resized/reversed exposure
-    in Saxo. The existing managed-position enrollment then owns risk-epoch reset and
-    the hardened strategy/risk CLOSE paths continue unchanged.
+    in Saxo. Existing managed-position enrollment owns the risk-epoch reset and the
+    hardened strategy/risk CLOSE paths continue unchanged.
 
     Returns True only when a new/changed basis was adopted. An already exact managed
     basis is a no-op apart from repairing a stale strategy anchor if necessary.
@@ -199,8 +200,71 @@ def adopt_manual_entry_position_v2(
     return True
 
 
+def _exact_product_observation_v2(
+    enrollment: StrategyEnrollmentV2,
+    observations: tuple[PositionObservationV2, ...],
+) -> PositionObservationV2 | None:
+    matches = tuple(
+        item
+        for item in observations
+        if item.account_id == enrollment.account_id
+        and int(item.uic) == int(enrollment.uic)
+        and item.asset_type == enrollment.asset_type
+    )
+    if len(matches) > 1:
+        raise RuntimeError("multiple Saxo positions match one Manage-only product")
+    return matches[0] if matches else None
+
+
+def run_manual_entry_adoption_cycle_v2() -> ManualEntryAdoptionCycleV2:
+    """Continuously rotate manual Saxo exposure into exact managed CLOSE authority.
+
+    The cycle is intentionally useful only for MANUAL_ENTRY_ONLY. It cannot create
+    exposure and it does not run when there are no active Manage-only pilots.
+    """
+    if not using_postgres():
+        return ManualEntryAdoptionCycleV2(0, 0, 0, 0)
+    ensure_autotrader_schema_v2()
+    enrollments = tuple(
+        item
+        for item in load_active_strategy_enrollments_v2()
+        if item.enabled
+        and item.execution_mode == EXECUTION_MODE_LIVE
+        and item.entry_mode == ENTRY_MODE_MANUAL_ONLY
+    )
+    if not enrollments:
+        return ManualEntryAdoptionCycleV2(0, 0, 0, 0)
+
+    client = configured_client()
+    if client is None:
+        raise RuntimeError("Saxo client is not configured")
+    observations = _position_observations_v2(client)
+
+    candidates = 0
+    adopted = 0
+    unchanged = 0
+    failed = 0
+    for enrollment in enrollments:
+        try:
+            observation = _exact_product_observation_v2(enrollment, observations)
+            if observation is None:
+                continue
+            candidates += 1
+            if adopt_manual_entry_position_v2(enrollment, observation):
+                adopted += 1
+            else:
+                unchanged += 1
+        except Exception:
+            # The surrounding daemon logs/continues; one ambiguous product must not
+            # prevent other independent Manage-only pilots from being considered.
+            failed += 1
+    return ManualEntryAdoptionCycleV2(candidates, adopted, unchanged, failed)
+
+
 __all__ = [
     "INFLIGHT_OPEN_STATUSES",
+    "ManualEntryAdoptionCycleV2",
     "UNSTARTED_REQUEST_STATUSES",
     "adopt_manual_entry_position_v2",
+    "run_manual_entry_adoption_cycle_v2",
 ]
