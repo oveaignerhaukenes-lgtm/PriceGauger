@@ -101,7 +101,7 @@ def test_exact_already_managed_basis_is_noop_but_repairs_strategy_anchor(monkeyp
     monkeypatch.setattr(
         adoption_v2,
         "enroll_position_v1",
-        lambda _obs: events.append("enroll")
+        lambda _obs: events.append("enroll"),
     )
 
     changed = adoption_v2.adopt_manual_entry_position_v2(
@@ -114,7 +114,7 @@ def test_exact_already_managed_basis_is_noop_but_repairs_strategy_anchor(monkeyp
     assert any("UPDATE pg_v2_autotrader_strategy_enrollments" in event for event in events)
 
 
-def test_unresolved_pricegauger_open_blocks_manual_adoption(monkeypatch):
+def test_unresolved_pricegauger_execution_request_blocks_manual_adoption(monkeypatch):
     events: list[str] = []
     db = _FakeDb(events, fetchone_values=[{"request_id": "inflight"}])
     monkeypatch.setattr(adoption_v2, "ensure_autotrader_schema_v2", lambda: None)
@@ -126,17 +126,36 @@ def test_unresolved_pricegauger_open_blocks_manual_adoption(monkeypatch):
         lambda _obs: events.append("enroll"),
     )
 
-    with pytest.raises(RuntimeError, match="OPEN is unresolved"):
+    with pytest.raises(RuntimeError, match="execution is unresolved"):
         adoption_v2.adopt_manual_entry_position_v2(_enrollment(), _observation())
 
     assert "enroll" not in events
     assert not any("UPDATE pg_v2_autotrader_managed_positions" in event for event in events)
 
 
+def test_unresolved_live_close_attempt_also_blocks_basis_rotation(monkeypatch):
+    events: list[str] = []
+    db = _FakeDb(events, fetchone_values=[None, None, {"event_id": "close-inflight"}])
+    monkeypatch.setattr(adoption_v2, "ensure_autotrader_schema_v2", lambda: None)
+    monkeypatch.setattr(adoption_v2, "is_position_managed_v1", lambda _obs: False)
+    monkeypatch.setattr(adoption_v2, "connect", lambda: _FakeConnect(db))
+    monkeypatch.setattr(
+        adoption_v2,
+        "enroll_position_v1",
+        lambda _obs: events.append("enroll"),
+    )
+
+    with pytest.raises(RuntimeError, match="execution is unresolved"):
+        adoption_v2.adopt_manual_entry_position_v2(_enrollment(), _observation())
+
+    assert "enroll" not in events
+    assert any("FROM pg_v2_autotrader_live_close_attempts" in event for event in events)
+
+
 def test_new_manual_basis_supersedes_stale_authority_then_uses_risk_epoch_enrollment(monkeypatch):
     events: list[str] = []
-    # Both unresolved-OPEN checks are clear.
-    db = _FakeDb(events, fetchone_values=[None, None])
+    # Execution-request, LIVE OPEN and LIVE CLOSE unresolved checks are all clear.
+    db = _FakeDb(events, fetchone_values=[None, None, None])
     monkeypatch.setattr(adoption_v2, "ensure_autotrader_schema_v2", lambda: None)
     monkeypatch.setattr(adoption_v2, "is_position_managed_v1", lambda _obs: False)
     monkeypatch.setattr(adoption_v2, "connect", lambda: _FakeConnect(db))
