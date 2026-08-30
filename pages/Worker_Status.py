@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -9,9 +8,10 @@ import pandas as pd
 import streamlit as st
 
 from build_info import render_build_badge
+from context_snapshot_store_v2 import ContextSnapshotStoreV2
 from database import connect, database_config_status, using_postgres
 from realtime_market_data import RealtimeMarketDataStore
-from signal_outcomes import SignalOutcomeStore
+from runtime_health_v2 import load_runtime_health_v2
 from telegram_flow_store import TelegramFlowStore
 
 LOCAL_TIMEZONE = ZoneInfo("Europe/Oslo")
@@ -34,8 +34,7 @@ def _refresh_label(value: int | None) -> str:
         return "Ukjent"
     if value < 1000:
         return f"{value} ms"
-    seconds = value / 1000.0
-    return f"{seconds:g} s"
+    return f"{value / 1000.0:g} s"
 
 
 def _delay_label(value: float | None) -> str:
@@ -68,7 +67,7 @@ def _compact_telegram_id(value: object) -> str:
 st.set_page_config(page_title="Worker Status", page_icon="🟢", layout="wide")
 render_build_badge()
 st.title("PriceGauger Worker Status")
-st.caption("Read-only produksjonsstatus fra workeren og den delte databasen.")
+st.caption("Read-only produksjonsstatus for aktive source-, Context-v2- og Technical-v2-runtimer.")
 
 db_status = database_config_status()
 if not using_postgres():
@@ -77,11 +76,9 @@ if not using_postgres():
         f"Konfigurasjonsstatus: {db_status['source']}."
     )
     st.info(
-        "Worker Status krever den delte PostgreSQL-databasen. En ny Streamlit-deployment har en tom lokal "
-        "SQLite-fil uten worker-tabellene, så siden stopper her i stedet for å vise en misvisende lokal status."
+        "Worker Status krever delt PostgreSQL. Lokal SQLite er bare test/lokal kompatibilitet og brukes ikke "
+        "som produksjonsautoritet."
     )
-    st.code('DATABASE_URL = "postgresql://..."', language="toml")
-    st.caption("Legg linjen på toppnivå i Secrets for akkurat denne app-instansen, lagre og start appen på nytt.")
     st.stop()
 
 st.success(f"Delt PostgreSQL er aktiv via {db_status['source']}.")
@@ -90,15 +87,6 @@ with connect() as db:
     worker_rows = db.execute(
         "SELECT message_id, status, recorded_at FROM worker_messages ORDER BY recorded_at DESC LIMIT 10"
     ).fetchall()
-    latest_interpretation = db.execute(
-        "SELECT event_id, published_at, update_type, payload_json FROM market_interpretations ORDER BY published_at DESC LIMIT 1"
-    ).fetchone()
-    latest_snapshot = db.execute(
-        "SELECT as_of, payload_json FROM market_state_snapshots ORDER BY as_of DESC LIMIT 1"
-    ).fetchone()
-    recommendations = db.execute(
-        "SELECT as_of, asset, payload_json FROM asset_recommendations ORDER BY as_of DESC"
-    ).fetchall()
     flow_post_status = db.execute(
         "SELECT COUNT(*) AS count, MAX(scored_at) AS latest FROM telegram_flow_posts"
     ).fetchone()
@@ -106,20 +94,44 @@ with connect() as db:
         "SELECT COUNT(*) AS count, MAX(recorded_at) AS latest FROM telegram_flow_snapshots"
     ).fetchone()
 
-outcomes = SignalOutcomeStore().load_all()
 flow_snapshot = TelegramFlowStore().load_latest_snapshot()
-completed_1h = [item for item in outcomes if item.return_1h_pct is not None]
-completed_4h = [item for item in outcomes if item.return_4h_pct is not None]
+context_snapshot = ContextSnapshotStoreV2().load_latest(scope_key="global")
+try:
+    runtime_health = load_runtime_health_v2()
+except Exception:
+    runtime_health = ()
+
 latest_worker = worker_rows[0]["recorded_at"] if worker_rows else None
 flow_post_count = int(flow_post_status["count"] or 0)
 flow_snapshot_count = int(flow_snapshot_status["count"] or 0)
+healthy_count = sum(1 for item in runtime_health if item.status == "HEALTHY")
 
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Lagrede signaler", len(outcomes))
-c2.metric("Ferdige 1t", len(completed_1h))
-c3.metric("Ferdige 4t", len(completed_4h))
-c4.metric("Siste worker-hendelse", _compact_timestamp(latest_worker))
-c5.metric("Siste Telegram Flow", _compact_timestamp(flow_snapshot.as_of if flow_snapshot else None))
+c1.metric("Telegram-poster", flow_post_count)
+c2.metric("Flow-snapshots", flow_snapshot_count)
+c3.metric("Context v2", _compact_timestamp(context_snapshot.as_of if context_snapshot else None))
+c4.metric("V2 health", f"{healthy_count}/{len(runtime_health)}")
+c5.metric("Siste worker-hendelse", _compact_timestamp(latest_worker))
+
+st.subheader("Canonical v2 runtime-health")
+if runtime_health:
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "service": item.service,
+                    "stage": item.stage,
+                    "status": item.status,
+                    "detail": item.detail,
+                }
+                for item in runtime_health
+            ]
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+else:
+    st.info("Ingen pg_v2_runtime_status-rader er lagret ennå.")
 
 st.subheader("Saxo realtime-stream")
 realtime_store = RealtimeMarketDataStore()
@@ -141,115 +153,84 @@ if stream_statuses:
             }
         )
     st.dataframe(pd.DataFrame(stream_rows), width="stretch", hide_index=True)
-    st.caption(
-        "Tidsstemplene viser siste mottatte data og kan derfor stå stille når markedet er lukket. "
-        "Delay=Ukjent betyr at Saxo ikke har rapportert delay-metadata; det tolkes ikke som realtime."
-    )
 else:
     st.info("Ingen Saxo realtime-streamstatus er lagret ennå.")
 
+st.subheader("Telegram Flow source-status")
 if flow_snapshot:
-    st.subheader("Telegram Flow-status")
     st.caption(
         f"{flow_snapshot.post_count} scorede poster · {flow_snapshot.event_cluster_count} hendelsesklynger · "
-        f"modell {flow_snapshot.model or 'ukjent'}"
+        f"modell {flow_snapshot.model or 'ukjent'} · as_of {_compact_timestamp(flow_snapshot.as_of)}"
     )
-    flow_rows = [
-        {
-            "marked": item.asset,
-            "retning": item.direction,
-            "flow-score": item.flow_score,
-            "confidence": item.confidence,
-            "aktive hendelser": item.selected_event_count,
-        }
-        for item in flow_snapshot.assets
-    ]
-    st.dataframe(pd.DataFrame(flow_rows), width="stretch", hide_index=True)
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "marked": item.asset,
+                    "retning": item.direction,
+                    "flow-score": item.flow_score,
+                    "confidence": item.confidence,
+                    "aktive hendelser": item.selected_event_count,
+                }
+                for item in flow_snapshot.assets
+            ]
+        ),
+        width="stretch",
+        hide_index=True,
+    )
 else:
-    st.subheader("Telegram Flow-status")
     d1, d2, d3, d4 = st.columns(4)
     d1.metric("Scorede poster", flow_post_count)
     d2.metric("Lagrede snapshots", flow_snapshot_count)
     d3.metric("Siste postscore", _compact_timestamp(flow_post_status["latest"]))
     d4.metric("Siste snapshot", _compact_timestamp(flow_snapshot_status["latest"]))
-    if flow_post_count == 0:
-        st.warning(
-            "Workeren har ikke lagret noen Telegram Flow-poster i PostgreSQL. Det tyder vanligvis på at "
-            "Railway-workeren kjører en eldre build, eller at OPENAI_API_KEY mangler i worker-tjenestens Variables."
-        )
-    else:
-        st.warning(
-            "Telegram-poster er scoret, men intet aggregert snapshot er lagret. Da ligger feilen etter AI-scoringen, "
-            "i aggregering eller snapshot-lagring."
-        )
-    st.caption(
-        "Den aktive workerkoden skal score nye poster og lagre et nytt snapshot i hver syklus. "
-        "Denne statusen gjør det mulig å skille deploy-/secret-feil fra en feil i selve aggregeringen."
-    )
 
-if latest_interpretation:
-    payload = json.loads(latest_interpretation["payload_json"])
-    st.subheader("Siste tolket hendelse")
-    st.write(f"**{_compact_telegram_id(latest_interpretation['event_id'])}**")
-    st.caption(
-        f"Publisert {_compact_timestamp(latest_interpretation['published_at'])} · "
-        f"type {latest_interpretation['update_type']}"
-    )
-    summary = payload.get("summary") or payload.get("event_summary") or payload.get("reasoning_summary")
-    if summary:
-        st.write(summary)
-    with st.expander("Strukturert tolkning"):
-        st.json(payload)
+st.subheader("Canonical ContextSnapshotV2")
+if context_snapshot is None:
+    st.warning("Ingen canonical ContextSnapshotV2 er publisert ennå.")
 else:
-    st.info("Ingen tolkede hendelser er lagret ennå.")
-
-if latest_snapshot:
-    snapshot = json.loads(latest_snapshot["payload_json"])
-    st.subheader("Gjeldende Market State")
-    st.caption(f"Oppdatert {_compact_timestamp(latest_snapshot['as_of'])}")
-    numeric = {
-        key: value
-        for key, value in snapshot.items()
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
-    }
-    if numeric:
-        cols = st.columns(min(4, len(numeric)))
-        for index, (key, value) in enumerate(numeric.items()):
-            cols[index % len(cols)].metric(key.replace("_", " ").title(), f"{value:.2f}")
-    with st.expander("Hele Market State"):
-        st.json(snapshot)
-
-if recommendations:
-    latest_as_of = recommendations[0]["as_of"]
-    latest = [row for row in recommendations if row["as_of"] == latest_as_of]
-    recommendation_rows = []
-    for row in latest:
-        payload = json.loads(row["payload_json"])
-        recommendation_rows.append(
-            {
-                "marked": row["asset"],
-                "retning": payload.get("direction"),
-                "styrke": payload.get("signal_strength"),
-                "score": payload.get("score"),
-                "begrunnelse": payload.get("rationale") or payload.get("reason"),
-            }
+    st.caption(
+        f"snapshot {context_snapshot.snapshot_id} · as_of {_compact_timestamp(context_snapshot.as_of)} · "
+        f"freshness {context_snapshot.freshness_status} · engine {context_snapshot.engine_version}"
+    )
+    if context_snapshot.regime_label:
+        st.markdown(f"**{context_snapshot.regime_label}**")
+    if context_snapshot.summary:
+        st.write(context_snapshot.summary)
+    if context_snapshot.targets:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "marked": target.target_key,
+                        "konteksttrykk": target.directional_bias,
+                        "confidence": target.confidence,
+                        "novelty": target.novelty,
+                        "event risk": target.event_risk,
+                    }
+                    for target in context_snapshot.targets
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
         )
-    st.subheader("Siste anbefalinger")
-    st.caption(f"Beregnet {_compact_timestamp(latest_as_of)}")
-    st.dataframe(pd.DataFrame(recommendation_rows), width="stretch", hide_index=True)
 
 st.subheader("Siste worker-registreringer")
 if worker_rows:
-    worker_display = []
-    for row in worker_rows:
-        worker_display.append(
-            {
-                "melding": _compact_telegram_id(row["message_id"]),
-                "status": row["status"],
-                "tid": _compact_timestamp(row["recorded_at"]),
-            }
-        )
-    st.dataframe(pd.DataFrame(worker_display), width="stretch", hide_index=True)
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "melding": _compact_telegram_id(row["message_id"]),
+                    "status": row["status"],
+                    "tid": _compact_timestamp(row["recorded_at"]),
+                }
+                for row in worker_rows
+            ]
+        ),
+        width="stretch",
+        hide_index=True,
+    )
 else:
     st.info("Ingen worker-registreringer funnet.")
 
