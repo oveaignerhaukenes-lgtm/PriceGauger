@@ -70,6 +70,37 @@ def _state_label(value: str) -> str:
     return str(value or "UNDETERMINED").replace("_", " ")
 
 
+def _relative_horizon_label(seconds: float) -> str:
+    value = max(1.0, float(seconds))
+    if value < 3600.0:
+        amount = value / 60.0
+        suffix = "m"
+    elif value < 86400.0:
+        amount = value / 3600.0
+        suffix = "t"
+    else:
+        amount = value / 86400.0
+        suffix = "d"
+    rounded = round(amount)
+    number = f"{rounded:g}" if abs(amount - rounded) < 0.05 else f"{amount:.1f}".rstrip("0").rstrip(".")
+    return f"+{number}{suffix}"
+
+
+def _price_axis_label(value: float) -> str:
+    absolute = abs(float(value))
+    if absolute >= 1000:
+        rendered = f"{value:,.0f}"
+    elif absolute >= 100:
+        rendered = f"{value:.1f}"
+    elif absolute >= 10:
+        rendered = f"{value:.2f}"
+    elif absolute >= 1:
+        rendered = f"{value:.3f}"
+    else:
+        rendered = f"{value:.4f}"
+    return rendered.replace(",", " ")
+
+
 def _history_reference(parsed_history: list[tuple[datetime, float]], when: datetime) -> float | None:
     candidates = [price for stamp, price in parsed_history if stamp <= when]
     return None if not candidates else float(candidates[-1])
@@ -264,11 +295,31 @@ def render_v2_forecast_chart(view) -> str:
     ghost_note = f" · {ghost_count} ghosts" if ghost_count else ""
     empty_note = "" if parsed_history else '<span class="pg-v2-note">Ingen canonical prishistorikk i read-modellen; grafen er indeksert til 100.</span>'
 
+    horizon_seconds = max(1, int(getattr(view, "horizon_seconds", 1)))
+    mid_horizon_label = html.escape(_relative_horizon_label(horizon_seconds / 2.0))
+    end_horizon_label = html.escape(_relative_horizon_label(horizon_seconds))
+    midpoint_price = (high_price + low_price) / 2.0
+    price_axis = (
+        '<div class="pg-v2-price-axis" aria-label="Prisakse">'
+        f'<span>{html.escape(_price_axis_label(high_price))}</span>'
+        f'<span>{html.escape(_price_axis_label(midpoint_price))}</span>'
+        f'<span>{html.escape(_price_axis_label(low_price))}</span>'
+        '</div>'
+    )
+    time_axis = (
+        '<div class="pg-v2-time-axis" aria-label="Prognosehorisont">'
+        '<span class="pg-v2-time-now">NÅ</span>'
+        f'<span class="pg-v2-time-mid">{mid_horizon_label}</span>'
+        f'<span class="pg-v2-time-end">{end_horizon_label}</span>'
+        '</div>'
+    )
+
     return (
         '<div class="pg-v2-chart" data-recipe="' + recipe + '">'
         '<div class="pg-v2-chart-head"><span>PROGNOSE VS. VIRKELIGHET</span>'
         f'<span>{header_right}</span></div>'
         '<div class="pg-v2-zones"><span>HISTORIKK' + ghost_note + '</span><span>NÅ → PROGNOSE</span></div>'
+        '<div class="pg-v2-plot-shell">'
         '<svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" '
         'aria-label="Persisted v2 technical forecast with observed history, historical forecasts and uncertainty">'
         '<line class="pg-v2-now" x1="66" x2="66" y1="7" y2="95" />'
@@ -279,6 +330,9 @@ def render_v2_forecast_chart(view) -> str:
         f'{baseline_markup}'
         f'<polyline class="pg-v2-path" points="{_points(forecast_xy)}" />'
         '</svg>'
+        f'{price_axis}'
+        '</div>'
+        f'{time_axis}'
         '<div class="pg-v2-chart-foot">'
         f'<span>forventet <strong>{expected}</strong> · intervall {interval}</span>'
         f'<span>{path}</span></div>{empty_note}</div>'
@@ -328,8 +382,9 @@ V2_FORECAST_CSS = """
 .pg-v2-chart,.pg-v2-explain{border:1px solid rgba(128,128,128,.24);border-radius:.7rem;background:rgba(128,128,128,.025);padding:.65rem .75rem}
 .pg-v2-chart-head,.pg-v2-chart-foot,.pg-v2-zones{display:flex;justify-content:space-between;gap:.6rem;font-size:.66rem;line-height:1.25}
 .pg-v2-chart-head{font-weight:760;letter-spacing:.055em;opacity:.74}.pg-v2-zones{font-size:.56rem;font-weight:700;opacity:.55;margin-top:.25rem}.pg-v2-zones span:last-child{width:32%;text-align:center}
-.pg-v2-chart svg{display:block;width:100%;height:12rem;margin:.05rem 0}.pg-v2-now{stroke:rgba(71,85,105,.7);stroke-width:.8;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke}.pg-v2-history{fill:none;stroke:currentColor;stroke-width:1.55;vector-effect:non-scaling-stroke}.pg-v2-fan{fill:var(--primary-color,#4f6f9f);fill-opacity:.13;stroke:none}.pg-v2-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:2;vector-effect:non-scaling-stroke}.pg-v2-ghost-fan{fill:var(--primary-color,#4f6f9f);stroke:none}.pg-v2-ghost-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:1.3;stroke-dasharray:1.7 1.15;vector-effect:non-scaling-stroke}.pg-v2-baseline-compare{fill:none;stroke:rgba(100,116,139,.72);stroke-width:1;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke}.pg-v2-note{display:block;font-size:.58rem;opacity:.6;margin-top:.2rem}
+.pg-v2-plot-shell{display:grid;grid-template-columns:minmax(0,1fr) 3.55rem;gap:.28rem;align-items:stretch}.pg-v2-chart svg{display:block;width:100%;height:12rem;margin:.05rem 0}.pg-v2-price-axis{display:flex;flex-direction:column;justify-content:space-between;padding:.58rem 0 .78rem;font-size:.56rem;line-height:1;opacity:.68;text-align:right;font-variant-numeric:tabular-nums}.pg-v2-time-axis{position:relative;height:1.05rem;margin:-.05rem 3.83rem .18rem 0;border-top:1px solid rgba(128,128,128,.15);font-size:.54rem;line-height:1;opacity:.62;font-variant-numeric:tabular-nums}.pg-v2-time-axis span{position:absolute;top:.27rem;white-space:nowrap}.pg-v2-time-now{left:66%;transform:translateX(-50%)}.pg-v2-time-mid{left:81.5%;transform:translateX(-50%)}.pg-v2-time-end{left:97%;transform:translateX(-100%)}
+.pg-v2-now{stroke:rgba(71,85,105,.7);stroke-width:.8;stroke-dasharray:2 1.4;vector-effect:non-scaling-stroke}.pg-v2-history{fill:none;stroke:currentColor;stroke-width:1.55;vector-effect:non-scaling-stroke}.pg-v2-fan{fill:var(--primary-color,#4f6f9f);fill-opacity:.13;stroke:none}.pg-v2-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:2;vector-effect:non-scaling-stroke}.pg-v2-ghost-fan{fill:var(--primary-color,#4f6f9f);stroke:none}.pg-v2-ghost-path{fill:none;stroke:var(--primary-color,#355f91);stroke-width:1.3;stroke-dasharray:1.7 1.15;vector-effect:non-scaling-stroke}.pg-v2-baseline-compare{fill:none;stroke:rgba(100,116,139,.72);stroke-width:1;stroke-dasharray:2 1.5;vector-effect:non-scaling-stroke}.pg-v2-note{display:block;font-size:.58rem;opacity:.6;margin-top:.2rem}
 .pg-v2-recipe{font-size:.68rem;font-weight:760;letter-spacing:.035em;opacity:.7;margin-bottom:.6rem}.pg-v2-state-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}.pg-v2-state-grid div{border-top:1px solid rgba(128,128,128,.18);padding-top:.3rem}.pg-v2-state-grid small{display:block;font-size:.59rem;opacity:.62}.pg-v2-state-grid strong{display:block;font-size:.77rem;margin-top:.05rem}.pg-v2-driver{font-size:.72rem;line-height:1.4;margin:.65rem 0 0}.pg-v2-interpreter{font-size:.71rem;line-height:1.4;margin-top:.55rem;padding:.5rem;border-radius:.45rem;background:rgba(128,128,128,.07)}
-@media(max-width:900px){.pg-v2-layout{grid-template-columns:1fr}.pg-v2-chart svg{height:9.5rem}}
+@media(max-width:900px){.pg-v2-layout{grid-template-columns:1fr}.pg-v2-chart svg{height:9.5rem}.pg-v2-plot-shell{grid-template-columns:minmax(0,1fr) 3.2rem}.pg-v2-time-axis{margin-right:3.48rem}}
 </style>
 """
