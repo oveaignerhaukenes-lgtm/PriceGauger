@@ -144,8 +144,20 @@ class TelegramFlowStore:
         self,
         assessment: TelegramFlowAssessment,
         *,
-        process_runtime: bool = True,
+        process_runtime: bool = False,
     ) -> None:
+        """Persist one Telegram Flow snapshot without semantic side effects.
+
+        ``process_runtime`` remains only as a fail-fast compatibility guard for old
+        callers. The Information State / Decision State / Recommendation runtime is
+        retired from the v2 production path; semantic publication must go through
+        ContextSnapshotV2 instead.
+        """
+        if process_runtime:
+            raise ValueError(
+                "legacy Telegram save-and-process runtime is retired; publish semantic state through ContextSnapshotV2"
+            )
+
         status = self._status()
         status.running("event_clustering", "Oppdaterer hendelsesklynger og samlet Telegram Flow.")
         with self._connect() as db:
@@ -168,29 +180,6 @@ class TelegramFlowStore:
             "event_clustering",
             f"{assessment.post_count} poster redusert til {assessment.event_cluster_count} hendelsesklynger.",
         )
-
-        # Legacy callers use save_snapshot as a save-and-process operation. The worker
-        # opts out explicitly because it owns status reporting and invokes runtime once.
-        if process_runtime:
-            try:
-                from state_runtime_pipeline import process_flow_snapshot
-
-                status.running("information_state", "Bygger samlet Information State.")
-                status.running("decision_state", "Oppdaterer Decision State per marked.")
-                status.running("recommendation", "Avventer oppdatert Decision State.")
-                process_flow_snapshot(
-                    db_path=self.path,
-                    assessment=assessment,
-                    posts=self.load_posts(limit=500),
-                )
-                status.complete("information_state", "Information State oppdatert fra siste autoritative flow-snapshot.")
-                status.complete("decision_state", "Decision State oppdatert for alle tilgjengelige markeder.")
-                status.complete("recommendation", "Foreløpige anbefalinger regenerert fra siste Decision State.")
-            except Exception as exc:
-                status.failed("information_state", str(exc))
-                status.failed("decision_state", str(exc))
-                status.failed("recommendation", "Ingen ny anbefaling fordi state runtime feilet.")
-                LOGGER.exception("state runtime processing failed after Telegram flow snapshot")
 
     def load_latest_snapshot(self) -> TelegramFlowAssessment | None:
         with self._connect() as db:
