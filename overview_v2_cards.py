@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import html
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from instrument_registry_v2 import list_subscribed_sources_v2
 from overview_v2_read_model import OverviewTechnicalV2, load_v2_overview_snapshots
@@ -29,6 +29,16 @@ def _horizon_label(seconds: int) -> str:
     if abs(hours - 168.0) <= 1e-6:
         return "7d"
     return f"{hours:g}t"
+
+
+def _display_recipe_label(label: str) -> str:
+    """Keep persisted recipe identity stable while avoiding legacy-looking v1 UI."""
+    text = str(label)
+    if text == "TA-only v1":
+        return "TA-only · recipe 1 (v2)"
+    if text == "TA+Interpreter v1":
+        return "TA+Interpreter · recipe 1 (v2)"
+    return text
 
 
 def _preferred_horizon(available: tuple[int, ...], session_state, market: str) -> int:
@@ -89,10 +99,12 @@ def _health_for_view(view: OverviewTechnicalV2, persisted: RuntimeHealthV2 | Non
 def render_overview_v2_market_card_html(view: OverviewTechnicalV2, *, health: OverviewV2Health, color: str, detail_href: str) -> str:
     expected = f"{float(view.expected_return) * 100:+.3f}%"
     interval = f"{float(view.lower_return) * 100:+.3f}% til {float(view.upper_return) * 100:+.3f}%"
-    chart = render_v2_forecast_chart(view)
-    explanation = render_v2_technical_explanation(view)
+    display_view = replace(view, recipe_label=_display_recipe_label(view.recipe_label))
+    chart = render_v2_forecast_chart(display_view)
+    explanation = render_v2_technical_explanation(display_view)
     health_class = " pg-v2-health-warning" if health.status != "HEALTHY" else ""
     layer_note = " + Interpreter" if view.applied_layers else ""
+    forecast_owner = f"{view.market} · {_horizon_label(view.horizon_seconds)}"
     return "".join(line.strip() for line in f"""
     <article class="pg-market-card pg-market-card-v2" style="--market-color:{html.escape(color, quote=True)}">
       <div class="pg-market-layout pg-market-layout-v2">
@@ -102,11 +114,11 @@ def render_overview_v2_market_card_html(view: OverviewTechnicalV2, *, health: Ov
           <div class="pg-data-health{health_class}"><strong>{html.escape(health.status)}</strong> · {html.escape(health.detail)}</div>
         </section>
         <aside class="pg-recommendation pg-recommendation-v2">
-          <div class="pg-rec-kicker">TEKNISK PROGNOSE</div><div class="pg-rec-action">{html.escape(_action_label(view.direction))}</div><div class="pg-rec-signal">{html.escape(view.recipe_label + layer_note)}</div>
+          <div class="pg-rec-kicker">TEKNISK PROGNOSE</div><div class="pg-rec-action">{html.escape(_action_label(view.direction))}</div><div class="pg-rec-signal">{html.escape(display_view.recipe_label + layer_note)}</div>
           <div class="pg-rec-grid">
             <div class="pg-rec-row"><strong>{html.escape(expected)}</strong>forventet terminal move</div><div class="pg-rec-row"><strong>{html.escape(interval)}</strong>uncertainty-intervall</div><div class="pg-rec-row"><strong>{html.escape(_price_interval(view))}</strong>implisert prisintervall</div><div class="pg-rec-row"><strong>{html.escape(_horizon_label(view.horizon_seconds))}</strong>valgt prognosehorisont</div><div class="pg-rec-row"><strong>{float(view.confidence):.0%}</strong>Technical Core confidence</div>
           </div><div class="pg-rec-status">V2 · {html.escape(view.path_shape.replace("_", " "))}</div>
-        </aside><section class="pg-forecast pg-forecast-v2">{chart}</section>
+        </aside><section class="pg-forecast pg-forecast-v2"><div class="pg-forecast-owner">{html.escape(forecast_owner)} · prognosegraf</div>{chart}</section>
       </div>
     </article>
     """.splitlines())
@@ -114,12 +126,14 @@ def render_overview_v2_market_card_html(view: OverviewTechnicalV2, *, health: Ov
 
 OVERVIEW_V2_CSS = V2_FORECAST_CSS + """
 <style>
+.pg-market-card-v2{border:1px solid rgba(128,128,128,.20);border-radius:.8rem;padding:.6rem .75rem;margin:.2rem 0 1.2rem;background:rgba(128,128,128,.025);overflow:hidden}
 .pg-market-layout-v2{grid-template-columns:minmax(18rem,4fr) minmax(12rem,1.65fr) minmax(20rem,4.2fr)!important}
 .pg-analysis-v2 .pg-v2-explain{border:0;background:transparent;padding:.55rem 0 0}.pg-analysis-v2 .pg-v2-recipe{margin-bottom:.45rem}
+.pg-forecast-owner{font-size:.72rem;font-weight:750;letter-spacing:.04em;text-transform:uppercase;opacity:.72;margin:0 0 .25rem}
 .pg-forecast-v2 .pg-v2-chart{border:0;background:transparent;padding:0;height:100%}.pg-forecast-v2 .pg-v2-chart svg{height:9.4rem}
 .pg-market-card-v2 .pg-v2-path{stroke:var(--market-color)}.pg-market-card-v2 .pg-v2-fan{fill:var(--market-color)}.pg-v2-health-warning{font-weight:650}
 .pg-v2-collecting{border:1px dashed rgba(128,128,128,.35);border-radius:.7rem;padding:.75rem 1rem;margin:.35rem 0 .8rem;background:rgba(128,128,128,.025)}
-@media(max-width:1100px){.pg-market-layout-v2{grid-template-columns:minmax(0,3fr) minmax(13rem,1.4fr)!important}.pg-forecast-v2{grid-column:1 / -1}.pg-forecast-v2 .pg-v2-chart svg{height:8.5rem}}
+@media(max-width:1100px){.pg-market-layout-v2{grid-template-columns:minmax(0,3fr) minmax(13rem,1.4fr)!important}.pg-forecast-v2{grid-column:1 / -1;border-top:1px solid rgba(128,128,128,.14);padding-top:.55rem}.pg-forecast-v2 .pg-v2-chart svg{height:8.5rem}}
 @media(max-width:700px){.pg-market-layout-v2{grid-template-columns:1fr!important}.pg-forecast-v2{grid-column:auto}.pg-forecast-v2 .pg-v2-chart svg{height:8rem}}
 </style>
 """
