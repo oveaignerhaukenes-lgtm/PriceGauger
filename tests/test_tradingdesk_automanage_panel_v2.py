@@ -33,6 +33,18 @@ def test_automanage_panel_is_generic_product_strategy_enrollment_not_order_submi
     assert "4912" not in source
 
 
+def test_automanage_panel_exposes_same_basis_shadow_strategy_scorecard_even_when_flat():
+    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    assert "load_shadow_benchmark_snapshots_v2" in source
+    assert "load_active_strategy_enrollments_v2" in source
+    assert "Strategitest · samme startgrunnlag" in source
+    assert "Paper {item.return_pct:+.2f}%" in source
+    assert "samme observerte startposisjon" in source
+    assert "samme exact canonical 30m-prisbane" in source
+    assert "faktisk Saxo-P/L føres separat i LIVE-ledgeren" in source
+    assert "strategitest over forblir synlig" in source
+
+
 def test_automanage_enrollment_requires_explicit_user_acknowledgement():
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi." in source
