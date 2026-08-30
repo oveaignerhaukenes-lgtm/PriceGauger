@@ -1,22 +1,61 @@
 # PriceGauger
 
-PriceGauger er et worker-first markedanalyse-system som kombinerer nyhets-/hendelsesdata, teknisk markedsstate, multi-horizon forecasts, outcome-læring og eksplisitt cross-market/adaptation-observasjon. PostgreSQL er autoritativ delt state i produksjon.
+PriceGauger er et worker-first markedanalyse- og trading-supportsystem med canonical markedsdata, deterministisk Technical Core, eksplisitte context/forecast-lag og et separat risk-controlled AutoTrader-subsystem. PostgreSQL er autoritativ delt state i produksjon.
 
-Se [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) for gjeldende arkitektur, guardrails, stabil baseline og eksplisitt utsatt arbeid.
+**Gjeldende implementasjonsstatus:** [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)  
+**Arkitekturprinsipper:** [`docs/PRICEGAUGER_V2_ARCHITECTURE.md`](docs/PRICEGAUGER_V2_ARCHITECTURE.md)  
+**Systemoversikt:** [`docs/PRICEGAUGER_V2_SYSTEM_OVERVIEW.md`](docs/PRICEGAUGER_V2_SYSTEM_OVERVIEW.md)
 
-## Hovedflyt
+Eldre handoff-filer er historiske. Ikke bruk dem som current authority uten å kontrollere `CURRENT_STATUS.md` og fersk `main`.
+
+## Hovedarkitektur
 
 ```text
-Telegram / event context
-→ Information State
-→ Technical State
-→ Decision State
-→ 5m / 15m / 30m / 1h / 4h / 12h / 24h / 7d Forecasts
-→ Outcomes
-→ immutable ForecastErrorObservations
+Provider / Saxo instrument identity
+→ dynamic instrument registry / subscriptions
+→ canonical 1m observations
+→ deterministic Technical Core
+→ technical baseline forecasts
+→ WorkspaceSnapshotV2
+→ optional explicit context / interpretation layers
+→ recipe-composed forecast
+→ Overview / TradingDesk / Companion
+→ AutoTrader risk/execution boundary
+→ realized outcome / evaluation / calibration
 ```
 
-Parallelt kjører den deskriptive cross-market-kjeden:
+Technical Core er bevisst context-blind og skal alltid kunne brukes som TA-only kontrollgruppe. Høyere lag kan påvirke eksplisitte recipes, men skal ikke stille og rolig omskrive den deterministiske baseline.
+
+## Produksjon
+
+Produksjonen kjører fra samme `main` og samme PostgreSQL-database på Railway:
+
+| Tjeneste | Ansvar |
+| --- | --- |
+| `pricegauger-web` | Streamlit UI, Overview, TradingDesk |
+| `PriceGauger-worker` | Telegram/news ingest, context/state/forecast-relatert workerflyt |
+| `PriceGauger-stream` | Saxo realtime/canonical data, Technical Core og AutoTrader-daemons |
+| PostgreSQL | autoritativ delt persistens |
+
+Canonical realtime-dataflyt:
+
+```text
+Saxo / provider data
+→ exact provider instrument identity
+→ canonical completed 1m OHLC
+→ PostgreSQL
+→ shared technical / forecast / TradingDesk / AutoTrader consumers
+```
+
+Browseren er aldri autoritativ market-data-producer.
+
+## Forecasts, context og cross-market
+
+Forecasts er immutable/idempotente ved semantisk identitet og kan evalueres mot realiserte outcomes. Optional layer-output er bundet til eksakt workspace fingerprint.
+
+Context/Companion ligger over Technical Core og har ingen direkte execution-authority.
+
+Den deskriptive cross-market-kjeden følger fortsatt prinsippet:
 
 ```text
 CrossMarketState
@@ -24,65 +63,44 @@ CrossMarketState
 → TransmissionState
 ```
 
-Denne kjeden observerer hvordan markedet faktisk reagerer og hvilke transmisjonsmekanismer som er konsistente med dataene. Den påvirker foreløpig ikke Decision State eller forecast-vekter.
-
-## Produksjonsarkitektur
-
-Produksjonen bruker tre Railway-tjenester fra samme `main` og samme PostgreSQL-database:
-
-| Tjeneste | Config | Ansvar |
-| --- | --- | --- |
-| `pricegauger-web` | `/railway.streamlit.toml` | Streamlit UI / read-render |
-| `pricegauger-worker` | `/railway.worker.toml` | Telegram, context, state, forecasts, outcomes |
-| `pricegauger-stream` | `/railway.stream.toml` | Saxo realtime stream → canonical 1m bars |
-
-Canonical realtime-dataflyt:
-
-```text
-Saxo stream
-→ canonical completed 1m OHLC bars
-→ PostgreSQL
-→ TradingDesk / technical analysis / cross-market analysis
-```
-
-Browseren er aldri autoritativ market-data-producer og snakker ikke direkte med Saxo.
-
-## Forecasts og læring
-
-Forecasts er immutable og knyttet til eksakt Decision/Information/Technical state ved opprettelse.
-
-- Åtte horisonter: `5m / 15m / 30m / 1h / 4h / 12h / 24h / 7d`.
-- Movement magnitude kalibreres fra COMPLETE outcomes separat per `market × horizon`.
-- Direction learning og regime learning er fortsatt eksplisitt deaktivert.
-- Aktiv intrahorizon-bane kan visualiseres fra forecast-dommen + teknisk regime + volatilitet, men terminalintervallet er autoritativt.
-- Historiske mellomliggende forecast-baner er visuell kontekst, ikke retroaktiv evidens.
-
-## Cross-market / adaptation
-
-`CrossMarketState` bruker canonical Silver / Gold / Brent / DXY og eksplisitte 15m / 1h / 4h-vinduer. US 2Y / 10Y / 30Y er definert som yields, men forblir `MISSING` til en verifisert yield-feed finnes; Treasury futures-priser skal aldri brukes som erstatning.
-
-`ResponseDivergence` registrerer om realisert Silver-respons er `ALIGNED`, `DIVERGENT` eller `UNCONFIRMED` mot informasjonssignalet, med korrekt post-event tidsretning.
-
-`TransmissionState` bruker diskrete evidensklasser (`SUPPORTED`, `PARTIAL`, `CONFLICTING`, `INSUFFICIENT`) og kan forbli `UNRESOLVED`. Den tvinger ikke fram en kausal historie.
+Den skal beskrive evidens, ikke tvinge fram en kausal historie. US 2Y / 10Y / 30Y skal bare representeres som yields når en verifisert yield-feed finnes; Treasury futures-priser er ikke en erstatning.
 
 ## TradingDesk og AutoTrader
 
-TradingDesk bruker samme canonical 1m-data og samme AutoTrader execution-komponent.
+TradingDesk bruker canonical v2 identity og går gjennom AutoTrader for execution. AutoTrader er et separat product/strategy/risk/execution-subsystem.
 
-AutoTrader har to fysisk avgrensede execution-kapabiliteter:
+### 30m MACD-strategier
 
-- manuell entry/handel er fortsatt Saxo **SIM-only**, med server-side validering, precheck, eksplisitt confirmation, én submit og autoritativ read-back
-- LIVE er kun close-only for en allerede åpen, eksakt Auto-managed posisjon
-- LIVE close krever LIVE-miljø, separat kode-gate, aktiv execution-motor og gyldig per-position enrollment
-- RiskControl bruker produktets egen posisjonsavkastning; canonical standard hard stop er **−2 %**
-- 30m MACD LONG/FLAT kjører fortsatt kun som observerbar dry-run og har ingen execution-kobling
-- ingen automatisk entry-strategi eller AI-execution er aktiv
+- `macd-30m-long-flat-v1`: bullish cross → LONG, bearish cross → FLAT
+- `macd-30m-short-flat-v1`: bearish cross → SHORT, bullish cross → FLAT
+- `macd-30m-long-short-v1`: LONG ↔ SHORT via **CLOSE → confirmed FLAT → OPEN**
 
-## Markedschat
+Signalgrunnlaget er fully closed 30m MACD 12/26/9 på eksakt canonical instrumenthistorikk.
 
-Markedschat er read-only beslutningsstøtte og bygger authoritative PostgreSQL-kontekst på nytt for hvert spørsmål. Samtalehistorikk kan videreføres, men chatten får ikke egen markedssannhet og har ingen execution-kobling.
+### Entry-policy er separat fra strategi
 
-Merk: CrossMarketState / ResponseDivergence / TransmissionState / forecast-error adaptation er ennå ikke lagt inn i Markedschat-konteksten.
+- **Manage-only:** brukeren åpner/resizer/reverserer; PriceGauger kan håndtere exit, men sender aldri OPEN.
+- **Full auto:** fersk strategi-entry kan gå gjennom alle Product Admission / Margin / Saxo precheck / idempotency-gater uten ny bekreftelse.
+- **Approval required:** CLOSE kan være automatisk; hver konkret OPEN krever one-shot approval og full revalidering.
+
+Manage-only er persistent på eksakt `account + UIC + AssetType`: senere manuelle posisjoner kan adopteres til ny exact managed basis og nytt risk epoch uten at PG får OPEN-authority.
+
+### Execution safety
+
+LIVE execution er fail-closed og beholder blant annet:
+
+- LIVE Saxo environment + separate code/persisted arming gates
+- exact product/position identity og basis re-read
+- Saxo precheck før POST
+- durable attempt før POST
+- no blind retry etter uncertain submission
+- separate Product Admission og Margin Envelope for OPEN
+- authoritative close/P&L reconciliation
+- pilot equity = seed + settled realized net P/L
+- unrelated Saxo cash og unrealized P/L brukes ikke til compounding
+- LLM/Companion har ingen order placement eller sizing authority
+
+Shadow-scorecardet sammenligner long/flat, short/flat og flip deterministisk fra samme observerte startbasis uten å skrive til LIVE P/L-ledger eller order-path.
 
 ## Lokal kjøring
 
@@ -93,7 +111,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Én worker-runde:
+Worker én runde:
 
 ```bash
 python worker.py --once
@@ -105,28 +123,26 @@ Kontinuerlig worker:
 python worker.py --interval 60
 ```
 
-Realtime stream:
+Realtime / Technical Core / AutoTrader stream-runtime:
 
 ```bash
 python realtime_worker.py --refresh-ms 1000
 ```
 
-SQLite brukes bare lokalt/test der det er hensiktsmessig. Produksjon skal bruke `DATABASE_URL` og delt PostgreSQL.
+SQLite brukes bare lokalt/test der det er hensiktsmessig. Produksjon bruker `DATABASE_URL` og PostgreSQL.
 
 ## Utviklingsregel
 
-All ny utvikling følger:
-
 ```text
 fresh main
-→ isolert branch
-→ én bounded capability
+→ én bounded capability per branch/PR
 → focused tests
-→ full GitHub Actions
-→ draft PR
-→ architecture/diff review
+→ full compile + pytest
+→ self/architecture review
 → fresh-main check
-→ merge med exact-head guard
+→ expected-head merge
+→ verify exact Railway deployment SHA
+→ inspect runtime logs/behavior
 ```
 
-Ikke gjenoppta gamle branches blindt. Historiske forecasts skal aldri omskrives, heuristikker skal være synlige/versionerte, og nye forklaringsmekanismer skal ikke få læringsvekt uten outcome-evidens.
+Ikke gjenoppta gamle branches blindt. Ikke gjør brede execution-refactors for kosmetikk. Nye forklarings- eller læringsmekanismer skal være eksplisitte, versionerte og empirisk målbare.
