@@ -7,12 +7,18 @@ import streamlit as st
 from autotrader_automanage_container_v2 import AutoManageProductV2, resolve_saxo_automanage_product_v2
 from autotrader_pilot_equity_v2 import DEFAULT_PILOT_SEED_CAPITAL, load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
-from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2, AutoTraderStrategySpecV2
+from autotrader_shadow_benchmark_v2 import load_shadow_benchmark_snapshots_v2
+from autotrader_strategy_catalog_v2 import (
+    AUTOTRADER_STRATEGIES_V2,
+    AutoTraderStrategySpecV2,
+    strategy_spec_v2,
+)
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     EXECUTION_MODE_SHADOW,
     StrategyEnrollmentV2,
     enroll_strategy_position_v2,
+    load_active_strategy_enrollments_v2,
     load_product_strategy_enrollments_v2,
     load_strategy_enrollment_v2,
     stop_strategy_enrollment_v2,
@@ -169,6 +175,44 @@ def _strategy_label(spec: AutoTraderStrategySpecV2) -> str:
     return spec.label
 
 
+def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -> None:
+    if not enrollments:
+        return
+    groups: dict[tuple[str, int, str, int], list[StrategyEnrollmentV2]] = {}
+    for enrollment in enrollments:
+        key = (
+            enrollment.account_id,
+            int(enrollment.uic),
+            enrollment.asset_type,
+            int(enrollment.instrument_id),
+        )
+        groups.setdefault(key, []).append(enrollment)
+
+    st.markdown("**Strategitest · samme startgrunnlag**")
+    for key, group in groups.items():
+        try:
+            snapshots = load_shadow_benchmark_snapshots_v2(tuple(group))
+        except Exception as exc:
+            st.caption(f"UIC {key[1]} · paper-benchmark venter: {exc}")
+            continue
+        if len(groups) > 1:
+            st.caption(f"UIC {key[1]} · {key[2]}")
+        for item in snapshots:
+            spec = strategy_spec_v2(item.strategy_key)
+            mode = "LIVE" if item.execution_mode == EXECUTION_MODE_LIVE else "shadow"
+            if item.evaluated_bars == 0:
+                st.caption(f"{spec.label} · {mode} · venter på første lukkede 30m-bar")
+                continue
+            st.caption(
+                f"{spec.label} · {mode} · Paper {item.return_pct:+.2f}% · "
+                f"{item.position_state} · {item.transitions} skifter · {item.evaluated_bars} bars"
+            )
+    st.caption(
+        "Paper-replay bruker samme observerte startposisjon og samme exact canonical 30m-prisbane. "
+        "Ingen spread/slippage/margin modelleres; faktisk Saxo-P/L føres separat i LIVE-ledgeren."
+    )
+
+
 def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> None:
     """Compact right-side context for strategy-neutral product AutoManage."""
     st.markdown("**AutoManage**")
@@ -187,6 +231,17 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
     # This stays visible even while the strategy is FLAT, unlike the position
     # enrollment controls below which naturally require a currently open position.
     render_tradingdesk_autotrade_entry_gate_v2(context)
+    try:
+        context_enrollments = tuple(
+            item
+            for item in load_active_strategy_enrollments_v2()
+            if int(item.market_id) == int(context.market_id)
+        )
+    except Exception:
+        context_enrollments = ()
+    if context_enrollments:
+        st.divider()
+        _render_strategy_scorecards(context_enrollments)
     st.divider()
 
     try:
@@ -197,7 +252,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         return
 
     if not candidates:
-        st.caption("Ingen åpen LIVE-posisjon matcher dette canonical markedet. Aktiv pilot/execution-policy over forblir synlig.")
+        st.caption("Ingen åpen LIVE-posisjon matcher dette canonical markedet. Aktiv pilot/execution-policy og strategitest over forblir synlig.")
         return
 
     observation, product = st.selectbox(
@@ -280,7 +335,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         "Kjør øvrige MACD-strategier som shadow for sammenligning",
         value=True,
         key=f"td-automanage-shadow:{product.product_key}:{strategy.key}",
-        help="Hver shadow-strategi får egen pilotidentitet og resultatserie, men ingen Saxo order-authority.",
+        help="Hver shadow-strategi får egen pilotidentitet og paper-resultat, men ingen Saxo order-authority.",
     )
     acknowledge = st.checkbox(
         "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi.",
