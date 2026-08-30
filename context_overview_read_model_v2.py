@@ -6,6 +6,10 @@ from pathlib import Path
 from context_snapshot_store_v2 import ContextSnapshotStoreV2
 
 
+_DIRECTIONAL_DEADBAND = 0.05
+_MIN_DIRECTION_CONFIDENCE = 0.20
+
+
 @dataclass(frozen=True, slots=True)
 class ContextOverviewTargetV2:
     target_key: str
@@ -17,11 +21,13 @@ class ContextOverviewTargetV2:
 
     @property
     def direction_label(self) -> str:
-        if self.directional_bias > 0.05:
-            return "BULLISH"
-        if self.directional_bias < -0.05:
-            return "BEARISH"
-        return "NEUTRAL"
+        bias = float(self.directional_bias)
+        confidence = float(self.confidence)
+        if abs(bias) <= _DIRECTIONAL_DEADBAND:
+            return "NEUTRAL"
+        if confidence < _MIN_DIRECTION_CONFIDENCE:
+            return "UNCERTAIN"
+        return "BULLISH" if bias > 0 else "BEARISH"
 
 
 @dataclass(frozen=True, slots=True)

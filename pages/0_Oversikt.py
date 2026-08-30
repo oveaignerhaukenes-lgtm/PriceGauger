@@ -103,7 +103,7 @@ def _render_context_v2() -> None:
             {
                 "Marked": target.target_key,
                 "Retning": target.direction_label,
-                "Bias": _signed(target.directional_bias),
+                "Konteksttrykk": _signed(target.directional_bias),
                 "Confidence": f"{target.confidence:.0%}",
                 "Novelty": f"{target.novelty:.0%}",
                 "Event risk": f"{target.event_risk:.0%}",
@@ -112,6 +112,10 @@ def _render_context_v2() -> None:
             for target in context.targets
         ]
         st.dataframe(rows, hide_index=True, use_container_width=True)
+        st.caption(
+            "Konteksttrykk er aggregert retningspress i området −1 til +1; confidence uttrykker hvor sterkt evidensgrunnlaget er. "
+            "Retningspress med lav confidence vises som UNCERTAIN, ikke som et høy-konviksjons BULLISH/BEARISH-signal."
+        )
     else:
         st.caption("Ingen markedsspesifikke Context-targets i siste snapshot.")
 

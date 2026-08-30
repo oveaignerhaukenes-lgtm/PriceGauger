@@ -16,7 +16,7 @@ from news_context_engine import NewsContextAssessment
 from telegram_flow_engine import ScoredTelegramPost, TelegramFlowAssessment
 
 
-ADAPTER_VERSION = "context-adapter-v2-v1"
+ADAPTER_VERSION = "context-adapter-v2-v2"
 
 _ESCALATION_VALUE = {
     "escalating": 1.0,
@@ -25,6 +25,17 @@ _ESCALATION_VALUE = {
     "mixed": 0.0,
     "unclear": 0.0,
 }
+
+
+def _bounded_pressure(value: float) -> float:
+    """Translate the legacy flow aggregate into ContextV2 directional pressure.
+
+    ``TelegramFlowAssessment.normalized_score`` measures directional unanimity:
+    one arbitrarily small positive contribution becomes +1.0. ContextSnapshotV2
+    instead defines ``directional_bias`` as bounded contextual pressure, so the
+    magnitude-preserving aggregate ``flow_score`` is the compatible source.
+    """
+    return max(-1.0, min(1.0, float(value)))
 
 
 def _evidence_id(channel: str, message_id: str) -> str:
@@ -123,7 +134,7 @@ def _target_states(
         targets.append(
             ContextTargetStateV2(
                 target_key=asset.asset,
-                directional_bias=float(asset.normalized_score),
+                directional_bias=_bounded_pressure(asset.flow_score),
                 confidence=float(asset.confidence),
                 novelty=novelty,
                 event_risk=event_risk,

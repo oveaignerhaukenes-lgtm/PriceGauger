@@ -52,7 +52,9 @@ def test_overview_v2_card_uses_v2_forecast_and_technical_explanation():
 
     assert "TEKNISK PROGNOSE" in html
     assert "LONG-BIAS" in html
-    assert "TA-only v1" in html
+    assert "TA-only · recipe 1 (v2)" in html
+    assert "TA-only v1" not in html
+    assert "Gold · 1t · prognosegraf" in html
     assert "Trend" in html
     assert "Momentum" in html
     assert "Volatilitet" in html
@@ -78,6 +80,8 @@ def test_overview_v2_card_marks_interpreter_as_refinement_not_baseline_replaceme
     )
 
     assert "Technicals + Technical Interpreter" in html
+    assert "TA+Interpreter · recipe 1 (v2)" in html
+    assert "TA+Interpreter v1" not in html
     assert "Momentum supports continuation." in html
     assert "TA-only baseline" in html
     assert "STALE" in html
@@ -132,3 +136,5 @@ def test_overview_v2_card_module_has_no_analysis_or_provider_side_effect_path():
     assert "persist_" not in source
     assert "build_technical_core_state" not in source
     assert ".pg-market-card-v2 .pg-v2-path{stroke:var(--market-color)}" in source
+    assert "pg-forecast-owner" in source
+    assert "border:1px solid rgba(128,128,128,.20)" in source
