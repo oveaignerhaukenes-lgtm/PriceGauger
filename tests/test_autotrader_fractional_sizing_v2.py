@@ -80,7 +80,7 @@ def test_default_amount_and_price_increment_are_not_amount_minimums():
     assert "Amount" not in client.info_price_params[-1]
 
 
-def test_account_specific_infoprice_can_resolve_below_reference_minimum():
+def test_explicit_reference_minimum_is_a_hard_floor():
     client = _FakeSaxoClient(
         details=_base_details(MinimumTradeSize=1),
         info_price={"Quote": {"Amount": 0.01}},
@@ -99,8 +99,9 @@ def test_account_specific_infoprice_can_resolve_below_reference_minimum():
     )
 
     assert rules.reference_minimum_amount == pytest.approx(1.0)
-    assert resolution.amount == pytest.approx(0.01)
+    assert resolution.amount == pytest.approx(1.0)
     assert resolution.reference_minimum_amount == pytest.approx(1.0)
+    assert resolution.source == "SAXO_REFERENCE_AND_INFOPRICE_MINIMUM"
 
 
 def test_odd_lot_restriction_uses_lot_size_as_amount_step():
