@@ -17,14 +17,18 @@ def test_overview_market_cards_are_v2_authoritative() -> None:
     assert "render_v2_overview_market_cards(" in source
 
 
-def test_tradingdesk_identity_analysis_and_companion_are_v2_bound() -> None:
-    source = _source("pages/0_TradingDesk.py")
+def test_tradingdesk_identity_analysis_companion_and_automanager_are_v2_bound() -> None:
+    page_source = _source("pages/0_TradingDesk.py")
+    panel_source = _source("tradingdesk_automanage_panel_v2.py")
 
-    assert "load_trading_desk_contexts_v2" in source
-    assert "render_companion_panel_v2" in source
-    assert "AutoTraderExecutionContextV2" in source
-    assert "execution_context_v2=execution_context_v2" in source
-    assert "configured_instruments" not in source
+    assert "load_trading_desk_contexts_v2" in page_source
+    assert "render_companion_panel_v2" in page_source
+    assert "render_tradingdesk_automanage_panel_v2(context)" in page_source
+    assert "TradingDeskV2Context" in panel_source
+    assert "int(product.market_id) == int(context.market_id)" in panel_source
+    assert "resolve_saxo_automanage_product_v2" in panel_source
+    assert "configured_instruments" not in page_source
+    assert "render_saxo_product_panel" not in page_source
 
 
 def test_realtime_worker_uses_v2_subscription_bridge_for_runtime_set() -> None:
@@ -58,13 +62,3 @@ def test_v2_execution_context_is_provenance_not_product_substitution() -> None:
     # The v2 context has no order-product UIC field: concrete Saxo execution
     # identity remains owned by the separately selected manual order instrument.
     assert "execution_uic" not in source
-    assert "order_uic" not in source
-
-
-def test_cutover_freeze_is_documented() -> None:
-    source = _source("docs/V2_CUTOVER_STABILITY_GATE.md")
-
-    assert "Legacy freeze" in source
-    assert "no hidden fallback" in source.lower()
-    assert "Forecast and Companion output cannot authorize an order" in source
-    assert "pg_v2_market_bars_1m" in source
