@@ -25,6 +25,7 @@ from autotrader_live_close_v1 import (
     load_live_close_config_v1,
 )
 from autotrader_managed_positions_v1 import is_position_managed_v1
+from autotrader_manual_entry_adoption_v2 import run_manual_entry_adoption_cycle_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_enrollment_v2 import (
@@ -298,6 +299,18 @@ def run_strategy_live_close_forever_v2(*, interval_seconds: int = 2) -> None:
     interval = max(1, int(interval_seconds))
     while True:
         started = time.monotonic()
+        try:
+            adoption = run_manual_entry_adoption_cycle_v2()
+            if adoption.adopted or adoption.failed:
+                LOGGER.info(
+                    "Manage-only adoption candidates=%d adopted=%d unchanged=%d failed=%d",
+                    adoption.candidates,
+                    adoption.adopted,
+                    adoption.unchanged,
+                    adoption.failed,
+                )
+        except Exception as exc:
+            LOGGER.warning("Manage-only adoption cycle failed: %s", exc, exc_info=True)
         try:
             run_strategy_live_close_cycle_v2()
         except Exception as exc:
