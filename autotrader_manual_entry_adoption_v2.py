@@ -119,7 +119,8 @@ def _retire_prior_manual_basis_v2(
 
     The transaction deliberately removes authority first. If the process dies before
     `enroll_position_v1`, the system is left fail-closed with no managed position;
-    the next adoption cycle can safely retry.
+    the next adoption cycle can safely retry. This includes a same-net-position resize:
+    exact basis, not Saxo's reusable id, defines managed authority.
     """
     with connect() as db:
         db.execute(
@@ -157,13 +158,11 @@ def _retire_prior_manual_basis_v2(
             UPDATE pg_v2_autotrader_managed_positions
             SET managed = FALSE, updated_at = now()
             WHERE account_id = ? AND uic = ? AND asset_type = ?
-              AND NOT (net_position_id = ?)
             """,
             (
                 enrollment.account_id,
                 int(enrollment.uic),
                 enrollment.asset_type,
-                observation.net_position_id,
             ),
         )
 
