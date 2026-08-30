@@ -104,7 +104,7 @@ def _market_state() -> MarketStateSnapshot:
     )
 
 
-def test_overview_reads_flow_and_alert_from_same_database(tmp_path):
+def test_legacy_overview_reads_persisted_flow_and_alert_without_deriving_market_state(tmp_path):
     db_path = tmp_path / "overview.sqlite3"
     TelegramFlowStore(db_path).save_snapshot(_flow())
     StateRuntimeStore(db_path).save_alert(_alert())
@@ -113,9 +113,7 @@ def test_overview_reads_flow_and_alert_from_same_database(tmp_path):
 
     assert result.flow is not None
     assert result.flow.model == "test-model"
-    assert len(result.markets) == 1
-    assert result.markets[0].market == "Brent"
-    assert result.markets[0].direction == "LONG_BIAS"
+    assert result.markets == ()
     assert result.latest_alert is not None
     assert result.latest_alert.alert_id == "alert-1"
 
