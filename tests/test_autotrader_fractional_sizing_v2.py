@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+import autotrader_open_sizing_v2 as sizing
+from autotrader_margin_envelope_v2 import AutoTraderMarginEnvelopeV2
 from autotrader_open_sizing_v2 import (
+    find_largest_legal_entry_v2,
     load_entry_instrument_rules_v2,
     resolve_minimum_entry_amount_v2,
 )
@@ -19,8 +22,14 @@ class _FakeSaxoClient:
         if path.startswith("ref/v1/instruments/details/"):
             return dict(self.details)
         if path == "trade/v1/infoprices":
-            self.info_price_params.append(dict(params or {}))
-            return dict(self.info_price)
+            request = dict(params or {})
+            self.info_price_params.append(request)
+            payload = dict(self.info_price)
+            quote = dict(payload.get("Quote") or {})
+            if "Amount" in request:
+                quote["Amount"] = float(request["Amount"])
+            payload["Quote"] = quote
+            return payload
         raise AssertionError(f"unexpected Saxo GET: {path}")
 
 
@@ -144,3 +153,58 @@ def test_minimum_order_value_is_preserved_for_audit_but_precheck_remains_authori
     assert rules.minimum_order_value == pytest.approx(50.0)
     assert resolution.minimum_order_value == pytest.approx(50.0)
     assert resolution.amount == pytest.approx(0.02)
+
+
+def test_margin_envelope_can_select_point_zero_three_from_fractional_cfd(monkeypatch):
+    client = _FakeSaxoClient(
+        details=_base_details(),
+        info_price={
+            "Quote": {
+                "Amount": 0.01,
+                "Ask": 276_588.0,
+                "Bid": 276_580.0,
+            }
+        },
+    )
+
+    def fake_precheck(_client, path: str, payload: dict):
+        assert path == "trade/v2/orders/precheck"
+        amount = float(payload["Amount"])
+        margin = 13_795.0 * amount
+        return {
+            "PreCheckResult": "Ok",
+            "MarginImpactBuySell": {
+                "Currency": "USD",
+                "InitialMarginBuy": margin,
+                "InitialMarginAvailableCurrent": 500.0,
+                "InitialMarginAvailableBuy": max(0.0, 500.0 - margin),
+            },
+            "EstimatedTotalCostInAccountCurrency": 0.0,
+        }
+
+    monkeypatch.setattr(sizing, "_post_once", fake_precheck)
+
+    envelope = AutoTraderMarginEnvelopeV2(
+        currency="USD",
+        capital_control_limit=500.0,
+        max_initial_margin=500.0,
+        max_notional_exposure=10_000.0,
+        max_effective_leverage=20.0,
+        minimum_free_capital=0.0,
+        enabled=True,
+    )
+    result = find_largest_legal_entry_v2(
+        client,
+        account_key="account-key",
+        account_currency="USD",
+        instrument=_instrument(),
+        direction="LONG",
+        envelope=envelope,
+        controlled_capital=500.0,
+        external_reference_prefix="test-fractional",
+    )
+
+    assert result.rules.increment_size == pytest.approx(0.01)
+    assert result.amount == pytest.approx(0.03)
+    assert result.final_precheck.initial_margin_account == pytest.approx(413.85)
+    assert result.final_precheck.notional_account == pytest.approx(8_297.64)
