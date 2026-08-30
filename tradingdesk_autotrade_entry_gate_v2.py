@@ -42,9 +42,9 @@ from trading_desk_v2_context import TradingDeskV2Context
 
 
 ENTRY_MODE_LABELS = {
-    ENTRY_MODE_MANUAL_ONLY: "Manage-only · jeg åpner, PG lukker",
-    ENTRY_MODE_AUTO: "Full auto · signal → ordre",
-    ENTRY_MODE_APPROVAL_REQUIRED: "Godkjenn entry · PG lukker automatisk",
+    ENTRY_MODE_MANUAL_ONLY: "Manage-only · automatisk exit, ingen re-entry",
+    ENTRY_MODE_AUTO: "Full auto · automatisk exit + re-entry",
+    ENTRY_MODE_APPROVAL_REQUIRED: "Godkjenn re-entry · automatisk exit",
 }
 
 
@@ -87,6 +87,40 @@ def _money(value: float | None, currency: str) -> str:
     if value is None:
         return "—"
     return f"{float(value):,.2f} {currency}".replace(",", " ")
+
+
+def _execution_flow_text(spec, entry_mode: str) -> str:
+    if spec.can_long and not spec.can_short:
+        if entry_mode == ENTRY_MODE_AUTO:
+            return (
+                "Long/flat · Full auto: LONG → EXIT til FLAT på bearish 30m MACD-kryss → "
+                "RE-ENTRY LONG på neste bullish kryss. Både exit og re-entry går gjennom LIVE safety-gatene."
+            )
+        if entry_mode == ENTRY_MODE_APPROVAL_REQUIRED:
+            return (
+                "Long/flat · Godkjenn re-entry: LONG → EXIT til FLAT automatisk på bearish kryss. "
+                "Neste bullish kryss lager LONG re-entry-request som må godkjennes én gang."
+            )
+        return (
+            "Long/flat · Manage-only: LONG → EXIT til FLAT automatisk på bearish kryss. "
+            "PriceGauger stopper der og åpner ikke LONG igjen; du må gjøre re-entry manuelt."
+        )
+    if spec.can_short and not spec.can_long:
+        if entry_mode == ENTRY_MODE_AUTO:
+            return (
+                "Short/flat · Full auto: SHORT → EXIT til FLAT på bullish 30m MACD-kryss → "
+                "RE-ENTRY SHORT på neste bearish kryss."
+            )
+        if entry_mode == ENTRY_MODE_APPROVAL_REQUIRED:
+            return (
+                "Short/flat · Godkjenn re-entry: SHORT → FLAT automatisk; ny SHORT etter bearish kryss krever godkjenning."
+            )
+        return "Short/flat · Manage-only: SHORT → FLAT automatisk; ingen automatisk SHORT re-entry."
+    if entry_mode == ENTRY_MODE_AUTO:
+        return "Long/short flip · Full auto: bullish kryss → LONG; bearish kryss → SHORT, med CLOSE → bekreftet FLAT → OPEN."
+    if entry_mode == ENTRY_MODE_APPROVAL_REQUIRED:
+        return "Long/short flip · exit er automatisk, men hver ny LONG/SHORT OPEN etter flip krever one-shot godkjenning."
+    return "Long/short flip · Manage-only kan lukke den eksisterende siden, men åpner aldri motsatt side automatisk."
 
 
 def _render_close_gate(enrollment) -> None:
@@ -150,7 +184,7 @@ def _render_pending_approvals(enrollment, currency: str) -> None:
 def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) -> None:
     """Configure how an active AutoManage pilot is allowed to create new exposure."""
     st.markdown("**AutoManage execution**")
-    st.caption("Exit kan være automatisk selv om entry er manuell eller krever godkjenning")
+    st.caption("CLOSE/exit og OPEN/re-entry er separate authorities. Velg entry-modus etter ønsket testadferd.")
 
     enrollments = tuple(
         item
@@ -203,10 +237,12 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         format_func=lambda item: ENTRY_MODE_LABELS[item],
         key=f"td-entry-mode:{enrollment.pilot_key}",
         help=(
-            "Manage-only: du åpner selv og PG kan lukke. Full auto: signal går direkte gjennom execution-gatene. "
-            "Godkjenn entry: exits er automatiske, men hver ny OPEN må godkjennes one-shot."
+            "Manage-only: automatisk exit er mulig, men PG gjør aldri re-entry. "
+            "Full auto: exit og senere re-entry skjer automatisk når strategien signaliserer det. "
+            "Godkjenn re-entry: exit er automatisk, men hver ny OPEN må godkjennes one-shot."
         ),
     )
+    st.info(_execution_flow_text(spec, selected_mode))
     if selected_mode != enrollment.entry_mode:
         if st.button(
             "Lagre entry-adferd",
@@ -221,13 +257,13 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
 
     if enrollment.entry_mode == ENTRY_MODE_MANUAL_ONLY:
         st.info(
-            "Manage-only: PriceGauger sender aldri OPEN. Du kan sette LONG/SHORT manuelt og la strategien håndtere exit. "
-            "Ingen Product Admission eller Margin Envelope kreves for denne modusen."
+            "Manage-only: PriceGauger kan håndtere exit fra posisjonen, men sender aldri OPEN/re-entry. "
+            "Etter exit forblir piloten FLAT til du selv åpner en ny posisjon. Ingen Product Admission eller Margin Envelope kreves."
         )
         return
 
     required_directions = _required_entry_directions(enrollment.strategy_key)
-    st.caption(f"Automatisk/approvable entry krever: {', '.join(required_directions)}")
+    st.caption(f"Automatisk/approvable re-entry krever Product Admission for: {', '.join(required_directions)}")
 
     margin_product = is_margin_product_v2(enrollment.asset_type)
     if margin_product:
@@ -257,7 +293,7 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
             direction=direction,
         )
         admissions[direction] = admission
-        st.markdown(f"**{direction} entry**")
+        st.markdown(f"**{direction} re-entry**")
         if admission is not None and admission.enabled:
             st.caption(
                 "Godkjent · min amount "
@@ -375,23 +411,23 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
     open_config = load_live_open_config_v2()
     open_code = live_open_code_gate_enabled_v2()
     st.caption(
-        "OPEN gate · "
+        "OPEN / re-entry gate · "
         f"code={'ON' if open_code else 'OFF'} · master={'ON' if open_config.armed else 'OFF'} · "
         f"pilot={'ON' if enrollment.live_open_armed else 'OFF'}"
     )
 
     entry_ack = st.checkbox(
         (
-            "Jeg godkjenner at denne LIVE-piloten kan sende ekte OPEN etter signal uten ny bekreftelse."
+            "Jeg godkjenner at denne LIVE-piloten kan sende ekte OPEN/re-entry etter strategisignal uten ny bekreftelse."
             if enrollment.entry_mode == ENTRY_MODE_AUTO
-            else "Jeg godkjenner at denne LIVE-piloten kan sende en OPEN når jeg eksplisitt godkjenner den konkrete requesten."
+            else "Jeg godkjenner at denne LIVE-piloten kan sende en OPEN/re-entry når jeg eksplisitt godkjenner den konkrete requesten."
         ),
         key=f"td-open-pilot-ack:{enrollment.pilot_key}",
     )
     can_arm_open = admissions_ready and margin_ready and bool(entry_ack)
     if not enrollment.live_open_armed:
         if st.button(
-            "Arm LIVE entry",
+            "Arm LIVE re-entry",
             type="primary",
             disabled=not can_arm_open,
             key=f"td-open-pilot-arm:{enrollment.pilot_key}",
@@ -399,20 +435,20 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         ):
             save_live_open_config_v2(LiveOpenConfigV2(armed=True))
             set_live_open_armed_v2(enrollment.pilot_key, True)
-            st.success("LIVE entry er armed. Alle runtime-gater revalideres før hver ordre.")
+            st.success("LIVE OPEN/re-entry er armed. Alle runtime-gater revalideres før hver ordre.")
             st.rerun()
     else:
         if enrollment.entry_mode == ENTRY_MODE_AUTO:
-            st.success("Full-auto entry er armed; ingen per-signal godkjenning kreves.")
+            st.success("Full-auto re-entry er armed; neste gyldige OPEN-signal kan handles uten per-signal godkjenning.")
         else:
-            st.success("Entry execution er armed, men hver OPEN krever one-shot godkjenning.")
+            st.success("Re-entry execution er armed, men hver OPEN krever one-shot godkjenning.")
         if st.button(
-            "Disarm LIVE entry",
+            "Disarm LIVE re-entry",
             key=f"td-open-pilot-disarm:{enrollment.pilot_key}",
             use_container_width=True,
         ):
             set_live_open_armed_v2(enrollment.pilot_key, False)
-            st.warning("LIVE entry er disarmed for denne piloten. Automatisk CLOSE påvirkes ikke.")
+            st.warning("LIVE re-entry er disarmed for denne piloten. Automatisk CLOSE/exit påvirkes ikke.")
             st.rerun()
 
     if enrollment.entry_mode == ENTRY_MODE_APPROVAL_REQUIRED and enrollment.live_open_armed:

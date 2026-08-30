@@ -175,6 +175,13 @@ def _strategy_label(spec: AutoTraderStrategySpecV2) -> str:
     return spec.label
 
 
+def _default_shadow_index(candidates: tuple[AutoTraderStrategySpecV2, ...]) -> int:
+    for index, item in enumerate(candidates):
+        if "long-short" in item.key:
+            return index
+    return 0
+
+
 def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -> None:
     if not enrollments:
         return
@@ -188,7 +195,7 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
         )
         groups.setdefault(key, []).append(enrollment)
 
-    st.markdown("**Strategitest · samme startgrunnlag**")
+    st.markdown("**LIVE / SHADOW · samme startgrunnlag**")
     for key, group in groups.items():
         try:
             snapshots = load_shadow_benchmark_snapshots_v2(tuple(group))
@@ -197,16 +204,21 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
             continue
         if len(groups) > 1:
             st.caption(f"UIC {key[1]} · {key[2]}")
-        for item in snapshots:
+        columns = st.columns(max(1, len(snapshots)))
+        for column, item in zip(columns, snapshots):
             spec = strategy_spec_v2(item.strategy_key)
-            mode = "LIVE" if item.execution_mode == EXECUTION_MODE_LIVE else "shadow"
-            if item.evaluated_bars == 0:
-                st.caption(f"{spec.label} · {mode} · venter på første lukkede 30m-bar")
-                continue
-            st.caption(
-                f"{spec.label} · {mode} · Paper {item.return_pct:+.2f}% · "
-                f"{item.position_state} · {item.transitions} skifter · {item.evaluated_bars} bars"
-            )
+            mode = "LIVE-strategi" if item.execution_mode == EXECUTION_MODE_LIVE else "SHADOW"
+            with column:
+                st.caption(mode)
+                st.markdown(f"**{spec.label}**")
+                if item.evaluated_bars == 0:
+                    st.metric("Paper P/L", "venter")
+                    st.caption("Første nye lukkede 30m-bar etter enrollment starter sammenligningen.")
+                    continue
+                st.metric("Paper P/L", f"{item.return_pct:+.2f}%")
+                st.caption(
+                    f"{item.position_state} · {item.transitions} skifter · {item.evaluated_bars} bars"
+                )
     st.caption(
         "Paper-replay bruker samme observerte startposisjon og samme exact canonical 30m-prisbane. "
         "Ingen spread/slippage/margin modelleres; faktisk Saxo-P/L føres separat i LIVE-ledgeren."
@@ -214,12 +226,12 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
 
 
 def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> None:
-    """Compact right-side context for strategy-neutral product AutoManage."""
-    st.markdown("**AutoManage**")
+    """Wide AutoManager workspace for strategy-neutral product management."""
+    st.markdown("**AutoManager**")
     st.caption("Eksakt LIVE-produkt · strategivalg · separat execution-policy")
 
     if not using_postgres():
-        st.info("AutoManage krever PostgreSQL-runtime.")
+        st.info("AutoManager krever PostgreSQL-runtime.")
         return
 
     client = configured_client()
@@ -276,10 +288,11 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
     )
 
     strategy = st.selectbox(
-        "Strategi",
+        "LIVE-strategi",
         AUTOTRADER_STRATEGIES_V2,
         format_func=_strategy_label,
         key=f"td-automanage-strategy:{product.product_key}",
+        help="Strategien som får faktisk management-authority på den eksakte Saxo-posisjonen.",
     )
     pilot_key = product.pilot_key(strategy.key)
     snapshot = _snapshot(observation, pilot_key=pilot_key, currency=currency)
@@ -331,18 +344,29 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         key=f"td-automanage-seed:{product.product_key}",
         help="Isolert pilotkapital. LIVE bruker senere realisert netto P/L til compounding.",
     )
+    shadow_candidates = tuple(item for item in AUTOTRADER_STRATEGIES_V2 if item.key != strategy.key)
     compare_shadow = st.checkbox(
-        "Kjør øvrige MACD-strategier som shadow for sammenligning",
+        "Kjør én shadow-strategi for direkte sammenligning",
         value=True,
         key=f"td-automanage-shadow:{product.product_key}:{strategy.key}",
-        help="Hver shadow-strategi får egen pilotidentitet og paper-resultat, men ingen Saxo order-authority.",
+        help="Shadow får samme observerte startposisjon og canonical 30m-bars, men ingen Saxo order-authority.",
     )
+    shadow_strategy = None
+    if compare_shadow and shadow_candidates:
+        shadow_strategy = st.selectbox(
+            "SHADOW-strategi",
+            shadow_candidates,
+            index=_default_shadow_index(shadow_candidates),
+            format_func=_strategy_label,
+            key=f"td-automanage-shadow-strategy:{product.product_key}:{strategy.key}",
+            help="For long/flat LIVE velges long/short flip som standard for morgendagens A/B-test.",
+        )
     acknowledge = st.checkbox(
         "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi.",
         key=f"td-automanage-ack:{product.product_key}:{strategy.key}",
     )
     if st.button(
-        "Aktiver AutoManage",
+        "Aktiver AutoManager",
         type="primary",
         disabled=not acknowledge,
         key=f"td-start-automanage:{product.product_key}:{strategy.key}",
@@ -356,24 +380,25 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
                 seed_capital=float(seed),
                 currency=currency,
             )
-            if compare_shadow:
-                for other in AUTOTRADER_STRATEGIES_V2:
-                    if other.key == strategy.key:
-                        continue
-                    enroll_strategy_position_v2(
-                        observation,
-                        strategy_key=other.key,
-                        execution_mode=EXECUTION_MODE_SHADOW,
-                        seed_capital=float(seed),
-                        currency=currency,
-                    )
+            if shadow_strategy is not None:
+                enroll_strategy_position_v2(
+                    observation,
+                    strategy_key=shadow_strategy.key,
+                    execution_mode=EXECUTION_MODE_SHADOW,
+                    seed_capital=float(seed),
+                    currency=currency,
+                )
         except Exception as exc:
-            st.error(f"AutoManage kunne ikke aktiveres: {exc}")
+            st.error(f"AutoManager kunne ikke aktiveres: {exc}")
             return
+        shadow_text = (
+            f"; {shadow_strategy.label} er startet som SHADOW."
+            if shadow_strategy is not None
+            else "."
+        )
         st.success(
-            f"{strategy.label} er koblet LIVE til produktcontaineren"
-            + ("; øvrige strategier er startet som shadow." if compare_shadow else ".")
-            + " Standard er Manage-only; velg Auto eller Godkjenn entry i execution-seksjonen hvis PG også skal åpne posisjoner."
+            f"{strategy.label} er koblet LIVE til produktcontaineren{shadow_text} "
+            "Standard er Manage-only; velg Full auto hvis PG også skal gjøre re-entry etter strategi-exit."
         )
         st.rerun()
 
