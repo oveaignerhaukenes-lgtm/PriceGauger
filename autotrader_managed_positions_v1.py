@@ -60,8 +60,48 @@ def managed_position_matches_v1(record: dict[str, Any], observation: PositionObs
 
 
 def enroll_position_v1(observation: PositionObservationV2) -> None:
-    """Explicitly opt one currently observed Saxo position into Auto-manage."""
+    """Explicitly opt one currently observed Saxo position into Auto-manage.
+
+    Management authority starts a new risk epoch. Portfolio RiskControl may have
+    observed this exact Saxo position before the user opted it into AutoManage; any
+    high-water/trailing trigger accumulated during that observation-only period must
+    not become executable retroactively. Existing risk events remain as audit data,
+    while the current risk state is reset to the enrollment observation before the
+    managed flag becomes TRUE in the same database transaction.
+    """
     with connect() as db:
+        db.execute(
+            """
+            UPDATE pg_v2_autotrader_risk_state
+            SET uic = ?, asset_type = ?, direction = ?, amount = ?,
+                average_open_price = ?, current_price = ?, pnl_pct = ?,
+                high_water_pct = ?, trailing_floor_pct = NULL,
+                price_delay_minutes = ?, can_be_closed = ?,
+                calculation_reliability = ?, is_market_open = ?,
+                non_tradable_reason = ?, last_action = 'HOLD',
+                last_reason = 'MANAGEMENT_ENROLLED',
+                triggered_reason = NULL, triggered_at = NULL,
+                active = TRUE, last_seen_at = now(), updated_at = now()
+            WHERE account_id = ? AND net_position_id = ?
+            """,
+            (
+                int(observation.uic),
+                observation.asset_type,
+                observation.direction,
+                float(observation.amount),
+                float(observation.average_open_price),
+                float(observation.current_price),
+                float(observation.pnl_pct),
+                float(observation.pnl_pct),
+                int(observation.price_delay_minutes),
+                bool(observation.can_be_closed),
+                observation.calculation_reliability,
+                bool(observation.is_market_open),
+                observation.non_tradable_reason,
+                observation.account_id,
+                observation.net_position_id,
+            ),
+        )
         db.execute(
             """
             INSERT INTO pg_v2_autotrader_managed_positions
