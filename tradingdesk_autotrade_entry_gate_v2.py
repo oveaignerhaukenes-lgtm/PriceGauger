@@ -294,6 +294,18 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         )
         admissions[direction] = admission
         st.markdown(f"**{direction} re-entry**")
+
+        already_verified = bool(
+            admission
+            and (
+                admission.negative_balance_protection_verified
+                if margin_product
+                else (admission.limited_loss_verified and admission.no_margin_obligation_verified)
+            )
+        )
+        safety_ack = bool(risk_verified or already_verified)
+        run_preflight = False
+
         if admission is not None and admission.enabled:
             st.caption(
                 "Godkjent · min amount "
@@ -301,14 +313,24 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
                 f"notional {_money(admission.preflight_notional_account, currency)} · "
                 f"kost {_money(admission.preflight_cost_account, currency)}"
             )
-            continue
+            st.caption(
+                "Størrelsesdata kan revalideres uten ordre dersom Saxo-regler eller PriceGauger sizing-kontrakt er endret."
+            )
+            run_preflight = st.button(
+                f"Revalider Saxo-størrelse for {direction}",
+                disabled=not safety_ack,
+                key=f"td-entry-revalidate:{enrollment.pilot_key}:{direction}",
+                use_container_width=True,
+            )
+        else:
+            run_preflight = st.button(
+                f"Preflight og godkjenn {direction}",
+                disabled=not safety_ack,
+                key=f"td-entry-preflight:{enrollment.pilot_key}:{direction}",
+                use_container_width=True,
+            )
 
-        if st.button(
-            f"Preflight og godkjenn {direction}",
-            disabled=not risk_verified,
-            key=f"td-entry-preflight:{enrollment.pilot_key}:{direction}",
-            use_container_width=True,
-        ):
+        if run_preflight:
             try:
                 reference = str(
                     uuid5(
@@ -329,9 +351,9 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
                     direction=direction,
                     transaction_costs_verified=True,
                     margin_product_allowed=margin_product,
-                    negative_balance_protection_verified=bool(risk_verified) if margin_product else False,
-                    limited_loss_verified=bool(risk_verified) if not margin_product else False,
-                    no_margin_obligation_verified=bool(risk_verified) if not margin_product else False,
+                    negative_balance_protection_verified=bool(safety_ack) if margin_product else False,
+                    limited_loss_verified=bool(safety_ack) if not margin_product else False,
+                    no_margin_obligation_verified=bool(safety_ack) if not margin_product else False,
                     preflight_amount=preflight.amount,
                     preflight_cost_account=preflight.estimated_cost_account,
                     preflight_initial_margin_account=preflight.initial_margin_account,
@@ -341,7 +363,10 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
             except (EntrySizingError, ValueError, RuntimeError) as exc:
                 st.error(f"{direction} kunne ikke godkjennes: {exc}")
                 return
-            st.success(f"{direction} er eksplisitt godkjent for denne account/product-identiteten.")
+            st.success(
+                f"{direction} er revalidert mot Saxo: min amount {preflight.amount:g}, "
+                f"margin {_money(preflight.initial_margin_account, currency)}."
+            )
             st.rerun()
 
     saved_margin = load_pilot_margin_config_v2(enrollment.pilot_key)
