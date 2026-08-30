@@ -28,6 +28,17 @@ class EntryInstrumentRulesV2:
     increment_size: float
     contract_size: float
     supported_order_types: tuple[str, ...]
+    amount_quantum: float = 1.0
+    reference_minimum_amount: float | None = None
+    minimum_order_value: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EntryMinimumResolutionV2:
+    amount: float
+    source: str
+    reference_minimum_amount: float | None
+    minimum_order_value: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +97,12 @@ def _positive(*values: Any) -> float | None:
     return None
 
 
+def _max_positive(*values: Any) -> float | None:
+    parsed = [_number(value) for value in values]
+    positive = [value for value in parsed if value is not None and value > 0]
+    return max(positive) if positive else None
+
+
 def _integer(value: Any, default: int = 0) -> int:
     try:
         return max(0, int(value))
@@ -124,17 +141,22 @@ def load_entry_instrument_rules_v2(
 
     decimals = _integer(raw.get("AmountDecimals"), 0)
     quantum_from_decimals = 10.0 ** (-decimals)
-    minimum = _positive(
+
+    # DefaultAmount is a ticket/UI default, not a legal minimum. IncrementSize
+    # is a PRICE increment, not an amount increment. Amount precision comes from
+    # AmountDecimals, while explicit Saxo minimum/lot rules remain hard floors.
+    reference_minimum = _max_positive(
         raw.get("MinimumTradeSize"),
         raw.get("MinimumLotSize"),
-        raw.get("DefaultAmount"),
-        quantum_from_decimals,
     )
-    if minimum is None:
-        raise EntrySizingError("instrument details do not expose a legal minimum amount")
-    increment = _positive(raw.get("IncrementSize"), quantum_from_decimals)
-    if increment is None:
-        raise EntrySizingError("instrument details do not expose an amount increment")
+    minimum = max(float(quantum_from_decimals), float(reference_minimum or quantum_from_decimals))
+
+    amount_step = float(quantum_from_decimals)
+    lot_size_type = str(raw.get("LotSizeType") or "").strip().lower()
+    lot_size = _positive(raw.get("LotSize"))
+    if lot_size is not None and lot_size_type == "oddlotsnotallowed":
+        amount_step = max(amount_step, float(lot_size))
+
     contract_size = _positive(raw.get("ContractSize"), raw.get("PriceToContractFactor"))
     if contract_size is None:
         raise EntrySizingError("instrument details do not expose ContractSize/PriceToContractFactor")
@@ -159,25 +181,28 @@ def load_entry_instrument_rules_v2(
         non_tradable_reason=non_tradable_reason,
         amount_decimals=decimals,
         minimum_amount=float(minimum),
-        increment_size=float(increment),
+        increment_size=float(amount_step),
         contract_size=float(contract_size),
         supported_order_types=supported,
+        amount_quantum=float(quantum_from_decimals),
+        reference_minimum_amount=None if reference_minimum is None else float(reference_minimum),
+        minimum_order_value=_positive(raw.get("MinimumOrderValue")),
     )
 
 
 def _quantized_amount(value: float, rules: EntryInstrumentRulesV2, *, upward: bool) -> float:
     step = Decimal(str(rules.increment_size))
     if step <= 0:
-        raise EntrySizingError("increment_size must be positive")
+        raise EntrySizingError("amount increment must be positive")
     requested = Decimal(str(max(0.0, float(value))))
     units = requested / step
     rounding = ROUND_CEILING if upward else ROUND_FLOOR
     units = units.to_integral_value(rounding=rounding)
     amount = units * step
-    minimum = Decimal(str(rules.minimum_amount))
-    if upward and amount < minimum:
-        minimum_units = (minimum / step).to_integral_value(rounding=ROUND_CEILING)
-        amount = minimum_units * step
+    quantum = Decimal(str(rules.amount_quantum))
+    if upward and amount < quantum:
+        quantum_units = (quantum / step).to_integral_value(rounding=ROUND_CEILING)
+        amount = max(step, quantum_units * step)
     quant = Decimal(1).scaleb(-rules.amount_decimals)
     amount = amount.quantize(quant, rounding=rounding)
     return float(amount)
@@ -205,18 +230,72 @@ def _info_price(
     *,
     account_key: str,
     instrument: SaxoInstrument,
-    amount: float,
+    amount: float | None,
     side: str,
 ) -> dict[str, Any]:
-    return client._get(
-        "trade/v1/infoprices",
-        params={
-            "AccountKey": account_key,
-            "Amount": float(amount),
-            "Uic": int(instrument.uic),
-            "AssetType": instrument.asset_type,
-            "FieldGroups": "Quote,PriceInfo,InstrumentPriceDetails",
-        },
+    params: dict[str, Any] = {
+        "AccountKey": account_key,
+        "Uic": int(instrument.uic),
+        "AssetType": instrument.asset_type,
+        "FieldGroups": "Quote,PriceInfo,InstrumentPriceDetails",
+    }
+    if amount is not None:
+        params["Amount"] = float(amount)
+    return client._get("trade/v1/infoprices", params=params)
+
+
+def resolve_minimum_entry_amount_v2(
+    client: SaxoClient,
+    *,
+    account_key: str,
+    instrument: SaxoInstrument,
+    rules: EntryInstrumentRulesV2,
+) -> EntryMinimumResolutionV2:
+    """Resolve the smallest candidate allowed by metadata and account defaults.
+
+    Explicit MinimumTradeSize/MinimumLotSize is a hard lower bound. If reference
+    data does not expose a minimum, Saxo InfoPrice is queried without Amount; Saxo
+    documents that this defaults to the minimal order size for the instrument.
+    Order precheck is still the final authority and may force probing upward.
+    """
+    reference_floor = minimum_legal_amount_v2(rules)
+    info_amount: float | None = None
+    try:
+        payload = _info_price(
+            client,
+            account_key=account_key,
+            instrument=instrument,
+            amount=None,
+            side="Buy",
+        )
+        quote = payload.get("Quote") if isinstance(payload.get("Quote"), dict) else {}
+        info_amount = _positive(quote.get("Amount"))
+    except SaxoError:
+        info_amount = None
+
+    if info_amount is not None:
+        info_candidate = _quantized_amount(float(info_amount), rules, upward=True)
+        candidate = max(reference_floor, info_candidate)
+        source = (
+            "SAXO_REFERENCE_AND_INFOPRICE_MINIMUM"
+            if rules.reference_minimum_amount is not None
+            else "SAXO_INFOPRICE_DEFAULT_MINIMUM"
+        )
+    else:
+        candidate = reference_floor
+        source = (
+            "SAXO_REFERENCE_MINIMUM"
+            if rules.reference_minimum_amount is not None
+            else "AMOUNT_DECIMALS_PROBE"
+        )
+
+    if candidate <= 0:
+        raise EntrySizingError("could not resolve a positive minimum-entry candidate")
+    return EntryMinimumResolutionV2(
+        amount=float(candidate),
+        source=source,
+        reference_minimum_amount=rules.reference_minimum_amount,
+        minimum_order_value=rules.minimum_order_value,
     )
 
 
@@ -301,8 +380,6 @@ def _cost_account(precheck: dict[str, Any]) -> float:
     direct = _sum_cost_data(precheck.get("CostInAccountCurrency"))
     if direct is not None:
         return max(0.0, direct)
-    # Some Saxo responses expose only instrument-currency Cost plus a conversion
-    # rate. The caller converts this fallback through the documented rate.
     direct = _sum_cost_data(precheck.get("Cost"))
     if direct is not None:
         rate = _positive(precheck.get("InstrumentToAccountConversionRate"))
@@ -439,7 +516,13 @@ def find_largest_legal_entry_v2(
         account_key=account_key,
         instrument=instrument,
     )
-    minimum = minimum_legal_amount_v2(rules)
+    resolution = resolve_minimum_entry_amount_v2(
+        client,
+        account_key=account_key,
+        instrument=instrument,
+        rules=rules,
+    )
+    minimum = float(resolution.amount)
     count = 0
 
     def check(amount: float) -> EntryPrecheckV2 | None:
@@ -465,7 +548,7 @@ def find_largest_legal_entry_v2(
 
     first = check(minimum)
     if first is None:
-        raise EntrySizingError("minimum legal amount does not pass Saxo precheck and Margin Envelope")
+        raise EntrySizingError("account-specific minimum amount does not pass Saxo precheck and Margin Envelope")
     best = first
     low_units = int(round(best.amount / rules.increment_size))
     high_units: int | None = None
@@ -509,15 +592,22 @@ def preflight_minimum_entry_v2(
     instrument: SaxoInstrument,
     direction: str,
     external_reference: str,
+    max_prechecks: int = 16,
 ) -> tuple[EntryInstrumentRulesV2, EntryPrecheckV2]:
-    """Verify cost/tradability with the smallest legal order without submitting it.
+    """Discover and verify the smallest account-specific order without submitting it.
 
-    The permissive envelope here is not an execution authorization. It exists only
-    to collect Saxo's precheck cost/margin metadata for explicit product admission.
-    Every real OPEN is re-sized against the pilot-specific hard envelope later.
+    Explicit reference-data minimums remain hard floors. When they are absent,
+    InfoPrice supplies Saxo's account-specific default minimum. Order precheck then
+    proves the candidate or forces probing upward in legal amount increments. No
+    order-placement endpoint is called by this function.
     """
     rules = load_entry_instrument_rules_v2(client, account_key=account_key, instrument=instrument)
-    amount = minimum_legal_amount_v2(rules)
+    resolution = resolve_minimum_entry_amount_v2(
+        client,
+        account_key=account_key,
+        instrument=instrument,
+        rules=rules,
+    )
     huge = 1e18
     envelope = AutoTraderMarginEnvelopeV2(
         currency=account_currency,
@@ -528,27 +618,70 @@ def preflight_minimum_entry_v2(
         minimum_free_capital=0.0,
         enabled=True,
     )
-    result = precheck_entry_amount_v2(
-        client,
-        account_key=account_key,
-        account_currency=account_currency,
-        instrument=instrument,
-        rules=rules,
-        direction=direction,
-        amount=amount,
-        envelope=envelope,
-        controlled_capital=huge,
-        external_reference=external_reference,
-    )
-    if not _precheck_is_clear(result.raw):
-        raise EntrySizingError(
-            f"minimum-entry precheck blocked: {result.precheck_result}; disclaimers={result.disclaimers_present}"
-        )
-    return rules, result
+
+    count = 0
+
+    def check(amount: float) -> EntryPrecheckV2 | None:
+        nonlocal count
+        if count >= max_prechecks:
+            return None
+        count += 1
+        try:
+            result = precheck_entry_amount_v2(
+                client,
+                account_key=account_key,
+                account_currency=account_currency,
+                instrument=instrument,
+                rules=rules,
+                direction=direction,
+                amount=amount,
+                envelope=envelope,
+                controlled_capital=huge,
+                external_reference=f"{external_reference}-min{count}",
+            )
+        except (SaxoError, EntrySizingError):
+            return None
+        return result if _precheck_is_clear(result.raw) else None
+
+    step = float(rules.increment_size)
+    start = _quantized_amount(float(resolution.amount), rules, upward=True)
+    first = check(start)
+    if first is not None:
+        return rules, first
+
+    low_units = max(0, int(round(start / step)))
+    high_units: int | None = None
+    best: EntryPrecheckV2 | None = None
+
+    while count < max_prechecks:
+        candidate_units = max(low_units + 1, low_units * 2)
+        candidate = _quantized_amount(candidate_units * step, rules, upward=True)
+        item = check(candidate)
+        if item is not None:
+            high_units = candidate_units
+            best = item
+            break
+        low_units = candidate_units
+
+    if best is None or high_units is None:
+        raise EntrySizingError("could not discover an account-specific minimum order accepted by Saxo precheck")
+
+    while high_units - low_units > 1 and count < max_prechecks:
+        mid_units = (low_units + high_units) // 2
+        candidate = _quantized_amount(mid_units * step, rules, upward=True)
+        item = check(candidate)
+        if item is None:
+            low_units = mid_units
+        else:
+            high_units = mid_units
+            best = item
+
+    return rules, best
 
 
 __all__ = [
     "EntryInstrumentRulesV2",
+    "EntryMinimumResolutionV2",
     "EntryPrecheckV2",
     "EntrySizingError",
     "EntrySizingResultV2",
@@ -558,4 +691,5 @@ __all__ = [
     "minimum_legal_amount_v2",
     "precheck_entry_amount_v2",
     "preflight_minimum_entry_v2",
+    "resolve_minimum_entry_amount_v2",
 ]
