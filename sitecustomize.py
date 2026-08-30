@@ -1,22 +1,36 @@
-"""Runtime compatibility guard for Streamlit page links.
+"""Process-start compatibility hooks for PriceGauger runtimes.
 
-Some Streamlit Cloud builds raise KeyError when st.page_link targets a page
-that exists in the repository but was not registered in the current page
-registry. Keep the app alive and direct the user to the built-in navigation.
+Railway stream/worker processes use split stdout/stderr logging so platform severity
+matches Python severity. Other processes retain the Streamlit page-link compatibility
+guard that originally lived here.
 """
 from __future__ import annotations
 
-import streamlit as st
 
-_original_page_link = st.page_link
+_worker_logging_configured = False
+try:
+    from runtime_logging import configure_railway_runtime_logging_if_applicable
+
+    _worker_logging_configured = configure_railway_runtime_logging_if_applicable()
+except Exception:
+    # Startup observability must never prevent the application from starting.
+    _worker_logging_configured = False
 
 
-def _safe_page_link(page, *args, **kwargs):
+if not _worker_logging_configured:
     try:
-        return _original_page_link(page, *args, **kwargs)
-    except KeyError:
-        st.info("Åpne navigasjonen med » øverst til venstre og velg «Historical Event Lab».")
-        return None
+        import streamlit as st
 
+        _original_page_link = st.page_link
 
-st.page_link = _safe_page_link
+        def _safe_page_link(page, *args, **kwargs):
+            try:
+                return _original_page_link(page, *args, **kwargs)
+            except KeyError:
+                st.info("Åpne navigasjonen med » øverst til venstre og velg «Historical Event Lab».")
+                return None
+
+        st.page_link = _safe_page_link
+    except Exception:
+        # Non-Streamlit local tooling must also remain unaffected by sitecustomize.
+        pass
