@@ -142,10 +142,9 @@ def load_entry_instrument_rules_v2(
     decimals = _integer(raw.get("AmountDecimals"), 0)
     quantum_from_decimals = 10.0 ** (-decimals)
 
-    # Saxo's DefaultAmount is only a ticket/UI default. It is not a legal
-    # minimum. Likewise InstrumentDetails.IncrementSize is a price increment,
-    # not an amount increment. The old implementation used both as amount rules,
-    # which made fractional CFDs such as CfdOnIndex appear 100x too large.
+    # DefaultAmount is a ticket/UI default, not a legal minimum. IncrementSize
+    # is a PRICE increment, not an amount increment. Amount precision comes from
+    # AmountDecimals, while explicit Saxo minimum/lot rules remain hard floors.
     reference_minimum = _max_positive(
         raw.get("MinimumTradeSize"),
         raw.get("MinimumLotSize"),
@@ -210,11 +209,6 @@ def _quantized_amount(value: float, rules: EntryInstrumentRulesV2, *, upward: bo
 
 
 def minimum_legal_amount_v2(rules: EntryInstrumentRulesV2) -> float:
-    """Legacy reference-data floor.
-
-    New execution code must additionally use resolve_minimum_entry_amount_v2(),
-    because Saxo account-specific InfoPrice/precheck is the final authority.
-    """
     return _quantized_amount(rules.minimum_amount, rules, upward=True)
 
 
@@ -257,14 +251,14 @@ def resolve_minimum_entry_amount_v2(
     instrument: SaxoInstrument,
     rules: EntryInstrumentRulesV2,
 ) -> EntryMinimumResolutionV2:
-    """Resolve an account-specific minimum candidate without submitting an order.
+    """Resolve the smallest candidate allowed by metadata and account defaults.
 
-    Saxo documents InfoPrice.Amount as optional and says that omitting it defaults
-    to the minimal order size for the instrument. The chosen amount is returned in
-    Quote.Amount. We prefer that account-specific value over generic reference
-    metadata. If Saxo does not return a usable amount, we fall back to the smallest
-    representable amount quantum and let order precheck prove or reject it.
+    Explicit MinimumTradeSize/MinimumLotSize is a hard lower bound. If reference
+    data does not expose a minimum, Saxo InfoPrice is queried without Amount; Saxo
+    documents that this defaults to the minimal order size for the instrument.
+    Order precheck is still the final authority and may force probing upward.
     """
+    reference_floor = minimum_legal_amount_v2(rules)
     info_amount: float | None = None
     try:
         payload = _info_price(
@@ -280,11 +274,20 @@ def resolve_minimum_entry_amount_v2(
         info_amount = None
 
     if info_amount is not None:
-        candidate = _quantized_amount(float(info_amount), rules, upward=True)
-        source = "SAXO_INFOPRICE_DEFAULT_MINIMUM"
+        info_candidate = _quantized_amount(float(info_amount), rules, upward=True)
+        candidate = max(reference_floor, info_candidate)
+        source = (
+            "SAXO_REFERENCE_AND_INFOPRICE_MINIMUM"
+            if rules.reference_minimum_amount is not None
+            else "SAXO_INFOPRICE_DEFAULT_MINIMUM"
+        )
     else:
-        candidate = _quantized_amount(float(rules.amount_quantum), rules, upward=True)
-        source = "AMOUNT_DECIMALS_PROBE"
+        candidate = reference_floor
+        source = (
+            "SAXO_REFERENCE_MINIMUM"
+            if rules.reference_minimum_amount is not None
+            else "AMOUNT_DECIMALS_PROBE"
+        )
 
     if candidate <= 0:
         raise EntrySizingError("could not resolve a positive minimum-entry candidate")
@@ -400,8 +403,8 @@ def precheck_entry_amount_v2(
 ) -> EntryPrecheckV2:
     side = _normalize_side(direction)
     amount = _quantized_amount(amount, rules, upward=False)
-    if amount + 1e-12 < float(rules.amount_quantum):
-        raise EntrySizingError("amount is below the instrument amount precision")
+    if amount + 1e-12 < minimum_legal_amount_v2(rules):
+        raise EntrySizingError("amount is below the legal instrument minimum")
 
     info = _info_price(
         client,
@@ -593,11 +596,10 @@ def preflight_minimum_entry_v2(
 ) -> tuple[EntryInstrumentRulesV2, EntryPrecheckV2]:
     """Discover and verify the smallest account-specific order without submitting it.
 
-    Reference Data is used for amount precision, lot rules and metadata, but Saxo's
-    account-specific InfoPrice and order precheck remain authoritative. If the
-    default InfoPrice amount is unavailable or rejected, the resolver probes upward
-    in legal amount increments until it finds the first precheck-accepted size.
-    No order-placement endpoint is called by this function.
+    Explicit reference-data minimums remain hard floors. When they are absent,
+    InfoPrice supplies Saxo's account-specific default minimum. Order precheck then
+    proves the candidate or forces probing upward in legal amount increments. No
+    order-placement endpoint is called by this function.
     """
     rules = load_entry_instrument_rules_v2(client, account_key=account_key, instrument=instrument)
     resolution = resolve_minimum_entry_amount_v2(
