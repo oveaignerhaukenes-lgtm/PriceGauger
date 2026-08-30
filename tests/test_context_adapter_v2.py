@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import inspect
 
 import context_adapter_v2
@@ -107,7 +108,7 @@ def _news() -> NewsContextAssessment:
     )
 
 
-def test_adapter_preserves_flow_direction_and_news_regime():
+def test_adapter_preserves_flow_pressure_and_news_regime():
     snapshot = context_adapter_v2.adapt_context_snapshot_v2(
         flow=_flow(),
         news=_news(),
@@ -120,13 +121,31 @@ def test_adapter_preserves_flow_direction_and_news_regime():
     assert len(snapshot.targets) == 1
     gold = snapshot.targets[0]
     assert gold.target_key == "Gold"
-    assert gold.directional_bias == 0.65
+    assert gold.directional_bias == 0.3024
     assert gold.confidence == 0.72
     assert gold.novelty == 0.8
     assert gold.event_risk == 0.6 * 0.8 * 0.9
     dimensions = {item.name: item.value for item in gold.dimensions}
     assert dimensions["physical_supply_risk"] == 0.5
     assert dimensions["escalation_direction"] == 1.0
+
+
+def test_adapter_does_not_turn_one_weak_directional_event_into_full_pressure():
+    flow = _flow()
+    weak_asset = replace(
+        flow.assets[0],
+        flow_score=0.04,
+        normalized_score=1.0,
+        confidence=0.06,
+    )
+    snapshot = context_adapter_v2.adapt_context_snapshot_v2(
+        flow=replace(flow, assets=(weak_asset,)),
+        posts=(_post(),),
+    )
+
+    gold = snapshot.targets[0]
+    assert gold.directional_bias == 0.04
+    assert gold.confidence == 0.06
 
 
 def test_adapter_emits_explicit_global_telegram_provenance():
