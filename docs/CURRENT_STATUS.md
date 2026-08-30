@@ -1,10 +1,26 @@
 # PriceGauger — Current Status / Stable Checkpoint
 
 **Status date:** 2026-08-30  
-**Runtime code baseline reviewed:** `fe0949437cf967ef526465ae8044131b87d1cb22`  
+**Stable checkpoint runtime baseline reviewed:** `fe0949437cf967ef526465ae8044131b87d1cb22`  
+**Latest post-checkpoint production cleanup verified:** `95b4c64cf00851caf06e2c9ccb3a2505e978e424`  
 **Purpose:** authoritative implementation status for the next development handoff.
 
 This file is the current status authority. `PRICEGAUGER_V2_ARCHITECTURE.md` and `PRICEGAUGER_V2_SYSTEM_OVERVIEW.md` remain architectural references. Older handoff files are historical and must not be used to infer current implementation status without checking this file and fresh `main`.
+
+## Post-checkpoint cleanup — 2026-08-30
+
+The architectural feature-freeze checkpoint remains the `#239` checkpoint built on the reviewed `#238` runtime. Two observability-only cleanups landed afterward without changing strategy, risk, order, P/L, database or execution semantics:
+
+- `#240` added split Python logging and observer-only RiskControl warning throttling. Production verification showed that Railway did not invoke the implicit `sitecustomize.py` hook, so the code was present but not applied.
+- `#241` made application explicit through a tiny Railway runtime launcher while leaving `realtime_worker.py`, `telegram_multi_worker.py`, AutoTrader and RiskControl logic unchanged.
+
+Production verification on `#241` / `95b4c64cf00851caf06e2c9ccb3a2505e978e424` showed:
+
+- web, worker and stream all `SUCCESS`;
+- normal Python `INFO` from stream/worker is now Railway severity `info` rather than false `error`/stderr noise;
+- a real `WARNING` remains on stderr;
+- the first observer-only `eligible=False` RiskControl warning remains visible, while identical repeats are suppressed for five minutes;
+- the RiskControl portfolio cycle continues on its unchanged cadence and continues reporting the latched close signal as INFO, confirming that only log emission changed.
 
 ## Stable-point conclusion
 
@@ -18,33 +34,32 @@ This checkpoint does **not** mean every analytical model is mature or that auton
 
 Production is split into three services plus PostgreSQL, all sourced from `oveaignerhaukenes-lgtm/PriceGauger` branch `main`:
 
-| Service | Responsibility | Checkpoint state |
+| Service | Responsibility | Current state |
 | --- | --- | --- |
 | `pricegauger-web` | Streamlit UI / read-render / TradingDesk | SUCCESS |
 | `PriceGauger-worker` | Telegram/news ingest, context/state publication, forecast-related work | SUCCESS |
 | `PriceGauger-stream` | Saxo realtime/canonical market runtime, Technical Core, AutoTrader daemons | SUCCESS |
 | PostgreSQL | shared authoritative persistence | SUCCESS |
 
-The reviewed `#238` runtime deployment on web/worker/stream corresponds to `fe0949437cf967ef526465ae8044131b87d1cb22`.
+The reviewed `#238` execution-sensitive checkpoint deployment corresponds to `fe0949437cf967ef526465ae8044131b87d1cb22`. The later observability-only deployment verified in production corresponds to `#241` / `95b4c64cf00851caf06e2c9ccb3a2505e978e424`.
 
-Observed runtime at checkpoint:
+Observed runtime at checkpoint and post-checkpoint verification:
 
-- no `Traceback` found on web, worker or stream after the deployment;
+- no `Traceback` found on web, worker or stream after the reviewed deployments;
 - stream heartbeat/reauth/gap-repair continues;
 - Technical Core cycles observed `attempted=7 produced=7 failed=0`;
 - MACD dry-run cycles observed `attempted=7 evaluated=7 failed=0`;
 - worker continues Telegram/news ingest and context publication;
-- a `STALE` Context v2 snapshot on the Sunday checkpoint is fail-stale behavior, not evidence that the worker stopped. Freshness must be judged against market/reference availability rather than worker liveness.
+- a `STALE` Context v2 snapshot on the Sunday checkpoint is fail-stale behavior, not evidence that the worker stopped. Freshness must be judged against market/reference availability rather than worker liveness;
+- Railway severity now reflects Python severity for the long-running worker/stream services.
 
-### Railway caveat
-
-Railway currently reports many normal Python `INFO` lines with severity `error` because the process logging configuration writes through stderr. This is **observability noise, not an application error**. No runtime semantics should be inferred from Railway severity alone; inspect the embedded Python log level and traceback/exception content.
+### Railway deployment-policy caveat
 
 Railway source configuration currently has `checkSuites=false`. The project workflow therefore continues to enforce CI-before-merge at the GitHub/PR process level. If Railway check-suite gating is changed later, treat that as a bounded deployment-policy change and verify that it does not disrupt the existing deploy flow.
 
 ## CI baseline
 
-The last execution-sensitive PR before this checkpoint (`#238`) ran:
+The last execution-sensitive PR before the stable checkpoint (`#238`) ran:
 
 ```text
 python -m compileall -q .
@@ -52,6 +67,8 @@ python -m pytest -q
 ```
 
 Result: **910 passed, 0 failed**.
+
+The explicit observability follow-up `#241` also passed full compile and repository pytest after its Railway-config contract tests were updated to the new launcher command. Its final suite contained **918 passing tests**.
 
 CI passing is necessary but not sufficient for execution changes. AutoTrader changes must continue to use fresh-main checks, explicit diff/safety review and expected-head merge guards.
 
@@ -255,7 +272,8 @@ The benchmark:
 - strategy runtime, CLOSE bridge, OPEN gate, risk epoch, P/L reconciliation and compounding are implemented with explicit persistence/idempotency boundaries;
 - Manage-only survives later manual re-entry/resize/reversal;
 - shadow comparison is isolated/read-only;
-- full repository CI is green.
+- full repository CI is green;
+- stream/worker log severity mapping and observer-warning throttling are production-verified after the checkpoint.
 
 ### Still empirical / deliberately not claimed
 
@@ -269,13 +287,16 @@ The next trading step should therefore be **observation and a deliberately tiny 
 
 ## Known non-blocking technical debt
 
-1. **Logging severity mapping:** Python INFO output currently lands on stderr, so Railway labels normal lines as `error`. Fix separately as observability-only work.
-2. **Observer RiskControl log noise:** an already-triggered, non-executable observer state can repeat `WOULD_CLOSE` warnings. This is noisy rather than an authority leak.
-3. **Legacy naming:** several hardened compatibility adapters retain `_v1` names although they participate in the v2 architecture. Do not rename casually.
-4. **Railway CI coupling:** service source config currently reports `checkSuites=false`; CI-before-merge is enforced procedurally rather than by Railway deploy gating.
-5. **Historical docs:** older handoffs describe earlier migration stages. This file is current status authority.
+1. **Legacy naming:** several hardened compatibility adapters retain `_v1` names although they participate in the v2 architecture. Do not rename casually.
+2. **Railway CI coupling:** service source config currently reports `checkSuites=false`; CI-before-merge is enforced procedurally rather than by Railway deploy gating.
+3. **Historical docs:** older handoffs describe earlier migration stages. This file is current status authority.
 
-None of these items justify broad refactoring before the baseline has been observed in normal operation.
+Resolved after the stable checkpoint:
+
+- **Logging severity mapping:** fixed and production-verified by `#240` + explicit Railway application in `#241`.
+- **Observer RiskControl warning noise:** duplicate non-executable `eligible=False` warnings are throttled without changing persisted risk state or execution eligibility.
+
+None of the remaining items justify broad refactoring before the baseline has been observed in normal operation.
 
 ## Stable development rule from here
 
@@ -295,4 +316,4 @@ For execution-sensitive work, production success means both CI success **and** p
 
 ## Recommended freeze point
 
-Treat the merge containing this document as the **2026-08-30 stable checkpoint**. Observe production before starting another architectural expansion. When development resumes, use this document plus fresh `main` as the handoff baseline.
+Treat `#239` as the **2026-08-30 architectural stable checkpoint**, with `#240`/`#241` as verified observability-only cleanup layered on top. Observe production before starting another architectural expansion. When development resumes, use this document plus fresh `main` as the handoff baseline.
