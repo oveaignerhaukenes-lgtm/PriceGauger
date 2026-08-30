@@ -72,10 +72,34 @@ def test_context_overview_projects_only_canonical_context_contract(monkeypatch):
     assert view.evidence[0].tags == ("geopolitics", "oil")
 
 
+def test_context_overview_separates_neutral_pressure_from_low_confidence_direction():
+    uncertain = context_overview_read_model_v2.ContextOverviewTargetV2(
+        target_key="Gold",
+        directional_bias=0.40,
+        confidence=0.06,
+        novelty=0.2,
+        event_risk=0.2,
+        summary="",
+    )
+    neutral = context_overview_read_model_v2.ContextOverviewTargetV2(
+        target_key="Gold",
+        directional_bias=0.03,
+        confidence=0.06,
+        novelty=0.2,
+        event_risk=0.2,
+        summary="",
+    )
+
+    assert uncertain.direction_label == "UNCERTAIN"
+    assert neutral.direction_label == "NEUTRAL"
+
+
 def test_overview_page_has_no_legacy_semantic_or_decision_read_path():
     source = Path("pages/0_Oversikt.py").read_text(encoding="utf-8")
     assert "load_context_overview_v2" in source
     assert "render_v2_overview_market_cards" in source
+    assert '"Konteksttrykk"' in source
+    assert "lav confidence vises som UNCERTAIN" in source
     forbidden = (
         "overview_service",
         "load_overview(",
