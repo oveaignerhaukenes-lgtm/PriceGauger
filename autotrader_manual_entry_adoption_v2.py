@@ -17,7 +17,7 @@ from saxo_provider import configured_client
 
 REQUEST_SUPERSEDED = "SUPERSEDED"
 UNSTARTED_REQUEST_STATUSES = ("PENDING", "APPROVED")
-INFLIGHT_OPEN_STATUSES = ("SUBMITTING", "ORDER_ACCEPTED", "UNCERTAIN")
+INFLIGHT_EXECUTION_STATUSES = ("SUBMITTING", "ORDER_ACCEPTED", "UNCERTAIN")
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,14 +48,14 @@ def _require_manual_manage_identity_v2(
         raise ValueError("manual position basis must be positive")
 
 
-def _pg_open_inflight_v2(enrollment: StrategyEnrollmentV2) -> bool:
-    """Block manual adoption while PG may own an unresolved OPEN transition."""
+def _pg_execution_inflight_v2(enrollment: StrategyEnrollmentV2) -> bool:
+    """Block basis rotation while any PriceGauger order may still change it."""
     with connect() as db:
         request = db.execute(
             """
             SELECT request_id
             FROM pg_v2_autotrader_execution_requests
-            WHERE action = 'OPEN'
+            WHERE action IN ('OPEN', 'CLOSE')
               AND account_id = ? AND uic = ? AND asset_type = ?
               AND status IN (?, ?, ?)
             LIMIT 1
@@ -64,12 +64,12 @@ def _pg_open_inflight_v2(enrollment: StrategyEnrollmentV2) -> bool:
                 enrollment.account_id,
                 int(enrollment.uic),
                 enrollment.asset_type,
-                *INFLIGHT_OPEN_STATUSES,
+                *INFLIGHT_EXECUTION_STATUSES,
             ),
         ).fetchone()
         if request is not None:
             return True
-        attempt = db.execute(
+        open_attempt = db.execute(
             """
             SELECT request_id
             FROM pg_v2_autotrader_live_open_attempts
@@ -81,10 +81,27 @@ def _pg_open_inflight_v2(enrollment: StrategyEnrollmentV2) -> bool:
                 enrollment.account_id,
                 int(enrollment.uic),
                 enrollment.asset_type,
-                *INFLIGHT_OPEN_STATUSES,
+                *INFLIGHT_EXECUTION_STATUSES,
             ),
         ).fetchone()
-    return attempt is not None
+        if open_attempt is not None:
+            return True
+        close_attempt = db.execute(
+            """
+            SELECT event_id
+            FROM pg_v2_autotrader_live_close_attempts
+            WHERE account_id = ? AND uic = ? AND asset_type = ?
+              AND status IN (?, ?, ?)
+            LIMIT 1
+            """,
+            (
+                enrollment.account_id,
+                int(enrollment.uic),
+                enrollment.asset_type,
+                *INFLIGHT_EXECUTION_STATUSES,
+            ),
+        ).fetchone()
+    return close_attempt is not None
 
 
 def _repair_anchor_if_needed_v2(
@@ -188,8 +205,8 @@ def adopt_manual_entry_position_v2(
         _repair_anchor_if_needed_v2(enrollment, observation)
         return False
 
-    if _pg_open_inflight_v2(enrollment):
-        raise RuntimeError("manual position adoption blocked while PriceGauger OPEN is unresolved")
+    if _pg_execution_inflight_v2(enrollment):
+        raise RuntimeError("manual position adoption blocked while PriceGauger execution is unresolved")
 
     _retire_prior_manual_basis_v2(enrollment, observation)
     # #237 makes this the risk-management epoch boundary: existing observer-only
@@ -254,14 +271,14 @@ def run_manual_entry_adoption_cycle_v2() -> ManualEntryAdoptionCycleV2:
             else:
                 unchanged += 1
         except Exception:
-            # The surrounding daemon logs/continues; one ambiguous product must not
-            # prevent other independent Manage-only pilots from being considered.
+            # The surrounding daemon logs/continues; one ambiguous or in-flight
+            # product must not prevent other independent Manage-only pilots.
             failed += 1
     return ManualEntryAdoptionCycleV2(candidates, adopted, unchanged, failed)
 
 
 __all__ = [
-    "INFLIGHT_OPEN_STATUSES",
+    "INFLIGHT_EXECUTION_STATUSES",
     "ManualEntryAdoptionCycleV2",
     "UNSTARTED_REQUEST_STATUSES",
     "adopt_manual_entry_position_v2",
