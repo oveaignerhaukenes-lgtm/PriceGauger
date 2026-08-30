@@ -137,6 +137,11 @@ class SaxoClient:
                 )
             status = "AUTH_FAILED" if response.status_code in {401, 403} else "REQUEST_FAILED"
             raise SaxoError(message, status=status, status_code=response.status_code)
+        if isinstance(payload, list) and path.strip("/").lower() == "port/v1/closedpositions":
+            # Saxo LIVE has been observed returning this collection as a bare JSON
+            # array despite the documented {"Data": [...]} envelope. Normalize only
+            # this endpoint; every other API call retains the strict object contract.
+            return {"Data": payload}
         if not isinstance(payload, dict):
             raise SaxoError("forventet JSON-objekt", status="INVALID_RESPONSE", status_code=response.status_code)
         return payload
