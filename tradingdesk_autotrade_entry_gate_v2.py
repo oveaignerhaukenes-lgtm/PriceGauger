@@ -11,6 +11,12 @@ from autotrader_entry_policy_v2 import (
     save_pilot_margin_config_v2,
     save_product_admission_v2,
 )
+from autotrader_entry_sizing_policy_v2 import (
+    SIZING_MODE_FIXED,
+    SIZING_MODE_MAX,
+    load_entry_sizing_policy_v2,
+    save_entry_sizing_policy_v2,
+)
 from autotrader_live_close_v1 import (
     LiveCloseConfigV1,
     code_gate_enabled_v1 as live_close_code_gate_enabled_v1,
@@ -25,7 +31,11 @@ from autotrader_live_open_v2 import (
     load_open_requests_waiting_approval_v2,
     save_live_open_config_v2,
 )
-from autotrader_open_sizing_v2 import EntrySizingError, preflight_minimum_entry_v2
+from autotrader_open_sizing_v2 import (
+    EntrySizingError,
+    find_largest_legal_entry_v2,
+    preflight_minimum_entry_v2,
+)
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_strategy_catalog_v2 import strategy_spec_v2
 from autotrader_strategy_enrollment_v2 import (
@@ -45,6 +55,11 @@ ENTRY_MODE_LABELS = {
     ENTRY_MODE_MANUAL_ONLY: "Manage-only · automatisk exit, ingen re-entry",
     ENTRY_MODE_AUTO: "Full auto · automatisk exit + re-entry",
     ENTRY_MODE_APPROVAL_REQUIRED: "Godkjenn re-entry · automatisk exit",
+}
+
+SIZING_MODE_LABELS = {
+    SIZING_MODE_MAX: "Maks innen pilotrammen · all-in",
+    SIZING_MODE_FIXED: "Fast amount · incremental",
 }
 
 
@@ -117,20 +132,66 @@ def _execution_flow_text(spec, entry_mode: str) -> str:
             )
         return "Short/flat · Manage-only: SHORT → FLAT automatisk; ingen automatisk SHORT re-entry."
     if entry_mode == ENTRY_MODE_AUTO:
-        return "Long/short flip · Full auto: bullish kryss → LONG; bearish kryss → SHORT, med CLOSE → bekreftet FLAT → OPEN."
+        return "MACD Switch · Full auto: bullish kryss → LONG; bearish kryss → SHORT, med CLOSE → bekreftet FLAT → OPEN."
     if entry_mode == ENTRY_MODE_APPROVAL_REQUIRED:
-        return "Long/short flip · exit er automatisk, men hver ny LONG/SHORT OPEN etter flip krever one-shot godkjenning."
-    return "Long/short flip · Manage-only kan lukke den eksisterende siden, men åpner aldri motsatt side automatisk."
+        return "MACD Switch · exit er automatisk, men hver ny LONG/SHORT OPEN etter switch krever one-shot godkjenning."
+    return "MACD Switch · Manage-only kan lukke den eksisterende siden, men åpner aldri motsatt side automatisk."
+
+
+def _render_armed_badge(enrollment) -> None:
+    close_config = load_live_close_config_v1()
+    open_config = load_live_open_config_v2()
+    close_active = bool(live_close_code_gate_enabled_v1() and close_config.armed)
+    open_active = bool(
+        live_open_code_gate_enabled_v2()
+        and open_config.armed
+        and enrollment.live_open_armed
+        and enrollment.entry_mode != ENTRY_MODE_MANUAL_ONLY
+    )
+    if not close_active and not open_active:
+        return
+    if close_active and open_active:
+        label = "LIVE ARMED"
+        detail = "CLOSE + OPEN/re-entry authority er aktiv for valgt LIVE-pilot"
+    elif open_active:
+        label = "OPEN ARMED"
+        detail = "OPEN/re-entry authority er aktiv; CLOSE er ikke aktiv"
+    else:
+        label = "CLOSE ARMED"
+        detail = "CLOSE authority er aktiv; OPEN/re-entry er ikke aktiv"
+    st.markdown(
+        f"""
+        <div title="{detail}" style="
+            position: fixed;
+            right: 1.15rem;
+            bottom: 1.05rem;
+            z-index: 9999;
+            padding: 0.42rem 0.68rem;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 75, 75, 0.72);
+            background: rgba(48, 15, 18, 0.94);
+            color: #ff7676;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.28);
+        "><span style="font-size:0.9rem;">●</span>&nbsp; {label}</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _render_close_gate(enrollment) -> None:
     close_config = load_live_close_config_v1()
-    close_code = live_close_code_gate_enabled_v1()
+    close_code = live_close_code_enabled = live_close_code_gate_enabled_v1()
     st.caption(
         f"CLOSE gate · code={'ON' if close_code else 'OFF'} · master={'ON' if close_config.armed else 'OFF'}"
     )
     if close_config.armed:
-        st.success("LIVE CLOSE er armed. Strategiens exits krever ingen ny manuell godkjenning.")
+        if live_close_code_enabled:
+            st.success("LIVE CLOSE er ARMED. Strategiens exits krever ingen ny manuell godkjenning.")
+        else:
+            st.warning("LIVE CLOSE master er armed, men deployment code-gaten er OFF.")
         return
     close_ack = st.checkbox(
         "Jeg godkjenner automatisk LIVE CLOSE for eksplisitt AutoManaged posisjon gjennom PriceGaugers safety gates.",
@@ -179,6 +240,88 @@ def _render_pending_approvals(enrollment, currency: str) -> None:
                 return
             st.success("Kun denne execution-requesten er godkjent. Runtime revaliderer alle gates før POST.")
             st.rerun()
+
+
+def _render_sizing_controls(
+    *,
+    enrollment,
+    account_key: str,
+    currency: str,
+    admissions: dict[str, object],
+) -> bool:
+    """Return True when the visible sizing controls match persisted execution policy."""
+    st.markdown("**Ordrestørrelse ved OPEN/re-entry**")
+    st.caption(
+        "Maks innen pilotrammen bruker størst Saxo-godkjente amount som Margin Envelope tillater. "
+        "Fast amount sender alltid samme amount eller blokkerer; den skaleres aldri lydløst."
+    )
+    clean = True
+    for direction, admission in admissions.items():
+        policy = load_entry_sizing_policy_v2(
+            account_key=account_key,
+            uic=enrollment.uic,
+            asset_type=enrollment.asset_type,
+            direction=direction,
+        )
+        key_base = f"td-entry-sizing:{enrollment.pilot_key}:{direction}"
+        selected = st.selectbox(
+            f"{direction} sizing",
+            (SIZING_MODE_MAX, SIZING_MODE_FIXED),
+            index=0 if policy.sizing_mode == SIZING_MODE_MAX else 1,
+            format_func=lambda item: SIZING_MODE_LABELS[item],
+            key=f"{key_base}:mode",
+            help=(
+                "All-in betyr kun innen den isolerte pilotkapitalen og Margin Envelope, aldri resten av Saxo-kontoen."
+            ),
+        )
+        minimum = None if admission is None else getattr(admission, "preflight_amount", None)
+        default_fixed = float(policy.fixed_amount or minimum or 1.0)
+        fixed_amount = None
+        if selected == SIZING_MODE_FIXED:
+            fixed_amount = st.number_input(
+                f"{direction} amount per entry",
+                min_value=float(minimum or 0.00000001),
+                value=max(default_fixed, float(minimum or 0.00000001)),
+                step=float(minimum or 0.01),
+                format="%.8f",
+                key=f"{key_base}:fixed",
+                help="Prefylt med Saxo-discovered minimum. Runtime krever eksakt lovlig amount og gjør ny precheck før ordre.",
+            )
+            if minimum is not None:
+                st.caption(f"Saxo-discovered minimum for {direction}: {float(minimum):g}")
+
+        dirty = selected != policy.sizing_mode
+        if selected == SIZING_MODE_FIXED:
+            dirty = dirty or policy.fixed_amount is None or abs(float(fixed_amount) - float(policy.fixed_amount)) > 1e-12
+        if dirty:
+            clean = False
+            st.caption("Endringen er ikke aktiv før den lagres.")
+        persisted_text = (
+            "Maks innen pilotrammen"
+            if policy.sizing_mode == SIZING_MODE_MAX
+            else f"Fast amount {float(policy.fixed_amount or 0.0):g}"
+        )
+        st.caption(f"Aktiv execution-policy: {persisted_text}")
+        if st.button(
+            f"Lagre {direction} ordrestørrelse",
+            key=f"{key_base}:save",
+            use_container_width=True,
+        ):
+            try:
+                save_entry_sizing_policy_v2(
+                    account_key=account_key,
+                    uic=enrollment.uic,
+                    asset_type=enrollment.asset_type,
+                    direction=direction,
+                    sizing_mode=selected,
+                    fixed_amount=None if selected == SIZING_MODE_MAX else float(fixed_amount),
+                )
+            except Exception as exc:
+                st.error(f"Ordrestørrelsen kunne ikke lagres: {exc}")
+                return False
+            st.success(f"{direction} sizing er lagret.")
+            st.rerun()
+    return clean
 
 
 def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) -> None:
@@ -254,6 +397,7 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
             st.rerun()
 
     _render_close_gate(enrollment)
+    _render_armed_badge(enrollment)
 
     if enrollment.entry_mode == ENTRY_MODE_MANUAL_ONLY:
         st.info(
@@ -421,6 +565,13 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         st.success("Margin Envelope er lagret.")
         st.rerun()
 
+    sizing_clean = _render_sizing_controls(
+        enrollment=enrollment,
+        account_key=account_key,
+        currency=currency,
+        admissions=admissions,
+    )
+
     margin_config = load_pilot_margin_config_v2(enrollment.pilot_key)
     admissions_ready = all(
         (item := load_product_admission_v2(
@@ -433,6 +584,57 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
     )
     margin_ready = bool(margin_config and margin_config.enabled)
 
+    preview_key = f"td-entry-size-preview:{enrollment.pilot_key}"
+    if admissions_ready and margin_ready and sizing_clean and equity.entry_budget > 0:
+        if st.button(
+            "Beregn ordrestørrelse nå · ingen ordre",
+            key=f"{preview_key}:button",
+            use_container_width=True,
+            help="Kjører Saxo precheck og Margin Envelope, men sender ingen ordre.",
+        ):
+            preview_rows = []
+            try:
+                envelope = margin_config.envelope(currency=currency, controlled_capital=float(equity.entry_budget))
+                for direction in required_directions:
+                    ref = uuid5(
+                        NAMESPACE_URL,
+                        f"entry-preview|{enrollment.pilot_key}|{direction}|{equity.entry_budget}",
+                    )
+                    sizing = find_largest_legal_entry_v2(
+                        client,
+                        account_key=account_key,
+                        account_currency=currency,
+                        instrument=instrument,
+                        direction=direction,
+                        envelope=envelope,
+                        controlled_capital=float(equity.entry_budget),
+                        external_reference_prefix=f"pg-preview-{str(ref).replace('-', '')[:22]}",
+                    )
+                    final = sizing.final_precheck
+                    preview_rows.append(
+                        {
+                            "direction": direction,
+                            "amount": float(sizing.amount),
+                            "margin": float(final.initial_margin_account),
+                            "notional": float(final.notional_account),
+                            "free_after": float(final.available_margin_after_account),
+                        }
+                    )
+                st.session_state[preview_key] = preview_rows
+            except Exception as exc:
+                st.session_state.pop(preview_key, None)
+                st.error(f"Ordrestørrelsen kunne ikke preflightes: {exc}")
+        for row in st.session_state.get(preview_key, []):
+            st.success(
+                f"Akkurat nå · {row['direction']}: amount {row['amount']:g} · "
+                f"margin {_money(row['margin'], currency)} · notional {_money(row['notional'], currency)} · "
+                f"fri margin etter {_money(row['free_after'], currency)}"
+            )
+        st.caption(
+            "Maks-modus kan endre amount ved neste signal fordi Saxo-margin/pris revalideres. "
+            "Fast amount endres aldri automatisk; hvis den ikke lenger er lovlig, blokkeres OPEN."
+        )
+
     open_config = load_live_open_config_v2()
     open_code = live_open_code_gate_enabled_v2()
     st.caption(
@@ -440,6 +642,11 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         f"code={'ON' if open_code else 'OFF'} · master={'ON' if open_config.armed else 'OFF'} · "
         f"pilot={'ON' if enrollment.live_open_armed else 'OFF'}"
     )
+
+    if enrollment.live_open_armed and open_config.armed and open_code:
+        st.success("● LIVE OPEN/re-entry er ARMED for denne piloten.")
+    elif enrollment.live_open_armed:
+        st.warning("Piloten er markert armed, men global master eller deployment code-gate er OFF.")
 
     entry_ack = st.checkbox(
         (
@@ -449,7 +656,7 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         ),
         key=f"td-open-pilot-ack:{enrollment.pilot_key}",
     )
-    can_arm_open = admissions_ready and margin_ready and bool(entry_ack)
+    can_arm_open = admissions_ready and margin_ready and sizing_clean and bool(entry_ack)
     if not enrollment.live_open_armed:
         if st.button(
             "Arm LIVE re-entry",
@@ -483,8 +690,10 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         st.caption("OPEN er fail-closed: alle retninger strategien kan åpne må være eksplisitt produktgodkjent.")
     elif not margin_ready:
         st.caption("OPEN er fail-closed: Margin Envelope må lagres.")
+    elif not sizing_clean:
+        st.caption("OPEN er fail-closed: synlig sizing-valg må lagres før LIVE re-entry kan armes.")
     elif not open_code:
         st.caption("Pilot/master kan konfigureres nå, men deployment code-gaten må være ON før noen LIVE OPEN POST er mulig.")
 
 
-__all__ = ["ENTRY_MODE_LABELS", "render_tradingdesk_autotrade_entry_gate_v2"]
+__all__ = ["ENTRY_MODE_LABELS", "SIZING_MODE_LABELS", "render_tradingdesk_autotrade_entry_gate_v2"]
