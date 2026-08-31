@@ -412,6 +412,17 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_macd_timeframe_policy (
+            account_id TEXT NOT NULL,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            timeframe_minutes INTEGER NOT NULL DEFAULT 30
+                CHECK (timeframe_minutes IN (5, 15, 30)),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY(account_id, uic, asset_type)
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_open_config (
             config_id SMALLINT PRIMARY KEY CHECK (config_id = 1),
             armed BOOLEAN NOT NULL DEFAULT FALSE,
