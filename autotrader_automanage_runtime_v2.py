@@ -12,10 +12,11 @@ from autotrader_macd_dry_run_v2 import (
     SIGNAL_DOWN,
     SIGNAL_UP,
     MacdObservationV2,
-    closed_30m_bars_v2,
     macd_observations_v2,
 )
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
+from autotrader_macd_timeframe_policy_v2 import load_macd_timeframe_policy_v2
+from autotrader_macd_timeframe_v2 import closed_macd_bars_v2
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_position_controller_v2 import (
     ACTION_CLOSE,
@@ -44,7 +45,7 @@ from saxo_provider import configured_client
 
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_runtime_v2")
 MACD_LONG_FLAT_STRATEGY_V2 = "macd-30m-long-flat-v1"
-AUTOMANAGE_RECIPE_V2 = "automanage-closed-30m-macd-v2.1"
+AUTOMANAGE_RECIPE_V2 = "automanage-closed-macd-v2.2"
 SUPPORTED_STRATEGIES = {
     MACD_LONG_FLAT_STRATEGY_V2,
     MACD_SHORT_FLAT_STRATEGY_V2,
@@ -101,7 +102,7 @@ class AutoManageIntentV2:
             strategy_key=self.strategy_key,
             signal_at=self.signal_at,
             rationale=(
-                f"confirmed closed 30m MACD 12/26/9 {self.signal}; "
+                f"confirmed closed MACD 12/26/9 {self.signal}; "
                 f"{self.strategy_key} targets {self.target_direction}"
             ),
             source_fingerprint=self.event_id,
@@ -179,6 +180,7 @@ def _intent_from_pair(
     current: MacdObservationV2,
     budget_amount: float,
     budget_currency: str,
+    timeframe_minutes: int = 30,
 ) -> AutoManageIntentV2 | None:
     signal = _cross(previous, current)
     if signal is None:
@@ -188,6 +190,7 @@ def _intent_from_pair(
         (
             enrollment.strategy_key,
             enrollment.pilot_key,
+            f"{int(timeframe_minutes)}m",
             current.bar_time.isoformat(),
             signal,
             target,
@@ -242,6 +245,7 @@ def plan_automanage_step_v2(
     current: MacdObservationV2,
     budget_amount: float,
     budget_currency: str,
+    timeframe_minutes: int = 30,
 ) -> AutoManageEvaluationV2:
     if enrollment.strategy_key not in SUPPORTED_STRATEGIES:
         raise ValueError("unsupported strategy enrollment")
@@ -269,6 +273,7 @@ def plan_automanage_step_v2(
                 current=current,
                 budget_amount=budget_amount,
                 budget_currency=budget_currency,
+                timeframe_minutes=timeframe_minutes,
             )
         if fresh is not None:
             intent = fresh
@@ -312,6 +317,7 @@ def plan_automanage_step_v2(
         (
             AUTOMANAGE_RECIPE_V2,
             enrollment.pilot_key,
+            f"{int(timeframe_minutes)}m",
             current.bar_time.isoformat(),
             "FLAT" if observed_position is None else observed_position.net_position_id,
             observed_state.direction,
@@ -572,10 +578,21 @@ def run_automanage_strategy_once_v2(
     points = tuple(item.point for item in bars)
     if not points:
         raise ValueError("AutoManage has no exact canonical 1m history")
-    closed = closed_30m_bars_v2(points, market=enrollment.market_name)
+    timeframe = load_macd_timeframe_policy_v2(
+        account_id=enrollment.account_id,
+        uic=enrollment.uic,
+        asset_type=enrollment.asset_type,
+    )
+    closed = closed_macd_bars_v2(
+        points,
+        market=enrollment.market_name,
+        timeframe_minutes=timeframe.timeframe_minutes,
+    )
     macd = macd_observations_v2(closed)
     if len(macd) < 2:
-        raise ValueError("AutoManage needs enough closed 30m bars for MACD 12/26/9")
+        raise ValueError(
+            f"AutoManage needs enough closed {timeframe.timeframe_minutes}m bars for MACD 12/26/9"
+        )
 
     if observations is None:
         client = configured_client()
@@ -593,6 +610,7 @@ def run_automanage_strategy_once_v2(
         current=macd[-1],
         budget_amount=equity.entry_budget,
         budget_currency=equity.currency,
+        timeframe_minutes=timeframe.timeframe_minutes,
     )
     _persist_evaluation_and_request(evaluation)
     return evaluation
