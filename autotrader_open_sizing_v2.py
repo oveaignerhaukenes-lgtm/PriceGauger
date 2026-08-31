@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 import math
 from typing import Any
 
+from autotrader_entry_sizing_policy_v2 import SIZING_MODE_FIXED, load_entry_sizing_policy_v2
 from autotrader_live_close_v1 import _post_once, _precheck_is_clear
 from autotrader_margin_envelope_v2 import (
     AutoTraderMarginDecisionV2,
@@ -523,6 +524,12 @@ def find_largest_legal_entry_v2(
         rules=rules,
     )
     minimum = float(resolution.amount)
+    policy = load_entry_sizing_policy_v2(
+        account_key=account_key,
+        uic=int(instrument.uic),
+        asset_type=instrument.asset_type,
+        direction=direction,
+    )
     count = 0
 
     def check(amount: float) -> EntryPrecheckV2 | None:
@@ -545,6 +552,27 @@ def find_largest_legal_entry_v2(
         if item is None or not item.allowed:
             return None
         return item
+
+    if policy.sizing_mode == SIZING_MODE_FIXED:
+        requested = float(policy.fixed_amount or 0.0)
+        exact = _quantized_amount(requested, rules, upward=False)
+        if abs(exact - requested) > 1e-9:
+            raise EntrySizingError(
+                f"fixed amount {requested:g} is not aligned to Saxo amount increment {rules.increment_size:g}"
+            )
+        if requested + 1e-12 < minimum:
+            raise EntrySizingError(
+                f"fixed amount {requested:g} is below account-specific minimum {minimum:g}"
+            )
+        item = check(requested)
+        if item is None:
+            raise EntrySizingError("fixed amount does not pass Saxo precheck and Margin Envelope")
+        return EntrySizingResultV2(
+            rules=rules,
+            amount=item.amount,
+            final_precheck=item,
+            precheck_count=count,
+        )
 
     first = check(minimum)
     if first is None:
