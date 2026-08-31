@@ -92,12 +92,17 @@ def test_automanage_bottom_chart_keeps_actual_live_and_paper_semantics_separate(
 
 def test_automanage_bottom_chart_exposes_engine_provenance_and_next_status():
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    page_source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     assert "load_automanager_activity_log_v2" in source
     assert "Hendelser og neste status" in source
     assert "Status nå:" in source
     assert "Neste:" in source
     assert "event.engine" in source
     assert "Realisert netto" in source
+    assert "exact_close_authority_override=is_position_managed_v1" not in source
+    assert "exact_close_authority_override = is_position_managed_v1(observation)" in source
+    assert "observed_direction_override=observed_direction_override" in source
+    assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)" in page_source
 
 
 def test_execution_panel_separates_exit_from_reentry_authority():

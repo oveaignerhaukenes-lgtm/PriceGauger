@@ -231,9 +231,38 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
     )
 
 
-def _render_automanager_activity_log_v2(enrollment: StrategyEnrollmentV2) -> None:
+def _render_automanager_activity_log_v2(
+    enrollment: StrategyEnrollmentV2,
+    *,
+    observations: tuple[PositionObservationV2, ...] | None = None,
+) -> None:
+    observed_direction_override = None
+    exact_close_authority_override = None
+    if observations is not None:
+        observation = next(
+            (
+                item
+                for item in observations
+                if item.account_id == enrollment.account_id
+                and int(item.uic) == int(enrollment.uic)
+                and item.asset_type == enrollment.asset_type
+            ),
+            None,
+        )
+        if observation is None:
+            observed_direction_override = "FLAT"
+        else:
+            observed_direction_override = (
+                "LONG" if observation.direction.strip().lower() == "buy" else "SHORT"
+            )
+            exact_close_authority_override = is_position_managed_v1(observation)
     try:
-        activity = load_automanager_activity_log_v2(enrollment, limit=8)
+        activity = load_automanager_activity_log_v2(
+            enrollment,
+            limit=8,
+            observed_direction_override=observed_direction_override,
+            exact_close_authority_override=exact_close_authority_override,
+        )
     except Exception as exc:
         st.caption(f"Hendelsesloggen venter: {exc}")
         return
@@ -252,7 +281,11 @@ def _render_automanager_activity_log_v2(enrollment: StrategyEnrollmentV2) -> Non
                 st.caption(" · ".join(item for item in details if item))
 
 
-def render_tradingdesk_automanage_pnl_chart_v2(context: TradingDeskV2Context) -> None:
+def render_tradingdesk_automanage_pnl_chart_v2(
+    context: TradingDeskV2Context,
+    *,
+    observations: tuple[PositionObservationV2, ...] | None = None,
+) -> None:
     """Render the bottom-of-workspace LIVE/paper comparison on explicit contracts."""
     if not using_postgres():
         return
@@ -298,7 +331,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(context: TradingDeskV2Context) ->
         )
         live = next((item for item in group if item.execution_mode == EXECUTION_MODE_LIVE), None)
         if live is not None:
-            _render_automanager_activity_log_v2(live)
+            _render_automanager_activity_log_v2(live, observations=observations)
     st.caption(
         "Øverst vises bare faktisk, avstemt og realisert netto Saxo-P/L; åpen urealisert P/L estimeres ikke. "
         "Nederst vises long/flat, short/flat og MACD Switch som paper-replay på samme observerte startposisjon "
@@ -306,20 +339,22 @@ def render_tradingdesk_automanage_pnl_chart_v2(context: TradingDeskV2Context) ->
     )
 
 
-def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> None:
+def render_tradingdesk_automanage_panel_v2(
+    context: TradingDeskV2Context,
+) -> tuple[PositionObservationV2, ...] | None:
     """Wide AutoManager workspace for strategy-neutral product management."""
     st.markdown("**AutoManager**")
     st.caption("Eksakt LIVE-produkt · strategivalg · separat execution-policy")
 
     if not using_postgres():
         st.info("AutoManager krever PostgreSQL-runtime.")
-        return
+        return None
 
     client = configured_client()
     environment_ok = bool(client and client.base_url.rstrip("/").lower() == LIVE_BASE_URL.lower())
     if client is None or not environment_ok:
         st.info("Saxo LIVE er ikke tilgjengelig i web-runtime.")
-        return
+        return None
 
     # This stays visible even while the strategy is FLAT, unlike the position
     # enrollment controls below which naturally require a currently open position.
@@ -342,11 +377,11 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         candidates = _candidate_positions_for_context(context, observations)
     except Exception as exc:
         st.warning(f"Kunne ikke lese LIVE-posisjonene: {exc}")
-        return
+        return None
 
     if not candidates:
         st.caption("Ingen åpen LIVE-posisjon matcher dette canonical markedet. Aktiv pilot/execution-policy og strategitest over forblir synlig.")
-        return
+        return observations
 
     observation, product = st.selectbox(
         "Åpen posisjon",
@@ -438,7 +473,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             stop_strategy_enrollment_v2(pilot_key)
             st.success("Piloten er slått av.")
             st.rerun()
-        return
+        return observations
 
     seed = st.number_input(
         "Startkapital",
@@ -494,7 +529,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
                 )
         except Exception as exc:
             st.error(f"AutoManager kunne ikke aktiveres: {exc}")
-            return
+            return observations
         shadow_text = (
             f"; {shadow_strategy.label} er startet som SHADOW."
             if shadow_strategy is not None
@@ -505,6 +540,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             "Standard er Manage-only; velg Full auto hvis PG også skal gjøre re-entry etter strategi-exit."
         )
         st.rerun()
+    return observations
 
 
 __all__ = [

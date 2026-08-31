@@ -167,3 +167,16 @@ def test_old_close_is_kept_in_history_but_not_claimed_as_current_flat_cause(
     assert log.lifecycle_status == "FLAT · pilot aktiv"
     assert any(event.title == "Bearish kryss → CLOSE" for event in log.events)
     assert any(event.realized_net_pnl == 85.95 for event in log.events)
+
+
+def test_fresh_live_authority_override_wins_over_stored_runtime_basis(monkeypatch) -> None:
+    monkeypatch.setattr(activity_v2, "connect", lambda: _ActivityDb())
+
+    log = activity_v2.load_automanager_activity_log_v2(
+        _enrollment(),
+        observed_direction_override="LONG",
+        exact_close_authority_override=False,
+    )
+
+    assert log.lifecycle_status == "LONG · mangler eksakt CLOSE-authority"
+    assert "må eksplisitt overtas" in log.next_step

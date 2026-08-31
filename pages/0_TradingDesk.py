@@ -565,8 +565,8 @@ def _render_automanager_workspace() -> None:
         st.info("AutoManager venter på aktivt v2-workspace.")
         return
     with st.container(border=True):
-        render_tradingdesk_automanage_panel_v2(context)
-    render_tradingdesk_automanage_pnl_chart_v2(context)
+        observations = render_tradingdesk_automanage_panel_v2(context)
+    render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)
 
 
 with chart_column:
