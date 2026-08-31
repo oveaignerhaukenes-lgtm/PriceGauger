@@ -28,18 +28,18 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
     assert "with chart_column:" in source
     assert "if auto_refresh:" in source
     assert 'analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis)()' in source
-    assert 'chart_fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()' in source
+    assert 'chart_fragment(run_every=f"{refresh_seconds}s")(_render_live_chart)()' in source
     assert "else:\n        _render_v2_analysis()\n        _render_live_chart()" in source
     assert "render_companion_panel_v2(view)" in source
     assert "_render_automanager_workspace()" in source
     assert source.index("with chart_column:") < source.rindex("_render_automanager_workspace()")
 
 
-def test_tradingdesk_auto_refresh_is_opt_in_and_slow_enough_for_delayed_feed() -> None:
+def test_tradingdesk_auto_refresh_is_default_and_fragment_scoped() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert 'AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"' in source
-    assert "st.session_state[AUTO_REFRESH_STATE_KEY] = False" in source
-    assert '"Auto-oppdater TradingDesk"' in source
-    assert "LIVE_CHART_REFRESH_SECONDS = 30" in source
+    assert "st.session_state[AUTO_REFRESH_STATE_KEY] = True" in source
+    assert '"Autooppdater TradingDesk"' in source
+    assert "refresh_seconds = live_chart_refresh_seconds(forming)" in source
     assert "V2_ANALYSIS_REFRESH_SECONDS = 60" in source

@@ -39,7 +39,7 @@ def test_macd_histogram_uses_clear_green_and_purple_sign_colors() -> None:
         indicator_names=(INDICATOR_MACD,),
     )
 
-    histogram = next(trace for trace in fig.data if trace.name == "MACD histogram")
+    histogram = next(trace for trace in fig.data if trace.name == "MACD histogram · 5 min")
     assert list(histogram.marker.color) == [
         MACD_HIST_POSITIVE_COLOR,
         MACD_HIST_NEGATIVE_COLOR,

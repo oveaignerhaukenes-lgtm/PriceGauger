@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import streamlit as st
 
 from autotrader_automanage_container_v2 import AutoManageProductV2, resolve_saxo_automanage_product_v2
+from autotrader_pnl_chart_v2 import build_automanager_pnl_figure_v2
+from autotrader_pnl_comparison_v2 import load_automanager_pnl_comparison_v2
 from autotrader_pilot_equity_v2 import DEFAULT_PILOT_SEED_CAPITAL, load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_shadow_benchmark_v2 import load_shadow_benchmark_snapshots_v2
@@ -25,6 +27,7 @@ from autotrader_strategy_enrollment_v2 import (
 )
 from database import connect, using_postgres
 from saxo_provider import LIVE_BASE_URL, configured_client
+from time_display_v2 import localize_plotly_figure_v2
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_autotrade_entry_gate_v2 import ENTRY_MODE_LABELS, render_tradingdesk_autotrade_entry_gate_v2
 
@@ -225,6 +228,57 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
     )
 
 
+def render_tradingdesk_automanage_pnl_chart_v2(context: TradingDeskV2Context) -> None:
+    """Render the bottom-of-workspace LIVE/paper comparison on explicit contracts."""
+    if not using_postgres():
+        return
+    try:
+        enrollments = tuple(
+            item
+            for item in load_active_strategy_enrollments_v2()
+            if int(item.market_id) == int(context.market_id)
+        )
+    except Exception as exc:
+        st.caption(f"P/L-grafen venter: {exc}")
+        return
+    if not enrollments:
+        return
+
+    groups: dict[tuple[str, int, str, int], list[StrategyEnrollmentV2]] = {}
+    for enrollment in enrollments:
+        key = (
+            enrollment.account_id,
+            int(enrollment.uic),
+            enrollment.asset_type,
+            int(enrollment.instrument_id),
+        )
+        groups.setdefault(key, []).append(enrollment)
+
+    st.divider()
+    st.markdown("**P/L · LIVE og modellene**")
+    for key, group in groups.items():
+        try:
+            comparison = load_automanager_pnl_comparison_v2(tuple(group))
+            figure = build_automanager_pnl_figure_v2(comparison)
+            localize_plotly_figure_v2(figure)
+        except Exception as exc:
+            st.caption(f"UIC {key[1]} · P/L-sammenligning venter: {exc}")
+            continue
+        if len(groups) > 1:
+            st.caption(f"UIC {key[1]} · {key[2]}")
+        st.plotly_chart(
+            figure,
+            use_container_width=True,
+            key=f"td-automanage-pnl:{key[0]}:{key[1]}:{key[2]}:{key[3]}",
+            config={"displaylogo": False, "scrollZoom": True},
+        )
+    st.caption(
+        "Øverst vises bare faktisk, avstemt og realisert netto Saxo-P/L; åpen urealisert P/L estimeres ikke. "
+        "Nederst vises long/flat, short/flat og MACD Switch som paper-replay på samme observerte startposisjon "
+        "og samme lukkede canonical 30m-prisbane. Paperlinjene modellerer ikke spread, slippage eller margin."
+    )
+
+
 def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> None:
     """Wide AutoManager workspace for strategy-neutral product management."""
     st.markdown("**AutoManager**")
@@ -403,4 +457,8 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         st.rerun()
 
 
-__all__ = ["AutoManagePanelSnapshotV2", "render_tradingdesk_automanage_panel_v2"]
+__all__ = [
+    "AutoManagePanelSnapshotV2",
+    "render_tradingdesk_automanage_panel_v2",
+    "render_tradingdesk_automanage_pnl_chart_v2",
+]

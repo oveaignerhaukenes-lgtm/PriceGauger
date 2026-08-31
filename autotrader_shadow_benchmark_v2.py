@@ -45,6 +45,13 @@ class ProductBenchmarkAnchorV2:
 
 
 @dataclass(frozen=True, slots=True)
+class ShadowEquityPointV2:
+    closed_at: datetime
+    equity: float
+    position_state: str
+
+
+@dataclass(frozen=True, slots=True)
 class ShadowReplayResultV2:
     equity: float
     position_state: str
@@ -52,6 +59,7 @@ class ShadowReplayResultV2:
     evaluated_bars: int
     first_bar_time: datetime | None
     last_bar_time: datetime | None
+    equity_curve: tuple[ShadowEquityPointV2, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +84,22 @@ class ShadowBenchmarkSnapshotV2:
     @property
     def paper_pnl(self) -> float:
         return self.equity - self.seed_equity
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowBenchmarkSeriesV2:
+    strategy_key: str
+    execution_mode: str
+    currency: str
+    seed_equity: float
+    started_at: datetime
+    points: tuple[ShadowEquityPointV2, ...]
+
+    @property
+    def return_pct(self) -> float:
+        if not self.points:
+            return 0.0
+        return ((self.points[-1].equity / self.seed_equity) - 1.0) * 100.0
 
 
 def _utc(value: Any) -> datetime:
@@ -153,6 +177,7 @@ def replay_shadow_benchmark_v2(
             evaluated_bars=0,
             first_bar_time=None,
             last_bar_time=None,
+            equity_curve=(),
         )
 
     first_index: int | None = None
@@ -169,6 +194,7 @@ def replay_shadow_benchmark_v2(
             evaluated_bars=0,
             first_bar_time=None,
             last_bar_time=None,
+            equity_curve=(),
         )
 
     first = items[first_index]
@@ -195,6 +221,13 @@ def replay_shadow_benchmark_v2(
 
     prior_close = float(first_close)
     last_time = first_time
+    curve = [
+        ShadowEquityPointV2(
+            closed_at=first_time + timedelta(minutes=30),
+            equity=equity,
+            position_state=state,
+        )
+    ]
     for index in range(first_index + 1, len(items)):
         current = items[index]
         current_time = _utc(current.bar_time)
@@ -218,6 +251,13 @@ def replay_shadow_benchmark_v2(
         prior_close = float(close)
         last_time = current_time
         evaluated += 1
+        curve.append(
+            ShadowEquityPointV2(
+                closed_at=current_time + timedelta(minutes=30),
+                equity=equity,
+                position_state=state,
+            )
+        )
 
     return ShadowReplayResultV2(
         equity=equity,
@@ -226,6 +266,7 @@ def replay_shadow_benchmark_v2(
         evaluated_bars=evaluated,
         first_bar_time=first_time,
         last_bar_time=last_time,
+        equity_curve=tuple(curve),
     )
 
 
@@ -366,15 +407,88 @@ def load_shadow_benchmark_snapshots_v2(
     return tuple(snapshots)
 
 
+def load_shadow_benchmark_series_v2(
+    enrollments: Iterable[StrategyEnrollmentV2],
+    *,
+    strategy_keys: Iterable[str] | None = None,
+    db_path: str = "pricegauger.db",
+    now: datetime | None = None,
+) -> tuple[ShadowBenchmarkSeriesV2, ...]:
+    """Return deterministic paper equity curves on one shared canonical basis.
+
+    The supplied enrollments establish exact product identity, observed starting
+    exposure and cohort start. ``strategy_keys`` may include supported strategies
+    that were not enrolled as daemons; those curves are read-only retrospective
+    policy replays and never gain execution or ledger authority.
+    """
+    items = tuple(enrollments)
+    if not items:
+        return ()
+    anchor = _load_product_anchor_v2(items)
+    end = _utc(now or datetime.now(timezone.utc))
+    if end < anchor.started_at:
+        raise ValueError("benchmark end precedes enrollment")
+
+    first = items[0]
+    canonical = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
+        instrument_id=int(first.instrument_id),
+        start=anchor.started_at - timedelta(days=BENCHMARK_WARMUP_DAYS),
+        end=end,
+        limit=BENCHMARK_MAX_1M_BARS,
+    )
+    points = tuple(item.point for item in canonical)
+    if not points:
+        raise ValueError("shadow benchmark has no exact canonical 1m history")
+    closed = closed_30m_bars_v2(points, market=first.market_name)
+    observations = macd_observations_v2(closed)
+    if len(observations) < 2:
+        raise ValueError("shadow benchmark needs enough history for MACD 12/26/9")
+    close_by_time = {_utc(bar.bar_time): float(bar.close) for bar in closed}
+
+    by_strategy = {item.strategy_key: item for item in items}
+    live = next((item for item in items if item.execution_mode == "LIVE_MANAGE"), items[0])
+    ledger = load_pilot_equity_v2(pilot_key=live.pilot_key)
+    requested = tuple(strategy_keys) if strategy_keys is not None else tuple(by_strategy)
+    unsupported = set(requested) - SUPPORTED_STRATEGIES
+    if unsupported:
+        raise ValueError(f"unsupported shadow strategies: {sorted(unsupported)}")
+
+    series: list[ShadowBenchmarkSeriesV2] = []
+    for strategy_key in requested:
+        replay = replay_shadow_benchmark_v2(
+            strategy_key=strategy_key,
+            seed_equity=ledger.seed_capital,
+            initial_state=anchor.initial_state,
+            started_at=anchor.started_at,
+            observations=observations,
+            close_by_time=close_by_time,
+        )
+        enrollment = by_strategy.get(strategy_key)
+        series.append(
+            ShadowBenchmarkSeriesV2(
+                strategy_key=strategy_key,
+                execution_mode=(enrollment.execution_mode if enrollment is not None else "SHADOW"),
+                currency=ledger.currency,
+                seed_equity=ledger.seed_capital,
+                started_at=anchor.started_at,
+                points=replay.equity_curve,
+            )
+        )
+    return tuple(series)
+
+
 __all__ = [
     "ProductBenchmarkAnchorV2",
+    "ShadowBenchmarkSeriesV2",
     "ShadowBenchmarkSnapshotV2",
+    "ShadowEquityPointV2",
     "ShadowReplayResultV2",
     "STATE_FLAT",
     "STATE_LONG",
     "STATE_SHORT",
     "apply_shadow_return_v2",
     "load_shadow_benchmark_snapshots_v2",
+    "load_shadow_benchmark_series_v2",
     "replay_shadow_benchmark_v2",
     "target_state_for_signal_v2",
 ]

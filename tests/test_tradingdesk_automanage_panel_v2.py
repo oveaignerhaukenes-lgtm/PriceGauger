@@ -8,6 +8,7 @@ def test_tradingdesk_renders_automanager_in_main_chart_pane_not_right_controls()
     assert "chart_column, controls_column = st.columns([4.8, 1.45]" in source
     assert "def _render_automanager_workspace()" in source
     assert "render_tradingdesk_automanage_panel_v2(context)" in source
+    assert "render_tradingdesk_automanage_pnl_chart_v2(context)" in source
     assert "with chart_column:" in source
     assert "_render_automanager_workspace()" in source
     assert 'with st.expander(f"AutoManage · {market}"' not in source
@@ -58,6 +59,25 @@ def test_automanage_enrollment_requires_explicit_user_acknowledgement():
     assert "disabled=not acknowledge" in source
     assert '"Aktiver AutoManager"' in source
     assert '"Stopp denne piloten"' in source
+
+
+def test_live_chart_exposes_explicit_clickable_macd_timeframe_without_rearming_execution():
+    source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    assert 'MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"' in source
+    assert 'st.session_state[MACD_TIMEFRAME_STATE_KEY] = "30m"' in source
+    assert 'st.popover(f"MACD · {_timeframe_label(macd_timeframe)}"' in source
+    assert '"MACD-timeframe"' in source
+    assert "Kun chartvisning" in source
+    assert "indicator_timeframes={INDICATOR_MACD:" in source
+
+
+def test_automanage_bottom_chart_keeps_actual_live_and_paper_semantics_separate():
+    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    assert "load_automanager_pnl_comparison_v2" in source
+    assert "build_automanager_pnl_figure_v2" in source
+    assert "P/L · LIVE og modellene" in source
+    assert "bare faktisk, avstemt og realisert netto Saxo-P/L" in source
+    assert "long/flat, short/flat og MACD Switch" in source
 
 
 def test_execution_panel_separates_exit_from_reentry_authority():

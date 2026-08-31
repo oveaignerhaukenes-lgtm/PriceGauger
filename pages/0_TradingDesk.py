@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import streamlit as st
@@ -7,6 +8,12 @@ import streamlit as st
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
 from realtime_market_data import RealtimeMarketDataStore
+from saxo_chart_live import (
+    FormingCandleStore,
+    forming_candle_event_age_seconds,
+    live_chart_refresh_seconds,
+    merge_forming_candle_for_display,
+)
 from time_display_v2 import localize_plotly_figure_v2, oslo_label
 from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars
 from trading_desk_chart import (
@@ -16,6 +23,7 @@ from trading_desk_chart import (
 )
 from trading_desk_indicators import (
     DEFAULT_INDICATORS,
+    INDICATOR_MACD,
     INDICATOR_OPTIONS,
     INDICATOR_SWING_BANDS,
     INDICATOR_WARMUP_PERIODS,
@@ -24,7 +32,10 @@ from trading_desk_indicators import (
 )
 from trading_desk_swing_bands import add_swing_bands_to_figure
 from trading_desk_v2_context import TradingDeskV2Context, load_trading_desk_contexts_v2
-from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_v2
+from tradingdesk_automanage_panel_v2 import (
+    render_tradingdesk_automanage_panel_v2,
+    render_tradingdesk_automanage_pnl_chart_v2,
+)
 from v2_forecast_visualization import (
     V2_FORECAST_CSS,
     render_v2_forecast_chart,
@@ -32,11 +43,12 @@ from v2_forecast_visualization import (
 )
 
 
-LIVE_CHART_REFRESH_SECONDS = 30
 V2_ANALYSIS_REFRESH_SECONDS = 60
 QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
+MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
+MARKET_STATE_KEY = "tradingdesk-v2-market"
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
@@ -75,6 +87,7 @@ with header_right:
     st.page_link("pages/0_Oversikt.py", label="Til Oversikt", icon="📡")
 
 store = RealtimeMarketDataStore()
+forming_store = FormingCandleStore()
 try:
     baseline_contexts = load_trading_desk_contexts_v2()
 except Exception as exc:
@@ -88,14 +101,31 @@ if not available_markets:
     st.caption("Legacy analyse/forecast brukes ikke som skjult fallback etter v2-cutover.")
     st.stop()
 
+requested_market = str(st.query_params.get("market", "") or "").strip()
+if st.session_state.get(MARKET_STATE_KEY) not in available_markets:
+    st.session_state[MARKET_STATE_KEY] = (
+        requested_market if requested_market in available_markets else available_markets[0]
+    )
 if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
     st.session_state[TIMEFRAME_STATE_KEY] = "5m"
+if st.session_state.get(MACD_TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
+    st.session_state[MACD_TIMEFRAME_STATE_KEY] = "30m"
 if AUTO_REFRESH_STATE_KEY not in st.session_state:
-    st.session_state[AUTO_REFRESH_STATE_KEY] = False
+    st.session_state[AUTO_REFRESH_STATE_KEY] = True
 
 
 def _select_timeframe(value: str) -> None:
     st.session_state[TIMEFRAME_STATE_KEY] = value
+
+
+def _persist_market_selection() -> None:
+    selected = str(st.session_state.get(MARKET_STATE_KEY, "") or "")
+    if selected in available_markets:
+        st.query_params["market"] = selected
+
+
+def _timeframe_label(value: str) -> str:
+    return f"{TIMEFRAME_MINUTES[value]} min"
 
 
 def _horizon_label(seconds: int) -> str:
@@ -114,7 +144,14 @@ with controls_column:
     st.subheader("Kontroller")
 
     with st.expander("V2 marked / analyse", expanded=True):
-        market = st.selectbox("Marked", available_markets, key="tradingdesk-v2-market")
+        market = st.selectbox(
+            "Marked",
+            available_markets,
+            key=MARKET_STATE_KEY,
+            on_change=_persist_market_selection,
+        )
+        if str(st.query_params.get("market", "") or "") != market:
+            st.query_params["market"] = market
         baseline_context = baseline_contexts[market]
         baseline_view = baseline_context.forecast
 
@@ -206,28 +243,45 @@ with controls_column:
 
     with st.expander("Status", expanded=False):
         auto_refresh = st.toggle(
-            "Auto-oppdater TradingDesk",
+            "Autooppdater TradingDesk",
             key=AUTO_REFRESH_STATE_KEY,
             help=(
-                "Av som standard for å unngå at Streamlit rerenderer og gråer ut analyse/graf mens du leser. "
-                "Når aktivert oppdateres chart rolig hvert 30. sekund og analyse hvert 60. sekund."
+                "På som standard. Analyse og chart oppdateres i separate fragmenter, slik at resten av siden "
+                "ikke skal fade eller lastes på nytt."
             ),
         )
         if auto_refresh:
             st.caption(
-                f"Canonical chart-bars oppdateres hvert {LIVE_CHART_REFRESH_SECONDS}. sekund. "
+                "Live-candlen oppdateres hvert sekund når Saxo chart-streamen er aktiv, ellers hvert femte sekund. "
                 f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
             )
         else:
-            st.caption("Auto-oppdatering er av. Siden oppdateres ved brukerhandling eller nettleser-refresh.")
+            st.caption("Autooppdatering er pauset. Siden oppdateres ved brukerhandling eller nettleser-refresh.")
         st.caption(
             "Chartet og v2-runtime konsumerer canonical 1m-data. Kjent Saxo-forsinkelse vises eksplisitt og regnes ikke som feed-feil når strømmen ellers er konsistent."
         )
 
 
-def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
+def _load_for_timeframe(
+    name: str,
+    *,
+    selected_timeframe: str,
+    range_start: datetime,
+    range_end: datetime,
+    limit: int = 10000,
+):
     raw = store.load_range(market=name, start=range_start, end=range_end, limit=limit)
-    return resample_bars(raw, timeframe=timeframe)
+    return resample_bars(raw, timeframe=selected_timeframe)
+
+
+def _load(name: str, *, range_start: datetime, range_end: datetime, limit: int = 10000):
+    return _load_for_timeframe(
+        name,
+        selected_timeframe=timeframe,
+        range_start=range_start,
+        range_end=range_end,
+        limit=limit,
+    )
 
 
 def _load_active_context() -> TradingDeskV2Context | None:
@@ -334,28 +388,83 @@ def _render_live_chart() -> None:
             indicator_source = _load(market, range_start=warmup_start, range_end=resolved_end, limit=20000)
             technical = calculate_indicators(indicator_source)
             technical = clip_indicators(technical, start=primary[0].bar_time, end=primary[-1].bar_time)
+            macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
+            if INDICATOR_MACD in indicator_names and macd_timeframe != timeframe:
+                macd_warmup_minutes = TIMEFRAME_MINUTES[macd_timeframe] * INDICATOR_WARMUP_PERIODS
+                macd_source = _load_for_timeframe(
+                    market,
+                    selected_timeframe=macd_timeframe,
+                    range_start=resolved_start - timedelta(minutes=macd_warmup_minutes),
+                    range_end=resolved_end,
+                    limit=20000,
+                )
+                macd = clip_indicators(
+                    calculate_indicators(macd_source),
+                    start=primary[0].bar_time,
+                    end=primary[-1].bar_time,
+                )
+                technical = replace(
+                    technical,
+                    macd=macd.macd,
+                    macd_signal=macd.macd_signal,
+                    macd_histogram=macd.macd_histogram,
+                )
         except ValueError as exc:
             st.warning(f"Kunne ikke beregne tekniske indikatorer for {market}: {exc}")
 
-    latest_display = "ingen data"
-    if primary:
-        latest_display = f"{primary[-1].close:g} @ {oslo_label(primary[-1].bar_time)}"
+    forming = None
+    try:
+        candidate = forming_store.load(market=market)
+        if (
+            candidate is not None
+            and str(candidate.uic) == str(context.instrument.provider_instrument_id)
+            and candidate.asset_type == context.instrument.asset_type
+            and (forming_candle_event_age_seconds(candidate) or 0.0) <= 8.0
+        ):
+            forming = candidate
+    except Exception:
+        forming = None
+    display_primary = merge_forming_candle_for_display(primary, forming=forming, timeframe=timeframe)
 
-    st.subheader("Live chart")
+    latest_display = "ingen data"
+    if display_primary:
+        latest_display = f"{display_primary[-1].close:g} @ {oslo_label(display_primary[-1].bar_time)}"
+
+    chart_header, macd_control = st.columns([4.2, 1.2])
+    with chart_header:
+        st.subheader("Live chart")
+    with macd_control:
+        macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
+        with st.popover(f"MACD · {_timeframe_label(macd_timeframe)}", use_container_width=True):
+            st.radio(
+                "MACD-timeframe",
+                QUICK_TIMEFRAMES,
+                key=MACD_TIMEFRAME_STATE_KEY,
+                format_func=_timeframe_label,
+                help="Velger timeframe for MACD-panelet i chartet.",
+            )
+            st.caption("Kun chartvisning. Den armerte AutoManager-piloten beholder sin eksplisitte 30 min-strategi.")
     st.caption(
         f"**{market}** · v2 instrument_id {context.instrument.instrument_id} · {timeframe} · {window_hours}t · "
         f"siste close {latest_display}"
     )
+    if forming is not None:
+        age = forming_candle_event_age_seconds(forming)
+        st.caption(
+            f"● Forming candle · Saxo chart-stream · UI-only · oppdatert for {age:.1f} sek siden. "
+            "Den inngår ikke i canonical historikk, indikatorer eller AutoManager-signaler."
+        )
 
     fig = build_trading_desk_figure(
         market=market,
         timeframe=timeframe,
         window_hours=int(window_hours),
-        primary=primary,
+        primary=display_primary,
         overlays=loaded_overlays,
         overlay_mode=overlay_mode,
         indicators=technical,
         indicator_names=indicator_names,
+        indicator_timeframes={INDICATOR_MACD: st.session_state[MACD_TIMEFRAME_STATE_KEY]},
         chart_height=chart_height,
         price_panel_share=price_panel_pct / 100.0,
     )
@@ -371,6 +480,7 @@ def _render_live_chart() -> None:
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
         },
+        key=f"tradingdesk-live-chart:{market}",
     )
 
     if not primary:
@@ -401,6 +511,7 @@ def _render_automanager_workspace() -> None:
         return
     with st.container(border=True):
         render_tradingdesk_automanage_panel_v2(context)
+    render_tradingdesk_automanage_pnl_chart_v2(context)
 
 
 with chart_column:
@@ -413,7 +524,12 @@ with chart_column:
 
         chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
         if chart_fragment is not None:
-            chart_fragment(run_every=f"{LIVE_CHART_REFRESH_SECONDS}s")(_render_live_chart)()
+            try:
+                forming = forming_store.load(market=market)
+            except Exception:
+                forming = None
+            refresh_seconds = live_chart_refresh_seconds(forming)
+            chart_fragment(run_every=f"{refresh_seconds}s")(_render_live_chart)()
         else:
             _render_live_chart()
     else:

@@ -70,6 +70,7 @@ def build_trading_desk_figure(
     overlay_mode: str,
     indicators: TechnicalIndicators | None = None,
     indicator_names: Sequence[str] = (),
+    indicator_timeframes: Mapping[str, str] | None = None,
     chart_height: int = 780,
     price_panel_share: float = 0.50,
     empty_message: str = "Ingen ferdige canonical 1m-bars å vise ennå.",
@@ -77,6 +78,7 @@ def build_trading_desk_figure(
     """Build the TradingDesk chart with readable axes and dynamic indicator panels."""
 
     selected = set(indicator_names)
+    resolved_indicator_timeframes = dict(indicator_timeframes or {})
     unsupported = selected - set(INDICATOR_OPTIONS)
     if unsupported:
         raise ValueError(f"Unsupported TradingDesk indicators: {sorted(unsupported)}")
@@ -198,12 +200,15 @@ def build_trading_desk_figure(
 
         if indicators is not None and INDICATOR_MACD in panel_rows:
             row = panel_rows[INDICATOR_MACD]
+            macd_timeframe = resolved_indicator_timeframes.get(INDICATOR_MACD, timeframe)
+            macd_minutes = 60 if macd_timeframe == "1h" else int(str(macd_timeframe).removesuffix("m"))
+            macd_suffix = f"{macd_minutes} min"
             histogram_values = [point.value for point in indicators.macd_histogram]
             fig.add_trace(
                 go.Bar(
                     x=[point.bar_time for point in indicators.macd_histogram],
                     y=histogram_values,
-                    name="MACD histogram",
+                    name=f"MACD histogram · {macd_suffix}",
                     marker={
                         "color": [
                             MACD_HIST_POSITIVE_COLOR if value >= 0.0 else MACD_HIST_NEGATIVE_COLOR
@@ -212,7 +217,7 @@ def build_trading_desk_figure(
                         "line": {"width": 0},
                     },
                     opacity=0.92,
-                    hovertemplate="MACD histogram<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
+                    hovertemplate=f"MACD histogram · {macd_suffix}<br>%{{x|%d.%m %H:%M}} UTC<br>%{{y:.4g}}<extra></extra>",
                 ),
                 row=row,
                 col=1,
@@ -222,9 +227,9 @@ def build_trading_desk_figure(
                     x=[point.bar_time for point in indicators.macd],
                     y=[point.value for point in indicators.macd],
                     mode="lines",
-                    name="MACD (12,26)",
+                    name=f"MACD (12,26) · {macd_suffix}",
                     line={"color": "#2563eb", "width": 1.8},
-                    hovertemplate="MACD<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
+                    hovertemplate=f"MACD (12,26) · {macd_suffix}<br>%{{x|%d.%m %H:%M}} UTC<br>%{{y:.4g}}<extra></extra>",
                 ),
                 row=row,
                 col=1,
@@ -234,9 +239,9 @@ def build_trading_desk_figure(
                     x=[point.bar_time for point in indicators.macd_signal],
                     y=[point.value for point in indicators.macd_signal],
                     mode="lines",
-                    name="Signal (9)",
+                    name=f"Signal (9) · {macd_suffix}",
                     line={"color": "#dc2626", "width": 1.6},
-                    hovertemplate="MACD signal<br>%{x|%d.%m %H:%M} UTC<br>%{y:.4g}<extra></extra>",
+                    hovertemplate=f"MACD signal (9) · {macd_suffix}<br>%{{x|%d.%m %H:%M}} UTC<br>%{{y:.4g}}<extra></extra>",
                 ),
                 row=row,
                 col=1,
@@ -347,8 +352,13 @@ def build_trading_desk_figure(
     fig.update_yaxes(title_text=f"{market} · volum", side="right", showgrid=True, zeroline=False, row=2, col=1, **axis_style)
 
     for name, row in panel_rows.items():
+        axis_title = "Stoch" if name == INDICATOR_STOCHASTIC else name
+        if name == INDICATOR_MACD:
+            macd_timeframe = resolved_indicator_timeframes.get(INDICATOR_MACD, timeframe)
+            macd_minutes = 60 if macd_timeframe == "1h" else int(str(macd_timeframe).removesuffix("m"))
+            axis_title = f"MACD · {macd_minutes} min"
         kwargs: dict[str, object] = {
-            "title_text": "Stoch" if name == INDICATOR_STOCHASTIC else name,
+            "title_text": axis_title,
             "showgrid": True,
             "zeroline": False,
             "row": row,
@@ -392,6 +402,9 @@ def build_trading_desk_figure(
         dragmode="pan",
         paper_bgcolor="white",
         plot_bgcolor="white",
-        uirevision=f"TradingDesk:{market}:{timeframe}:{int(window_hours)}:{','.join(sorted(selected))}:{int(chart_height)}:{price_share:.2f}",
+        uirevision=(
+            f"TradingDesk:{market}:{timeframe}:{int(window_hours)}:{','.join(sorted(selected))}:"
+            f"{sorted(resolved_indicator_timeframes.items())}:{int(chart_height)}:{price_share:.2f}"
+        ),
     )
     return fig
