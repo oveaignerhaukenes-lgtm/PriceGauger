@@ -268,7 +268,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(context: TradingDeskV2Context) ->
             st.caption(f"UIC {key[1]} · {key[2]}")
         st.plotly_chart(
             figure,
-            use_container_width=True,
+            width="stretch",
             key=f"td-automanage-pnl:{key[0]}:{key[1]}:{key[2]}:{key[3]}",
             config={"displaylogo": False, "scrollZoom": True},
         )
@@ -384,7 +384,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
 
         if snapshot.enrollment.execution_mode == EXECUTION_MODE_LIVE:
             st.caption("Execution-adferd og gates for denne piloten konfigureres i seksjonen over.")
-        if st.button("Stopp denne piloten", key=f"td-stop-automanage:{pilot_key}", use_container_width=True):
+        if st.button("Stopp denne piloten", key=f"td-stop-automanage:{pilot_key}", width="stretch"):
             stop_strategy_enrollment_v2(pilot_key)
             st.success("Piloten er slått av.")
             st.rerun()
@@ -424,7 +424,7 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         type="primary",
         disabled=not acknowledge,
         key=f"td-start-automanage:{product.product_key}:{strategy.key}",
-        use_container_width=True,
+        width="stretch",
     ):
         try:
             enroll_strategy_position_v2(

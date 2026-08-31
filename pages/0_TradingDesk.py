@@ -11,8 +11,6 @@ from realtime_market_data import RealtimeMarketDataStore
 from saxo_chart_live import (
     FormingCandleStore,
     forming_candle_event_age_seconds,
-    live_chart_refresh_seconds,
-    merge_forming_candle_for_display,
 )
 from time_display_v2 import localize_plotly_figure_v2, oslo_label
 from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars
@@ -20,6 +18,12 @@ from trading_desk_chart import (
     OVERLAY_ACTUAL,
     OVERLAY_NORMALIZED,
     build_trading_desk_figure,
+    trading_desk_uirevision,
+)
+from trading_desk_live_overlay_v2 import (
+    live_chart_overlay_key_v2,
+    parse_live_chart_view_v2,
+    render_live_candle_overlay_v2,
 )
 from trading_desk_indicators import (
     DEFAULT_INDICATORS,
@@ -44,6 +48,8 @@ from v2_forecast_visualization import (
 
 
 V2_ANALYSIS_REFRESH_SECONDS = 60
+LIVE_CHART_BASE_REFRESH_SECONDS = 60
+LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
 QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"
@@ -197,7 +203,7 @@ with controls_column:
                         key=f"tradingdesk_tf_{row_index}_{value}",
                         help=f"Bytt direkte til {value}",
                         type="primary" if st.session_state[TIMEFRAME_STATE_KEY] == value else "secondary",
-                        use_container_width=True,
+                        width="stretch",
                         on_click=_select_timeframe,
                         args=(value,),
                     )
@@ -296,7 +302,7 @@ def _load_active_context() -> TradingDeskV2Context | None:
     return contexts.get(market)
 
 
-def _render_v2_analysis() -> None:
+def _render_v2_analysis(*, include_companion: bool = True) -> None:
     context = _load_active_context()
     if context is None:
         st.info("V2-workspace er ikke tilgjengelig for valgt marked/horizon.")
@@ -326,7 +332,66 @@ def _render_v2_analysis() -> None:
     if context.health.status != "HEALTHY":
         st.warning(f"V2 analysis health: {context.health.status} · {context.health.detail}")
 
-    render_companion_panel_v2(view)
+    if include_companion:
+        render_companion_panel_v2(view)
+
+
+def _render_v2_analysis_snapshot() -> None:
+    """Refresh read-only analysis without recreating companion controls."""
+    _render_v2_analysis(include_companion=False)
+
+
+def _render_companion_workspace() -> None:
+    context = _load_active_context()
+    if context is not None:
+        render_companion_panel_v2(context.forecast)
+
+
+def _render_live_chart_controls() -> None:
+    """Render stable chart controls outside the timed chart fragment."""
+    chart_header, macd_control = st.columns([4.2, 1.2])
+    with chart_header:
+        st.subheader("Live chart")
+    with macd_control:
+        macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
+        with st.popover(f"MACD · {_timeframe_label(macd_timeframe)}", width="stretch"):
+            st.radio(
+                "MACD-timeframe",
+                QUICK_TIMEFRAMES,
+                key=MACD_TIMEFRAME_STATE_KEY,
+                format_func=_timeframe_label,
+                help="Velger timeframe for MACD-panelet i chartet.",
+            )
+            st.caption("Kun chartvisning. Den armerte AutoManager-piloten beholder sin eksplisitte 30 min-strategi.")
+
+
+def _live_chart_uirevision() -> str:
+    return trading_desk_uirevision(
+        market=market,
+        timeframe=timeframe,
+        window_hours=int(window_hours),
+        indicator_names=indicator_names,
+        indicator_timeframes={INDICATOR_MACD: st.session_state[MACD_TIMEFRAME_STATE_KEY]},
+        chart_height=chart_height,
+        price_panel_share=price_panel_pct / 100.0,
+    )
+
+
+def _recent_forming_candle(context: TradingDeskV2Context | None):
+    if context is None or context.instrument is None:
+        return None
+    try:
+        candidate = forming_store.load(market=market)
+    except Exception:
+        return None
+    if (
+        candidate is not None
+        and str(candidate.uic) == str(context.instrument.provider_instrument_id)
+        and candidate.asset_type == context.instrument.asset_type
+        and (forming_candle_event_age_seconds(candidate) or 0.0) <= 8.0
+    ):
+        return candidate
+    return None
 
 
 def _render_live_chart() -> None:
@@ -412,54 +477,19 @@ def _render_live_chart() -> None:
         except ValueError as exc:
             st.warning(f"Kunne ikke beregne tekniske indikatorer for {market}: {exc}")
 
-    forming = None
-    try:
-        candidate = forming_store.load(market=market)
-        if (
-            candidate is not None
-            and str(candidate.uic) == str(context.instrument.provider_instrument_id)
-            and candidate.asset_type == context.instrument.asset_type
-            and (forming_candle_event_age_seconds(candidate) or 0.0) <= 8.0
-        ):
-            forming = candidate
-    except Exception:
-        forming = None
-    display_primary = merge_forming_candle_for_display(primary, forming=forming, timeframe=timeframe)
-
     latest_display = "ingen data"
-    if display_primary:
-        latest_display = f"{display_primary[-1].close:g} @ {oslo_label(display_primary[-1].bar_time)}"
+    if primary:
+        latest_display = f"{primary[-1].close:g} @ {oslo_label(primary[-1].bar_time)}"
 
-    chart_header, macd_control = st.columns([4.2, 1.2])
-    with chart_header:
-        st.subheader("Live chart")
-    with macd_control:
-        macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
-        with st.popover(f"MACD · {_timeframe_label(macd_timeframe)}", use_container_width=True):
-            st.radio(
-                "MACD-timeframe",
-                QUICK_TIMEFRAMES,
-                key=MACD_TIMEFRAME_STATE_KEY,
-                format_func=_timeframe_label,
-                help="Velger timeframe for MACD-panelet i chartet.",
-            )
-            st.caption("Kun chartvisning. Den armerte AutoManager-piloten beholder sin eksplisitte 30 min-strategi.")
     st.caption(
         f"**{market}** · v2 instrument_id {context.instrument.instrument_id} · {timeframe} · {window_hours}t · "
         f"siste close {latest_display}"
     )
-    if forming is not None:
-        age = forming_candle_event_age_seconds(forming)
-        st.caption(
-            f"● Forming candle · Saxo chart-stream · UI-only · oppdatert for {age:.1f} sek siden. "
-            "Den inngår ikke i canonical historikk, indikatorer eller AutoManager-signaler."
-        )
-
     fig = build_trading_desk_figure(
         market=market,
         timeframe=timeframe,
         window_hours=int(window_hours),
-        primary=display_primary,
+        primary=primary,
         overlays=loaded_overlays,
         overlay_mode=overlay_mode,
         indicators=technical,
@@ -471,16 +501,25 @@ def _render_live_chart() -> None:
     if primary and INDICATOR_SWING_BANDS in indicator_names:
         add_swing_bands_to_figure(fig, primary)
     localize_plotly_figure_v2(fig)
+    navigation_key = live_chart_overlay_key_v2(_live_chart_uirevision())
+    saved_view = parse_live_chart_view_v2(st.session_state.get(navigation_key))
+    if saved_view is not None:
+        fig.update_xaxes(range=list(saved_view.x_range), autorange=False)
+        fig.update_yaxes(range=list(saved_view.y_range), autorange=False, row=1, col=1, secondary_y=False)
 
     st.plotly_chart(
         fig,
-        use_container_width=True,
+        width="stretch",
         config={
             "scrollZoom": True,
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
         },
         key=f"tradingdesk-live-chart:{market}",
+    )
+    st.caption(
+        "Navigasjon: dra i selve plottet for å flytte visningen. Dra langs tidsaksen for bare tid, "
+        "og langs prisaksen til høyre for bare prisnivå. Dobbeltklikk nullstiller visningen."
     )
 
     if not primary:
@@ -492,6 +531,22 @@ def _render_live_chart() -> None:
                 "Volum vises bare der canonical bar har ekte Saxo chart-volume. "
                 "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
             )
+
+
+def _render_live_candle_overlay() -> None:
+    context = _load_active_context()
+    forming = _recent_forming_candle(context)
+    render_live_candle_overlay_v2(
+        uirevision=_live_chart_uirevision(),
+        timeframe_minutes=TIMEFRAME_MINUTES[timeframe],
+        candle=forming,
+    )
+    if forming is not None:
+        age = forming_candle_event_age_seconds(forming)
+        st.caption(
+            f"● Forming candle · Saxo chart-stream · UI-only · oppdatert for {age:.1f} sek siden. "
+            "Sekundbevegelsen tegnes i nettleseren og inngår ikke i canonical historikk, indikatorer eller AutoManager-signaler."
+        )
 
 
 def _render_automanager_workspace() -> None:
@@ -518,22 +573,26 @@ with chart_column:
     if auto_refresh:
         analysis_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
         if analysis_fragment is not None:
-            analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis)()
+            analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis_snapshot)()
         else:
-            _render_v2_analysis()
+            _render_v2_analysis_snapshot()
+        _render_companion_workspace()
 
+        _render_live_chart_controls()
         chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
         if chart_fragment is not None:
-            try:
-                forming = forming_store.load(market=market)
-            except Exception:
-                forming = None
-            refresh_seconds = live_chart_refresh_seconds(forming)
-            chart_fragment(run_every=f"{refresh_seconds}s")(_render_live_chart)()
+            chart_fragment(run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s")(_render_live_chart)()
         else:
             _render_live_chart()
+        overlay_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+        if overlay_fragment is not None:
+            overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_candle_overlay)()
+        else:
+            _render_live_candle_overlay()
     else:
         _render_v2_analysis()
+        _render_live_chart_controls()
         _render_live_chart()
+        _render_live_candle_overlay()
 
     _render_automanager_workspace()

@@ -32,17 +32,18 @@ def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_de
     assert 'st.query_params["market"] = selected' in source
     assert 'st.session_state[AUTO_REFRESH_STATE_KEY] = True' in source
     assert 'analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")' in source
-    assert 'chart_fragment(run_every=f"{refresh_seconds}s")' in source
+    assert 'chart_fragment(run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s")' in source
+    assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")' in source
 
 
-def test_tradingdesk_overlays_recent_forming_candle_only_in_ui() -> None:
+def test_tradingdesk_overlays_recent_forming_candle_only_in_browser_ui() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert "forming_store.load(market=market)" in source
     assert "forming_candle_event_age_seconds(candidate)" in source
-    assert "merge_forming_candle_for_display(primary, forming=forming, timeframe=timeframe)" in source
-    assert "primary=display_primary" in source
-    assert "Den inngår ikke i canonical historikk, indikatorer eller AutoManager-signaler." in source
+    assert "render_live_candle_overlay_v2(" in source
+    assert "primary=primary" in source
+    assert "Sekundbevegelsen tegnes i nettleseren" in source
 
 
 def test_plotly_graph_operators_are_vertical_on_right_edge() -> None:
