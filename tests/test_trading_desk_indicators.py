@@ -117,9 +117,9 @@ def test_chart_renders_default_indicators_compact_and_readable() -> None:
 
     traces = {trace.name: trace for trace in fig.data}
     assert traces["Gold · volum"].yaxis == "y3"
-    assert traces["MACD (12,26)"].yaxis == "y4"
+    assert traces["MACD (12,26) · 5 min"].yaxis == "y4"
     assert traces["RSI (14)"].yaxis == "y5"
-    assert traces["MACD (12,26)"].line.width >= 1.8
+    assert traces["MACD (12,26) · 5 min"].line.width >= 1.8
     assert traces["RSI (14)"].line.width >= 1.8
     assert fig.layout.height == 780
     assert fig.layout.font.color == TEXT_COLOR
@@ -127,6 +127,28 @@ def test_chart_renders_default_indicators_compact_and_readable() -> None:
     assert fig.layout.yaxis.tickfont.size >= 13
     assert fig.layout.yaxis4.tickfont.color == TEXT_COLOR
     assert fig.layout.yaxis5.tickfont.color == TEXT_COLOR
+
+
+def test_chart_labels_an_independent_macd_timeframe() -> None:
+    bars = _bars(70)
+    indicators = calculate_indicators(bars)
+    fig = build_trading_desk_figure(
+        market="Gold",
+        timeframe="5m",
+        window_hours=24,
+        primary=bars,
+        overlays={},
+        overlay_mode=OVERLAY_NORMALIZED,
+        indicators=indicators,
+        indicator_names=(INDICATOR_MACD,),
+        indicator_timeframes={INDICATOR_MACD: "30m"},
+    )
+
+    names = {trace.name for trace in fig.data}
+    assert "MACD (12,26) · 30 min" in names
+    assert "Signal (9) · 30 min" in names
+    assert "MACD histogram · 30 min" in names
+    assert fig.layout.yaxis4.title.text == "MACD · 30 min"
 
 
 def test_chart_renders_optional_price_and_panel_indicators() -> None:
