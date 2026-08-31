@@ -4,7 +4,10 @@ from dataclasses import dataclass
 
 import streamlit as st
 
+from autotrader_activity_log_v2 import load_automanager_activity_log_v2
 from autotrader_automanage_container_v2 import AutoManageProductV2, resolve_saxo_automanage_product_v2
+from autotrader_managed_positions_v1 import is_position_managed_v1
+from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
 from autotrader_pnl_chart_v2 import build_automanager_pnl_figure_v2
 from autotrader_pnl_comparison_v2 import load_automanager_pnl_comparison_v2
 from autotrader_pilot_equity_v2 import DEFAULT_PILOT_SEED_CAPITAL, load_pilot_equity_v2
@@ -27,7 +30,7 @@ from autotrader_strategy_enrollment_v2 import (
 )
 from database import connect, using_postgres
 from saxo_provider import LIVE_BASE_URL, configured_client
-from time_display_v2 import localize_plotly_figure_v2
+from time_display_v2 import localize_plotly_figure_v2, oslo_label
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_autotrade_entry_gate_v2 import ENTRY_MODE_LABELS, render_tradingdesk_autotrade_entry_gate_v2
 
@@ -228,6 +231,27 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
     )
 
 
+def _render_automanager_activity_log_v2(enrollment: StrategyEnrollmentV2) -> None:
+    try:
+        activity = load_automanager_activity_log_v2(enrollment, limit=8)
+    except Exception as exc:
+        st.caption(f"Hendelsesloggen venter: {exc}")
+        return
+
+    st.markdown("**Hendelser og neste status**")
+    st.info(f"**Status nå: {activity.lifecycle_status}**\n\nNeste: {activity.next_step}")
+    with st.expander(f"Siste hendelser ({len(activity.events)})", expanded=True):
+        for event in activity.events:
+            with st.container(border=True):
+                st.caption(f"{oslo_label(event.occurred_at)} · {event.engine}")
+                st.markdown(f"**{event.title}**")
+                details = [event.detail, event.status]
+                if event.realized_net_pnl is not None:
+                    currency = event.currency or ""
+                    details.append(f"Realisert netto {event.realized_net_pnl:+.2f} {currency}".strip())
+                st.caption(" · ".join(item for item in details if item))
+
+
 def render_tradingdesk_automanage_pnl_chart_v2(context: TradingDeskV2Context) -> None:
     """Render the bottom-of-workspace LIVE/paper comparison on explicit contracts."""
     if not using_postgres():
@@ -272,6 +296,9 @@ def render_tradingdesk_automanage_pnl_chart_v2(context: TradingDeskV2Context) ->
             key=f"td-automanage-pnl:{key[0]}:{key[1]}:{key[2]}:{key[3]}",
             config={"displaylogo": False, "scrollZoom": True},
         )
+        live = next((item for item in group if item.execution_mode == EXECUTION_MODE_LIVE), None)
+        if live is not None:
+            _render_automanager_activity_log_v2(live)
     st.caption(
         "Øverst vises bare faktisk, avstemt og realisert netto Saxo-P/L; åpen urealisert P/L estimeres ikke. "
         "Nederst vises long/flat, short/flat og MACD Switch som paper-replay på samme observerte startposisjon "
@@ -383,6 +410,29 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             st.caption(f"Runtime: {snapshot.last_outcome}")
 
         if snapshot.enrollment.execution_mode == EXECUTION_MODE_LIVE:
+            if not is_position_managed_v1(observation):
+                st.warning(
+                    "Denne Saxo-posisjonen observeres av piloten, men den eksakte amount/open-basen har ikke "
+                    "CLOSE-authority. En strategi-exit vil være fail-closed til posisjonen er overtatt."
+                )
+                adopt_ack = st.checkbox(
+                    "Jeg vil at den aktive piloten skal forvalte og kunne lukke akkurat denne posisjonen.",
+                    key=f"td-adopt-position-ack:{snapshot.pilot_key}:{observation.net_position_id}",
+                    help="Sender ingen ordre. Den registrerer bare eksakt Saxo-basis som AutoManaged.",
+                )
+                if st.button(
+                    "Overta denne posisjonen",
+                    disabled=not adopt_ack,
+                    key=f"td-adopt-position:{snapshot.pilot_key}:{observation.net_position_id}",
+                    width="stretch",
+                ):
+                    try:
+                        adopt_user_confirmed_position_v2(snapshot.enrollment, observation)
+                    except Exception as exc:
+                        st.error(f"Posisjonen kunne ikke overtas: {exc}")
+                    else:
+                        st.success("Posisjonen er overtatt med eksakt CLOSE-authority. Ingen ordre ble sendt.")
+                        st.rerun()
             st.caption("Execution-adferd og gates for denne piloten konfigureres i seksjonen over.")
         if st.button("Stopp denne piloten", key=f"td-stop-automanage:{pilot_key}", width="stretch"):
             stop_strategy_enrollment_v2(pilot_key)

@@ -92,6 +92,28 @@ def test_manual_adoption_refuses_auto_entry_modes_before_any_authority_change(mo
         )
 
 
+def test_user_confirmed_adoption_allows_auto_pilot_without_sending_an_order(monkeypatch):
+    events: list[str] = []
+    db = _FakeDb(events, fetchone_values=[None, None, None])
+    monkeypatch.setattr(adoption_v2, "ensure_autotrader_schema_v2", lambda: None)
+    monkeypatch.setattr(adoption_v2, "is_position_managed_v1", lambda _obs: False)
+    monkeypatch.setattr(adoption_v2, "connect", lambda: _FakeConnect(db))
+    monkeypatch.setattr(
+        adoption_v2,
+        "enroll_position_v1",
+        lambda obs: events.append(f"enroll:{obs.net_position_id}"),
+    )
+
+    changed = adoption_v2.adopt_user_confirmed_position_v2(
+        _enrollment(entry_mode=ENTRY_MODE_AUTO),
+        _observation(),
+    )
+
+    assert changed is True
+    assert "enroll:new-net" in events
+    assert all("trade/v2/orders" not in event for event in events)
+
+
 def test_exact_already_managed_basis_is_noop_but_repairs_strategy_anchor(monkeypatch):
     events: list[str] = []
     db = _FakeDb(events)

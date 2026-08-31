@@ -61,6 +61,16 @@ def test_automanage_enrollment_requires_explicit_user_acknowledgement():
     assert '"Stopp denne piloten"' in source
 
 
+def test_changed_manual_basis_requires_explicit_close_authority_adoption():
+    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    assert "is_position_managed_v1(observation)" in source
+    assert "adopt_user_confirmed_position_v2" in source
+    assert "CLOSE-authority" in source
+    assert "fail-closed" in source
+    assert "Overta denne posisjonen" in source
+    assert "Ingen ordre ble sendt" in source
+
+
 def test_live_chart_exposes_explicit_clickable_macd_timeframe_without_rearming_execution():
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     assert 'MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"' in source
@@ -78,6 +88,16 @@ def test_automanage_bottom_chart_keeps_actual_live_and_paper_semantics_separate(
     assert "P/L · LIVE og modellene" in source
     assert "bare faktisk, avstemt og realisert netto Saxo-P/L" in source
     assert "long/flat, short/flat og MACD Switch" in source
+
+
+def test_automanage_bottom_chart_exposes_engine_provenance_and_next_status():
+    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    assert "load_automanager_activity_log_v2" in source
+    assert "Hendelser og neste status" in source
+    assert "Status nå:" in source
+    assert "Neste:" in source
+    assert "event.engine" in source
+    assert "Realisert netto" in source
 
 
 def test_execution_panel_separates_exit_from_reentry_authority():
