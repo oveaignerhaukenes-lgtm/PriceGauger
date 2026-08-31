@@ -8,7 +8,7 @@ def test_tradingdesk_renders_automanager_in_main_chart_pane_not_right_controls()
     assert "chart_column, controls_column = st.columns([4.8, 1.45]" in source
     assert "def _render_automanager_workspace()" in source
     assert "render_tradingdesk_automanage_panel_v2(context)" in source
-    assert "render_tradingdesk_automanage_pnl_chart_v2(context)" in source
+    assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)" in source
     assert "with chart_column:" in source
     assert "_render_automanager_workspace()" in source
     assert 'with st.expander(f"AutoManage · {market}"' not in source
