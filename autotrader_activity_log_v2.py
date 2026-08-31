@@ -208,8 +208,10 @@ def load_automanager_activity_log_v2(
     enrollment: StrategyEnrollmentV2,
     *,
     limit: int = 12,
+    observed_direction_override: str | None = None,
+    exact_close_authority_override: bool | None = None,
 ) -> AutoManagerActivityLogV2:
-    """Load durable strategy/risk provenance for one exact LIVE pilot."""
+    """Load durable provenance, optionally anchored to a fresh LIVE observation."""
     with connect() as db:
         enrollment_row = db.execute(
             """
@@ -415,12 +417,14 @@ def load_automanager_activity_log_v2(
     )
     events.sort(key=lambda item: item.occurred_at, reverse=True)
 
-    observed_direction = "FLAT"
-    if latest_row is not None:
+    observed_direction = str(observed_direction_override or "").upper()
+    if not observed_direction and latest_row is not None:
         latest = _record(latest_row, ("latest_closed_bar_time", "observed_direction"))
         observed_direction = str(latest.get("observed_direction") or "FLAT")
-    exact_close_authority = None
-    if managed_basis_row is not None:
+    if not observed_direction:
+        observed_direction = "FLAT"
+    exact_close_authority = exact_close_authority_override
+    if exact_close_authority is None and managed_basis_row is not None:
         basis = _record(
             managed_basis_row,
             (
