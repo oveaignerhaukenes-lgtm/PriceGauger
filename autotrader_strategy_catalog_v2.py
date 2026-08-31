@@ -20,24 +20,24 @@ class AutoTraderStrategySpecV2:
 
 MACD_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_FLIP_STRATEGY_V2,
-    label="30m MACD flip · long/short",
-    description="LONG on bullish cross; SHORT on bearish cross.",
+    label="MACD Switch · long/short",
+    description="Bullish cross → LONG; bearish cross → SHORT.",
     can_long=True,
     can_short=True,
 )
 
 MACD_LONG_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_LONG_FLAT_STRATEGY_V2,
-    label="30m MACD long/flat · defensive",
-    description="LONG on bullish cross; FLAT/cash on bearish cross.",
+    label="Long / Flat",
+    description="Bullish cross → LONG; bearish cross → FLAT/cash.",
     can_long=True,
     can_short=False,
 )
 
 MACD_SHORT_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_SHORT_FLAT_STRATEGY_V2,
-    label="30m MACD short/flat · defensive",
-    description="SHORT on bearish cross; FLAT/cash on bullish cross.",
+    label="Short / Flat",
+    description="Bearish cross → SHORT; bullish cross → FLAT/cash.",
     can_long=False,
     can_short=True,
 )
