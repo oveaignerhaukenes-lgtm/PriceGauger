@@ -395,6 +395,23 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS pg_v2_autotrader_entry_sizing_policy (
+            account_key TEXT NOT NULL,
+            uic BIGINT NOT NULL,
+            asset_type TEXT NOT NULL,
+            direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+            sizing_mode TEXT NOT NULL DEFAULT 'MAX_WITHIN_PILOT'
+                CHECK (sizing_mode IN ('MAX_WITHIN_PILOT', 'FIXED_AMOUNT')),
+            fixed_amount DOUBLE PRECISION,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY(account_key, uic, asset_type, direction),
+            CHECK (
+                (sizing_mode = 'MAX_WITHIN_PILOT' AND fixed_amount IS NULL)
+                OR (sizing_mode = 'FIXED_AMOUNT' AND fixed_amount > 0)
+            )
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_live_open_config (
             config_id SMALLINT PRIMARY KEY CHECK (config_id = 1),
             armed BOOLEAN NOT NULL DEFAULT FALSE,
