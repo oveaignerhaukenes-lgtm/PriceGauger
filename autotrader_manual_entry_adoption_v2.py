@@ -28,14 +28,12 @@ class ManualEntryAdoptionCycleV2:
     failed: int
 
 
-def _require_manual_manage_identity_v2(
+def _require_live_manage_identity_v2(
     enrollment: StrategyEnrollmentV2,
     observation: PositionObservationV2,
 ) -> None:
     if not enrollment.enabled or enrollment.execution_mode != EXECUTION_MODE_LIVE:
-        raise ValueError("manual position adoption requires an active LIVE_MANAGE enrollment")
-    if enrollment.entry_mode != ENTRY_MODE_MANUAL_ONLY:
-        raise ValueError("manual position adoption is only allowed in MANUAL_ENTRY_ONLY mode")
+        raise ValueError("position adoption requires an active LIVE_MANAGE enrollment")
     if observation.account_id != enrollment.account_id:
         raise ValueError("manual position account does not match AutoManage enrollment")
     if int(observation.uic) != int(enrollment.uic):
@@ -46,6 +44,15 @@ def _require_manual_manage_identity_v2(
         raise ValueError("manual position requires a Saxo net-position identity")
     if float(observation.amount) <= 0 or float(observation.average_open_price) <= 0:
         raise ValueError("manual position basis must be positive")
+
+
+def _require_manual_manage_identity_v2(
+    enrollment: StrategyEnrollmentV2,
+    observation: PositionObservationV2,
+) -> None:
+    _require_live_manage_identity_v2(enrollment, observation)
+    if enrollment.entry_mode != ENTRY_MODE_MANUAL_ONLY:
+        raise ValueError("automatic manual-position adoption is only allowed in MANUAL_ENTRY_ONLY mode")
 
 
 def _pg_execution_inflight_v2(enrollment: StrategyEnrollmentV2) -> bool:
@@ -128,7 +135,7 @@ def _repair_anchor_if_needed_v2(
     return True
 
 
-def _retire_prior_manual_basis_v2(
+def _retire_prior_position_basis_v2(
     enrollment: StrategyEnrollmentV2,
     observation: PositionObservationV2,
 ) -> None:
@@ -184,6 +191,41 @@ def _retire_prior_manual_basis_v2(
         )
 
 
+def _adopt_exact_position_basis_v2(
+    enrollment: StrategyEnrollmentV2,
+    observation: PositionObservationV2,
+) -> bool:
+    if is_position_managed_v1(observation):
+        _repair_anchor_if_needed_v2(enrollment, observation)
+        return False
+
+    if _pg_execution_inflight_v2(enrollment):
+        raise RuntimeError("position adoption blocked while PriceGauger execution is unresolved")
+
+    _retire_prior_position_basis_v2(enrollment, observation)
+    # #237 makes this the risk-management epoch boundary: existing observer-only
+    # high-water/trigger state is reset before exact managed authority is granted.
+    enroll_position_v1(observation)
+    _repair_anchor_if_needed_v2(enrollment, observation)
+    return True
+
+
+def adopt_user_confirmed_position_v2(
+    enrollment: StrategyEnrollmentV2,
+    observation: PositionObservationV2,
+) -> bool:
+    """Explicitly attach a currently observed position to an active LIVE mandate.
+
+    This is the safe recovery path when the user has opened or resized exposure
+    outside PriceGauger while an AUTO/approval pilot remains active. It grants only
+    exact management/CLOSE authority for the observed basis and never sends an OPEN
+    or CLOSE order. Automatic background adoption remains Manage-only.
+    """
+    ensure_autotrader_schema_v2()
+    _require_live_manage_identity_v2(enrollment, observation)
+    return _adopt_exact_position_basis_v2(enrollment, observation)
+
+
 def adopt_manual_entry_position_v2(
     enrollment: StrategyEnrollmentV2,
     observation: PositionObservationV2,
@@ -201,19 +243,7 @@ def adopt_manual_entry_position_v2(
     ensure_autotrader_schema_v2()
     _require_manual_manage_identity_v2(enrollment, observation)
 
-    if is_position_managed_v1(observation):
-        _repair_anchor_if_needed_v2(enrollment, observation)
-        return False
-
-    if _pg_execution_inflight_v2(enrollment):
-        raise RuntimeError("manual position adoption blocked while PriceGauger execution is unresolved")
-
-    _retire_prior_manual_basis_v2(enrollment, observation)
-    # #237 makes this the risk-management epoch boundary: existing observer-only
-    # high-water/trigger state is reset before exact managed authority is granted.
-    enroll_position_v1(observation)
-    _repair_anchor_if_needed_v2(enrollment, observation)
-    return True
+    return _adopt_exact_position_basis_v2(enrollment, observation)
 
 
 def _exact_product_observation_v2(
@@ -282,5 +312,6 @@ __all__ = [
     "ManualEntryAdoptionCycleV2",
     "UNSTARTED_REQUEST_STATUSES",
     "adopt_manual_entry_position_v2",
+    "adopt_user_confirmed_position_v2",
     "run_manual_entry_adoption_cycle_v2",
 ]
