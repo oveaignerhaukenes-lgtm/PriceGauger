@@ -9,9 +9,10 @@ from autotrader_macd_dry_run_v2 import (
     SIGNAL_DOWN,
     SIGNAL_UP,
     MacdObservationV2,
-    closed_30m_bars_v2,
     macd_observations_v2,
 )
+from autotrader_macd_timeframe_policy_v2 import load_macd_timeframe_policy_v2
+from autotrader_macd_timeframe_v2 import closed_macd_bars_v2
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_strategy_catalog_v2 import (
     MACD_FLIP_STRATEGY_V2,
@@ -128,14 +129,15 @@ def replay_shadow_benchmark_v2(
     started_at: datetime,
     observations: Iterable[MacdObservationV2],
     close_by_time: dict[datetime, float],
+    timeframe_minutes: int = 30,
 ) -> ShadowReplayResultV2:
     """Replay strategy logic from one common post-enrollment closed-bar boundary.
 
     The observed starting exposure is authoritative. MACD regime before enrollment is
-    never used to choose the initial paper position. The first fully closed 30m bar
-    after enrollment establishes the common price baseline; any cross confirmed on
-    that bar may change state at that close, but no pre-enrollment price return is
-    attributed to the benchmark.
+    never used to choose the initial paper position. The first fully closed selected
+    timeframe bar after enrollment establishes the common price baseline; any cross
+    confirmed on that bar may change state at that close, but no pre-enrollment price
+    return is attributed to the benchmark.
     """
     if strategy_key not in SUPPORTED_STRATEGIES:
         raise ValueError(f"unsupported shadow strategy: {strategy_key}")
@@ -143,6 +145,9 @@ def replay_shadow_benchmark_v2(
         raise ValueError(f"unsupported initial shadow state: {initial_state}")
     if not math.isfinite(float(seed_equity)) or float(seed_equity) <= 0:
         raise ValueError("seed_equity must be finite and positive")
+    minutes = int(timeframe_minutes)
+    if minutes not in {5, 15, 30}:
+        raise ValueError("shadow benchmark timeframe must be 5, 15 or 30 minutes")
     started = _utc(started_at)
     items = tuple(observations)
     if not items:
@@ -157,8 +162,8 @@ def replay_shadow_benchmark_v2(
 
     first_index: int | None = None
     for index, item in enumerate(items):
-        # bar_time is the 30m bucket start. It becomes actionable only at close.
-        if _utc(item.bar_time) + timedelta(minutes=30) > started:
+        # bar_time is the bucket start. It becomes actionable only at close.
+        if _utc(item.bar_time) + timedelta(minutes=minutes) > started:
             first_index = index
             break
     if first_index is None:
@@ -307,7 +312,7 @@ def load_shadow_benchmark_snapshots_v2(
     This is a deterministic read over canonical history, not an execution runtime.
     It never writes shadow P/L into the authoritative Saxo equity ledger and has no
     order authority. All supplied strategies share one observed starting exposure,
-    one cohort start time and the same exact canonical 30m price path.
+    one cohort start time and the same exact canonical selected-timeframe price path.
     """
     items = tuple(enrollments)
     if not items:
@@ -319,6 +324,11 @@ def load_shadow_benchmark_snapshots_v2(
         raise ValueError("benchmark end precedes enrollment")
 
     first = items[0]
+    timeframe = load_macd_timeframe_policy_v2(
+        account_id=first.account_id,
+        uic=first.uic,
+        asset_type=first.asset_type,
+    )
     canonical = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
         instrument_id=int(first.instrument_id),
         start=anchor.started_at - timedelta(days=BENCHMARK_WARMUP_DAYS),
@@ -328,10 +338,16 @@ def load_shadow_benchmark_snapshots_v2(
     points = tuple(item.point for item in canonical)
     if not points:
         raise ValueError("shadow benchmark has no exact canonical 1m history")
-    closed = closed_30m_bars_v2(points, market=first.market_name)
+    closed = closed_macd_bars_v2(
+        points,
+        market=first.market_name,
+        timeframe_minutes=timeframe.timeframe_minutes,
+    )
     observations = macd_observations_v2(closed)
     if len(observations) < 2:
-        raise ValueError("shadow benchmark needs enough history for MACD 12/26/9")
+        raise ValueError(
+            f"shadow benchmark needs enough {timeframe.timeframe_minutes}m history for MACD 12/26/9"
+        )
     close_by_time = {_utc(bar.bar_time): float(bar.close) for bar in closed}
 
     snapshots: list[ShadowBenchmarkSnapshotV2] = []
@@ -346,6 +362,7 @@ def load_shadow_benchmark_snapshots_v2(
             started_at=anchor.started_at,
             observations=observations,
             close_by_time=close_by_time,
+            timeframe_minutes=timeframe.timeframe_minutes,
         )
         snapshots.append(
             ShadowBenchmarkSnapshotV2(
