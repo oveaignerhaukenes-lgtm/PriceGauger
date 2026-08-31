@@ -5,6 +5,11 @@ from dataclasses import dataclass
 import streamlit as st
 
 from autotrader_automanage_container_v2 import AutoManageProductV2, resolve_saxo_automanage_product_v2
+from autotrader_macd_timeframe_policy_v2 import (
+    SUPPORTED_MACD_TIMEFRAME_MINUTES,
+    load_macd_timeframe_policy_v2,
+    save_macd_timeframe_policy_v2,
+)
 from autotrader_pilot_equity_v2 import DEFAULT_PILOT_SEED_CAPITAL, load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_shadow_benchmark_v2 import load_shadow_benchmark_snapshots_v2
@@ -182,6 +187,10 @@ def _default_shadow_index(candidates: tuple[AutoTraderStrategySpecV2, ...]) -> i
     return 0
 
 
+def _timeframe_label(minutes: int) -> str:
+    return f"{int(minutes)}m"
+
+
 def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -> None:
     if not enrollments:
         return
@@ -197,11 +206,18 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
 
     st.markdown("**LIVE / SHADOW · samme startgrunnlag**")
     for key, group in groups.items():
+        first = group[0]
         try:
+            timeframe = load_macd_timeframe_policy_v2(
+                account_id=first.account_id,
+                uic=first.uic,
+                asset_type=first.asset_type,
+            )
             snapshots = load_shadow_benchmark_snapshots_v2(tuple(group))
         except Exception as exc:
             st.caption(f"UIC {key[1]} · paper-benchmark venter: {exc}")
             continue
+        st.caption(f"Felles signalgrunnlag: lukket {timeframe.timeframe_minutes}m MACD 12/26/9")
         if len(groups) > 1:
             st.caption(f"UIC {key[1]} · {key[2]}")
         columns = st.columns(max(1, len(snapshots)))
@@ -213,14 +229,16 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
                 st.markdown(f"**{spec.label}**")
                 if item.evaluated_bars == 0:
                     st.metric("Paper P/L", "venter")
-                    st.caption("Første nye lukkede 30m-bar etter enrollment starter sammenligningen.")
+                    st.caption(
+                        f"Første nye lukkede {timeframe.timeframe_minutes}m-bar etter enrollment starter sammenligningen."
+                    )
                     continue
                 st.metric("Paper P/L", f"{item.return_pct:+.2f}%")
                 st.caption(
                     f"{item.position_state} · {item.transitions} skifter · {item.evaluated_bars} bars"
                 )
     st.caption(
-        "Paper-replay bruker samme observerte startposisjon og samme exact canonical 30m-prisbane. "
+        "Paper-replay bruker samme observerte startposisjon og samme exact canonical prisbane/timeframe som LIVE. "
         "Ingen spread/slippage/margin modelleres; faktisk Saxo-P/L føres separat i LIVE-ledgeren."
     )
 
@@ -228,7 +246,7 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
 def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> None:
     """Wide AutoManager workspace for strategy-neutral product management."""
     st.markdown("**AutoManager**")
-    st.caption("Eksakt LIVE-produkt · strategivalg · separat execution-policy")
+    st.caption("Eksakt LIVE-produkt · MACD-timeframe · strategivalg · separat execution-policy")
 
     if not using_postgres():
         st.info("AutoManager krever PostgreSQL-runtime.")
@@ -287,16 +305,6 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         f"{observation.asset_type} · canonical instrument_id {product.instrument_id}"
     )
 
-    strategy = st.selectbox(
-        "LIVE-strategi",
-        AUTOTRADER_STRATEGIES_V2,
-        format_func=_strategy_label,
-        key=f"td-automanage-strategy:{product.product_key}",
-        help="Strategien som får faktisk management-authority på den eksakte Saxo-posisjonen.",
-    )
-    pilot_key = product.pilot_key(strategy.key)
-    snapshot = _snapshot(observation, pilot_key=pilot_key, currency=currency)
-
     try:
         product_enrollments = load_product_strategy_enrollments_v2(
             account_id=observation.account_id,
@@ -305,9 +313,51 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         )
     except Exception:
         product_enrollments = ()
+
+    timeframe_policy = load_macd_timeframe_policy_v2(
+        account_id=observation.account_id,
+        uic=observation.uic,
+        asset_type=observation.asset_type,
+    )
+    timeframe_options = SUPPORTED_MACD_TIMEFRAME_MINUTES
+    selected_timeframe = st.selectbox(
+        "MACD signal-timeframe",
+        timeframe_options,
+        index=timeframe_options.index(timeframe_policy.timeframe_minutes),
+        format_func=_timeframe_label,
+        disabled=bool(product_enrollments),
+        key=f"td-automanage-timeframe:{product.product_key}",
+        help=(
+            "Kun fullt lukkede canonical bars brukes. LIVE og SHADOW deler samme timeframe. "
+            "Stopp aktive piloter før timeframe endres; adaptive 30→15→5 switching kommer som egen strategi-policy senere."
+        ),
+    )
+    if product_enrollments:
+        st.caption(
+            f"Aktiv signal-timeframe: {timeframe_policy.timeframe_minutes}m. "
+            "Stopp alle AutoManager-piloter på produktet for å endre den."
+        )
+    else:
+        st.caption(
+            f"Valgt signalgrunnlag: lukkede {int(selected_timeframe)}m-bars · MACD 12/26/9."
+        )
+
+    strategy = st.selectbox(
+        "LIVE-strategi",
+        AUTOTRADER_STRATEGIES_V2,
+        format_func=_strategy_label,
+        key=f"td-automanage-strategy:{product.product_key}",
+        help=(
+            "Long / Flat: bullish → LONG, bearish → FLAT. Short / Flat: bearish → SHORT, bullish → FLAT. "
+            "MACD Switch: bullish → LONG, bearish → SHORT."
+        ),
+    )
+    pilot_key = product.pilot_key(strategy.key)
+    snapshot = _snapshot(observation, pilot_key=pilot_key, currency=currency)
+
     if product_enrollments:
         state_text = " · ".join(
-            f"{item.strategy_key}: {'LIVE' if item.execution_mode == EXECUTION_MODE_LIVE else 'shadow'}"
+            f"{strategy_spec_v2(item.strategy_key).label}: {'LIVE' if item.execution_mode == EXECUTION_MODE_LIVE else 'SHADOW'}"
             for item in product_enrollments
         )
         st.caption(f"Aktive piloter: {state_text}")
@@ -317,7 +367,11 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         e1, e2 = st.columns(2)
         e1.metric("Pilotkapital", _metric_money(snapshot.equity, currency))
         e2.metric("Realisert", _metric_money(snapshot.realized_net_pnl, currency))
-        status_bits = [snapshot.enrollment.execution_mode, f"trades {snapshot.realized_events}"]
+        status_bits = [
+            snapshot.enrollment.execution_mode,
+            f"MACD {timeframe_policy.timeframe_minutes}m",
+            f"trades {snapshot.realized_events}",
+        ]
         if snapshot.enrollment.execution_mode == EXECUTION_MODE_LIVE:
             status_bits.append(ENTRY_MODE_LABELS.get(snapshot.enrollment.entry_mode, snapshot.enrollment.entry_mode))
         if snapshot.last_action:
@@ -334,6 +388,32 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             stop_strategy_enrollment_v2(pilot_key)
             st.success("Piloten er slått av.")
             st.rerun()
+        if len(product_enrollments) > 1 and st.button(
+            "Stopp alle AutoManager-piloter på dette produktet",
+            key=f"td-stop-all-automanage:{product.product_key}",
+            use_container_width=True,
+        ):
+            for item in product_enrollments:
+                stop_strategy_enrollment_v2(item.pilot_key)
+            st.success("Alle LIVE/SHADOW-piloter på produktet er slått av. Timeframe kan nå endres før ny aktivering.")
+            st.rerun()
+        return
+
+    if product_enrollments:
+        # The selected strategy is inactive, but another strategy still owns this
+        # product. Do not offer a misleading activation path until the cohort is stopped.
+        st.info(
+            "En annen LIVE/SHADOW-pilot er fortsatt aktiv på produktet. Stopp eksisterende cohort før ny strategi/timeframe aktiveres."
+        )
+        if st.button(
+            "Stopp alle AutoManager-piloter på dette produktet",
+            key=f"td-stop-all-automanage-inactive:{product.product_key}",
+            use_container_width=True,
+        ):
+            for item in product_enrollments:
+                stop_strategy_enrollment_v2(item.pilot_key)
+            st.success("Alle piloter er slått av. Velg timeframe og aktiver ny cohort.")
+            st.rerun()
         return
 
     seed = st.number_input(
@@ -349,7 +429,10 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         "Kjør én shadow-strategi for direkte sammenligning",
         value=True,
         key=f"td-automanage-shadow:{product.product_key}:{strategy.key}",
-        help="Shadow får samme observerte startposisjon og canonical 30m-bars, men ingen Saxo order-authority.",
+        help=(
+            f"Shadow får samme observerte startposisjon og de samme lukkede {int(selected_timeframe)}m-bars, "
+            "men ingen Saxo order-authority."
+        ),
     )
     shadow_strategy = None
     if compare_shadow and shadow_candidates:
@@ -359,10 +442,10 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             index=_default_shadow_index(shadow_candidates),
             format_func=_strategy_label,
             key=f"td-automanage-shadow-strategy:{product.product_key}:{strategy.key}",
-            help="For long/flat LIVE velges long/short flip som standard for morgendagens A/B-test.",
+            help="For Long / Flat LIVE velges MACD Switch som standard for direkte A/B-test.",
         )
     acknowledge = st.checkbox(
-        "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi.",
+        "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi og MACD-timeframe.",
         key=f"td-automanage-ack:{product.product_key}:{strategy.key}",
     )
     if st.button(
@@ -373,6 +456,12 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
         use_container_width=True,
     ):
         try:
+            save_macd_timeframe_policy_v2(
+                account_id=observation.account_id,
+                uic=observation.uic,
+                asset_type=observation.asset_type,
+                timeframe_minutes=int(selected_timeframe),
+            )
             enroll_strategy_position_v2(
                 observation,
                 strategy_key=strategy.key,
@@ -392,12 +481,12 @@ def render_tradingdesk_automanage_panel_v2(context: TradingDeskV2Context) -> Non
             st.error(f"AutoManager kunne ikke aktiveres: {exc}")
             return
         shadow_text = (
-            f"; {shadow_strategy.label} er startet som SHADOW."
+            f"; {shadow_strategy.label} er startet som SHADOW på samme {int(selected_timeframe)}m MACD."
             if shadow_strategy is not None
             else "."
         )
         st.success(
-            f"{strategy.label} er koblet LIVE til produktcontaineren{shadow_text} "
+            f"{strategy.label} er koblet LIVE til produktcontaineren på {int(selected_timeframe)}m MACD{shadow_text} "
             "Standard er Manage-only; velg Full auto hvis PG også skal gjøre re-entry etter strategi-exit."
         )
         st.rerun()
