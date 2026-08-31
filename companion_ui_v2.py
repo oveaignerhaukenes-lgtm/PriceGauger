@@ -128,7 +128,6 @@ def render_companion_panel_v2(view) -> None:
         activity_mode = st.select_slider(
             "Følsomhet",
             options=("QUIET", "NORMAL", "ACTIVE"),
-            value=st.session_state[MODE_KEY],
             format_func=lambda value: MODE_LABELS[value],
             key=MODE_KEY,
             disabled=not enabled,

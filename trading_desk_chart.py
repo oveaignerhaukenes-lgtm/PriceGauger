@@ -402,9 +402,31 @@ def build_trading_desk_figure(
         dragmode="pan",
         paper_bgcolor="white",
         plot_bgcolor="white",
-        uirevision=(
-            f"TradingDesk:{market}:{timeframe}:{int(window_hours)}:{','.join(sorted(selected))}:"
-            f"{sorted(resolved_indicator_timeframes.items())}:{int(chart_height)}:{price_share:.2f}"
+        uirevision=trading_desk_uirevision(
+            market=market,
+            timeframe=timeframe,
+            window_hours=window_hours,
+            indicator_names=selected,
+            indicator_timeframes=resolved_indicator_timeframes,
+            chart_height=chart_height,
+            price_panel_share=price_share,
         ),
     )
     return fig
+
+
+def trading_desk_uirevision(
+    *,
+    market: str,
+    timeframe: str,
+    window_hours: int,
+    indicator_names: Sequence[str],
+    indicator_timeframes: Mapping[str, str] | None,
+    chart_height: int,
+    price_panel_share: float,
+) -> str:
+    resolved_indicator_timeframes = dict(indicator_timeframes or {})
+    return (
+        f"TradingDesk:{market}:{timeframe}:{int(window_hours)}:{','.join(sorted(indicator_names))}:"
+        f"{sorted(resolved_indicator_timeframes.items())}:{int(chart_height)}:{float(price_panel_share):.2f}"
+    )
