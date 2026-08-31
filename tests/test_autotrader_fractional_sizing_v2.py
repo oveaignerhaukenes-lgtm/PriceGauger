@@ -3,8 +3,14 @@ from __future__ import annotations
 import pytest
 
 import autotrader_open_sizing_v2 as sizing
+from autotrader_entry_sizing_policy_v2 import (
+    EntrySizingPolicyV2,
+    SIZING_MODE_FIXED,
+    SIZING_MODE_MAX,
+)
 from autotrader_margin_envelope_v2 import AutoTraderMarginEnvelopeV2
 from autotrader_open_sizing_v2 import (
+    EntrySizingError,
     find_largest_legal_entry_v2,
     load_entry_instrument_rules_v2,
     resolve_minimum_entry_amount_v2,
@@ -51,6 +57,21 @@ def _base_details(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+@pytest.fixture(autouse=True)
+def _default_max_sizing_policy(monkeypatch):
+    def load_default(**kwargs):
+        return EntrySizingPolicyV2(
+            account_key=str(kwargs["account_key"]),
+            uic=int(kwargs["uic"]),
+            asset_type=str(kwargs["asset_type"]),
+            direction=str(kwargs["direction"]).upper(),
+            sizing_mode=SIZING_MODE_MAX,
+            fixed_amount=None,
+        )
+
+    monkeypatch.setattr(sizing, "load_entry_sizing_policy_v2", load_default)
 
 
 def test_default_amount_and_price_increment_are_not_amount_minimums():
@@ -156,6 +177,33 @@ def test_minimum_order_value_is_preserved_for_audit_but_precheck_remains_authori
     assert resolution.amount == pytest.approx(0.02)
 
 
+def _fractional_precheck(payload: dict, *, available: float = 500.0):
+    amount = float(payload["Amount"])
+    margin = 13_795.0 * amount
+    return {
+        "PreCheckResult": "Ok",
+        "MarginImpactBuySell": {
+            "Currency": "USD",
+            "InitialMarginBuy": margin,
+            "InitialMarginAvailableCurrent": available,
+            "InitialMarginAvailableBuy": max(0.0, available - margin),
+        },
+        "EstimatedTotalCostInAccountCurrency": 0.0,
+    }
+
+
+def _pilot_envelope() -> AutoTraderMarginEnvelopeV2:
+    return AutoTraderMarginEnvelopeV2(
+        currency="USD",
+        capital_control_limit=500.0,
+        max_initial_margin=500.0,
+        max_notional_exposure=10_000.0,
+        max_effective_leverage=20.0,
+        minimum_free_capital=0.0,
+        enabled=True,
+    )
+
+
 def test_margin_envelope_can_select_point_zero_three_from_fractional_cfd(monkeypatch):
     client = _FakeSaxoClient(
         details=_base_details(),
@@ -170,37 +218,17 @@ def test_margin_envelope_can_select_point_zero_three_from_fractional_cfd(monkeyp
 
     def fake_precheck(_client, path: str, payload: dict):
         assert path == "trade/v2/orders/precheck"
-        amount = float(payload["Amount"])
-        margin = 13_795.0 * amount
-        return {
-            "PreCheckResult": "Ok",
-            "MarginImpactBuySell": {
-                "Currency": "USD",
-                "InitialMarginBuy": margin,
-                "InitialMarginAvailableCurrent": 500.0,
-                "InitialMarginAvailableBuy": max(0.0, 500.0 - margin),
-            },
-            "EstimatedTotalCostInAccountCurrency": 0.0,
-        }
+        return _fractional_precheck(payload)
 
     monkeypatch.setattr(sizing, "_post_once", fake_precheck)
 
-    envelope = AutoTraderMarginEnvelopeV2(
-        currency="USD",
-        capital_control_limit=500.0,
-        max_initial_margin=500.0,
-        max_notional_exposure=10_000.0,
-        max_effective_leverage=20.0,
-        minimum_free_capital=0.0,
-        enabled=True,
-    )
     result = find_largest_legal_entry_v2(
         client,
         account_key="account-key",
         account_currency="USD",
         instrument=_instrument(),
         direction="LONG",
-        envelope=envelope,
+        envelope=_pilot_envelope(),
         controlled_capital=500.0,
         external_reference_prefix="test-fractional",
     )
@@ -209,3 +237,94 @@ def test_margin_envelope_can_select_point_zero_three_from_fractional_cfd(monkeyp
     assert result.amount == pytest.approx(0.03)
     assert result.final_precheck.initial_margin_account == pytest.approx(413.85)
     assert result.final_precheck.notional_account == pytest.approx(8_297.64)
+
+
+def test_fixed_amount_policy_uses_exact_amount_and_does_not_search(monkeypatch):
+    client = _FakeSaxoClient(
+        details=_base_details(),
+        info_price={
+            "Quote": {
+                "Amount": 0.01,
+                "Ask": 276_588.0,
+                "Bid": 276_580.0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        sizing,
+        "load_entry_sizing_policy_v2",
+        lambda **_: EntrySizingPolicyV2(
+            account_key="account-key",
+            uic=4912,
+            asset_type="CfdOnIndex",
+            direction="LONG",
+            sizing_mode=SIZING_MODE_FIXED,
+            fixed_amount=0.02,
+        ),
+    )
+    submitted_amounts: list[float] = []
+
+    def fake_precheck(_client, path: str, payload: dict):
+        assert path == "trade/v2/orders/precheck"
+        submitted_amounts.append(float(payload["Amount"]))
+        return _fractional_precheck(payload)
+
+    monkeypatch.setattr(sizing, "_post_once", fake_precheck)
+
+    result = find_largest_legal_entry_v2(
+        client,
+        account_key="account-key",
+        account_currency="USD",
+        instrument=_instrument(),
+        direction="LONG",
+        envelope=_pilot_envelope(),
+        controlled_capital=500.0,
+        external_reference_prefix="test-fixed",
+    )
+
+    assert result.amount == pytest.approx(0.02)
+    assert result.precheck_count == 1
+    assert submitted_amounts == [pytest.approx(0.02)]
+
+
+def test_fixed_amount_policy_blocks_instead_of_silently_resizing(monkeypatch):
+    client = _FakeSaxoClient(
+        details=_base_details(),
+        info_price={
+            "Quote": {
+                "Amount": 0.01,
+                "Ask": 276_588.0,
+                "Bid": 276_580.0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        sizing,
+        "load_entry_sizing_policy_v2",
+        lambda **_: EntrySizingPolicyV2(
+            account_key="account-key",
+            uic=4912,
+            asset_type="CfdOnIndex",
+            direction="LONG",
+            sizing_mode=SIZING_MODE_FIXED,
+            fixed_amount=0.04,
+        ),
+    )
+
+    def fake_precheck(_client, path: str, payload: dict):
+        assert path == "trade/v2/orders/precheck"
+        return _fractional_precheck(payload)
+
+    monkeypatch.setattr(sizing, "_post_once", fake_precheck)
+
+    with pytest.raises(EntrySizingError, match="fixed amount does not pass"):
+        find_largest_legal_entry_v2(
+            client,
+            account_key="account-key",
+            account_currency="USD",
+            instrument=_instrument(),
+            direction="LONG",
+            envelope=_pilot_envelope(),
+            controlled_capital=500.0,
+            external_reference_prefix="test-fixed-block",
+        )
