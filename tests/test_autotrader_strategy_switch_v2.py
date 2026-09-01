@@ -31,6 +31,6 @@ def test_entry_gate_exposes_explicit_strategy_switch_and_disarms_open() -> None:
     assert "AUTOTRADER_STRATEGIES_V2" in source
     assert "switch_live_strategy_v2" in source
     assert '"Bytt LIVE-strategi"' in source
-    assert "selve byttet sender ingen ordre" in source
+    assert "Selve byttet sender ingen ordre" in source
     assert "LIVE OPEN/re-entry blir disarmed" in source
     assert "st.rerun()" in source
