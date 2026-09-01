@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from autotrader_cocktail_mode_1_shadow_v2 import load_cocktail_shadow_series_v1
 from autotrader_shadow_benchmark_exact_anchor_v2 import (
     load_shadow_benchmark_series_exact_anchor_v2,
 )
@@ -232,18 +233,48 @@ def _load_live_realized_events_v2(
     return tuple(events)
 
 
+def _cocktail_series_v2(
+    *,
+    instrument_id: int,
+    seed_equity: float,
+    currency: str,
+    started_at: datetime,
+    as_of: datetime,
+) -> ShadowBenchmarkSeriesV2 | None:
+    """Read adaptive shadow opportunistically; reporting must survive pre-schema rollout."""
+    try:
+        series = load_cocktail_shadow_series_v1(
+            instrument_id=int(instrument_id),
+            seed_equity=float(seed_equity),
+            started_at=started_at,
+            as_of=as_of,
+        )
+    except Exception:
+        return None
+    if series is None:
+        return None
+    return ShadowBenchmarkSeriesV2(
+        strategy_key=series.strategy_key,
+        execution_mode=series.execution_mode,
+        currency=str(currency),
+        seed_equity=series.seed_equity,
+        started_at=series.started_at,
+        points=series.points,
+    )
+
+
 def load_automanager_pnl_comparison_v2(
     enrollments: Iterable[StrategyEnrollmentV2],
     *,
     db_path: str = "pricegauger.db",
     now: datetime | None = None,
 ) -> AutoManagerPnlComparisonV2:
-    """Load durable product-history LIVE P/L beside closed-30m paper controls.
+    """Load durable product-history LIVE P/L beside canonical control models.
 
     Execution cohorts remain separate and auditable, but reporting is product-level:
-    changing LIVE strategy must not reset or hide the realized Saxo history. Paper
-    controls replay from the oldest LIVE cohort's exact start anchor and therefore do
-    not depend on today's SHADOW enrollments sharing that anchor.
+    changing LIVE strategy must not reset or hide the realized Saxo history. Closed-30m
+    controls replay from the oldest LIVE cohort's exact start anchor. Adaptive shadows
+    are appended only from the moment their own canonical 1m data collection began.
     """
     items = tuple(enrollments)
     live_items = tuple(item for item in items if item.execution_mode == EXECUTION_MODE_LIVE)
@@ -255,19 +286,27 @@ def load_automanager_pnl_comparison_v2(
     history = _load_product_live_history_v2(live)
     first = history[0]
     strategy_keys = tuple(item.key for item in PAPER_30M_STRATEGIES_V2)
-    # Only the oldest LIVE cohort defines the historical start anchor. Current/old
-    # SHADOW enrollments are reporting controls, not identity authority.
-    paper = load_shadow_benchmark_series_exact_anchor_v2(
+    paper_controls = load_shadow_benchmark_series_exact_anchor_v2(
         (first.enrollment,),
         strategy_keys=strategy_keys,
         db_path=db_path,
         now=end,
     )
-    if not paper:
+    if not paper_controls:
         raise ValueError("P/L comparison has no canonical paper series")
 
-    seed = float(paper[0].seed_equity)
-    started = paper[0].started_at
+    seed = float(paper_controls[0].seed_equity)
+    started = paper_controls[0].started_at
+    currency = paper_controls[0].currency
+    cocktail = _cocktail_series_v2(
+        instrument_id=live.instrument_id,
+        seed_equity=seed,
+        currency=currency,
+        started_at=started,
+        as_of=end,
+    )
+    model_series = tuple(paper_controls) + (() if cocktail is None else (cocktail,))
+
     events = _load_live_realized_events_v2(history)
     actual = build_live_realized_pnl_curve_v2(
         seed_equity=seed,
@@ -290,13 +329,13 @@ def load_automanager_pnl_comparison_v2(
     return AutoManagerPnlComparisonV2(
         pilot_key=live.pilot_key,
         product_key=product_key,
-        currency=paper[0].currency,
+        currency=currency,
         seed_equity=seed,
         started_at=started,
         as_of=end,
         live_realized=actual,
         live_epochs=_live_strategy_epochs_v2(history),
-        paper_series=paper,
+        paper_series=model_series,
     )
 
 
