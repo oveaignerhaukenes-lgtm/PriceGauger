@@ -13,6 +13,7 @@ from autotrader_managed_positions_v1 import (
     load_active_managed_positions_v1,
     managed_position_matches_v1,
 )
+from autotrader_saxo_net_position_direction_v2 import resolve_net_position_exposure_v2
 from autotrader_schema_v2 import DEFAULT_HARD_STOP_PCT, ensure_autotrader_schema_v2
 from database import connect, using_postgres
 from saxo_provider import configured_client
@@ -279,15 +280,24 @@ def _position_observations_v2(client) -> tuple[PositionObservationV2, ...]:
         base = row.get("NetPositionBase") if isinstance(row.get("NetPositionBase"), dict) else {}
         view = row.get("NetPositionView") if isinstance(row.get("NetPositionView"), dict) else {}
         status = str(view.get("Status") or base.get("SinglePositionStatus") or "")
-        amount = float(base.get("Amount") or 0.0)
-        if status.lower() not in {"open", ""} or amount == 0.0:
+        if status.lower() not in {"open", ""}:
             continue
         net_position_id = str(row.get("NetPositionId") or "").strip()
+        if not net_position_id:
+            continue
+        exposure = resolve_net_position_exposure_v2(
+            base,
+            net_position_id=net_position_id,
+            logger=LOGGER,
+        )
+        if exposure is None or exposure.amount <= 0:
+            continue
         account_id = str(base.get("PositionsAccount") or base.get("AccountId") or "").strip()
-        direction = str(base.get("OpeningDirection") or ("Buy" if amount > 0 else "Sell"))
+        direction = exposure.direction
+        amount = exposure.amount
         opening = float(view.get("AverageOpenPriceIncludingCosts") or view.get("AverageOpenPrice") or 0.0)
         current = float(view.get("CurrentPrice") or 0.0)
-        if not net_position_id or not account_id or opening <= 0 or current <= 0:
+        if not account_id or opening <= 0 or current <= 0:
             continue
         observations.append(
             PositionObservationV2(
@@ -296,7 +306,7 @@ def _position_observations_v2(client) -> tuple[PositionObservationV2, ...]:
                 uic=int(base.get("Uic") or -1),
                 asset_type=str(base.get("AssetType") or ""),
                 direction=direction,
-                amount=abs(amount),
+                amount=amount,
                 average_open_price=opening,
                 current_price=current,
                 pnl_pct=pnl_percent_v2(
