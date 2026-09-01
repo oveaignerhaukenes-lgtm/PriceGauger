@@ -8,12 +8,26 @@ from autotrader_shadow_benchmark_exact_anchor_v2 import (
     load_shadow_benchmark_series_exact_anchor_v2,
 )
 from autotrader_shadow_benchmark_v2 import ShadowBenchmarkSeriesV2
-from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2
+from autotrader_strategy_catalog_v2 import (
+    MACD_FLIP_STRATEGY_V2,
+    MACD_LONG_FLAT_STRATEGY_V2,
+    MACD_SHORT_FLAT_STRATEGY_V2,
+)
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
 )
 from database import connect
+
+
+# These are the strategies for which the current paper renderer has a truthful
+# closed-30m replay. Intrabar LIVE is deliberately not mislabeled as a closed-30m
+# paper curve; its realized LIVE ledger can still be compared against this control set.
+PAPER_BENCHMARK_STRATEGY_KEYS_V2 = (
+    MACD_LONG_FLAT_STRATEGY_V2,
+    MACD_SHORT_FLAT_STRATEGY_V2,
+    MACD_FLIP_STRATEGY_V2,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,11 +134,12 @@ def load_automanager_pnl_comparison_v2(
     db_path: str = "pricegauger.db",
     now: datetime | None = None,
 ) -> AutoManagerPnlComparisonV2:
-    """Load truthful LIVE settled P/L beside canonical 30m paper policy curves.
+    """Load truthful LIVE settled P/L beside canonical closed-30m paper controls.
 
-    The two series classes intentionally remain distinct: actual LIVE includes only
-    authoritative settled Saxo net P/L, while paper curves are 30m mark-to-market
-    strategy replays without spread, slippage or margin simulation.
+    The LIVE controller may use a different signal clock (for example the intrabar
+    1m-sampled 30m MACD). Paper series emitted here remain only the strategies for
+    which the renderer has a truthful closed-30m replay; we never masquerade the
+    intrabar policy as a bar-close policy merely to draw a line.
     """
     items = tuple(enrollments)
     live_items = tuple(item for item in items if item.execution_mode == EXECUTION_MODE_LIVE)
@@ -132,10 +147,9 @@ def load_automanager_pnl_comparison_v2(
         raise ValueError("P/L comparison requires exactly one LIVE controller")
     live = live_items[0]
     end = _utc(now or datetime.now(timezone.utc))
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
     paper = load_shadow_benchmark_series_exact_anchor_v2(
         items,
-        strategy_keys=strategy_keys,
+        strategy_keys=PAPER_BENCHMARK_STRATEGY_KEYS_V2,
         db_path=db_path,
         now=end,
     )
@@ -165,6 +179,7 @@ __all__ = [
     "AutoManagerPnlComparisonV2",
     "LiveRealizedPnlEventV2",
     "LiveRealizedPnlPointV2",
+    "PAPER_BENCHMARK_STRATEGY_KEYS_V2",
     "build_live_realized_pnl_curve_v2",
     "load_automanager_pnl_comparison_v2",
 ]
