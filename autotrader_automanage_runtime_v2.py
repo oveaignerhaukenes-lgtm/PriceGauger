@@ -8,12 +8,15 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
+from autotrader_live_signal_clock_v2 import (
+    SIGNAL_CLOCK_INTRABAR_30M_1M,
+    automanage_signal_clock_v2,
+    automanage_signal_pair_v2,
+)
 from autotrader_macd_dry_run_v2 import (
     SIGNAL_DOWN,
     SIGNAL_UP,
     MacdObservationV2,
-    closed_30m_bars_v2,
-    macd_observations_v2,
 )
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
@@ -31,7 +34,10 @@ from autotrader_position_controller_v2 import (
 )
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
-from autotrader_strategy_catalog_v2 import MACD_SHORT_FLAT_STRATEGY_V2
+from autotrader_strategy_catalog_v2 import (
+    INTRABAR_30M_LONG_FLAT_STRATEGY_V2,
+    MACD_SHORT_FLAT_STRATEGY_V2,
+)
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
@@ -44,11 +50,12 @@ from saxo_provider import configured_client
 
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_runtime_v2")
 MACD_LONG_FLAT_STRATEGY_V2 = "macd-30m-long-flat-v1"
-AUTOMANAGE_RECIPE_V2 = "automanage-closed-30m-macd-v2.1"
+AUTOMANAGE_RECIPE_V2 = "automanage-macd-signal-clock-v2.2"
 SUPPORTED_STRATEGIES = {
     MACD_LONG_FLAT_STRATEGY_V2,
     MACD_SHORT_FLAT_STRATEGY_V2,
     MACD_FLIP_STRATEGY_V2,
+    INTRABAR_30M_LONG_FLAT_STRATEGY_V2,
 }
 REQUEST_PENDING = "PENDING"
 REQUEST_SUPERSEDED = "SUPERSEDED"
@@ -91,6 +98,10 @@ class AutoManageIntentV2:
         # settled pilot budget, and OPEN is blocked when that budget is exhausted.
         controller_budget = max(float(self.budget_amount), 1e-12)
         fraction = 0.0 if self.target_direction == DIRECTION_FLAT else 1.0
+        if automanage_signal_clock_v2(self.strategy_key) == SIGNAL_CLOCK_INTRABAR_30M_1M:
+            signal_rationale = f"intrabar 30m MACD 12/26/9 sampled on closed canonical 1m {self.signal}"
+        else:
+            signal_rationale = f"confirmed closed 30m MACD 12/26/9 {self.signal}"
         return PositionTargetV2(
             market_id=int(self.market_id),
             market_name=self.market_name,
@@ -100,10 +111,7 @@ class AutoManageIntentV2:
             budget_currency=self.budget_currency,
             strategy_key=self.strategy_key,
             signal_at=self.signal_at,
-            rationale=(
-                f"confirmed closed 30m MACD 12/26/9 {self.signal}; "
-                f"{self.strategy_key} targets {self.target_direction}"
-            ),
+            rationale=f"{signal_rationale}; {self.strategy_key} targets {self.target_direction}",
             source_fingerprint=self.event_id,
         )
 
@@ -154,7 +162,7 @@ def _cross(previous: MacdObservationV2, current: MacdObservationV2) -> str | Non
 
 
 def _target_direction(strategy_key: str, signal: str) -> str:
-    if strategy_key == MACD_LONG_FLAT_STRATEGY_V2:
+    if strategy_key in {MACD_LONG_FLAT_STRATEGY_V2, INTRABAR_30M_LONG_FLAT_STRATEGY_V2}:
         if signal == SIGNAL_UP:
             return DIRECTION_LONG
         if signal == SIGNAL_DOWN:
@@ -257,7 +265,7 @@ def plan_automanage_step_v2(
 
     if prior_bar is None:
         # Enrollment adopts the actual current exposure. Historical MACD regime is
-        # never replayed into a live order on bootstrap.
+        # never replayed into a live order on bootstrap, regardless of signal clock.
         pending = None
         outcome = "BOOTSTRAP_NO_REPLAY"
     else:
@@ -570,12 +578,11 @@ def run_automanage_strategy_once_v2(
         limit=50000,
     )
     points = tuple(item.point for item in bars)
-    if not points:
-        raise ValueError("AutoManage has no exact canonical 1m history")
-    closed = closed_30m_bars_v2(points, market=enrollment.market_name)
-    macd = macd_observations_v2(closed)
-    if len(macd) < 2:
-        raise ValueError("AutoManage needs enough closed 30m bars for MACD 12/26/9")
+    previous, current = automanage_signal_pair_v2(
+        strategy_key=enrollment.strategy_key,
+        points=points,
+        market=enrollment.market_name,
+    )
 
     if observations is None:
         client = configured_client()
@@ -589,8 +596,8 @@ def run_automanage_strategy_once_v2(
         enrollment=enrollment,
         state=state,
         observed_position=observed,
-        previous=macd[-2],
-        current=macd[-1],
+        previous=previous,
+        current=current,
         budget_amount=equity.entry_budget,
         budget_currency=equity.currency,
     )
@@ -657,6 +664,7 @@ __all__ = [
     "MACD_SHORT_FLAT_STRATEGY_V2",
     "REQUEST_PENDING",
     "REQUEST_SUPERSEDED",
+    "SUPPORTED_STRATEGIES",
     "load_automanage_runtime_state_v2",
     "plan_automanage_step_v2",
     "run_automanage_strategy_cycle_v2",
