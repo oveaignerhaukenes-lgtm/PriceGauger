@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from autotrader_entry_policy_v2 import load_pilot_margin_config_v2, save_pilot_margin_config_v2
 from autotrader_mtf_live_runtime_v2 import ensure_mtf_live_schema_v2
+from autotrader_mtf_short_live_runtime_v2 import ensure_mtf_short_live_schema_v2
 from autotrader_pilot_equity_v2 import initialize_pilot_equity_v2, load_pilot_equity_v2
 from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
@@ -91,6 +92,7 @@ def switch_live_strategy_v2(
     """
     ensure_autotrader_schema_v2()
     ensure_mtf_live_schema_v2()
+    ensure_mtf_short_live_schema_v2()
 
     enrollment = load_strategy_enrollment_v2(str(pilot_key))
     if enrollment is None or not enrollment.enabled:
@@ -171,6 +173,10 @@ def switch_live_strategy_v2(
         )
         db.execute(
             "DELETE FROM pg_v2_autotrader_mtf_live_state WHERE pilot_key = ?",
+            (target_pilot_key,),
+        )
+        db.execute(
+            "DELETE FROM pg_v2_autotrader_mtf_short_live_state WHERE pilot_key = ?",
             (target_pilot_key,),
         )
         db.execute(
