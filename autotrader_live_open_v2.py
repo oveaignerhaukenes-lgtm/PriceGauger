@@ -31,6 +31,7 @@ from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     load_strategy_enrollment_v2,
 )
+from autotrader_strategy_switch_provenance_v2 import has_unconsumed_settled_flat_handoff_v2
 from database import connect, using_postgres
 from saxo_provider import SaxoError, SaxoInstrument
 
@@ -334,7 +335,13 @@ def _open_orders_exist(client, *, account_key: str, uic: int) -> bool:
 
 
 def _settled_close_provenance(pilot_key: str) -> tuple[bool, bool]:
-    """Return (settled_close_exists, unresolved_close_exists) since latest enrollment."""
+    """Return (settled FLAT authority, unresolved close) for the active cohort.
+
+    Ordinary re-entry requires a reconciled PG close inside the current strategy
+    cohort. The only exception is a one-shot, audited settled-FLAT strategy handoff;
+    this permits the target cohort's first OPEN without pretending that the target
+    strategy itself performed the source close.
+    """
     with connect() as db:
         enrollment = db.execute(
             """
@@ -375,7 +382,15 @@ def _settled_close_provenance(pilot_key: str) -> tuple[bool, bool]:
             """,
             (str(item["account_id"]), int(item["uic"]), str(item["asset_type"]), item["enrolled_at"]),
         ).fetchone()
-    return settled is not None, unresolved is not None
+    if unresolved is not None:
+        return settled is not None, True
+    if settled is not None:
+        return True, False
+    handoff = has_unconsumed_settled_flat_handoff_v2(
+        pilot_key=str(pilot_key),
+        enrolled_at=_utc(item["enrolled_at"]),
+    )
+    return bool(handoff), False
 
 
 def _record_attempt_before_submit(
@@ -517,6 +532,50 @@ def reconcile_live_open_attempts_v2(client) -> int:
         )
         reconciled += 1
     return reconciled
+
+
+def _submit_authority_still_current(request: dict[str, Any]) -> bool:
+    """Final database authority recheck immediately before durable submit state."""
+    enrollment = load_strategy_enrollment_v2(str(request["pilot_key"]))
+    if (
+        enrollment is None
+        or not enrollment.enabled
+        or enrollment.execution_mode != EXECUTION_MODE_LIVE
+        or enrollment.strategy_key != str(request["strategy_key"])
+        or enrollment.account_id != str(request["account_id"])
+        or int(enrollment.uic) != int(request["uic"])
+        or enrollment.asset_type != str(request["asset_type"])
+        or enrollment.market_id != int(request["market_id"])
+        or enrollment.instrument_id != int(request["instrument_id"])
+        or not enrollment.live_open_armed
+        or enrollment.entry_mode == ENTRY_MODE_MANUAL_ONLY
+    ):
+        return False
+
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT status, created_at
+            FROM pg_v2_autotrader_execution_requests
+            WHERE request_id = ? AND action = 'OPEN'
+            """,
+            (str(request["request_id"]),),
+        ).fetchone()
+    if row is None:
+        return False
+    item = _row_dict(row)
+    status = str(item["status"])
+    if enrollment.entry_mode == ENTRY_MODE_APPROVAL_REQUIRED and status != STATUS_APPROVED:
+        return False
+    if enrollment.entry_mode == ENTRY_MODE_AUTO and status not in {STATUS_PENDING, STATUS_APPROVED}:
+        return False
+    current_request = dict(request)
+    current_request["created_at"] = item["created_at"]
+    if _entry_authority_changed_after_request(current_request):
+        return False
+    if _newer_strategy_request_exists(current_request):
+        return False
+    return True
 
 
 def run_live_open_cycle_v2() -> LiveOpenCycleV2:
@@ -687,6 +746,25 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                     block_reason="FINAL_PRECHECK_OR_MARGIN_ENVELOPE_BLOCKED",
                 )
                 blocked += 1
+                continue
+
+            # Close the control-plane race immediately before durable SUBMITTING.
+            # Re-read global/pilot/request authority, actual Saxo exposure and working
+            # orders after sizing/precheck. A concurrent strategy switch or user
+            # disarm therefore cannot be bypassed by an already-running OPEN cycle.
+            if not (load_live_open_config_v2().armed and code_gate_enabled_v2()):
+                continue
+            if not _submit_authority_still_current(request):
+                continue
+            fresh_positions = _product_positions(
+                _position_observations_v2(client),
+                account_id=enrollment.account_id,
+                uic=enrollment.uic,
+                asset_type=enrollment.asset_type,
+            )
+            if fresh_positions:
+                continue
+            if _open_orders_exist(client, account_key=account_key, uic=enrollment.uic):
                 continue
 
             external_reference = f"pg-open-{request_id.replace('-', '')[:32]}"
