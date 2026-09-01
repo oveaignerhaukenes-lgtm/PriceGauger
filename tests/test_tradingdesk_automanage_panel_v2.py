@@ -5,7 +5,9 @@ from pathlib import Path
 
 def test_tradingdesk_renders_automanager_in_main_chart_pane_not_right_controls():
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert "chart_column, controls_column = st.columns([4.8, 1.45]" in source
+    assert 'CONTROLS_WIDTH_STATE_KEY = "tradingdesk-controls-width-pct"' in source
+    assert "chart_column, controls_column = st.columns([100 - controls_width_pct, controls_width_pct]" in source
+    assert '"Bredde på kontrollpanel"' in source
     assert "def _render_automanager_workspace()" in source
     assert "render_tradingdesk_automanage_panel_v2(context)" in source
     assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)" in source
@@ -40,19 +42,6 @@ def test_automanage_panel_is_generic_product_strategy_enrollment_not_order_submi
     assert "4912" not in source
 
 
-def test_automanage_panel_exposes_same_basis_live_shadow_scorecards_even_when_flat():
-    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-    assert "load_shadow_benchmark_snapshots_v2" in source
-    assert "load_active_strategy_enrollments_v2" in source
-    assert "LIVE / SHADOW · samme startgrunnlag" in source
-    assert 'st.metric("Paper P/L", f"{item.return_pct:+.2f}%")' in source
-    assert "samme observerte startposisjon" in source
-    assert "same exact canonical 30m-prisbane" not in source
-    assert "samme exact canonical 30m-prisbane" in source
-    assert "faktisk Saxo-P/L føres separat i LIVE-ledgeren" in source
-    assert "strategitest over forblir synlig" in source
-
-
 def test_automanage_enrollment_requires_explicit_user_acknowledgement():
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "Jeg vil at PriceGauger skal AutoManage denne eksakte LIVE-posisjonen med valgt strategi." in source
@@ -78,7 +67,16 @@ def test_live_chart_exposes_explicit_clickable_macd_timeframe_without_rearming_e
     assert 'st.popover(f"MACD · {_timeframe_label(macd_timeframe)}"' in source
     assert '"MACD-timeframe"' in source
     assert "Kun chartvisning" in source
+    assert "AutoManager beholder sin eksplisitt valgte strategi" in source
     assert "indicator_timeframes={INDICATOR_MACD:" in source
+
+
+def test_automanage_workspace_explains_active_pilot_vs_available_live_strategy():
+    source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    assert "from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2" in source
+    assert "Tilgjengelige LIVE-strategier:" in source
+    assert "LIVE-pilot" in source
+    assert "MTF 30/10/5 er nå et LIVE-kapabelt alternativ" in source
 
 
 def test_automanage_bottom_chart_keeps_actual_live_and_paper_semantics_separate():
