@@ -11,6 +11,7 @@ from autotrader_automanage_runtime_v2 import run_automanage_strategy_forever_v2
 from autotrader_closed_position_reconciliation_v2 import (
     run_closed_position_equity_reconciliation_forever_v2,
 )
+from autotrader_fast_15m_shadow_v2 import run_fast_15m_shadow_forever_v2
 from autotrader_live_close_v1 import run_live_close_forever_v1
 from autotrader_live_open_v2 import run_live_open_forever_v2
 from autotrader_macd_dry_run_v2 import run_macd_dry_run_forever_v2
@@ -62,6 +63,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_MACD_DRY_RUN_SECONDS", "60")),
         help="Cadence for the read-only 30m MACD LONG/FLAT dry-run evaluator.",
+    )
+    parser.add_argument(
+        "--autotrader-fast-15m-shadow-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_FAST_15M_SHADOW_SECONDS", "30")),
+        help="Cadence for the read-only 15m MACD LONG/FLAT shadow evaluator.",
     )
     parser.add_argument(
         "--autotrader-mtf-entry-shadow-seconds",
@@ -172,6 +179,31 @@ def _start_autotrader_macd_dry_run(
     )
     thread.start()
     LOGGER.info("AutoTrader MACD dry-run started interval_seconds=%d", max(30, interval_seconds))
+    return thread
+
+
+def _start_autotrader_fast_15m_shadow(
+    *,
+    db_path: str,
+    interval_seconds: int,
+) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader Fast15 shadow disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_fast_15m_shadow_forever_v2,
+        kwargs={
+            "db_path": db_path,
+            "interval_seconds": interval_seconds,
+        },
+        name="pricegauger-autotrader-fast15-shadow",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoTrader Fast15 shadow started interval_seconds=%d; read-only closed 15m MACD LONG/FLAT",
+        max(10, interval_seconds),
+    )
     return thread
 
 
@@ -441,6 +473,10 @@ def main() -> None:
     _start_autotrader_macd_dry_run(
         db_path=args.db,
         interval_seconds=args.autotrader_macd_dry_run_seconds,
+    )
+    _start_autotrader_fast_15m_shadow(
+        db_path=args.db,
+        interval_seconds=args.autotrader_fast_15m_shadow_seconds,
     )
     _start_autotrader_mtf_entry_shadow(
         db_path=args.db,
