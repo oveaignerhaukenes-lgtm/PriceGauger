@@ -9,6 +9,7 @@ from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
 FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-15m-long-flat-shadow-v1"
 MTF_LONG_ENTRY_SHADOW_STRATEGY_V2 = "macd-mtf-long-entry-shadow-v1"
+INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shadow-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,10 +98,24 @@ AUTOMANAGER_MTF_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
     shadow_running=True,
 )
 
+AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
+    key=INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2,
+    label="Intrabar 30m · 1m cross",
+    description=(
+        "30m MACD 12/26/9 is re-evaluated on every closed canonical 1m sample; "
+        "the first observed intrabar cross is timestamped instead of waiting for the 30m close."
+    ),
+    signal_stack="forming 30m MACD sampled on canonical 1m closes -> immediate LONG/FLAT shadow transition",
+    live_ready=False,
+    # Runtime wiring is deliberately a separate capability; the pure replay/audit model lands first.
+    shadow_running=False,
+)
+
 AUTOMANAGER_STRATEGY_TEMPLATES_V2 = (
     AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2,
     AUTOMANAGER_FAST_15M_TEMPLATE_V2,
     AUTOMANAGER_MTF_TEMPLATE_V2,
+    AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2,
 )
 
 _BY_KEY = {item.key: item for item in AUTOTRADER_STRATEGIES_V2}
@@ -116,12 +131,14 @@ def strategy_spec_v2(strategy_key: str) -> AutoTraderStrategySpecV2:
 __all__ = [
     "AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2",
     "AUTOMANAGER_FAST_15M_TEMPLATE_V2",
+    "AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2",
     "AUTOMANAGER_MTF_TEMPLATE_V2",
     "AUTOMANAGER_STRATEGY_TEMPLATES_V2",
     "AUTOTRADER_STRATEGIES_V2",
     "AutoManagerStrategyTemplateV2",
     "AutoTraderStrategySpecV2",
     "FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2",
+    "INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2",
     "MACD_FLIP_SPEC_V2",
     "MACD_LONG_FLAT_SPEC_V2",
     "MACD_LONG_FLAT_STRATEGY_V2",
