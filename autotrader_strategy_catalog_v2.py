@@ -9,6 +9,7 @@ from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
 FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-15m-long-flat-shadow-v1"
 MTF_LONG_ENTRY_SHADOW_STRATEGY_V2 = "macd-mtf-long-entry-shadow-v1"
+INTRABAR_30M_LONG_FLAT_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-v1"
 INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shadow-v1"
 
 
@@ -25,10 +26,9 @@ class AutoTraderStrategySpecV2:
 class AutoManagerStrategyTemplateV2:
     """Named strategy recipe used during AutoManager experimentation.
 
-    These templates deliberately do not imply execution authority. The production
-    LIVE selector continues to use ``AUTOTRADER_STRATEGIES_V2`` only; experimental
-    templates run through separate read-only shadow runtimes until explicitly
-    promoted after evidence and review.
+    Templates describe signal recipes. LIVE authority is still granted only through
+    ``AUTOTRADER_STRATEGIES_V2`` plus an explicit LIVE strategy enrollment; a template
+    entry by itself never grants order authority.
     """
 
     key: str
@@ -50,7 +50,7 @@ MACD_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
 MACD_LONG_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_LONG_FLAT_STRATEGY_V2,
     label="30m MACD long/flat · defensive",
-    description="LONG on bullish cross; FLAT/cash on bearish cross.",
+    description="LONG on bullish closed-30m cross; FLAT/cash on bearish closed-30m cross.",
     can_long=True,
     can_short=False,
 )
@@ -63,12 +63,24 @@ MACD_SHORT_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
-# This tuple remains the explicit execution-capable catalog. Adding an experiment
-# below must never silently grant it LIVE AutoManage authority.
+MACD_INTRABAR_LONG_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=INTRABAR_30M_LONG_FLAT_STRATEGY_V2,
+    label="Intrabar 30m · 1m cross",
+    description=(
+        "30m MACD 12/26/9 sampled on every fully observed canonical 1m close; "
+        "LONG on bullish cross and FLAT/cash on bearish cross without waiting for the 30m close."
+    ),
+    can_long=True,
+    can_short=False,
+)
+
+# Explicit execution-capable catalog. Enrollment + execution gates remain required;
+# appearing here never places or arms an order by itself.
 AUTOTRADER_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
     MACD_FLIP_SPEC_V2,
+    MACD_INTRABAR_LONG_FLAT_SPEC_V2,
 )
 
 AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
@@ -99,15 +111,15 @@ AUTOMANAGER_MTF_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
 )
 
 AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2,
+    key=INTRABAR_30M_LONG_FLAT_STRATEGY_V2,
     label="Intrabar 30m · 1m cross",
     description=(
         "30m MACD 12/26/9 is re-evaluated on every closed canonical 1m sample; "
-        "the first observed intrabar cross is timestamped instead of waiting for the 30m close."
+        "the first observed intrabar cross is actionable instead of waiting for the 30m close."
     ),
-    signal_stack="forming 30m MACD sampled on canonical 1m closes -> immediate LONG/FLAT shadow transition",
-    live_ready=False,
-    # Runtime wiring is deliberately a separate capability; the pure replay/audit model lands first.
+    signal_stack="forming 30m MACD sampled on canonical 1m closes -> immediate LONG/FLAT transition",
+    live_ready=True,
+    # The historical shadow daemon remains a separate capability; LIVE uses the same pure sample function.
     shadow_running=False,
 )
 
@@ -139,7 +151,9 @@ __all__ = [
     "AutoTraderStrategySpecV2",
     "FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2",
     "INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2",
+    "INTRABAR_30M_LONG_FLAT_STRATEGY_V2",
     "MACD_FLIP_SPEC_V2",
+    "MACD_INTRABAR_LONG_FLAT_SPEC_V2",
     "MACD_LONG_FLAT_SPEC_V2",
     "MACD_LONG_FLAT_STRATEGY_V2",
     "MACD_SHORT_FLAT_SPEC_V2",
