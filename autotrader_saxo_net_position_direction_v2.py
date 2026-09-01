@@ -34,13 +34,14 @@ def resolve_net_position_exposure_v2(
     """Resolve net exposure without trusting OpeningDirection alone.
 
     Saxo explicitly exposes AmountLong and AmountShort on NetPositionStatic. When
-    those fields are present they are the primary authority for direction and net
+    those fields are present they are the primary authority for net direction and
     amount. OpeningDirection is retained as a compatibility fallback for older or
     reduced payloads and as a cross-check only.
 
-    Ambiguous/squared exposure fails closed instead of guessing. Raising here is
-    deliberate: every execution path consumes the same position adapter, so a bad
-    direction cannot be mistaken for FLAT or be turned into an opposite CLOSE order.
+    Intraday netting may preserve equal opposing gross legs even when the net amount
+    is FLAT. That state is safe to classify as FLAT only when both the explicit
+    long-short difference and Saxo's signed Amount are zero. Any disagreement fails
+    closed instead of guessing.
     """
     log = logger or logging.getLogger("pricegauger.autotrader.saxo_net_position_direction_v2")
     opening = str(base.get("OpeningDirection") or "").strip().title()
@@ -59,16 +60,21 @@ def resolve_net_position_exposure_v2(
         net = amount_long - amount_short
 
         if abs(net) <= _EPSILON:
-            if amount_long > _EPSILON or amount_short > _EPSILON:
-                raise RuntimeError(
-                    "Saxo net position direction is ambiguous/squared "
-                    f"id={net_position_id} AmountLong={amount_long} AmountShort={amount_short}"
-                )
             if abs(raw_amount) > _EPSILON:
                 raise RuntimeError(
                     "Saxo net position direction fields contradict Amount "
                     f"id={net_position_id} Amount={raw_amount} AmountLong={amount_long} "
                     f"AmountShort={amount_short}"
+                )
+            if amount_long > _EPSILON or amount_short > _EPSILON:
+                log.info(
+                    "Saxo intraday gross legs are squared/net-flat id=%s uic=%s "
+                    "Amount=%s AmountLong=%s AmountShort=%s",
+                    net_position_id,
+                    base.get("Uic"),
+                    raw_amount,
+                    amount_long,
+                    amount_short,
                 )
             return None
 
@@ -99,25 +105,20 @@ def resolve_net_position_exposure_v2(
                 direction,
                 amount,
             )
-        if abs(abs(raw_amount) - amount) > max(_EPSILON, amount * 1e-9):
-            log.warning(
-                "Saxo net-position amount disagreement id=%s uic=%s Amount=%s "
-                "AmountLong=%s AmountShort=%s resolved_amount=%s",
-                net_position_id,
-                base.get("Uic"),
-                raw_amount,
-                amount_long,
-                amount_short,
-                amount,
+        signed_net = net
+        if abs(raw_amount - signed_net) > max(_EPSILON, amount * 1e-9):
+            raise RuntimeError(
+                "Saxo signed Amount contradicts explicit long/short net exposure "
+                f"id={net_position_id} Amount={raw_amount} AmountLong={amount_long} "
+                f"AmountShort={amount_short} resolved_net={signed_net}"
             )
         return NetPositionExposureV2(direction=direction, amount=amount, source="AMOUNT_LONG_SHORT")
 
     if abs(raw_amount) <= _EPSILON:
         return None
     if not opening:
-        # Saxo's NetPositionStatic.Amount is documented as volume, not as a signed
-        # direction authority. Without either OpeningDirection or explicit long/short
-        # totals it is unsafe to infer a trading side from Amount's sign.
+        # Without either OpeningDirection or explicit long/short totals it is unsafe
+        # to infer a trading side from Amount alone.
         raise RuntimeError(
             f"Saxo net position {net_position_id} lacks direction authority for Amount={raw_amount}"
         )
