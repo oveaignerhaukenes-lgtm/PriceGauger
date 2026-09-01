@@ -106,6 +106,13 @@ def switch_live_strategy_v2(
             """,
             (target.key, enrollment.pilot_key, EXECUTION_MODE_LIVE),
         )
+        # Each strategy family persists its own cursor/planning state. Clear all
+        # currently known LIVE state rows so the target strategy must bootstrap
+        # from the actual Saxo exposure and latest closed bars; nothing is replayed.
+        db.execute(
+            "DELETE FROM pg_v2_autotrader_strategy_runtime_state WHERE pilot_key = ?",
+            (enrollment.pilot_key,),
+        )
         db.execute(
             "DELETE FROM pg_v2_autotrader_live_pilot_state WHERE pilot_key = ?",
             (enrollment.pilot_key,),
