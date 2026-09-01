@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from autotrader_shadow_benchmark_v2 import (
-    ShadowBenchmarkSeriesV2,
-    load_shadow_benchmark_series_v2,
+from autotrader_shadow_benchmark_exact_anchor_v2 import (
+    load_shadow_benchmark_series_exact_anchor_v2,
 )
+from autotrader_shadow_benchmark_v2 import ShadowBenchmarkSeriesV2
 from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
@@ -133,7 +133,7 @@ def load_automanager_pnl_comparison_v2(
     live = live_items[0]
     end = _utc(now or datetime.now(timezone.utc))
     strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
-    paper = load_shadow_benchmark_series_v2(
+    paper = load_shadow_benchmark_series_exact_anchor_v2(
         items,
         strategy_keys=strategy_keys,
         db_path=db_path,
