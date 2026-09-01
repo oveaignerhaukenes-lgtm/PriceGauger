@@ -12,6 +12,7 @@ from autotrader_strategy_catalog_v2 import PAPER_30M_STRATEGIES_V2
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
+    load_strategy_enrollment_v2,
 )
 from database import connect
 
@@ -20,6 +21,8 @@ from database import connect
 class LiveRealizedPnlEventV2:
     occurred_at: datetime
     realized_net_pnl: float
+    pilot_key: str = ""
+    strategy_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,16 +30,34 @@ class LiveRealizedPnlPointV2:
     occurred_at: datetime
     cumulative_pnl: float
     return_pct: float
+    pilot_key: str = ""
+    strategy_key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class LiveStrategyEpochV2:
+    pilot_key: str
+    strategy_key: str
+    started_at: datetime
+    ended_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ProductLivePilotV2:
+    enrollment: StrategyEnrollmentV2
+    enrolled_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
 class AutoManagerPnlComparisonV2:
     pilot_key: str
+    product_key: str
     currency: str
     seed_equity: float
     started_at: datetime
     as_of: datetime
     live_realized: tuple[LiveRealizedPnlPointV2, ...]
+    live_epochs: tuple[LiveStrategyEpochV2, ...]
     paper_series: tuple[ShadowBenchmarkSeriesV2, ...]
 
 
@@ -53,8 +74,17 @@ def build_live_realized_pnl_curve_v2(
     started_at: datetime,
     as_of: datetime,
     events: Iterable[LiveRealizedPnlEventV2],
+    initial_pilot_key: str = "",
+    initial_strategy_key: str = "",
+    as_of_pilot_key: str = "",
+    as_of_strategy_key: str = "",
 ) -> tuple[LiveRealizedPnlPointV2, ...]:
-    """Build a settled-only LIVE curve without estimating open-position P/L."""
+    """Build one settled-only LIVE curve across consecutive strategy cohorts.
+
+    Strategy pilots keep separate ledgers for execution attribution. Reporting sums
+    their realized events in chronological order so switching strategy never erases
+    product history. Open/unrealized P/L is still deliberately excluded.
+    """
     seed = float(seed_equity)
     if seed <= 0:
         raise ValueError("seed_equity must be positive")
@@ -64,7 +94,15 @@ def build_live_realized_pnl_curve_v2(
         raise ValueError("comparison end precedes start")
 
     cumulative = 0.0
-    points = [LiveRealizedPnlPointV2(started, 0.0, 0.0)]
+    points = [
+        LiveRealizedPnlPointV2(
+            occurred_at=started,
+            cumulative_pnl=0.0,
+            return_pct=0.0,
+            pilot_key=str(initial_pilot_key),
+            strategy_key=str(initial_strategy_key),
+        )
+    ]
     for event in sorted(events, key=lambda item: _utc(item.occurred_at)):
         occurred = _utc(event.occurred_at)
         if occurred < started or occurred > end:
@@ -75,6 +113,8 @@ def build_live_realized_pnl_curve_v2(
                 occurred_at=occurred,
                 cumulative_pnl=cumulative,
                 return_pct=(cumulative / seed) * 100.0,
+                pilot_key=str(event.pilot_key),
+                strategy_key=str(event.strategy_key),
             )
         )
     if points[-1].occurred_at < end:
@@ -83,32 +123,110 @@ def build_live_realized_pnl_curve_v2(
                 occurred_at=end,
                 cumulative_pnl=cumulative,
                 return_pct=(cumulative / seed) * 100.0,
+                pilot_key=str(as_of_pilot_key or points[-1].pilot_key),
+                strategy_key=str(as_of_strategy_key or points[-1].strategy_key),
             )
         )
     return tuple(points)
 
 
-def _load_live_realized_events_v2(pilot_key: str) -> tuple[LiveRealizedPnlEventV2, ...]:
+def _load_product_live_history_v2(live: StrategyEnrollmentV2) -> tuple[_ProductLivePilotV2, ...]:
+    """Load every persisted LIVE cohort for one exact product, oldest first."""
     with connect() as db:
         rows = db.execute(
             """
-            SELECT realized_net_pnl, created_at
+            SELECT pilot_key, enrolled_at
+            FROM pg_v2_autotrader_strategy_enrollments
+            WHERE execution_mode = ?
+              AND account_id = ?
+              AND uic = ?
+              AND asset_type = ?
+              AND instrument_id = ?
+            ORDER BY enrolled_at ASC, pilot_key ASC
+            """,
+            (
+                EXECUTION_MODE_LIVE,
+                live.account_id,
+                int(live.uic),
+                live.asset_type,
+                int(live.instrument_id),
+            ),
+        ).fetchall()
+
+    history: list[_ProductLivePilotV2] = []
+    for row in rows:
+        values = dict(row) if isinstance(row, dict) else {
+            "pilot_key": row[0],
+            "enrolled_at": row[1],
+        }
+        enrollment = load_strategy_enrollment_v2(str(values["pilot_key"]))
+        if enrollment is None or enrollment.execution_mode != EXECUTION_MODE_LIVE:
+            continue
+        history.append(
+            _ProductLivePilotV2(
+                enrollment=enrollment,
+                enrolled_at=_utc(values["enrolled_at"]),
+            )
+        )
+    if not history:
+        raise ValueError("P/L comparison has no persisted LIVE history for product")
+    if all(item.enrollment.pilot_key != live.pilot_key for item in history):
+        raise ValueError("active LIVE controller is missing from product P/L history")
+    return tuple(history)
+
+
+def _live_strategy_epochs_v2(
+    history: tuple[_ProductLivePilotV2, ...],
+) -> tuple[LiveStrategyEpochV2, ...]:
+    epochs: list[LiveStrategyEpochV2] = []
+    for index, item in enumerate(history):
+        ended_at = history[index + 1].enrolled_at if index + 1 < len(history) else None
+        epochs.append(
+            LiveStrategyEpochV2(
+                pilot_key=item.enrollment.pilot_key,
+                strategy_key=item.enrollment.strategy_key,
+                started_at=item.enrolled_at,
+                ended_at=ended_at,
+            )
+        )
+    return tuple(epochs)
+
+
+def _load_live_realized_events_v2(
+    history: tuple[_ProductLivePilotV2, ...],
+) -> tuple[LiveRealizedPnlEventV2, ...]:
+    pilot_to_strategy = {
+        item.enrollment.pilot_key: item.enrollment.strategy_key
+        for item in history
+    }
+    pilot_keys = tuple(pilot_to_strategy)
+    if not pilot_keys:
+        return ()
+    placeholders = ", ".join("?" for _ in pilot_keys)
+    with connect() as db:
+        rows = db.execute(
+            f"""
+            SELECT pilot_key, realized_net_pnl, created_at
             FROM pg_v2_autotrader_pilot_equity_events
-            WHERE pilot_key = ?
+            WHERE pilot_key IN ({placeholders})
             ORDER BY created_at ASC, event_id ASC
             """,
-            (str(pilot_key),),
+            pilot_keys,
         ).fetchall()
     events = []
     for row in rows:
         values = dict(row) if isinstance(row, dict) else {
-            "realized_net_pnl": row[0],
-            "created_at": row[1],
+            "pilot_key": row[0],
+            "realized_net_pnl": row[1],
+            "created_at": row[2],
         }
+        pilot_key = str(values["pilot_key"])
         events.append(
             LiveRealizedPnlEventV2(
                 occurred_at=_utc(values["created_at"]),
                 realized_net_pnl=float(values["realized_net_pnl"]),
+                pilot_key=pilot_key,
+                strategy_key=pilot_to_strategy.get(pilot_key, ""),
             )
         )
     return tuple(events)
@@ -120,12 +238,12 @@ def load_automanager_pnl_comparison_v2(
     db_path: str = "pricegauger.db",
     now: datetime | None = None,
 ) -> AutoManagerPnlComparisonV2:
-    """Load truthful LIVE settled P/L beside established closed-30m paper controls.
+    """Load durable product-history LIVE P/L beside closed-30m paper controls.
 
-    Actual LIVE may be controlled by a different signal clock (for example MTF).
-    Paper curves remain explicitly limited to strategies with the established
-    deterministic closed-30m replay, so the chart never mislabels an MTF LIVE pilot
-    as if it had been replayed on the Classic clock.
+    Execution cohorts remain separate and auditable, but reporting is product-level:
+    changing LIVE strategy must not reset or hide the realized Saxo history. Paper
+    controls replay from the oldest LIVE cohort's exact start anchor and therefore do
+    not depend on today's SHADOW enrollments sharing that anchor.
     """
     items = tuple(enrollments)
     live_items = tuple(item for item in items if item.execution_mode == EXECUTION_MODE_LIVE)
@@ -133,31 +251,51 @@ def load_automanager_pnl_comparison_v2(
         raise ValueError("P/L comparison requires exactly one LIVE controller")
     live = live_items[0]
     end = _utc(now or datetime.now(timezone.utc))
+
+    history = _load_product_live_history_v2(live)
+    first = history[0]
     strategy_keys = tuple(item.key for item in PAPER_30M_STRATEGIES_V2)
+    # Only the oldest LIVE cohort defines the historical start anchor. Current/old
+    # SHADOW enrollments are reporting controls, not identity authority.
     paper = load_shadow_benchmark_series_exact_anchor_v2(
-        items,
+        (first.enrollment,),
         strategy_keys=strategy_keys,
         db_path=db_path,
         now=end,
     )
     if not paper:
         raise ValueError("P/L comparison has no canonical paper series")
+
     seed = float(paper[0].seed_equity)
     started = paper[0].started_at
-    events = _load_live_realized_events_v2(live.pilot_key)
+    events = _load_live_realized_events_v2(history)
     actual = build_live_realized_pnl_curve_v2(
         seed_equity=seed,
         started_at=started,
         as_of=end,
         events=events,
+        initial_pilot_key=first.enrollment.pilot_key,
+        initial_strategy_key=first.enrollment.strategy_key,
+        as_of_pilot_key=live.pilot_key,
+        as_of_strategy_key=live.strategy_key,
+    )
+    product_key = ":".join(
+        (
+            live.account_id,
+            str(int(live.uic)),
+            live.asset_type,
+            str(int(live.instrument_id)),
+        )
     )
     return AutoManagerPnlComparisonV2(
         pilot_key=live.pilot_key,
+        product_key=product_key,
         currency=paper[0].currency,
         seed_equity=seed,
         started_at=started,
         as_of=end,
         live_realized=actual,
+        live_epochs=_live_strategy_epochs_v2(history),
         paper_series=paper,
     )
 
@@ -166,6 +304,7 @@ __all__ = [
     "AutoManagerPnlComparisonV2",
     "LiveRealizedPnlEventV2",
     "LiveRealizedPnlPointV2",
+    "LiveStrategyEpochV2",
     "build_live_realized_pnl_curve_v2",
     "load_automanager_pnl_comparison_v2",
 ]

@@ -32,3 +32,19 @@ def test_plotly_localizer_converts_trace_clock_and_axis_label_without_mutating_s
     assert fig.data[0].x[0].tzinfo is None
     assert "norsk tid" in fig.data[0].hovertemplate
     assert fig.layout.xaxis.title.text == "Tid · norsk tid"
+
+
+def test_plotly_localizer_keeps_epoch_shapes_and_annotations_aligned_with_trace_clock():
+    source = datetime(2026, 8, 25, 17, 0, tzinfo=timezone.utc)
+    fig = go.Figure(go.Scatter(x=[source], y=[1.0]))
+    fig.add_shape(type="line", x0=source, x1=source, y0=0, y1=1, xref="x", yref="paper")
+    fig.add_annotation(x=source, y=1.0, xref="x", yref="paper", text="MTF")
+
+    localize_plotly_figure_v2(fig)
+
+    assert fig.data[0].x[0].hour == 19
+    assert fig.layout.shapes[0].x0.hour == 19
+    assert fig.layout.shapes[0].x1.hour == 19
+    assert fig.layout.annotations[0].x.hour == 19
+    assert fig.layout.shapes[0].x0.tzinfo is None
+    assert fig.layout.annotations[0].x.tzinfo is None
