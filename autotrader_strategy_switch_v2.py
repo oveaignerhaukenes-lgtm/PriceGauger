@@ -56,25 +56,16 @@ def _prepare_target_capital_v2(
     *,
     target_pilot_key: str,
 ) -> None:
-    """Create a new strategy ledger from current settled capital when first used.
-
-    If the target strategy already has a historical ledger, preserve that strategy's
-    own capital history rather than silently resetting it. New strategies inherit the
-    currently controlled settled capital as their initial isolated budget.
-    """
+    """Seed a never-used target strategy from current settled controlled capital."""
     current = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
-    try:
-        load_pilot_equity_v2(pilot_key=target_pilot_key)
-    except LookupError:
-        initialize_pilot_equity_v2(
-            pilot_key=target_pilot_key,
-            seed_capital=float(current.equity),
-            currency=current.currency,
-        )
+    initialize_pilot_equity_v2(
+        pilot_key=target_pilot_key,
+        seed_capital=float(current.equity),
+        currency=current.currency,
+    )
 
-    target_margin = load_pilot_margin_config_v2(target_pilot_key)
     source_margin = load_pilot_margin_config_v2(enrollment.pilot_key)
-    if target_margin is None and source_margin is not None:
+    if source_margin is not None:
         save_pilot_margin_config_v2(
             pilot_key=target_pilot_key,
             max_effective_leverage=float(source_margin.max_effective_leverage),
@@ -88,16 +79,15 @@ def switch_live_strategy_v2(
     pilot_key: str,
     target_strategy_key: str,
 ) -> StrategySwitchResultV2:
-    """Move one confirmed-FLAT LIVE product to another canonical strategy pilot.
+    """Move a confirmed-FLAT LIVE product to a new canonical strategy pilot.
 
     The switch itself never places an order. Strategy identity remains canonical:
-    each product+strategy pair keeps its own pilot key and P/L history. The current
-    pilot is disabled, the target pilot is enabled with OPEN disarmed, and all
-    unstarted OPEN authority on both pilots is superseded. A new target strategy
-    starts with the currently controlled settled capital; an existing target pilot
-    keeps its own historical equity ledger. Margin Envelope is copied only when the
-    target has never had one. Product Admission/sizing remain product+direction
-    contracts and therefore do not need to be duplicated.
+    each product+strategy pair keeps its own pilot key and clean P/L history. V1 only
+    switches into a strategy pilot that has never been enrolled before; resuming an
+    old strategy cohort is deliberately left for a later explicit lifecycle policy.
+    The current pilot becomes historical, the target starts with current settled
+    controlled capital and copied Margin Envelope, and LIVE OPEN remains disarmed.
+    Product Admission/sizing are product+direction contracts and are not duplicated.
     """
     ensure_autotrader_schema_v2()
     ensure_mtf_live_schema_v2()
@@ -124,16 +114,9 @@ def switch_live_strategy_v2(
     target_pilot_key = enrollment.product.pilot_key(target.key)
     target_existing = load_strategy_enrollment_v2(target_pilot_key)
     if target_existing is not None:
-        if (
-            target_existing.account_id != enrollment.account_id
-            or int(target_existing.uic) != int(enrollment.uic)
-            or target_existing.asset_type != enrollment.asset_type
-            or int(target_existing.market_id) != int(enrollment.market_id)
-            or int(target_existing.instrument_id) != int(enrollment.instrument_id)
-        ):
-            raise ValueError("target strategy pilot has a canonical product identity mismatch")
-        if target_existing.enabled:
-            raise ValueError("target strategy pilot is already active")
+        raise ValueError(
+            "target strategy pilot already has history; v1 strategy switch refuses to mix or resume cohorts"
+        )
 
     _prepare_target_capital_v2(enrollment, target_pilot_key=target_pilot_key)
     event_id = str(uuid4())
@@ -142,9 +125,9 @@ def switch_live_strategy_v2(
             """
             UPDATE pg_v2_autotrader_execution_requests
             SET status = 'SUPERSEDED', block_reason = 'STRATEGY_SWITCH', updated_at = now()
-            WHERE pilot_key IN (?, ?) AND status IN ('PENDING', 'APPROVED')
+            WHERE pilot_key = ? AND status IN ('PENDING', 'APPROVED')
             """,
-            (enrollment.pilot_key, target_pilot_key),
+            (enrollment.pilot_key,),
         )
         db.execute(
             """
@@ -161,21 +144,6 @@ def switch_live_strategy_v2(
                 uic, asset_type, market_id, instrument_id, market_name,
                 enabled, live_open_armed, entry_mode, enrolled_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE, ?, now(), now())
-            ON CONFLICT (pilot_key) DO UPDATE SET
-                strategy_key=EXCLUDED.strategy_key,
-                execution_mode=EXCLUDED.execution_mode,
-                account_id=EXCLUDED.account_id,
-                anchor_net_position_id=EXCLUDED.anchor_net_position_id,
-                uic=EXCLUDED.uic,
-                asset_type=EXCLUDED.asset_type,
-                market_id=EXCLUDED.market_id,
-                instrument_id=EXCLUDED.instrument_id,
-                market_name=EXCLUDED.market_name,
-                enabled=TRUE,
-                live_open_armed=FALSE,
-                entry_mode=EXCLUDED.entry_mode,
-                enrolled_at=now(),
-                updated_at=now()
             """,
             (
                 target_pilot_key,
@@ -191,9 +159,8 @@ def switch_live_strategy_v2(
                 enrollment.entry_mode,
             ),
         )
-        # The target strategy may have been used historically. Clear only target
-        # runtime cursors/planning state so reactivation bootstraps from current FLAT
-        # and current closed bars; no stale historical signal is replayed.
+        # A new target should not have runtime rows, but clear defensively so the
+        # contract remains no-replay if schema seeding ever changes later.
         db.execute(
             "DELETE FROM pg_v2_autotrader_strategy_runtime_state WHERE pilot_key = ?",
             (target_pilot_key,),
