@@ -7,6 +7,7 @@ from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 
 
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
+MTF_LONG_FLAT_STRATEGY_V2 = "macd-mtf-30-10-5-long-flat-v1"
 FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-15m-long-flat-shadow-v1"
 MTF_LONG_ENTRY_SHADOW_STRATEGY_V2 = "macd-mtf-long-entry-shadow-v1"
 INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shadow-v1"
@@ -25,10 +26,9 @@ class AutoTraderStrategySpecV2:
 class AutoManagerStrategyTemplateV2:
     """Named strategy recipe used during AutoManager experimentation.
 
-    These templates deliberately do not imply execution authority. The production
-    LIVE selector continues to use ``AUTOTRADER_STRATEGIES_V2`` only; experimental
-    templates run through separate read-only shadow runtimes until explicitly
-    promoted after evidence and review.
+    Templates describe user-facing recipes; execution authority remains explicit in
+    ``AUTOTRADER_STRATEGIES_V2``. A template may therefore have a parallel shadow
+    runtime without sharing the same persistent strategy key.
     """
 
     key: str
@@ -63,9 +63,30 @@ MACD_SHORT_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
-# This tuple remains the explicit execution-capable catalog. Adding an experiment
-# below must never silently grant it LIVE AutoManage authority.
+MTF_LONG_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MTF_LONG_FLAT_STRATEGY_V2,
+    label="MTF 30/10/5 · long/flat",
+    description=(
+        "30m context/regime; closed 5m bullish MACD trigger opens LONG; closed 10m validates or "
+        "rejects the provisional entry; closed 30m confirms the regime or ends it on bearish cross."
+    ),
+    can_long=True,
+    can_short=False,
+)
+
+# Explicit execution-capable catalog. Experimental shadow keys below never gain LIVE
+# authority merely by existing in the template catalog.
 AUTOTRADER_STRATEGIES_V2 = (
+    MACD_LONG_FLAT_SPEC_V2,
+    MACD_SHORT_FLAT_SPEC_V2,
+    MACD_FLIP_SPEC_V2,
+    MTF_LONG_FLAT_SPEC_V2,
+)
+
+# These three policies have the established deterministic closed-30m paper replay.
+# MTF and intrabar require their own replay clocks and must not be mislabeled as
+# closed-30m curves merely because they can run LIVE.
+PAPER_30M_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
     MACD_FLIP_SPEC_V2,
@@ -90,11 +111,11 @@ AUTOMANAGER_FAST_15M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
 )
 
 AUTOMANAGER_MTF_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=MTF_LONG_ENTRY_SHADOW_STRATEGY_V2,
+    key=MTF_LONG_FLAT_STRATEGY_V2,
     label="MTF 30/10/5",
     description="30m context, 5m entry trigger, 10m validation and 30m regime confirmation.",
     signal_stack="30m regime -> 5m entry -> 10m validation -> 30m confirmation",
-    live_ready=False,
+    live_ready=True,
     shadow_running=True,
 )
 
@@ -107,7 +128,6 @@ AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
     ),
     signal_stack="forming 30m MACD sampled on canonical 1m closes -> immediate LONG/FLAT shadow transition",
     live_ready=False,
-    # Runtime wiring is deliberately a separate capability; the pure replay/audit model lands first.
     shadow_running=False,
 )
 
@@ -135,6 +155,7 @@ __all__ = [
     "AUTOMANAGER_MTF_TEMPLATE_V2",
     "AUTOMANAGER_STRATEGY_TEMPLATES_V2",
     "AUTOTRADER_STRATEGIES_V2",
+    "PAPER_30M_STRATEGIES_V2",
     "AutoManagerStrategyTemplateV2",
     "AutoTraderStrategySpecV2",
     "FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2",
@@ -145,5 +166,7 @@ __all__ = [
     "MACD_SHORT_FLAT_SPEC_V2",
     "MACD_SHORT_FLAT_STRATEGY_V2",
     "MTF_LONG_ENTRY_SHADOW_STRATEGY_V2",
+    "MTF_LONG_FLAT_SPEC_V2",
+    "MTF_LONG_FLAT_STRATEGY_V2",
     "strategy_spec_v2",
 ]
