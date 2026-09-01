@@ -9,6 +9,7 @@ from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
 MTF_LONG_FLAT_STRATEGY_V2 = "macd-mtf-30-10-5-long-flat-v1"
 MTF_SHORT_FLAT_STRATEGY_V2 = "macd-mtf-30-10-5-short-flat-v1"
+MTF_LONG_SHORT_FLIP_STRATEGY_V2 = "macd-mtf-30-10-5-long-short-v1"
 FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-15m-long-flat-shadow-v1"
 MTF_LONG_ENTRY_SHADOW_STRATEGY_V2 = "macd-mtf-long-entry-shadow-v1"
 INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shadow-v1"
@@ -86,6 +87,17 @@ MTF_SHORT_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
+MTF_LONG_SHORT_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MTF_LONG_SHORT_FLIP_STRATEGY_V2,
+    label="MTF 30/10/5 · long/short flip",
+    description=(
+        "Symmetric MTF: 30m context, closed 5m early LONG/SHORT trigger and closed 10m validation. "
+        "An opposite closed 30m cross carries a reversal only through CLOSE -> confirmed FLAT -> OPEN."
+    ),
+    can_long=True,
+    can_short=True,
+)
+
 # Explicit execution-capable catalog. Experimental shadow keys below never gain LIVE
 # authority merely by existing in the template catalog.
 AUTOTRADER_STRATEGIES_V2 = (
@@ -94,6 +106,7 @@ AUTOTRADER_STRATEGIES_V2 = (
     MACD_FLIP_SPEC_V2,
     MTF_LONG_FLAT_SPEC_V2,
     MTF_SHORT_FLAT_SPEC_V2,
+    MTF_LONG_SHORT_FLIP_SPEC_V2,
 )
 
 # These three policies have the established deterministic closed-30m paper replay.
@@ -141,6 +154,17 @@ AUTOMANAGER_MTF_SHORT_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
     shadow_running=False,
 )
 
+AUTOMANAGER_MTF_FLIP_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
+    key=MTF_LONG_SHORT_FLIP_STRATEGY_V2,
+    label="MTF 30/10/5 · long/short flip",
+    description=(
+        "30m regime with symmetric 5m early LONG/SHORT entries, 10m validation and safe two-step reversals."
+    ),
+    signal_stack="30m regime -> 5m LONG/SHORT entry -> 10m validation -> 30m CLOSE/FLAT/opposite OPEN",
+    live_ready=True,
+    shadow_running=False,
+)
+
 AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
     key=INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2,
     label="Intrabar 30m · 1m cross",
@@ -158,6 +182,7 @@ AUTOMANAGER_STRATEGY_TEMPLATES_V2 = (
     AUTOMANAGER_FAST_15M_TEMPLATE_V2,
     AUTOMANAGER_MTF_TEMPLATE_V2,
     AUTOMANAGER_MTF_SHORT_TEMPLATE_V2,
+    AUTOMANAGER_MTF_FLIP_TEMPLATE_V2,
     AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2,
 )
 
@@ -175,6 +200,7 @@ __all__ = [
     "AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2",
     "AUTOMANAGER_FAST_15M_TEMPLATE_V2",
     "AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2",
+    "AUTOMANAGER_MTF_FLIP_TEMPLATE_V2",
     "AUTOMANAGER_MTF_SHORT_TEMPLATE_V2",
     "AUTOMANAGER_MTF_TEMPLATE_V2",
     "AUTOMANAGER_STRATEGY_TEMPLATES_V2",
@@ -192,6 +218,8 @@ __all__ = [
     "MTF_LONG_ENTRY_SHADOW_STRATEGY_V2",
     "MTF_LONG_FLAT_SPEC_V2",
     "MTF_LONG_FLAT_STRATEGY_V2",
+    "MTF_LONG_SHORT_FLIP_SPEC_V2",
+    "MTF_LONG_SHORT_FLIP_STRATEGY_V2",
     "MTF_SHORT_FLAT_SPEC_V2",
     "MTF_SHORT_FLAT_STRATEGY_V2",
     "strategy_spec_v2",
