@@ -11,6 +11,7 @@ from autotrader_pilot_equity_v2 import (
     DEFAULT_PILOT_SEED_CAPITAL,
     PilotEquitySnapshotV2,
     initialize_pilot_equity_v2,
+    load_pilot_equity_v2,
 )
 from autotrader_risk_control_v2 import PositionObservationV2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
@@ -120,6 +121,36 @@ def _select_columns() -> str:
     )
 
 
+def _resume_equity_and_entry_mode_v2(
+    *,
+    pilot_key: str,
+    strategy_key: str,
+    execution_mode: str,
+    requested_currency: str,
+) -> tuple[PilotEquitySnapshotV2, str] | None:
+    """Resolve an existing disabled canonical pilot without reseeding it.
+
+    A stop/start cycle disables execution authority but does not create a new economic
+    cohort. The immutable pilot ledger therefore remains authoritative on resume.
+    LIVE OPEN stays disarmed by the enrollment upsert below, while the user's prior
+    entry-mode contract is preserved.
+    """
+    existing = load_strategy_enrollment_v2(pilot_key)
+    if existing is None or existing.enabled:
+        return None
+    if existing.strategy_key != str(strategy_key):
+        raise ValueError("canonical pilot strategy changed unexpectedly")
+    if existing.execution_mode != str(execution_mode):
+        raise ValueError("canonical pilot execution mode changed unexpectedly")
+
+    equity = load_pilot_equity_v2(pilot_key=pilot_key)
+    normalized_currency = str(requested_currency or "").strip().upper()
+    if normalized_currency and equity.currency != normalized_currency:
+        raise ValueError("existing pilot equity currency does not match current account currency")
+    entry_mode = existing.entry_mode if execution_mode == EXECUTION_MODE_LIVE else ENTRY_MODE_MANUAL_ONLY
+    return equity, entry_mode
+
+
 def enroll_strategy_position_v2(
     observation: PositionObservationV2,
     *,
@@ -129,12 +160,15 @@ def enroll_strategy_position_v2(
     currency: str = "NOK",
     entry_mode: str = ENTRY_MODE_MANUAL_ONLY,
 ) -> tuple[StrategyEnrollmentV2, PilotEquitySnapshotV2]:
-    """Attach any supported strategy to any exact subscribed Saxo product.
+    """Attach or resume a supported strategy on one exact subscribed Saxo product.
 
     Product identity, strategy policy and entry authority are deliberately separate.
     CLOSE authority comes from LIVE_MANAGE + the existing close gates. `entry_mode`
     controls only whether PriceGauger may create a new position automatically, after
     one-shot approval, or not at all.
+
+    A disabled canonical pilot is resumed rather than reseeded: its immutable equity
+    ledger and prior entry-mode contract are preserved, while LIVE OPEN is disarmed.
     """
     ensure_autotrader_schema_v2()
     strategy_spec_v2(strategy_key)
@@ -170,11 +204,20 @@ def enroll_strategy_position_v2(
                 f"{controller.strategy_key} ({controller.pilot_key})"
             )
 
-    equity = initialize_pilot_equity_v2(
+    resume = _resume_equity_and_entry_mode_v2(
         pilot_key=pilot_key,
-        seed_capital=float(seed_capital),
-        currency=currency,
+        strategy_key=strategy_key,
+        execution_mode=mode,
+        requested_currency=currency,
     )
+    if resume is None:
+        equity = initialize_pilot_equity_v2(
+            pilot_key=pilot_key,
+            seed_capital=float(seed_capital),
+            currency=currency,
+        )
+    else:
+        equity, normalized_entry_mode = resume
 
     if mode == EXECUTION_MODE_LIVE:
         enroll_position_v1(observation)
@@ -200,7 +243,6 @@ def enroll_strategy_position_v2(
                 enabled=TRUE,
                 live_open_armed=FALSE,
                 entry_mode=EXCLUDED.entry_mode,
-                enrolled_at=now(),
                 updated_at=now()
             """,
             (
