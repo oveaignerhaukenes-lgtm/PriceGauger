@@ -10,8 +10,8 @@ def test_mtf_flip_runtime_emits_requests_but_has_no_saxo_post_authority() -> Non
     assert "pg_v2_autotrader_mtf_flip_live_events" in source
     assert "BOOTSTRAP_NO_REPLAY" in source
     assert "NEWER_MTF_FLIP_SIGNAL" in source
-    assert "confirmed FLAT" in source
-    assert "settled close/P&L provenance" in source
+    assert "state.pending is not None and observed_direction == DIRECTION_FLAT" in source
+    assert "generic LIVE OPEN then still enforces settled close/P&L provenance" in source
     assert "_post_once" not in source
     assert "trade/v2/orders" not in source
     assert "live_open_order_payload_v2" not in source
@@ -22,10 +22,11 @@ def test_mtf_flip_carries_only_30m_reversal_and_never_one_order_reverses() -> No
     runtime = Path("autotrader_mtf_flip_live_runtime_v2.py").read_text(encoding="utf-8")
     assert "sole event allowed to carry a direction target across CLOSE -> FLAT -> OPEN" in policy
     assert "Fast clocks advance but cannot create a second order" in runtime
-    assert 'return "CLOSE"' in runtime
+    assert 'return "CLOSE" if observed_direction != DIRECTION_FLAT else None' in runtime
     assert 'return "OPEN"' in runtime
-    assert "one-order" in policy
-    assert "reverse order" not in runtime
+    assert "decision.carry_reversal" in runtime
+    assert "pending_target_direction TEXT CHECK (pending_target_direction IN ('LONG','SHORT'))" in runtime
+    assert "trade/v2/orders" not in runtime
 
 
 def test_dispatch_selects_mtf_flip_and_reuses_shared_position_snapshot() -> None:
