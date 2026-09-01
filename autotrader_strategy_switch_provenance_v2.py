@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from threading import Lock
 from typing import Any
 
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_enrollment_v2 import StrategyEnrollmentV2
 from database import connect
+
+
+_SCHEMA_LOCK = Lock()
+_SCHEMA_READY = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,61 +27,69 @@ def _value(row: Any, key: str, index: int) -> Any:
 
 
 def ensure_strategy_switch_provenance_schema_v2() -> None:
-    """Ensure durable audit state for strategy-to-strategy FLAT handoff.
+    """Ensure durable audit state for strategy-to-strategy FLAT handoff once/process.
 
     PR #265 introduced the switch-event table lazily. These ALTERs deliberately
     upgrade that existing shape without rewriting historical rows: only events
     created after the stronger provenance contract may authorize a target pilot's
-    first OPEN.
+    first OPEN. The migration is cached so the 2-second OPEN loop remains read-only
+    after the first process-local initialization.
     """
-    ensure_autotrader_schema_v2()
-    with connect() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_strategy_switch_events (
-                event_id UUID PRIMARY KEY,
-                from_pilot_key TEXT NOT NULL,
-                to_pilot_key TEXT NOT NULL,
-                from_strategy_key TEXT NOT NULL,
-                to_strategy_key TEXT NOT NULL,
-                observed_direction TEXT NOT NULL,
-                entry_mode TEXT NOT NULL,
-                live_open_was_armed BOOLEAN NOT NULL,
-                settled_flat_provenance BOOLEAN NOT NULL DEFAULT FALSE,
-                provenance_kind TEXT,
-                source_close_event_id UUID,
-                source_equity_at_switch DOUBLE PRECISION,
-                source_currency TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+    with _SCHEMA_LOCK:
+        if _SCHEMA_READY:
+            return
+        ensure_autotrader_schema_v2()
+        with connect() as db:
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pg_v2_autotrader_strategy_switch_events (
+                    event_id UUID PRIMARY KEY,
+                    from_pilot_key TEXT NOT NULL,
+                    to_pilot_key TEXT NOT NULL,
+                    from_strategy_key TEXT NOT NULL,
+                    to_strategy_key TEXT NOT NULL,
+                    observed_direction TEXT NOT NULL,
+                    entry_mode TEXT NOT NULL,
+                    live_open_was_armed BOOLEAN NOT NULL,
+                    settled_flat_provenance BOOLEAN NOT NULL DEFAULT FALSE,
+                    provenance_kind TEXT,
+                    source_close_event_id UUID,
+                    source_equity_at_switch DOUBLE PRECISION,
+                    source_currency TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
             )
-            """
-        )
-        db.execute(
-            "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
-            "ADD COLUMN IF NOT EXISTS settled_flat_provenance BOOLEAN NOT NULL DEFAULT FALSE"
-        )
-        db.execute(
-            "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
-            "ADD COLUMN IF NOT EXISTS provenance_kind TEXT"
-        )
-        db.execute(
-            "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
-            "ADD COLUMN IF NOT EXISTS source_close_event_id UUID"
-        )
-        db.execute(
-            "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
-            "ADD COLUMN IF NOT EXISTS source_equity_at_switch DOUBLE PRECISION"
-        )
-        db.execute(
-            "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
-            "ADD COLUMN IF NOT EXISTS source_currency TEXT"
-        )
-        db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS pg_v2_autotrader_strategy_switch_target_time_idx
-            ON pg_v2_autotrader_strategy_switch_events(to_pilot_key, created_at DESC)
-            """
-        )
+            db.execute(
+                "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
+                "ADD COLUMN IF NOT EXISTS settled_flat_provenance BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            db.execute(
+                "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
+                "ADD COLUMN IF NOT EXISTS provenance_kind TEXT"
+            )
+            db.execute(
+                "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
+                "ADD COLUMN IF NOT EXISTS source_close_event_id UUID"
+            )
+            db.execute(
+                "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
+                "ADD COLUMN IF NOT EXISTS source_equity_at_switch DOUBLE PRECISION"
+            )
+            db.execute(
+                "ALTER TABLE pg_v2_autotrader_strategy_switch_events "
+                "ADD COLUMN IF NOT EXISTS source_currency TEXT"
+            )
+            db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS pg_v2_autotrader_strategy_switch_target_time_idx
+                ON pg_v2_autotrader_strategy_switch_events(to_pilot_key, created_at DESC)
+                """
+            )
+        _SCHEMA_READY = True
 
 
 def require_source_settled_flat_provenance_v2(
