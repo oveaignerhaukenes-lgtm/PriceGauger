@@ -33,22 +33,26 @@ def oslo_label(value, *, include_date: bool = True) -> str:
     return f"{parsed:%H:%M} {suffix}"
 
 
+def _local_plotly_x(value):
+    if value is None:
+        return value
+    try:
+        return oslo_chart_time(value)
+    except (TypeError, ValueError):
+        return value
+
+
 def localize_plotly_figure_v2(fig) -> None:
     """Mutate a Plotly figure for Norwegian wall-clock presentation only.
 
-    Stored timestamps remain UTC. Trace x-values are converted at the final UI
-    boundary so analysis, resampling and database contracts stay timezone-neutral.
+    Stored timestamps remain UTC. Trace x-values plus time-anchored layout shapes
+    and annotations are converted at the final UI boundary so linked analytical
+    overlays keep exact alignment while the display clock matches TradingDesk.
     """
     for trace in getattr(fig, "data", ()):
         values = getattr(trace, "x", None)
         if values is not None:
-            converted = []
-            for value in values:
-                try:
-                    converted.append(oslo_chart_time(value))
-                except (TypeError, ValueError):
-                    converted.append(value)
-            trace.x = tuple(converted)
+            trace.x = tuple(_local_plotly_x(value) for value in values)
         hover = getattr(trace, "hovertemplate", None)
         if isinstance(hover, str) and "UTC" in hover:
             trace.hovertemplate = hover.replace("UTC", "norsk tid")
@@ -56,6 +60,20 @@ def localize_plotly_figure_v2(fig) -> None:
     layout = getattr(fig, "layout", None)
     if layout is None:
         return
+
+    for shape in tuple(getattr(layout, "shapes", ()) or ()):
+        xref = str(getattr(shape, "xref", "") or "")
+        if xref.startswith("x"):
+            if getattr(shape, "x0", None) is not None:
+                shape.x0 = _local_plotly_x(shape.x0)
+            if getattr(shape, "x1", None) is not None:
+                shape.x1 = _local_plotly_x(shape.x1)
+
+    for annotation in tuple(getattr(layout, "annotations", ()) or ()):
+        xref = str(getattr(annotation, "xref", "") or "")
+        if xref.startswith("x") and getattr(annotation, "x", None) is not None:
+            annotation.x = _local_plotly_x(annotation.x)
+
     for key in layout:
         if not str(key).startswith("xaxis"):
             continue
