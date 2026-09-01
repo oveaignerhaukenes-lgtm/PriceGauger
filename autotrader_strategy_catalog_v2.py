@@ -7,6 +7,8 @@ from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 
 
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
+FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-15m-long-flat-shadow-v1"
+MTF_LONG_ENTRY_SHADOW_STRATEGY_V2 = "macd-mtf-long-entry-shadow-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +18,24 @@ class AutoTraderStrategySpecV2:
     description: str
     can_long: bool
     can_short: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AutoManagerStrategyTemplateV2:
+    """Named strategy recipe used during AutoManager experimentation.
+
+    These templates deliberately do not imply execution authority. The production
+    LIVE selector continues to use ``AUTOTRADER_STRATEGIES_V2`` only; experimental
+    templates run through separate read-only shadow runtimes until explicitly
+    promoted after evidence and review.
+    """
+
+    key: str
+    label: str
+    description: str
+    signal_stack: str
+    live_ready: bool
+    shadow_running: bool
 
 
 MACD_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
@@ -42,10 +62,45 @@ MACD_SHORT_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
+# This tuple remains the explicit execution-capable catalog. Adding an experiment
+# below must never silently grant it LIVE AutoManage authority.
 AUTOTRADER_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
     MACD_FLIP_SPEC_V2,
+)
+
+AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
+    key=MACD_LONG_FLAT_STRATEGY_V2,
+    label="Classic 30m",
+    description="Closed 30m MACD 12/26/9 controls LONG/FLAT directly.",
+    signal_stack="30m regime + 30m entry/exit",
+    live_ready=True,
+    shadow_running=True,
+)
+
+AUTOMANAGER_FAST_15M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
+    key=FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2,
+    label="Fast 15m",
+    description="Closed 15m MACD 12/26/9 controls LONG/FLAT for earlier reactions.",
+    signal_stack="15m entry + 15m exit",
+    live_ready=False,
+    shadow_running=True,
+)
+
+AUTOMANAGER_MTF_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
+    key=MTF_LONG_ENTRY_SHADOW_STRATEGY_V2,
+    label="MTF 30/10/5",
+    description="30m context, 5m entry trigger, 10m validation and 30m regime confirmation.",
+    signal_stack="30m regime -> 5m entry -> 10m validation -> 30m confirmation",
+    live_ready=False,
+    shadow_running=True,
+)
+
+AUTOMANAGER_STRATEGY_TEMPLATES_V2 = (
+    AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2,
+    AUTOMANAGER_FAST_15M_TEMPLATE_V2,
+    AUTOMANAGER_MTF_TEMPLATE_V2,
 )
 
 _BY_KEY = {item.key: item for item in AUTOTRADER_STRATEGIES_V2}
@@ -59,12 +114,19 @@ def strategy_spec_v2(strategy_key: str) -> AutoTraderStrategySpecV2:
 
 
 __all__ = [
+    "AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2",
+    "AUTOMANAGER_FAST_15M_TEMPLATE_V2",
+    "AUTOMANAGER_MTF_TEMPLATE_V2",
+    "AUTOMANAGER_STRATEGY_TEMPLATES_V2",
     "AUTOTRADER_STRATEGIES_V2",
+    "AutoManagerStrategyTemplateV2",
     "AutoTraderStrategySpecV2",
+    "FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2",
     "MACD_FLIP_SPEC_V2",
     "MACD_LONG_FLAT_SPEC_V2",
     "MACD_LONG_FLAT_STRATEGY_V2",
     "MACD_SHORT_FLAT_SPEC_V2",
     "MACD_SHORT_FLAT_STRATEGY_V2",
+    "MTF_LONG_ENTRY_SHADOW_STRATEGY_V2",
     "strategy_spec_v2",
 ]
