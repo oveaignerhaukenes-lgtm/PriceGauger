@@ -188,6 +188,42 @@ def _default_shadow_index(candidates: tuple[AutoTraderStrategySpecV2, ...]) -> i
     return 0
 
 
+def _pnl_enrollments_for_context_v2(
+    context: TradingDeskV2Context,
+) -> tuple[tuple[StrategyEnrollmentV2, ...], bool]:
+    """Prefer active pilots, but preserve the latest LIVE pilot as read-only history.
+
+    P/L/audit history is a reporting concern and must not disappear merely because
+    execution authority is disabled. The fallback never mutates enrollment state and
+    returns only the latest historical LIVE pilot, so it cannot create order authority
+    or make a multi-controller comparison ambiguous.
+    """
+    active = tuple(
+        item
+        for item in load_active_strategy_enrollments_v2()
+        if int(item.market_id) == int(context.market_id)
+    )
+    if active:
+        return active, False
+
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT pilot_key
+            FROM pg_v2_autotrader_strategy_enrollments
+            WHERE market_id = ? AND execution_mode = ?
+            ORDER BY updated_at DESC, enrolled_at DESC
+            LIMIT 1
+            """,
+            (int(context.market_id), EXECUTION_MODE_LIVE),
+        ).fetchone()
+    if row is None:
+        return (), False
+    pilot_key = str(dict(row)["pilot_key"] if isinstance(row, dict) else row[0])
+    latest = load_strategy_enrollment_v2(pilot_key)
+    return ((latest,) if latest is not None else ()), True
+
+
 def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -> None:
     if not enrollments:
         return
@@ -290,15 +326,12 @@ def render_tradingdesk_automanage_pnl_chart_v2(
     if not using_postgres():
         return
     try:
-        enrollments = tuple(
-            item
-            for item in load_active_strategy_enrollments_v2()
-            if int(item.market_id) == int(context.market_id)
-        )
+        enrollments, historical_fallback = _pnl_enrollments_for_context_v2(context)
     except Exception as exc:
         st.caption(f"P/L-grafen venter: {exc}")
         return
     if not enrollments:
+        st.caption("P/L-graf: ingen AutoManager-pilot finnes ennå for dette markedet.")
         return
 
     groups: dict[tuple[str, int, str, int], list[StrategyEnrollmentV2]] = {}
@@ -313,6 +346,8 @@ def render_tradingdesk_automanage_pnl_chart_v2(
 
     st.divider()
     st.markdown("**P/L · LIVE og modellene**")
+    if historical_fallback:
+        st.caption("Viser siste AutoManager-pilot som historikk. Ingen aktiv execution-authority gjenopprettes av grafen.")
     for key, group in groups.items():
         try:
             comparison = load_automanager_pnl_comparison_v2(tuple(group))
@@ -330,8 +365,10 @@ def render_tradingdesk_automanage_pnl_chart_v2(
             config={"displaylogo": False, "scrollZoom": True},
         )
         live = next((item for item in group if item.execution_mode == EXECUTION_MODE_LIVE), None)
-        if live is not None:
+        if live is not None and live.enabled:
             _render_automanager_activity_log_v2(live, observations=observations)
+        elif live is not None:
+            st.caption("Denne pilotens P/L-logg er historisk; AutoManager er ikke aktivert av denne visningen.")
     st.caption(
         "Øverst vises bare faktisk, avstemt og realisert netto Saxo-P/L; åpen urealisert P/L estimeres ikke. "
         "Nederst vises long/flat, short/flat og MACD Switch som paper-replay på samme observerte startposisjon "
