@@ -289,16 +289,17 @@ def _load_product_anchor_v2(enrollments: tuple[StrategyEnrollmentV2, ...]) -> Pr
         if candidate != identity:
             raise ValueError("shadow comparison requires one exact product identity")
 
+    pilot_keys = tuple(dict.fromkeys(str(item.pilot_key) for item in enrollments))
+    placeholders = ", ".join("?" for _ in pilot_keys)
     with connect() as db:
         strategy_rows = db.execute(
-            """
+            f"""
             SELECT enrolled_at
             FROM pg_v2_autotrader_strategy_enrollments
-            WHERE enabled = TRUE
-              AND account_id = ? AND uic = ? AND asset_type = ? AND instrument_id = ?
+            WHERE pilot_key IN ({placeholders})
             ORDER BY enrolled_at ASC
             """,
-            (first.account_id, int(first.uic), first.asset_type, int(first.instrument_id)),
+            pilot_keys,
         ).fetchall()
         managed_rows = db.execute(
             """
@@ -311,7 +312,7 @@ def _load_product_anchor_v2(enrollments: tuple[StrategyEnrollmentV2, ...]) -> Pr
         ).fetchall()
 
     if not strategy_rows:
-        raise ValueError("shadow benchmark has no active enrollment timestamp")
+        raise ValueError("shadow benchmark has no enrollment timestamp for supplied pilot cohort")
     started_at = min(_utc(dict(row)["enrolled_at"]) for row in strategy_rows)
     if not managed_rows:
         raise ValueError("shadow benchmark has no managed starting-position observation")
