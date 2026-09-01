@@ -454,12 +454,13 @@ def build_cocktail_snapshot_v1(
 
     atr5 = _atr_v1(materialized, timeframe_minutes=5)
     atr10 = _atr_v1(materialized, timeframe_minutes=10)
+    atr15 = _atr_v1(materialized, timeframe_minutes=15)
     atr30 = _atr_v1(materialized, timeframe_minutes=30)
     clocks = {
         timeframe: _macd_clock_v1(
             materialized,
             timeframe_minutes=timeframe,
-            atr={5: atr5, 10: atr10, 15: atr10, 30: atr30}[timeframe],
+            atr={5: atr5, 10: atr10, 15: atr15, 30: atr30}[timeframe],
             max_gap_minutes=config.max_contiguous_gap_minutes,
         )
         for timeframe in TIMEFRAMES
@@ -988,9 +989,30 @@ def _persist_sample_and_state_v1(
     updated: CocktailStateV1,
 ) -> None:
     mark = cocktail_mark_return_pct_v1(updated, snapshot.price)
+    sample_params = (
+        STRATEGY_KEY, snapshot.instrument_id, snapshot.market_id, snapshot.market_name,
+        snapshot.action_at, snapshot.price, prior.position, updated.position, prior.mode,
+        updated.mode, decision.action, decision.reason, updated.pending_direction,
+        updated.pending_confirmation_tf, updated.realized_return_pct, mark,
+        updated.transitions, snapshot.clock_5m.cross, snapshot.clock_5m.cross_estimated_at,
+        snapshot.clock_10m.cross, snapshot.clock_10m.cross_estimated_at,
+        snapshot.clock_15m.cross, snapshot.clock_15m.cross_estimated_at,
+        snapshot.clock_30m.cross, snapshot.clock_30m.cross_estimated_at,
+        snapshot.clock_5m.spread, snapshot.clock_10m.spread, snapshot.clock_15m.spread,
+        snapshot.clock_30m.spread, snapshot.clock_5m.velocity_atr,
+        snapshot.clock_10m.velocity_atr, snapshot.clock_15m.velocity_atr,
+        snapshot.clock_30m.velocity_atr, snapshot.activity_z, snapshot.activity_source,
+        snapshot.range_ratio_1m, snapshot.efficiency_5m, snapshot.efficiency_30m,
+        snapshot.displacement_5m_atr5, snapshot.displacement_30m_atr10,
+        snapshot.support, snapshot.resistance, snapshot.break_direction,
+        snapshot.break_distance_atr5, snapshot.shock_direction,
+        snapshot.trend_lock_direction, snapshot.whipsaw, snapshot.escape_direction,
+        snapshot.recent_fast_crosses_30m, snapshot.data_gap, CONFIG_VERSION, SOURCE_KIND,
+    )
+    sample_placeholders = ",".join("?" for _ in sample_params)
     with connect() as db:
         db.execute(
-            """
+            f"""
             INSERT INTO pg_v2_autotrader_cocktail_mode_1_samples(
                 strategy_key, instrument_id, market_id, market_name, action_at, price,
                 position_before, position_after, mode_before, mode_after, action, reason,
@@ -1004,31 +1026,10 @@ def _persist_sample_and_state_v1(
                 break_direction, break_distance_atr5, shock_direction, trend_lock_direction,
                 whipsaw, escape_direction, recent_fast_crosses_30m, data_gap,
                 config_version, source_kind
-            ) VALUES (
-                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-            )
+            ) VALUES ({sample_placeholders})
             ON CONFLICT(strategy_key, instrument_id, action_at) DO NOTHING
             """,
-            (
-                STRATEGY_KEY, snapshot.instrument_id, snapshot.market_id, snapshot.market_name,
-                snapshot.action_at, snapshot.price, prior.position, updated.position, prior.mode,
-                updated.mode, decision.action, decision.reason, updated.pending_direction,
-                updated.pending_confirmation_tf, updated.realized_return_pct, mark,
-                updated.transitions, snapshot.clock_5m.cross, snapshot.clock_5m.cross_estimated_at,
-                snapshot.clock_10m.cross, snapshot.clock_10m.cross_estimated_at,
-                snapshot.clock_15m.cross, snapshot.clock_15m.cross_estimated_at,
-                snapshot.clock_30m.cross, snapshot.clock_30m.cross_estimated_at,
-                snapshot.clock_5m.spread, snapshot.clock_10m.spread, snapshot.clock_15m.spread,
-                snapshot.clock_30m.spread, snapshot.clock_5m.velocity_atr,
-                snapshot.clock_10m.velocity_atr, snapshot.clock_15m.velocity_atr,
-                snapshot.clock_30m.velocity_atr, snapshot.activity_z, snapshot.activity_source,
-                snapshot.range_ratio_1m, snapshot.efficiency_5m, snapshot.efficiency_30m,
-                snapshot.displacement_5m_atr5, snapshot.displacement_30m_atr10,
-                snapshot.support, snapshot.resistance, snapshot.break_direction,
-                snapshot.break_distance_atr5, snapshot.shock_direction,
-                snapshot.trend_lock_direction, snapshot.whipsaw, snapshot.escape_direction,
-                snapshot.recent_fast_crosses_30m, snapshot.data_gap, CONFIG_VERSION, SOURCE_KIND,
-            ),
+            sample_params,
         )
         db.execute(
             """
