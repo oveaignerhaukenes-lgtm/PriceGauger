@@ -5,7 +5,9 @@ from pathlib import Path
 
 def test_tradingdesk_renders_automanager_in_main_chart_pane_not_right_controls():
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert "chart_column, controls_column = st.columns([4.8, 1.45]" in source
+    assert 'CONTROLS_WIDTH_STATE_KEY = "tradingdesk-controls-width-pct"' in source
+    assert "chart_column, controls_column = st.columns([100 - controls_width_pct, controls_width_pct]" in source
+    assert '"Bredde på kontrollpanel"' in source
     assert "def _render_automanager_workspace()" in source
     assert "render_tradingdesk_automanage_panel_v2(context)" in source
     assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)" in source
@@ -78,7 +80,16 @@ def test_live_chart_exposes_explicit_clickable_macd_timeframe_without_rearming_e
     assert 'st.popover(f"MACD · {_timeframe_label(macd_timeframe)}"' in source
     assert '"MACD-timeframe"' in source
     assert "Kun chartvisning" in source
+    assert "AutoManager beholder sin eksplisitt valgte strategi" in source
     assert "indicator_timeframes={INDICATOR_MACD:" in source
+
+
+def test_automanage_workspace_explains_active_pilot_vs_available_live_strategy():
+    source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    assert "from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2" in source
+    assert "Tilgjengelige LIVE-strategier:" in source
+    assert "LIVE-pilot" in source
+    assert "MTF 30/10/5 er nå et LIVE-kapabelt alternativ" in source
 
 
 def test_automanage_bottom_chart_keeps_actual_live_and_paper_semantics_separate():

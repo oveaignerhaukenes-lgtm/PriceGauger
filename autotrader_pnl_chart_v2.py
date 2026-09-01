@@ -67,10 +67,9 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
     fig.update_layout(
         template="plotly_white",
         height=610,
-        margin={"l": 70, "r": 35, "t": 70, "b": 45},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.08, "xanchor": "left", "x": 0},
+        margin={"l": 70, "r": 35, "t": 105, "b": 45},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.07, "xanchor": "left", "x": 0},
         hovermode="x unified",
-        title={"text": "P/L siden AutoManager-start", "x": 0.0, "xanchor": "left"},
         uirevision=f"AutoManagerPnl:{comparison.pilot_key}:{comparison.started_at.isoformat()}",
     )
     return fig

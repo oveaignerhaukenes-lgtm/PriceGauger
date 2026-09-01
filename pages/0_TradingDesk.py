@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 
+from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
 from realtime_market_data import RealtimeMarketDataStore
@@ -55,6 +56,7 @@ TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
 MARKET_STATE_KEY = "tradingdesk-v2-market"
+CONTROLS_WIDTH_STATE_KEY = "tradingdesk-controls-width-pct"
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
@@ -64,10 +66,15 @@ st.markdown(V2_FORECAST_CSS, unsafe_allow_html=True)
 st.markdown(
     """
     <style>
+    div[data-testid="stMainBlockContainer"], .block-container {
+        max-width: 100% !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
+    }
     div[data-testid="stPlotlyChart"] .modebar {
-        top: 3.2rem !important;
+        top: .35rem !important;
         right: .35rem !important;
-        flex-direction: column !important;
+        flex-direction: row !important;
         background: rgba(255,255,255,.94) !important;
         border: 1px solid rgba(17,24,39,.16) !important;
         border-radius: .45rem !important;
@@ -75,7 +82,7 @@ st.markdown(
     }
     div[data-testid="stPlotlyChart"] .modebar-group {
         display: flex !important;
-        flex-direction: column !important;
+        flex-direction: row !important;
     }
     </style>
     """,
@@ -118,6 +125,13 @@ if st.session_state.get(MACD_TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
     st.session_state[MACD_TIMEFRAME_STATE_KEY] = "30m"
 if AUTO_REFRESH_STATE_KEY not in st.session_state:
     st.session_state[AUTO_REFRESH_STATE_KEY] = True
+try:
+    controls_width_pct = int(st.session_state.get(CONTROLS_WIDTH_STATE_KEY, 30))
+except (TypeError, ValueError):
+    controls_width_pct = 30
+if not 20 <= controls_width_pct <= 40:
+    controls_width_pct = 30
+st.session_state[CONTROLS_WIDTH_STATE_KEY] = controls_width_pct
 
 
 def _select_timeframe(value: str) -> None:
@@ -144,10 +158,18 @@ def _horizon_label(seconds: int) -> str:
     return f"{hours:g}t"
 
 
-chart_column, controls_column = st.columns([4.8, 1.45], gap="large")
+chart_column, controls_column = st.columns([100 - controls_width_pct, controls_width_pct], gap="medium")
 
 with controls_column:
     st.subheader("Kontroller")
+    st.slider(
+        "Bredde på kontrollpanel",
+        min_value=20,
+        max_value=40,
+        step=2,
+        key=CONTROLS_WIDTH_STATE_KEY,
+        help="Andel av TradingDesk-bredden som reserveres til høyre kontrollpanel. Endringen gjelder ved neste rerun.",
+    )
 
     with st.expander("V2 marked / analyse", expanded=True):
         market = st.selectbox(
@@ -362,7 +384,7 @@ def _render_live_chart_controls() -> None:
                 format_func=_timeframe_label,
                 help="Velger timeframe for MACD-panelet i chartet.",
             )
-            st.caption("Kun chartvisning. Den armerte AutoManager-piloten beholder sin eksplisitte 30 min-strategi.")
+            st.caption("Kun chartvisning. AutoManager beholder sin eksplisitt valgte strategi og signal-timeframes.")
 
 
 def _live_chart_uirevision() -> str:
@@ -556,11 +578,17 @@ def _render_automanager_workspace() -> None:
     with header_left:
         st.subheader(f"AutoManager · {market}")
         st.caption(
-            "Forvaltning av det valgte canonical produktmandatet. LIVE og shadow bruker samme lukkede 30m-signalgrunnlag; "
-            "Position Guardian/risk-laget kan fortsatt redusere eller lukke defensivt."
+            "Forvaltning av det valgte canonical produktmandatet. Hver strategi beholder sitt eksplisitte "
+            "signalhierarki og sin egen signal-clock; Position Guardian/risk-laget kan fortsatt redusere eller lukke defensivt."
         )
     with header_right:
         st.page_link("pages/6_AutoTrader_POC.py", label="Full AutoTrader", icon="⚙️")
+    available_live = " · ".join(item.label for item in AUTOTRADER_STRATEGIES_V2)
+    st.caption(f"Tilgjengelige LIVE-strategier: {available_live}")
+    st.info(
+        "Feltet «LIVE-pilot» under execution viser bare piloter som allerede er aktive. "
+        "Selve strategivalget ligger i AutoManager-kortet under åpen posisjon; MTF 30/10/5 er nå et LIVE-kapabelt alternativ der."
+    )
     if context is None:
         st.info("AutoManager venter på aktivt v2-workspace.")
         return
