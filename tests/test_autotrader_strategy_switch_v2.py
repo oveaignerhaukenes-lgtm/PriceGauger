@@ -10,6 +10,7 @@ def test_strategy_switch_is_control_plane_only_and_keeps_stable_pilot_identity()
     assert "UPDATE pg_v2_autotrader_execution_requests" in source
     assert "status = 'SUPERSEDED'" in source
     assert "block_reason = 'STRATEGY_SWITCH'" in source
+    assert "DELETE FROM pg_v2_autotrader_strategy_runtime_state" in source
     assert "DELETE FROM pg_v2_autotrader_live_pilot_state" in source
     assert "DELETE FROM pg_v2_autotrader_mtf_live_state" in source
     assert "pg_v2_autotrader_strategy_switch_events" in source
