@@ -46,12 +46,14 @@ def test_tradingdesk_overlays_recent_forming_candle_only_in_browser_ui() -> None
     assert "Sekundbevegelsen tegnes i nettleseren" in source
 
 
-def test_plotly_graph_operators_are_vertical_on_right_edge() -> None:
+def test_plotly_graph_operators_use_horizontal_header_space() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert 'div[data-testid="stPlotlyChart"] .modebar' in source
     assert 'right: .35rem !important' in source
-    assert 'flex-direction: column !important' in source
+    assert 'top: .35rem !important' in source
+    assert 'flex-direction: row !important' in source
+    assert 'top: 3.2rem !important' not in source
 
 
 def test_tradingdesk_market_analysis_root_is_v2_only() -> None:
