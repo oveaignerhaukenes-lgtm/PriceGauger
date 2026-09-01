@@ -413,6 +413,50 @@ def _pending_from_decision(
     )
 
 
+def _supersede_prior_execution_requests_v2(
+    db,
+    *,
+    pilot_key: str,
+    request_id: str | None,
+) -> None:
+    """Supersede older pending/approved requests without an untyped SQL NULL.
+
+    PostgreSQL cannot infer the type of a standalone nullable placeholder used only
+    in `? IS NULL`. Split the query instead so the no-request path has no nullable
+    placeholder at all. This also makes the exclusion of the current request explicit.
+    """
+    if request_id is None:
+        db.execute(
+            """
+            UPDATE pg_v2_autotrader_execution_requests
+            SET status = ?, block_reason = 'NEWER_MTF_FLIP_SIGNAL', updated_at = now()
+            WHERE pilot_key = ? AND status IN (?, ?)
+            """,
+            (
+                REQUEST_SUPERSEDED,
+                pilot_key,
+                REQUEST_PENDING,
+                REQUEST_APPROVED,
+            ),
+        )
+        return
+    db.execute(
+        """
+        UPDATE pg_v2_autotrader_execution_requests
+        SET status = ?, block_reason = 'NEWER_MTF_FLIP_SIGNAL', updated_at = now()
+        WHERE pilot_key = ? AND status IN (?, ?)
+          AND request_id <> ?
+        """,
+        (
+            REQUEST_SUPERSEDED,
+            pilot_key,
+            REQUEST_PENDING,
+            REQUEST_APPROVED,
+            request_id,
+        ),
+    )
+
+
 def _persist_event_and_request_v2(
     *,
     enrollment: StrategyEnrollmentV2,
@@ -470,21 +514,10 @@ def _persist_event_and_request_v2(
 
     with connect() as db:
         if signal is not None:
-            db.execute(
-                """
-                UPDATE pg_v2_autotrader_execution_requests
-                SET status = ?, block_reason = 'NEWER_MTF_FLIP_SIGNAL', updated_at = now()
-                WHERE pilot_key = ? AND status IN (?, ?)
-                  AND (? IS NULL OR request_id <> ?)
-                """,
-                (
-                    REQUEST_SUPERSEDED,
-                    enrollment.pilot_key,
-                    REQUEST_PENDING,
-                    REQUEST_APPROVED,
-                    request_id,
-                    request_id,
-                ),
+            _supersede_prior_execution_requests_v2(
+                db,
+                pilot_key=enrollment.pilot_key,
+                request_id=request_id,
             )
 
         db.execute(
