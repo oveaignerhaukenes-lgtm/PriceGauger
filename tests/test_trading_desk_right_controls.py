@@ -10,7 +10,12 @@ def test_tradingdesk_keeps_page_controls_out_of_global_sidebar_and_automanager_o
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert "with st.sidebar" not in source
-    assert "chart_column, controls_column = st.columns([4.8, 1.45]" in source
+    assert 'CONTROLS_WIDTH_STATE_KEY = "tradingdesk-controls-width-pct"' in source
+    assert "chart_column, controls_column = st.columns([100 - controls_width_pct, controls_width_pct]" in source
+    assert '"Bredde på kontrollpanel"' in source
+    assert "min_value=20" in source
+    assert "max_value=40" in source
+    assert 'div[data-testid="stMainBlockContainer"], .block-container' in source
     assert "with controls_column:" in source
     assert 'with st.expander("V2 marked / analyse", expanded=True):' in source
     assert 'with st.expander("Graf", expanded=True):' in source
@@ -20,6 +25,14 @@ def test_tradingdesk_keeps_page_controls_out_of_global_sidebar_and_automanager_o
     assert 'with st.expander(f"AutoManage · {market}"' not in source
     assert "def _render_automanager_workspace()" in source
     assert "render_tradingdesk_automanage_panel_v2(context)" in source
+
+
+def test_tradingdesk_plotly_modebar_stays_in_header_space_not_over_data() -> None:
+    source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
+
+    assert 'top: .35rem !important;' in source
+    assert 'flex-direction: row !important;' in source
+    assert 'top: 3.2rem !important;' not in source
 
 
 def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_column() -> None:
