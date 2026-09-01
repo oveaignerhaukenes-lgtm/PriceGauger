@@ -8,7 +8,7 @@ from autotrader_shadow_benchmark_exact_anchor_v2 import (
     load_shadow_benchmark_series_exact_anchor_v2,
 )
 from autotrader_shadow_benchmark_v2 import ShadowBenchmarkSeriesV2
-from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2
+from autotrader_strategy_catalog_v2 import PAPER_30M_STRATEGIES_V2
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
@@ -120,11 +120,12 @@ def load_automanager_pnl_comparison_v2(
     db_path: str = "pricegauger.db",
     now: datetime | None = None,
 ) -> AutoManagerPnlComparisonV2:
-    """Load truthful LIVE settled P/L beside canonical 30m paper policy curves.
+    """Load truthful LIVE settled P/L beside established closed-30m paper controls.
 
-    The two series classes intentionally remain distinct: actual LIVE includes only
-    authoritative settled Saxo net P/L, while paper curves are 30m mark-to-market
-    strategy replays without spread, slippage or margin simulation.
+    Actual LIVE may be controlled by a different signal clock (for example MTF).
+    Paper curves remain explicitly limited to strategies with the established
+    deterministic closed-30m replay, so the chart never mislabels an MTF LIVE pilot
+    as if it had been replayed on the Classic clock.
     """
     items = tuple(enrollments)
     live_items = tuple(item for item in items if item.execution_mode == EXECUTION_MODE_LIVE)
@@ -132,7 +133,7 @@ def load_automanager_pnl_comparison_v2(
         raise ValueError("P/L comparison requires exactly one LIVE controller")
     live = live_items[0]
     end = _utc(now or datetime.now(timezone.utc))
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
+    strategy_keys = tuple(item.key for item in PAPER_30M_STRATEGIES_V2)
     paper = load_shadow_benchmark_series_exact_anchor_v2(
         items,
         strategy_keys=strategy_keys,
