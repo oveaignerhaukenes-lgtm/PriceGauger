@@ -37,7 +37,7 @@ from autotrader_open_sizing_v2 import (
     preflight_minimum_entry_v2,
 )
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
-from autotrader_strategy_catalog_v2 import strategy_spec_v2
+from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2, strategy_spec_v2
 from autotrader_strategy_enrollment_v2 import (
     ENTRY_MODE_APPROVAL_REQUIRED,
     ENTRY_MODE_AUTO,
@@ -47,6 +47,7 @@ from autotrader_strategy_enrollment_v2 import (
     set_entry_mode_v2,
     set_live_open_armed_v2,
 )
+from autotrader_strategy_switch_v2 import switch_live_strategy_v2
 from saxo_provider import LIVE_BASE_URL, SaxoInstrument, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
 
@@ -105,6 +106,22 @@ def _money(value: float | None, currency: str) -> str:
 
 
 def _execution_flow_text(spec, entry_mode: str) -> str:
+    if spec.key == "macd-mtf-30-10-5-long-flat-v1":
+        if entry_mode == ENTRY_MODE_AUTO:
+            return (
+                "MTF long/flat · Full auto: 30m gir context/regime; lukket 5m CROSS_UP åpner LONG; "
+                "10m validerer eller avkrefter det tidlige forsøket; 30m bekrefter hovedregimet eller avslutter LONG "
+                "på bearish kryss. Alle OPEN/CLOSE går gjennom de samme LIVE safety-gatene."
+            )
+        if entry_mode == ENTRY_MODE_APPROVAL_REQUIRED:
+            return (
+                "MTF long/flat · Godkjenn re-entry: 5m kan lage en tidlig LONG-request i gyldig 30m-context, "
+                "men OPEN krever one-shot godkjenning. 10m og 30m kan senere validere eller lukke automatisk."
+            )
+        return (
+            "MTF long/flat · Manage-only: 10m/30m kan lukke en eksisterende LONG etter MTF-policyen, "
+            "men 5m-entry åpner aldri ny LONG automatisk."
+        )
     if spec.can_long and not spec.can_short:
         if entry_mode == ENTRY_MODE_AUTO:
             return (
@@ -136,6 +153,48 @@ def _execution_flow_text(spec, entry_mode: str) -> str:
     if entry_mode == ENTRY_MODE_APPROVAL_REQUIRED:
         return "MACD Switch · exit er automatisk, men hver ny LONG/SHORT OPEN etter switch krever one-shot godkjenning."
     return "MACD Switch · Manage-only kan lukke den eksisterende siden, men åpner aldri motsatt side automatisk."
+
+
+def _render_strategy_switch(enrollment) -> None:
+    alternatives = tuple(item for item in AUTOTRADER_STRATEGIES_V2 if item.key != enrollment.strategy_key)
+    if not alternatives:
+        return
+    with st.expander("Bytt LIVE-strategi", expanded=False):
+        st.caption(
+            "Byttet beholder samme pilotkapital, Margin Envelope og Product Admission. Selve byttet sender ingen ordre. "
+            "Gamle ustartede OPEN-requests ugyldiggjøres, og LIVE OPEN/re-entry blir disarmed til du armer den på nytt."
+        )
+        target = st.selectbox(
+            "Ny LIVE-strategi",
+            alternatives,
+            format_func=lambda item: item.label,
+            key=f"td-live-strategy-switch-target:{enrollment.pilot_key}",
+        )
+        st.caption(target.description)
+        acknowledge = st.checkbox(
+            f"Jeg vil bytte denne aktive LIVE-piloten fra {strategy_spec_v2(enrollment.strategy_key).label} til {target.label}.",
+            key=f"td-live-strategy-switch-ack:{enrollment.pilot_key}:{target.key}",
+        )
+        if st.button(
+            "Bytt LIVE-strategi",
+            type="primary",
+            disabled=not acknowledge,
+            key=f"td-live-strategy-switch:{enrollment.pilot_key}:{target.key}",
+            use_container_width=True,
+        ):
+            try:
+                result = switch_live_strategy_v2(
+                    pilot_key=enrollment.pilot_key,
+                    target_strategy_key=target.key,
+                )
+            except Exception as exc:
+                st.error(f"Strategien kunne ikke byttes: {exc}")
+                return
+            st.success(
+                f"LIVE-strategi er byttet til {target.label}. Pilotkapital og kontrollrammer er beholdt; "
+                f"observerte eksponering ved byttet var {result.observed_direction}. LIVE OPEN er disarmed og må re-armes eksplisitt."
+            )
+            st.rerun()
 
 
 def _render_armed_badge(enrollment) -> None:
@@ -347,6 +406,7 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         key=f"td-entry-pilot:{context.market_id}",
     )
     spec = strategy_spec_v2(enrollment.strategy_key)
+    _render_strategy_switch(enrollment)
 
     client = configured_client()
     if client is None or client.base_url.rstrip("/").lower() != LIVE_BASE_URL.lower():
