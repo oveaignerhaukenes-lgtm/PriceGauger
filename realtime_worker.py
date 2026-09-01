@@ -7,7 +7,7 @@ import os
 import threading
 import time
 
-from autotrader_automanage_runtime_v2 import run_automanage_strategy_forever_v2
+from autotrader_automanage_dispatch_v2 import run_automanage_strategy_forever_v2
 from autotrader_closed_position_reconciliation_v2 import (
     run_closed_position_equity_reconciliation_forever_v2,
 )
@@ -80,7 +80,7 @@ def _parser() -> argparse.ArgumentParser:
         "--autotrader-strategy-seconds",
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_STRATEGY_SECONDS", "15")),
-        help="Cadence for active LIVE AutoManage strategy planning. Closed 30m bars remain the signal clock.",
+        help="Cadence for active LIVE AutoManage strategy planning on each strategy's explicit signal clock.",
     )
     parser.add_argument(
         "--autotrader-risk-control-seconds",
@@ -244,7 +244,7 @@ def _start_autotrader_strategy(*, db_path: str, interval_seconds: int) -> thread
     )
     thread.start()
     LOGGER.info(
-        "AutoManage strategy runtime started interval_seconds=%d; signals remain closed-30m only",
+        "AutoManage strategy runtime started interval_seconds=%d; explicit Classic/MTF strategy dispatch active",
         max(5, interval_seconds),
     )
     return thread
