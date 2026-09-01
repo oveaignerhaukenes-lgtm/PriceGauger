@@ -13,6 +13,7 @@ MTF_LONG_SHORT_FLIP_STRATEGY_V2 = "macd-mtf-30-10-5-long-short-v1"
 FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-15m-long-flat-shadow-v1"
 MTF_LONG_ENTRY_SHADOW_STRATEGY_V2 = "macd-mtf-long-entry-shadow-v1"
 INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shadow-v1"
+COCKTAIL_MODE_1_SHADOW_STRATEGY_V2 = "cocktail-mode-1-shadow-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +178,20 @@ AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
     shadow_running=False,
 )
 
+AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
+    key=COCKTAIL_MODE_1_SHADOW_STRATEGY_V2,
+    label="Cocktail Mode #1",
+    description=(
+        "Adaptive 1m-clock MTF engine: NORMAL, SHOCK, TREND_LOCK and WHIPSAW. "
+        "5/10/15/30m MACD crosses are timestamped on one canonical 1m clock; FLAT is an active safety state."
+    ),
+    signal_stack=(
+        "canonical 1m clock -> forming 5/10/15/30m MACD crosses -> activity/SR/efficiency regime -> adaptive LONG/FLAT/SHORT shadow"
+    ),
+    live_ready=False,
+    shadow_running=True,
+)
+
 AUTOMANAGER_STRATEGY_TEMPLATES_V2 = (
     AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2,
     AUTOMANAGER_FAST_15M_TEMPLATE_V2,
@@ -184,9 +199,11 @@ AUTOMANAGER_STRATEGY_TEMPLATES_V2 = (
     AUTOMANAGER_MTF_SHORT_TEMPLATE_V2,
     AUTOMANAGER_MTF_FLIP_TEMPLATE_V2,
     AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2,
+    AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2,
 )
 
 _BY_KEY = {item.key: item for item in AUTOTRADER_STRATEGIES_V2}
+_TEMPLATE_BY_KEY = {item.key: item for item in AUTOMANAGER_STRATEGY_TEMPLATES_V2}
 
 
 def strategy_spec_v2(strategy_key: str) -> AutoTraderStrategySpecV2:
@@ -196,8 +213,18 @@ def strategy_spec_v2(strategy_key: str) -> AutoTraderStrategySpecV2:
         raise ValueError(f"unsupported AutoTrader strategy: {strategy_key}") from exc
 
 
+def strategy_display_label_v2(strategy_key: str) -> str:
+    key = str(strategy_key)
+    if key in _BY_KEY:
+        return _BY_KEY[key].label
+    if key in _TEMPLATE_BY_KEY:
+        return _TEMPLATE_BY_KEY[key].label
+    return key
+
+
 __all__ = [
     "AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2",
+    "AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2",
     "AUTOMANAGER_FAST_15M_TEMPLATE_V2",
     "AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2",
     "AUTOMANAGER_MTF_FLIP_TEMPLATE_V2",
@@ -205,6 +232,7 @@ __all__ = [
     "AUTOMANAGER_MTF_TEMPLATE_V2",
     "AUTOMANAGER_STRATEGY_TEMPLATES_V2",
     "AUTOTRADER_STRATEGIES_V2",
+    "COCKTAIL_MODE_1_SHADOW_STRATEGY_V2",
     "PAPER_30M_STRATEGIES_V2",
     "AutoManagerStrategyTemplateV2",
     "AutoTraderStrategySpecV2",
@@ -222,5 +250,6 @@ __all__ = [
     "MTF_LONG_SHORT_FLIP_STRATEGY_V2",
     "MTF_SHORT_FLAT_SPEC_V2",
     "MTF_SHORT_FLAT_STRATEGY_V2",
+    "strategy_display_label_v2",
     "strategy_spec_v2",
 ]

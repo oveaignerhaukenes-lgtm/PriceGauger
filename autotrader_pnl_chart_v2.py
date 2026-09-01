@@ -4,28 +4,28 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from autotrader_pnl_comparison_v2 import AutoManagerPnlComparisonV2
-from autotrader_strategy_catalog_v2 import strategy_spec_v2
+from autotrader_strategy_catalog_v2 import strategy_display_label_v2
 
 
-PAPER_COLORS = ("#2563eb", "#7c3aed", "#059669")
+PAPER_COLORS = ("#2563eb", "#7c3aed", "#059669", "#d97706")
 
 
 def _strategy_label(strategy_key: str) -> str:
-    try:
-        return strategy_spec_v2(strategy_key).label
-    except Exception:
-        return str(strategy_key)
+    return strategy_display_label_v2(strategy_key)
 
 
 def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> go.Figure:
-    """One durable product-history figure with linked LIVE and paper timelines."""
+    """One durable product-history figure with linked LIVE and model timelines."""
     fig = make_subplots(
         rows=2,
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.10,
         row_heights=[0.38, 0.62],
-        subplot_titles=("Faktisk LIVE · realisert og avstemt Saxo-P/L", "Modeller · canonical 30m paper-replay"),
+        subplot_titles=(
+            "Faktisk LIVE · realisert og avstemt Saxo-P/L",
+            "Modeller · canonical controls + adaptive shadow",
+        ),
     )
     live = comparison.live_realized
     live_custom = [
@@ -52,18 +52,26 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
     )
 
     for index, series in enumerate(comparison.paper_series):
-        spec = strategy_spec_v2(series.strategy_key)
+        label = _strategy_label(series.strategy_key)
         points = series.points
+        is_adaptive = str(series.execution_mode).upper() == "SHADOW_ADAPTIVE"
+        prefix = "Shadow" if is_adaptive else "Paper"
+        dash = "solid" if is_adaptive else "dot"
+        width = 2.6 if is_adaptive else 1.8
         fig.add_trace(
             go.Scatter(
                 x=[item.closed_at for item in points],
                 y=[((item.equity / series.seed_equity) - 1.0) * 100.0 for item in points],
                 customdata=[item.position_state for item in points],
                 mode="lines",
-                name=f"Paper · {spec.label}",
-                line={"color": PAPER_COLORS[index % len(PAPER_COLORS)], "width": 2.0},
+                name=f"{prefix} · {label}",
+                line={
+                    "color": PAPER_COLORS[index % len(PAPER_COLORS)],
+                    "width": width,
+                    "dash": dash,
+                },
                 hovertemplate=(
-                    f"{spec.label}<br>%{{x|%d.%m.%Y %H:%M:%S}} norsk tid<br>"
+                    f"{label}<br>%{{x|%d.%m.%Y %H:%M:%S}} norsk tid<br>"
                     "%{y:+.2f}%<br>tilstand %{customdata}<extra></extra>"
                 ),
             ),

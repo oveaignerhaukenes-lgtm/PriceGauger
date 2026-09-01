@@ -11,6 +11,7 @@ from autotrader_automanage_dispatch_v2 import run_automanage_strategy_forever_v2
 from autotrader_closed_position_reconciliation_v2 import (
     run_closed_position_equity_reconciliation_forever_v2,
 )
+from autotrader_cocktail_mode_1_shadow_v2 import run_cocktail_mode_1_shadow_forever_v1
 from autotrader_fast_15m_shadow_v2 import run_fast_15m_shadow_forever_v2
 from autotrader_live_close_v1 import run_live_close_forever_v1
 from autotrader_live_open_v2 import run_live_open_forever_v2
@@ -75,6 +76,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_MTF_ENTRY_SHADOW_SECONDS", "30")),
         help="Cadence for the read-only 30m context -> 5m entry -> 10m/30m confirmation shadow evaluator.",
+    )
+    parser.add_argument(
+        "--autotrader-cocktail-mode-1-shadow-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_COCKTAIL_MODE_1_SHADOW_SECONDS", "30")),
+        help="Cadence for Cocktail Mode #1 adaptive 1m-clock MTF shadow evaluator.",
     )
     parser.add_argument(
         "--autotrader-strategy-seconds",
@@ -227,6 +234,31 @@ def _start_autotrader_mtf_entry_shadow(
     thread.start()
     LOGGER.info(
         "AutoTrader MTF entry shadow started interval_seconds=%d; read-only 30m context -> 5m trigger -> 10m/30m confirmation",
+        max(10, interval_seconds),
+    )
+    return thread
+
+
+def _start_autotrader_cocktail_mode_1_shadow(
+    *,
+    db_path: str,
+    interval_seconds: int,
+) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("Cocktail Mode #1 shadow disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_cocktail_mode_1_shadow_forever_v1,
+        kwargs={
+            "db_path": db_path,
+            "interval_seconds": interval_seconds,
+        },
+        name="pricegauger-autotrader-cocktail-mode-1-shadow",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "Cocktail Mode #1 shadow started interval_seconds=%d; canonical 1m clock with adaptive 5/10/15/30m MACD",
         max(10, interval_seconds),
     )
     return thread
@@ -481,6 +513,10 @@ def main() -> None:
     _start_autotrader_mtf_entry_shadow(
         db_path=args.db,
         interval_seconds=args.autotrader_mtf_entry_shadow_seconds,
+    )
+    _start_autotrader_cocktail_mode_1_shadow(
+        db_path=args.db,
+        interval_seconds=args.autotrader_cocktail_mode_1_shadow_seconds,
     )
     _start_autotrader_strategy(
         db_path=args.db,
