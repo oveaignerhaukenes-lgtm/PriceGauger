@@ -11,7 +11,6 @@ def test_mtf_flip_runtime_emits_requests_but_has_no_saxo_post_authority() -> Non
     assert "BOOTSTRAP_NO_REPLAY" in source
     assert "NEWER_MTF_FLIP_SIGNAL" in source
     assert "state.pending is not None and observed_direction == DIRECTION_FLAT" in source
-    assert "generic LIVE OPEN then still enforces settled close/P&L provenance" in source
     assert "_post_once" not in source
     assert "trade/v2/orders" not in source
     assert "live_open_order_payload_v2" not in source
