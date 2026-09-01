@@ -3,6 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import autotrader_intrabar30_shadow_v2 as intrabar
+from autotrader_strategy_catalog_v2 import (
+    AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2,
+    AUTOTRADER_STRATEGIES_V2,
+    INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2,
+)
 
 
 def _flat_history_then_move() -> tuple[tuple[str, float], ...]:
@@ -93,6 +98,13 @@ def test_intrabar_cross_can_uncross_and_exit_in_same_30m_bucket():
     assert event is not None
     assert event.action == intrabar.ACTION_WOULD_EXIT
     assert event.desired_state == intrabar.STATE_FLAT
+
+
+def test_intrabar_template_is_experimental_not_live_capable():
+    live_keys = {item.key for item in AUTOTRADER_STRATEGIES_V2}
+    assert INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 not in live_keys
+    assert AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2.live_ready is False
+    assert AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2.shadow_running is False
 
 
 def test_intrabar_shadow_has_no_execution_authority():
