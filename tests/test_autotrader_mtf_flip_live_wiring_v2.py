@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from autotrader_mtf_flip_live_runtime_v2 import (
+    REQUEST_APPROVED,
+    REQUEST_PENDING,
+    REQUEST_SUPERSEDED,
+    _supersede_prior_execution_requests_v2,
+)
+
 
 def test_mtf_flip_runtime_emits_requests_but_has_no_saxo_post_authority() -> None:
     source = Path("autotrader_mtf_flip_live_runtime_v2.py").read_text(encoding="utf-8")
@@ -45,3 +52,53 @@ def test_mtf_flip_is_directionally_admitted_for_both_long_and_short() -> None:
     assert "can_short=True" in catalog
     assert "if spec.can_long:" in gate
     assert "if spec.can_short:" in gate
+
+
+class _CaptureDb:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def execute(self, sql: str, params=()):
+        self.calls.append((sql, tuple(params)))
+        return self
+
+
+def test_supersede_without_current_request_has_no_untyped_nullable_placeholder() -> None:
+    db = _CaptureDb()
+    _supersede_prior_execution_requests_v2(
+        db,
+        pilot_key="pilot-1",
+        request_id=None,
+    )
+
+    assert len(db.calls) == 1
+    sql, params = db.calls[0]
+    assert "IS NULL" not in sql
+    assert "request_id <>" not in sql
+    assert params == (
+        REQUEST_SUPERSEDED,
+        "pilot-1",
+        REQUEST_PENDING,
+        REQUEST_APPROVED,
+    )
+
+
+def test_supersede_with_current_request_excludes_only_that_request() -> None:
+    db = _CaptureDb()
+    _supersede_prior_execution_requests_v2(
+        db,
+        pilot_key="pilot-1",
+        request_id="request-1",
+    )
+
+    assert len(db.calls) == 1
+    sql, params = db.calls[0]
+    assert "IS NULL" not in sql
+    assert "request_id <> ?" in sql
+    assert params == (
+        REQUEST_SUPERSEDED,
+        "pilot-1",
+        REQUEST_PENDING,
+        REQUEST_APPROVED,
+        "request-1",
+    )
