@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import logging
+import time
+
+from autotrader_automanage_runtime_v2 import run_automanage_strategy_once_v2
+from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
+from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
+from autotrader_mtf_short_live_runtime_v2 import run_mtf_short_live_strategy_once_v2
+from autotrader_risk_control_v2 import _position_observations_v2
+from autotrader_strategy_catalog_v2 import MTF_LONG_FLAT_STRATEGY_V2, MTF_SHORT_FLAT_STRATEGY_V2
+from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
+from database import using_postgres
+from saxo_provider import configured_client
+
+
+LOGGER = logging.getLogger("pricegauger.autotrader.automanage_dispatch_v2")
+
+
+def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tuple[int, int]:
+    """Dispatch active LIVE pilots without giving signal engines order authority."""
+    if not using_postgres():
+        return (0, 0)
+    enrollments = tuple(
+        item
+        for item in load_active_strategy_enrollments_v2()
+        if item.execution_mode == EXECUTION_MODE_LIVE and item.enabled
+    )
+    if not enrollments:
+        return (0, 0)
+    client = configured_client()
+    if client is None:
+        raise RuntimeError("Saxo client is not configured")
+    observations = _position_observations_v2(client)
+
+    evaluated = 0
+    failed = 0
+    for enrollment in enrollments:
+        try:
+            if enrollment.strategy_key == MTF_LONG_FLAT_STRATEGY_V2:
+                run_mtf_live_strategy_once_v2(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+            elif enrollment.strategy_key == MTF_SHORT_FLAT_STRATEGY_V2:
+                run_mtf_short_live_strategy_once_v2(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+            else:
+                run_automanage_strategy_once_v2(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+            evaluated += 1
+        except Exception as exc:
+            failed += 1
+            LOGGER.warning(
+                "AutoManage strategy evaluation failed pilot=%s strategy=%s: %s",
+                enrollment.pilot_key,
+                enrollment.strategy_key,
+                exc,
+                exc_info=True,
+            )
+    return evaluated, failed
+
+
+def run_automanage_strategy_forever_v2(
+    *,
+    db_path: str = "pricegauger.db",
+    interval_seconds: int = 15,
+) -> None:
+    interval = max(5, int(interval_seconds))
+    while True:
+        started = time.monotonic()
+        try:
+            run_automanage_strategy_cycle_v2(db_path=db_path)
+        except Exception as exc:
+            LOGGER.warning("AutoManage strategy dispatch cycle failed: %s", exc, exc_info=True)
+        sleep_to_fixed_start_cadence_v2(started, interval)
+
+
+__all__ = ["run_automanage_strategy_cycle_v2", "run_automanage_strategy_forever_v2"]
