@@ -10,7 +10,7 @@ from autotrader_saxo_net_position_direction_v2 import resolve_net_position_expos
 def _base(**overrides):
     value = {
         "AccountId": "A1",
-        "Amount": 0.03,
+        "Amount": -0.03,
         "AmountLong": 0.0,
         "AmountShort": 0.03,
         "AssetType": "CfdOnIndex",
@@ -36,6 +36,16 @@ def test_explicit_short_amount_is_authoritative_even_if_opening_direction_says_b
     assert exposure.source == "AMOUNT_LONG_SHORT"
 
 
+def test_real_incident_mixed_gross_book_resolves_to_net_short() -> None:
+    exposure = resolve_net_position_exposure_v2(
+        _base(Amount=-0.03, AmountLong=0.03, AmountShort=0.06, OpeningDirection="Buy"),
+        net_position_id="4912_CfdOnIndex",
+    )
+    assert exposure is not None
+    assert exposure.direction == "Sell"
+    assert exposure.amount == pytest.approx(0.03)
+
+
 def test_explicit_long_amount_is_authoritative() -> None:
     exposure = resolve_net_position_exposure_v2(
         _base(AmountLong=0.04, AmountShort=0.0, Amount=0.04, OpeningDirection="Buy"),
@@ -57,11 +67,27 @@ def test_legacy_payload_falls_back_to_opening_direction_not_amount_sign() -> Non
     assert exposure.source == "OPENING_DIRECTION_FALLBACK"
 
 
-def test_saxo_squared_long_and_short_fails_closed_instead_of_looking_flat() -> None:
-    with pytest.raises(RuntimeError, match="ambiguous/squared"):
+def test_equal_intraday_gross_legs_with_zero_signed_amount_are_net_flat() -> None:
+    exposure = resolve_net_position_exposure_v2(
+        _base(Amount=0.0, AmountLong=0.06, AmountShort=0.06, OpeningDirection="Buy"),
+        net_position_id="squared-flat",
+    )
+    assert exposure is None
+
+
+def test_equal_gross_legs_with_nonzero_signed_amount_fail_closed() -> None:
+    with pytest.raises(RuntimeError, match="contradict Amount"):
         resolve_net_position_exposure_v2(
-            _base(Amount=0.0, AmountLong=0.03, AmountShort=0.03),
-            net_position_id="squared",
+            _base(Amount=-0.03, AmountLong=0.06, AmountShort=0.06),
+            net_position_id="contradictory-squared",
+        )
+
+
+def test_signed_amount_must_match_explicit_long_short_difference() -> None:
+    with pytest.raises(RuntimeError, match="signed Amount contradicts"):
+        resolve_net_position_exposure_v2(
+            _base(Amount=0.03, AmountLong=0.0, AmountShort=0.03),
+            net_position_id="wrong-sign",
         )
 
 
@@ -81,7 +107,12 @@ def test_position_adapter_and_close_payload_use_resolved_short_direction() -> No
                 "Data": [
                     {
                         "NetPositionId": "4912_CfdOnIndex",
-                        "NetPositionBase": _base(OpeningDirection="Buy"),
+                        "NetPositionBase": _base(
+                            Amount=-0.03,
+                            AmountLong=0.03,
+                            AmountShort=0.06,
+                            OpeningDirection="Buy",
+                        ),
                         "NetPositionView": {
                             "AverageOpenPriceIncludingCosts": 29111.4,
                             "CalculationReliability": "Ok",
@@ -109,14 +140,19 @@ def test_position_adapter_and_close_payload_use_resolved_short_direction() -> No
     assert payload["Amount"] == pytest.approx(0.03)
 
 
-def test_adapter_propagates_ambiguous_direction_failure_to_all_callers() -> None:
+def test_position_adapter_treats_balanced_intraday_gross_book_as_flat() -> None:
     class Client:
         def _get(self, path, params=None):
             return {
                 "Data": [
                     {
                         "NetPositionId": "4912_CfdOnIndex",
-                        "NetPositionBase": _base(Amount=0.0, AmountLong=0.03, AmountShort=0.03),
+                        "NetPositionBase": _base(
+                            Amount=0.0,
+                            AmountLong=0.06,
+                            AmountShort=0.06,
+                            OpeningDirection="Buy",
+                        ),
                         "NetPositionView": {
                             "AverageOpenPrice": 29111.4,
                             "CurrentPrice": 29111.4,
@@ -126,5 +162,4 @@ def test_adapter_propagates_ambiguous_direction_failure_to_all_callers() -> None
                 ]
             }
 
-    with pytest.raises(RuntimeError, match="ambiguous/squared"):
-        risk._position_observations_v2(Client())
+    assert risk._position_observations_v2(Client()) == ()
