@@ -31,7 +31,7 @@ from autotrader_position_controller_v2 import (
 )
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
-from autotrader_strategy_catalog_v2 import MACD_SHORT_FLAT_STRATEGY_V2
+from autotrader_strategy_catalog_v2 import MACD_SHORT_FLAT_STRATEGY_V2, MTF_LONG_FLAT_STRATEGY_V2
 from autotrader_strategy_enrollment_v2 import (
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
@@ -616,11 +616,20 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
     failed = 0
     for enrollment in enrollments:
         try:
-            run_automanage_strategy_once_v2(
-                enrollment,
-                db_path=db_path,
-                observations=observations,
-            )
+            if enrollment.strategy_key == MTF_LONG_FLAT_STRATEGY_V2:
+                from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
+
+                run_mtf_live_strategy_once_v2(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+            else:
+                run_automanage_strategy_once_v2(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
             evaluated += 1
         except Exception as exc:
             failed += 1
