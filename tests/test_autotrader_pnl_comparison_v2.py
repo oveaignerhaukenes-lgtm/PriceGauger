@@ -8,6 +8,7 @@ from autotrader_pnl_chart_v2 import build_automanager_pnl_figure_v2
 from autotrader_pnl_comparison_v2 import (
     AutoManagerPnlComparisonV2,
     LiveRealizedPnlEventV2,
+    LiveStrategyEpochV2,
     build_live_realized_pnl_curve_v2,
 )
 from autotrader_shadow_benchmark_v2 import ShadowBenchmarkSeriesV2, ShadowEquityPointV2
@@ -33,12 +34,53 @@ def test_live_curve_is_settled_only_and_normalized_to_isolated_seed() -> None:
     assert curve[-1].occurred_at == START + timedelta(hours=2)
 
 
-def test_pnl_figure_uses_separate_live_and_paper_panels() -> None:
+def test_live_curve_keeps_strategy_attribution_across_pilot_epochs() -> None:
+    curve = build_live_realized_pnl_curve_v2(
+        seed_equity=500.0,
+        started_at=START,
+        as_of=START + timedelta(hours=3),
+        initial_pilot_key="classic-pilot",
+        initial_strategy_key=MACD_LONG_FLAT_STRATEGY_V2,
+        as_of_pilot_key="mtf-pilot",
+        as_of_strategy_key="macd-mtf-30-10-5-long-short-v1",
+        events=(
+            LiveRealizedPnlEventV2(
+                START + timedelta(hours=1),
+                10.0,
+                pilot_key="classic-pilot",
+                strategy_key=MACD_LONG_FLAT_STRATEGY_V2,
+            ),
+            LiveRealizedPnlEventV2(
+                START + timedelta(hours=2),
+                -2.0,
+                pilot_key="mtf-pilot",
+                strategy_key="macd-mtf-30-10-5-long-short-v1",
+            ),
+        ),
+    )
+    assert [item.cumulative_pnl for item in curve] == pytest.approx([0.0, 10.0, 8.0, 8.0])
+    assert curve[1].pilot_key == "classic-pilot"
+    assert curve[2].pilot_key == "mtf-pilot"
+    assert curve[-1].strategy_key == "macd-mtf-30-10-5-long-short-v1"
+
+
+def test_pnl_figure_uses_linked_timeline_range_tools_and_strategy_epochs() -> None:
     live = build_live_realized_pnl_curve_v2(
         seed_equity=500.0,
         started_at=START,
         as_of=START + timedelta(hours=1),
-        events=(LiveRealizedPnlEventV2(START + timedelta(minutes=45), 5.0),),
+        initial_pilot_key="pilot",
+        initial_strategy_key=MACD_LONG_FLAT_STRATEGY_V2,
+        as_of_pilot_key="pilot",
+        as_of_strategy_key=MACD_LONG_FLAT_STRATEGY_V2,
+        events=(
+            LiveRealizedPnlEventV2(
+                START + timedelta(minutes=45),
+                5.0,
+                pilot_key="pilot",
+                strategy_key=MACD_LONG_FLAT_STRATEGY_V2,
+            ),
+        ),
     )
     paper = ShadowBenchmarkSeriesV2(
         strategy_key=MACD_LONG_FLAT_STRATEGY_V2,
@@ -53,11 +95,20 @@ def test_pnl_figure_uses_separate_live_and_paper_panels() -> None:
     )
     comparison = AutoManagerPnlComparisonV2(
         pilot_key="pilot",
+        product_key="acct:4912:CfdOnIndex:7",
         currency="NOK",
         seed_equity=500.0,
         started_at=START,
         as_of=START + timedelta(hours=1),
         live_realized=live,
+        live_epochs=(
+            LiveStrategyEpochV2(
+                pilot_key="pilot",
+                strategy_key=MACD_LONG_FLAT_STRATEGY_V2,
+                started_at=START,
+                ended_at=None,
+            ),
+        ),
         paper_series=(paper,),
     )
 
@@ -67,3 +118,11 @@ def test_pnl_figure_uses_separate_live_and_paper_panels() -> None:
     assert traces["LIVE · realisert Saxo"].line.shape == "hv"
     assert traces["Paper · 30m MACD long/flat · defensive"].yaxis == "y2"
     assert tuple(traces["Paper · 30m MACD long/flat · defensive"].y) == pytest.approx((0.0, 2.0))
+    assert figure.layout.xaxis.matches == "x2"
+    assert figure.layout.xaxis2.rangeslider.visible is True
+    assert [button.label for button in figure.layout.xaxis2.rangeselector.buttons] == [
+        "1t", "4t", "12t", "1d", "3d", "Alt"
+    ]
+    assert figure.layout.uirevision.startswith("AutoManagerPnlProduct:acct:4912:CfdOnIndex:7")
+    assert len(figure.layout.shapes) >= 3  # strategy epoch + zero lines for both panels
+    assert any(annotation.text == "30m MACD long/flat · defensive" for annotation in figure.layout.annotations)
