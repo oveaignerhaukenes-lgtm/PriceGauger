@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import uuid4
 
-from autotrader_entry_policy_v2 import load_pilot_margin_config_v2, save_pilot_margin_config_v2
+from autotrader_entry_policy_v2 import load_pilot_margin_config_v2
 from autotrader_mtf_live_runtime_v2 import ensure_mtf_live_schema_v2
 from autotrader_mtf_short_live_runtime_v2 import ensure_mtf_short_live_schema_v2
-from autotrader_pilot_equity_v2 import initialize_pilot_equity_v2, load_pilot_equity_v2
+from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_catalog_v2 import strategy_spec_v2
@@ -79,30 +79,6 @@ def _confirmed_flat_v2(enrollment: StrategyEnrollmentV2) -> None:
         raise ValueError("strategy switch requires no working Saxo order for the product")
 
 
-def _prepare_target_capital_v2(
-    enrollment: StrategyEnrollmentV2,
-    *,
-    target_pilot_key: str,
-):
-    """Seed a never-used target strategy from current settled controlled capital."""
-    current = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
-    initialize_pilot_equity_v2(
-        pilot_key=target_pilot_key,
-        seed_capital=float(current.equity),
-        currency=current.currency,
-    )
-
-    source_margin = load_pilot_margin_config_v2(enrollment.pilot_key)
-    if source_margin is not None:
-        save_pilot_margin_config_v2(
-            pilot_key=target_pilot_key,
-            max_effective_leverage=float(source_margin.max_effective_leverage),
-            minimum_free_capital=float(source_margin.minimum_free_capital),
-            enabled=bool(source_margin.enabled),
-        )
-    return current
-
-
 def _quiesce_source_open_authority_v2(enrollment: StrategyEnrollmentV2) -> None:
     """Fail-safe quiesce before external FLAT/order checks.
 
@@ -129,6 +105,15 @@ def _quiesce_source_open_authority_v2(enrollment: StrategyEnrollmentV2) -> None:
         )
 
 
+def _target_equity_state_exists_v2(target_pilot_key: str) -> bool:
+    with connect() as db:
+        row = db.execute(
+            "SELECT 1 FROM pg_v2_autotrader_pilot_equity_state WHERE pilot_key = ? LIMIT 1",
+            (str(target_pilot_key),),
+        ).fetchone()
+    return row is not None
+
+
 def switch_live_strategy_v2(
     *,
     pilot_key: str,
@@ -143,8 +128,9 @@ def switch_live_strategy_v2(
 
     Before the new cohort is created the source OPEN authority is quiesced, Saxo must
     report exact FLAT with no working order, and source close/P&L provenance must be
-    fully settled. The target starts from that settled equity, inherits the Margin
-    Envelope, receives an empty position anchor and remains LIVE-OPEN disarmed.
+    fully settled. Equity -> enrollment -> Margin Envelope are created in one DB
+    transaction in FK-safe order. The target receives an empty position anchor and
+    remains LIVE-OPEN disarmed.
     """
     ensure_autotrader_schema_v2()
     ensure_mtf_live_schema_v2()
@@ -177,12 +163,13 @@ def switch_live_strategy_v2(
 
     target_pilot_key = enrollment.product.pilot_key(target.key)
     target_existing = load_strategy_enrollment_v2(target_pilot_key)
-    if target_existing is not None:
+    if target_existing is not None or _target_equity_state_exists_v2(target_pilot_key):
         raise ValueError(
-            "target strategy pilot already has history; v1 strategy switch refuses to mix or resume cohorts"
+            "target strategy pilot already has history or partial state; v1 strategy switch refuses to mix or resume cohorts"
         )
 
-    source_equity = _prepare_target_capital_v2(enrollment, target_pilot_key=target_pilot_key)
+    source_equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
+    source_margin = load_pilot_margin_config_v2(enrollment.pilot_key)
     event_id = str(uuid4())
     with connect() as db:
         # Repeat supersede inside the final control-plane transaction in case a
@@ -194,6 +181,16 @@ def switch_live_strategy_v2(
             WHERE pilot_key = ? AND status IN ('PENDING', 'APPROVED')
             """,
             (enrollment.pilot_key,),
+        )
+        # Equity has no FK to enrollment; enrollment has the FK to equity. Create the
+        # new clean cohort ledger first, inside this same transaction.
+        db.execute(
+            """
+            INSERT INTO pg_v2_autotrader_pilot_equity_state(
+                pilot_key, seed_capital, currency, created_at, updated_at
+            ) VALUES (?, ?, ?, now(), now())
+            """,
+            (target_pilot_key, float(source_equity.equity), source_equity.currency),
         )
         db.execute(
             """
@@ -225,6 +222,21 @@ def switch_live_strategy_v2(
                 enrollment.entry_mode,
             ),
         )
+        if source_margin is not None:
+            db.execute(
+                """
+                INSERT INTO pg_v2_autotrader_margin_configs(
+                    pilot_key, enabled, max_effective_leverage,
+                    minimum_free_capital, updated_at
+                ) VALUES (?, ?, ?, ?, now())
+                """,
+                (
+                    target_pilot_key,
+                    bool(source_margin.enabled),
+                    float(source_margin.max_effective_leverage),
+                    float(source_margin.minimum_free_capital),
+                ),
+            )
         # A new target should not have runtime rows, but clear defensively so the
         # contract remains no-replay if schema seeding ever changes later.
         db.execute(
