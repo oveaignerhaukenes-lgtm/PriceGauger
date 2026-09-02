@@ -29,3 +29,12 @@ def test_live_open_reconciles_accepted_orders_even_when_new_open_is_disarmed():
     assert reconcile_index < disarm_index
     assert "reconcile_live_open_attempts_v2(client)" in source
     assert "no blind retry" not in source.lower() or "STATUS_UNCERTAIN" in source
+
+
+def test_live_open_waits_for_unresolved_close_before_terminal_product_flat_block():
+    source = Path("autotrader_live_open_v2.py").read_text(encoding="utf-8")
+    loop_start = source.index("for request in candidates:")
+    unresolved_index = source.index("if unresolved_close:", loop_start)
+    product_block_index = source.index('block_reason="PRODUCT_NOT_CONFIRMED_FLAT"', loop_start)
+    settled_missing_index = source.index('block_reason="FLAT_WITHOUT_SETTLED_PG_CLOSE"', loop_start)
+    assert unresolved_index < product_block_index < settled_missing_index
