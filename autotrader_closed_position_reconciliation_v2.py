@@ -83,7 +83,11 @@ def closed_position_realizations_v2(payload: dict[str, Any]) -> tuple[ClosedPosi
         closing_position_id = str(closed.get("ClosingPositionId") or "").strip()
         uic = int(closed.get("Uic") or 0)
         amount = _finite(closed.get("Amount"), field="Amount")
-        if not reference or not account_id or not asset_type or not unique_id or not closing_position_id:
+        # ClosingExternalReferenceId is useful but Saxo does not expose it
+        # consistently enough to be the only reconciliation key. Keep rows with
+        # authoritative ClosingPositionId so they can be matched to the exact PG
+        # Saxo OrderId through cs/v1/audit/orderactivities.
+        if not account_id or not asset_type or not unique_id or not closing_position_id:
             continue
         if uic <= 0 or amount <= 0:
             continue
@@ -120,6 +124,17 @@ def closed_position_realizations_v2(payload: dict[str, Any]) -> tuple[ClosedPosi
     return tuple(items)
 
 
+def _full_expected_amount_v2(
+    matches: tuple[ClosedPositionRealizationV2, ...],
+    expected_amount: float,
+) -> bool:
+    if not matches:
+        return False
+    matched_amount = sum(item.amount for item in matches)
+    tolerance = max(1e-9, abs(float(expected_amount)) * 1e-9)
+    return matched_amount + tolerance >= float(expected_amount)
+
+
 def match_close_realizations_v2(
     *,
     realizations: tuple[ClosedPositionRealizationV2, ...],
@@ -128,24 +143,84 @@ def match_close_realizations_v2(
     asset_type: str,
     external_reference: str,
     expected_amount: float,
+    closing_position_ids: frozenset[str] | None = None,
 ) -> tuple[ClosedPositionRealizationV2, ...]:
-    matches = tuple(
+    """Match one PG close using only exact Saxo provenance.
+
+    Client ExternalReference remains the primary key. If Saxo omits it from one or
+    more closed-position rows, callers may supply PositionIds obtained by querying
+    OrderActivities for the exact Saxo OrderId persisted before/after submit. The
+    fallback still requires exact account + UIC + AssetType and the full close amount.
+    """
+    identity = tuple(
         item
         for item in realizations
         if item.account_id == str(account_id)
         and item.uic == int(uic)
         and item.asset_type == str(asset_type)
-        and item.closing_external_reference == str(external_reference)
     )
-    if not matches:
-        return ()
-    matched_amount = sum(item.amount for item in matches)
-    tolerance = max(1e-9, abs(float(expected_amount)) * 1e-9)
-    if matched_amount + tolerance < float(expected_amount):
-        # A closing order can fan out across several opening positions. Never book
-        # a partial snapshot and then double-count when the remaining rows arrive.
-        return ()
-    return matches
+
+    reference = str(external_reference or "").strip()
+    if reference:
+        reference_matches = tuple(
+            item for item in identity if item.closing_external_reference == reference
+        )
+        if _full_expected_amount_v2(reference_matches, expected_amount):
+            return reference_matches
+
+    exact_position_ids = frozenset(str(value) for value in (closing_position_ids or ()) if str(value))
+    if exact_position_ids:
+        position_matches = tuple(
+            item for item in identity if item.closing_position_id in exact_position_ids
+        )
+        if _full_expected_amount_v2(position_matches, expected_amount):
+            return position_matches
+
+    # Never infer a close from time, price or direction. If neither exact provenance
+    # path proves the whole amount, keep the pilot FLAT and wait.
+    return ()
+
+
+def _order_fill_position_ids_v2(
+    client,
+    *,
+    account_key: str,
+    client_key: str,
+    order_id: str,
+) -> frozenset[str]:
+    """Resolve exact fill PositionIds for one persisted Saxo OrderId."""
+    order = str(order_id or "").strip()
+    if not order:
+        return frozenset()
+    payload = client._get(
+        "cs/v1/audit/orderactivities",
+        params={
+            "AccountKey": str(account_key),
+            "ClientKey": str(client_key),
+            "OrderId": order,
+            "EntryType": "All",
+            "$top": 1000,
+        },
+    )
+    rows = payload.get("Data") or []
+    if not isinstance(rows, list):
+        raise RuntimeError("Saxo order activities Data must be a list")
+    position_ids: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("OrderId") or "").strip() != order:
+            continue
+        status = str(row.get("Status") or "").strip()
+        if status not in {"Fill", "FinalFill"}:
+            continue
+        substatus = str(row.get("SubStatus") or "").strip()
+        if substatus and substatus.lower() != "confirmed":
+            continue
+        position_id = str(row.get("PositionId") or "").strip()
+        if position_id:
+            position_ids.add(position_id)
+    return frozenset(position_ids)
 
 
 def realized_net_pnl_v2(items: tuple[ClosedPositionRealizationV2, ...]) -> float:
@@ -205,7 +280,7 @@ def _candidate_attempts_v2() -> tuple[dict[str, Any], ...]:
             """
             SELECT attempts.event_id, attempts.account_id, attempts.net_position_id,
                    attempts.uic, attempts.asset_type, attempts.amount,
-                   attempts.external_reference, attempts.status
+                   attempts.external_reference, attempts.order_id, attempts.status
             FROM pg_v2_autotrader_live_close_attempts AS attempts
             LEFT JOIN pg_v2_autotrader_equity_reconciliations AS booked
               ON booked.close_event_id = attempts.event_id
@@ -332,12 +407,12 @@ def _record_reconciliation_v2(
 
 
 def reconcile_closed_position_equity_once_v2(client=None) -> int:
-    """Book exact realized net P/L after a guarded LIVE close has settled.
+    """Book exact realized net P/L after a guarded LIVE close settles.
 
-    A close only affects strategy equity when it can be joined to an active strategy
-    enrollment and authoritative Saxo closed-position rows carrying the exact
-    `ClosingExternalReferenceId` generated by PriceGauger. Closed positions are
-    requested at account scope so base-currency P/L is the account currency.
+    A close affects strategy equity only when Saxo proves the exact PG close through
+    either its Client ExternalReference or, when that field is missing from the
+    closed-position feed, the PositionId(s) of the exact persisted Saxo OrderId from
+    OrderActivities. Both paths still require exact account/product and full amount.
     """
     ensure_autotrader_schema_v2()
     attempts = _candidate_attempts_v2()
@@ -348,6 +423,7 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
         raise RuntimeError("Saxo client is not configured")
     account_contexts = _account_contexts_v2(client)
     closed_by_account: dict[str, tuple[ClosedPositionRealizationV2, ...]] = {}
+    order_position_ids: dict[tuple[str, str], frozenset[str]] = {}
     booked = 0
 
     for attempt in attempts:
@@ -375,7 +451,8 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
                 },
             )
             closed_by_account[account_id] = closed_position_realizations_v2(payload)
-        matches = match_close_realizations_v2(
+
+        match_args = dict(
             realizations=closed_by_account[account_id],
             account_id=account_id,
             uic=int(attempt["uic"]),
@@ -383,6 +460,39 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
             external_reference=str(attempt["external_reference"]),
             expected_amount=float(attempt["amount"]),
         )
+        matches = match_close_realizations_v2(**match_args)
+        used_order_fallback = False
+
+        if not matches and attempt.get("order_id"):
+            order_id = str(attempt["order_id"])
+            cache_key = (account_id, order_id)
+            if cache_key not in order_position_ids:
+                try:
+                    order_position_ids[cache_key] = _order_fill_position_ids_v2(
+                        client,
+                        account_key=account["account_key"],
+                        client_key=account["client_key"],
+                        order_id=order_id,
+                    )
+                except Exception as exc:
+                    # Primary ExternalReference matching remains available. Audit
+                    # fallback failure must not weaken provenance or crash every
+                    # other account's reconciliation cycle.
+                    LOGGER.warning(
+                        "P/L reconciliation exact order provenance unavailable event=%s order_id=%s: %s",
+                        attempt["event_id"],
+                        order_id,
+                        exc,
+                    )
+                    order_position_ids[cache_key] = frozenset()
+            fill_position_ids = order_position_ids[cache_key]
+            if fill_position_ids:
+                matches = match_close_realizations_v2(
+                    **match_args,
+                    closing_position_ids=fill_position_ids,
+                )
+                used_order_fallback = bool(matches)
+
         if not matches:
             continue
         account_currency = account["currency"]
@@ -423,13 +533,14 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
         )
         booked += 1
         LOGGER.info(
-            "AutoTrader realized P/L booked pilot=%s event=%s net_pnl=%+.4f %s rows=%d risk_reentry_invalidated=%s",
+            "AutoTrader realized P/L booked pilot=%s event=%s net_pnl=%+.4f %s rows=%d risk_reentry_invalidated=%s provenance=%s",
             enrollment.pilot_key,
             attempt["event_id"],
             net_pnl,
             account_currency,
             len(matches),
             risk_invalidated,
+            "ORDER_ID_POSITION_ID" if used_order_fallback else "EXTERNAL_REFERENCE",
         )
     return booked
 
