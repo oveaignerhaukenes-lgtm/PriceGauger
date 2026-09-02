@@ -671,6 +671,15 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 blocked += 1
                 continue
 
+            # A carried reversal is allowed to create its OPEN request as soon as the
+            # runtime observes FLAT, but Saxo close/equity reconciliation can trail that
+            # observation by a few seconds. Treat an exact unresolved PG close as a
+            # retryable settlement wait before inspecting the still-cached position
+            # snapshot. Once settlement completes the same request is re-evaluated.
+            settled_close, unresolved_close = _settled_close_provenance(enrollment.pilot_key)
+            if unresolved_close:
+                continue
+
             positions = _product_positions(
                 observations,
                 account_id=enrollment.account_id,
@@ -682,9 +691,6 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 blocked += 1
                 continue
 
-            settled_close, unresolved_close = _settled_close_provenance(enrollment.pilot_key)
-            if unresolved_close:
-                continue
             if not settled_close:
                 _update_request(request_id, status=STATUS_BLOCKED, block_reason="FLAT_WITHOUT_SETTLED_PG_CLOSE")
                 blocked += 1
