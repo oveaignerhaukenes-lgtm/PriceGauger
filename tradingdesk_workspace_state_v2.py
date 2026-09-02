@@ -68,12 +68,13 @@ def _safe_state_from_session(available_markets: set[str]) -> dict[str, Any]:
     return result
 
 
-def sync_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str | None:
-    """Restore/persist safe TradingDesk view state around Streamlit reruns.
+def restore_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str | None:
+    """Restore safe TradingDesk view state without rewriting an unchanged widget key.
 
-    Explicit `?market=` navigation wins, then the live session, then persisted state.
-    Only the allow-listed read-model keys above are restored. Execution mode, arming,
-    approvals, strategy enrollment and order state are intentionally unreachable here.
+    Explicit `?market=` navigation wins, then an existing session value, then the
+    persisted read-model state. The function may be called again after Streamlit has
+    instantiated keyed widgets; unchanged values are therefore never assigned back
+    into session_state.
     """
     if not _has_streamlit_run_context():
         return None
@@ -88,15 +89,17 @@ def sync_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str
         persisted = None
     stored = {} if persisted is None else dict(persisted.state)
 
+    current_market = str(st.session_state.get(MARKET_SESSION_KEY, "") or "").strip()
     requested_market = _normalized_query_market()
     if requested_market in markets:
-        st.session_state[MARKET_SESSION_KEY] = requested_market
-    else:
-        current_market = str(st.session_state.get(MARKET_SESSION_KEY, "") or "").strip()
-        if current_market not in markets:
-            stored_market = str(stored.get("selected_market") or "").strip()
-            if stored_market in markets:
-                st.session_state[MARKET_SESSION_KEY] = stored_market
+        if current_market != requested_market:
+            st.session_state[MARKET_SESSION_KEY] = requested_market
+            current_market = requested_market
+    elif current_market not in markets:
+        stored_market = str(stored.get("selected_market") or "").strip()
+        if stored_market in markets and current_market != stored_market:
+            st.session_state[MARKET_SESSION_KEY] = stored_market
+            current_market = stored_market
 
     for persisted_key, session_key in _SAFE_SESSION_KEYS.items():
         if persisted_key == "selected_market" or session_key in st.session_state:
@@ -117,16 +120,47 @@ def sync_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str
                 continue
         st.session_state[session_key] = value
 
-    current = _safe_state_from_session(markets)
-    if current and current != stored:
-        try:
-            save_ui_workspace_state_v2(PAGE_KEY, current, schema_version=SCHEMA_VERSION)
-        except Exception:
-            # UI preference persistence must never break the trading workspace.
-            pass
-
     selected = str(st.session_state.get(MARKET_SESSION_KEY, "") or "").strip()
     return selected if selected in markets else None
+
+
+def persist_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> None:
+    """Persist current safe widget values without mutating keyed Streamlit state."""
+    if not _has_streamlit_run_context():
+        return
+
+    markets = {str(item) for item in available_markets}
+    if not markets:
+        return
+
+    current = _safe_state_from_session(markets)
+    if not current:
+        return
+
+    try:
+        persisted = load_ui_workspace_state_v2(PAGE_KEY, schema_version=SCHEMA_VERSION)
+    except Exception:
+        persisted = None
+    stored = {} if persisted is None else dict(persisted.state)
+    if current == stored:
+        return
+
+    try:
+        save_ui_workspace_state_v2(PAGE_KEY, current, schema_version=SCHEMA_VERSION)
+    except Exception:
+        # UI preference persistence must never break the trading workspace.
+        pass
+
+
+def sync_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str | None:
+    """Restore when needed, then persist current safe state.
+
+    Repeated calls are safe in the same Streamlit rerun because restore never writes
+    an unchanged keyed-widget value back into session_state.
+    """
+    selected = restore_tradingdesk_workspace_state_v2(available_markets)
+    persist_tradingdesk_workspace_state_v2(available_markets)
+    return selected
 
 
 __all__ = [
@@ -137,5 +171,7 @@ __all__ = [
     "PAGE_KEY",
     "SCHEMA_VERSION",
     "TIMEFRAME_SESSION_KEY",
+    "persist_tradingdesk_workspace_state_v2",
+    "restore_tradingdesk_workspace_state_v2",
     "sync_tradingdesk_workspace_state_v2",
 ]

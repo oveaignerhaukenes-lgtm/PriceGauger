@@ -1,15 +1,26 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import tradingdesk_workspace_state_v2 as workspace
 from ui_workspace_state_v2 import UiWorkspaceStateV2
 
 
 class _FakeStreamlit:
     def __init__(self, *, session_state=None, query_params=None):
-        self.session_state = dict(session_state or {})
+        self.session_state = session_state if session_state is not None else {}
         self.query_params = dict(query_params or {})
+
+
+class _LockedSessionState(dict):
+    """Approximate Streamlit's no-write-after-widget rule for selected keys."""
+
+    def __init__(self, *args, locked_keys=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.locked_keys = set(locked_keys)
+
+    def __setitem__(self, key, value):
+        if key in self.locked_keys:
+            raise RuntimeError(f"widget key is locked: {key}")
+        return super().__setitem__(key, value)
 
 
 def _persisted(**state):
@@ -99,6 +110,48 @@ def test_current_session_selection_is_persisted(monkeypatch):
     )
 
     assert saved[-1]["selected_market"] == "US Tech 100 NAS · Saxo 4912"
+
+
+def test_repeated_sync_does_not_rewrite_instantiated_market_widget(monkeypatch):
+    state = _LockedSessionState(
+        {
+            workspace.MARKET_SESSION_KEY: "US Tech 100 NAS · Saxo 4912",
+            workspace.TIMEFRAME_SESSION_KEY: "10m",
+            workspace.MACD_TIMEFRAME_SESSION_KEY: "30m",
+            workspace.AUTO_REFRESH_SESSION_KEY: True,
+            workspace.CONTROLS_WIDTH_SESSION_KEY: 30,
+        },
+        locked_keys={workspace.MARKET_SESSION_KEY},
+    )
+    fake = _FakeStreamlit(
+        session_state=state,
+        query_params={"market": "US Tech 100 NAS · Saxo 4912"},
+    )
+    monkeypatch.setattr(workspace, "st", fake)
+    monkeypatch.setattr(workspace, "_has_streamlit_run_context", lambda: True)
+    monkeypatch.setattr(
+        workspace,
+        "load_ui_workspace_state_v2",
+        lambda *args, **kwargs: _persisted(
+            selected_market="US Tech 100 NAS · Saxo 4912",
+            timeframe="10m",
+            macd_timeframe="30m",
+            auto_refresh=True,
+            controls_width_pct=30,
+        ),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "save_ui_workspace_state_v2",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unchanged state must not be saved")),
+    )
+
+    selected = workspace.sync_tradingdesk_workspace_state_v2(
+        ["Brent", "US Tech 100 NAS · Saxo 4912"]
+    )
+
+    assert selected == "US Tech 100 NAS · Saxo 4912"
+    assert state[workspace.MARKET_SESSION_KEY] == selected
 
 
 def test_stale_saved_market_fails_softly_to_page_default(monkeypatch):

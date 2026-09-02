@@ -134,7 +134,7 @@ def load_trading_desk_contexts_v2(
             health=_health_for_view(view, health_by_market.get(market), instrument=instrument),
         )
 
-    # Sync only read-model UI preferences. The workspace-state layer has no access
-    # to strategy enrollment, OPEN/CLOSE arming, approvals or order authority.
+    # Safe UI workspace state only. Repeated calls in one Streamlit rerun are
+    # idempotent and never rewrite an already-instantiated widget key unchanged.
     sync_tradingdesk_workspace_state_v2(result.keys())
     return result
