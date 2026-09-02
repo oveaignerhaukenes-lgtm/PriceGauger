@@ -7,7 +7,6 @@ from database import connect
 from instrument_registry_v2 import InstrumentSourceV2, list_subscribed_sources_v2
 from overview_v2_read_model import OverviewTechnicalV2, load_v2_overview_snapshots
 from runtime_health_v2 import RuntimeHealthV2, load_runtime_health_v2
-from tradingdesk_workspace_state_v2 import sync_tradingdesk_workspace_state_v2
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +104,8 @@ def load_trading_desk_contexts_v2(
     Forecast/workspace and runtime health are v2-only. Instrument identity is
     resolved from the dynamic subscribed Saxo registry. Missing instrument identity
     is explicit and degraded; this function never guesses from legacy mappings.
+    UI preference persistence is deliberately handled by the page before/after
+    Streamlit widget creation, never from this reusable read-model loader.
     """
     views = load_v2_overview_snapshots(
         requested_horizons=requested_horizons,
@@ -133,8 +134,4 @@ def load_trading_desk_contexts_v2(
             forecast=view,
             health=_health_for_view(view, health_by_market.get(market), instrument=instrument),
         )
-
-    # Sync only read-model UI preferences. The workspace-state layer has no access
-    # to strategy enrollment, OPEN/CLOSE arming, approvals or order authority.
-    sync_tradingdesk_workspace_state_v2(result.keys())
     return result
