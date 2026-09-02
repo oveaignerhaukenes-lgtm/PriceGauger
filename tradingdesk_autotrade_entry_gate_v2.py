@@ -470,7 +470,30 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
     st.caption(f"Automatisk/approvable re-entry krever Product Admission for: {', '.join(required_directions)}")
 
     margin_product = is_margin_product_v2(enrollment.asset_type)
-    if margin_product:
+    admissions = {
+        direction: load_product_admission_v2(
+            account_id=enrollment.account_id,
+            uic=enrollment.uic,
+            asset_type=enrollment.asset_type,
+            direction=direction,
+        )
+        for direction in required_directions
+    }
+    all_safety_verified = bool(admissions) and all(
+        admission is not None
+        and (
+            admission.negative_balance_protection_verified
+            if margin_product
+            else (admission.limited_loss_verified and admission.no_margin_obligation_verified)
+        )
+        for admission in admissions.values()
+    )
+    if all_safety_verified:
+        risk_verified = True
+        st.caption(
+            "Kontobeskyttelsen for dette eksakte Saxo-produktet er allerede verifisert og lagret i Product Admission."
+        )
+    elif margin_product:
         risk_verified = st.checkbox(
             "Jeg har verifisert at denne Saxo-kontoen har negative balance protection for dette marginproduktet.",
             key=f"td-entry-nbp:{enrollment.pilot_key}",
@@ -488,15 +511,8 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         asset_type=enrollment.asset_type,
     )
 
-    admissions = {}
     for direction in required_directions:
-        admission = load_product_admission_v2(
-            account_id=enrollment.account_id,
-            uic=enrollment.uic,
-            asset_type=enrollment.asset_type,
-            direction=direction,
-        )
-        admissions[direction] = admission
+        admission = admissions[direction]
         st.markdown(f"**{direction} re-entry**")
 
         already_verified = bool(
@@ -708,16 +724,16 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
     elif enrollment.live_open_armed:
         st.warning("Piloten er markert armed, men global master eller deployment code-gate er OFF.")
 
-    entry_ack = st.checkbox(
-        (
-            "Jeg godkjenner at denne LIVE-piloten kan sende ekte OPEN/re-entry etter strategisignal uten ny bekreftelse."
-            if enrollment.entry_mode == ENTRY_MODE_AUTO
-            else "Jeg godkjenner at denne LIVE-piloten kan sende en OPEN/re-entry når jeg eksplisitt godkjenner den konkrete requesten."
-        ),
-        key=f"td-open-pilot-ack:{enrollment.pilot_key}",
-    )
-    can_arm_open = admissions_ready and margin_ready and sizing_clean and bool(entry_ack)
     if not enrollment.live_open_armed:
+        entry_ack = st.checkbox(
+            (
+                "Jeg godkjenner at denne LIVE-piloten kan sende ekte OPEN/re-entry etter strategisignal uten ny bekreftelse."
+                if enrollment.entry_mode == ENTRY_MODE_AUTO
+                else "Jeg godkjenner at denne LIVE-piloten kan sende en OPEN/re-entry når jeg eksplisitt godkjenner den konkrete requesten."
+            ),
+            key=f"td-open-pilot-ack:{enrollment.pilot_key}",
+        )
+        can_arm_open = admissions_ready and margin_ready and sizing_clean and bool(entry_ack)
         if st.button(
             "Arm LIVE re-entry",
             type="primary",
