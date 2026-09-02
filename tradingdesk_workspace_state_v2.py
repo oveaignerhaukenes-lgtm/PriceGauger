@@ -69,11 +69,12 @@ def _safe_state_from_session(available_markets: set[str]) -> dict[str, Any]:
 
 
 def restore_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str | None:
-    """Restore safe TradingDesk view state before any keyed widgets are created.
+    """Restore safe TradingDesk view state without rewriting an unchanged widget key.
 
     Explicit `?market=` navigation wins, then an existing session value, then the
-    persisted read-model state. This function intentionally mutates Streamlit session
-    state, so callers must invoke it before instantiating widgets that use these keys.
+    persisted read-model state. The function may be called again after Streamlit has
+    instantiated keyed widgets; unchanged values are therefore never assigned back
+    into session_state.
     """
     if not _has_streamlit_run_context():
         return None
@@ -88,15 +89,17 @@ def restore_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> 
         persisted = None
     stored = {} if persisted is None else dict(persisted.state)
 
+    current_market = str(st.session_state.get(MARKET_SESSION_KEY, "") or "").strip()
     requested_market = _normalized_query_market()
     if requested_market in markets:
-        st.session_state[MARKET_SESSION_KEY] = requested_market
-    else:
-        current_market = str(st.session_state.get(MARKET_SESSION_KEY, "") or "").strip()
-        if current_market not in markets:
-            stored_market = str(stored.get("selected_market") or "").strip()
-            if stored_market in markets:
-                st.session_state[MARKET_SESSION_KEY] = stored_market
+        if current_market != requested_market:
+            st.session_state[MARKET_SESSION_KEY] = requested_market
+            current_market = requested_market
+    elif current_market not in markets:
+        stored_market = str(stored.get("selected_market") or "").strip()
+        if stored_market in markets and current_market != stored_market:
+            st.session_state[MARKET_SESSION_KEY] = stored_market
+            current_market = stored_market
 
     for persisted_key, session_key in _SAFE_SESSION_KEYS.items():
         if persisted_key == "selected_market" or session_key in st.session_state:
@@ -149,9 +152,12 @@ def persist_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> 
         pass
 
 
-# Compatibility wrapper for non-widget callers/tests. New page code should explicitly
-# restore before widget creation and persist after widget values have been rendered.
 def sync_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str | None:
+    """Restore when needed, then persist current safe state.
+
+    Repeated calls are safe in the same Streamlit rerun because restore never writes
+    an unchanged keyed-widget value back into session_state.
+    """
     selected = restore_tradingdesk_workspace_state_v2(available_markets)
     persist_tradingdesk_workspace_state_v2(available_markets)
     return selected
