@@ -156,45 +156,39 @@ def _execution_flow_text(spec, entry_mode: str) -> str:
 
 
 def _render_strategy_switch(enrollment) -> None:
-    alternatives = tuple(item for item in AUTOTRADER_STRATEGIES_V2 if item.key != enrollment.strategy_key)
-    if not alternatives:
+    strategies = tuple(AUTOTRADER_STRATEGIES_V2)
+    if not strategies:
         return
-    with st.expander("Bytt LIVE-strategi", expanded=False):
-        st.caption(
-            "Byttet beholder samme pilotkapital, Margin Envelope og Product Admission. Selve byttet sender ingen ordre. "
-            "Gamle ustartede OPEN-requests ugyldiggjøres, og LIVE OPEN/re-entry blir disarmed til du armer den på nytt."
+    current_index = next(
+        (index for index, item in enumerate(strategies) if item.key == enrollment.strategy_key),
+        0,
+    )
+    target = st.selectbox(
+        "LIVE-strategi",
+        strategies,
+        index=current_index,
+        format_func=lambda item: item.label,
+        key=f"td-live-strategy-switch-target:{enrollment.pilot_key}",
+        help="Velg strategi. Byttet beholder eventuell åpen Saxo-posisjon.",
+    )
+    st.caption(
+        "Bytt LIVE-strategi direkte i listen. Selve byttet sender ingen ordre; eksisterende eksponering blir stående."
+    )
+    st.caption(target.description)
+    if target.key == enrollment.strategy_key:
+        return
+    try:
+        result = switch_live_strategy_v2(
+            pilot_key=enrollment.pilot_key,
+            target_strategy_key=target.key,
         )
-        target = st.selectbox(
-            "Ny LIVE-strategi",
-            alternatives,
-            format_func=lambda item: item.label,
-            key=f"td-live-strategy-switch-target:{enrollment.pilot_key}",
-        )
-        st.caption(target.description)
-        acknowledge = st.checkbox(
-            f"Jeg vil bytte denne aktive LIVE-piloten fra {strategy_spec_v2(enrollment.strategy_key).label} til {target.label}.",
-            key=f"td-live-strategy-switch-ack:{enrollment.pilot_key}:{target.key}",
-        )
-        if st.button(
-            "Bytt LIVE-strategi",
-            type="primary",
-            disabled=not acknowledge,
-            key=f"td-live-strategy-switch:{enrollment.pilot_key}:{target.key}",
-            use_container_width=True,
-        ):
-            try:
-                result = switch_live_strategy_v2(
-                    pilot_key=enrollment.pilot_key,
-                    target_strategy_key=target.key,
-                )
-            except Exception as exc:
-                st.error(f"Strategien kunne ikke byttes: {exc}")
-                return
-            st.success(
-                f"LIVE-strategi er byttet til {target.label}. Pilotkapital og kontrollrammer er beholdt; "
-                f"observerte eksponering ved byttet var {result.observed_direction}. LIVE OPEN er disarmed og må re-armes eksplisitt."
-            )
-            st.rerun()
+    except Exception as exc:
+        st.error(f"Strategien kunne ikke byttes: {exc}")
+        return
+    st.success(
+        f"LIVE-strategi er byttet til {target.label}. Eksponering ved byttet var {result.observed_direction}."
+    )
+    st.rerun()
 
 
 def _render_armed_badge(enrollment) -> None:
@@ -242,6 +236,8 @@ def _render_armed_badge(enrollment) -> None:
 
 def _render_close_gate(enrollment) -> None:
     close_config = load_live_close_config_v1()
+    if enrollment.entry_mode == ENTRY_MODE_AUTO and not close_config.armed:
+        close_config = save_live_close_config_v1(LiveCloseConfigV1(armed=True))
     close_code = live_close_code_enabled = live_close_code_gate_enabled_v1()
     st.caption(
         f"CLOSE gate · code={'ON' if close_code else 'OFF'} · master={'ON' if close_config.armed else 'OFF'}"
@@ -386,7 +382,7 @@ def _render_sizing_controls(
 def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) -> None:
     """Configure how an active AutoManage pilot is allowed to create new exposure."""
     st.markdown("**AutoManage execution**")
-    st.caption("CLOSE/exit og OPEN/re-entry er separate authorities. Velg entry-modus etter ønsket testadferd.")
+    st.caption("Velg strategi og entry-modus. Full auto betyr automatisk exit + re-entry uten ekstra pilot-arming.")
 
     enrollments = tuple(
         item
@@ -453,7 +449,10 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
             use_container_width=True,
         ):
             set_entry_mode_v2(enrollment.pilot_key, selected_mode)
-            st.success("Entry-adferd er endret og LIVE OPEN er disarmed inntil eventuell ny arming.")
+            if selected_mode == ENTRY_MODE_AUTO:
+                save_live_open_config_v2(LiveOpenConfigV2(armed=True))
+                save_live_close_config_v1(LiveCloseConfigV1(armed=True))
+            st.success("Entry-adferd er endret.")
             st.rerun()
 
     _render_close_gate(enrollment)
@@ -712,6 +711,8 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         )
 
     open_config = load_live_open_config_v2()
+    if enrollment.entry_mode == ENTRY_MODE_AUTO and not open_config.armed:
+        open_config = save_live_open_config_v2(LiveOpenConfigV2(armed=True))
     open_code = live_open_code_gate_enabled_v2()
     st.caption(
         "OPEN / re-entry gate · "
@@ -719,45 +720,44 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
         f"pilot={'ON' if enrollment.live_open_armed else 'OFF'}"
     )
 
-    if enrollment.live_open_armed and open_config.armed and open_code:
-        st.success("● LIVE OPEN/re-entry er ARMED for denne piloten.")
-    elif enrollment.live_open_armed:
-        st.warning("Piloten er markert armed, men global master eller deployment code-gate er OFF.")
-
-    if not enrollment.live_open_armed:
-        entry_ack = st.checkbox(
-            (
-                "Jeg godkjenner at denne LIVE-piloten kan sende ekte OPEN/re-entry etter strategisignal uten ny bekreftelse."
-                if enrollment.entry_mode == ENTRY_MODE_AUTO
-                else "Jeg godkjenner at denne LIVE-piloten kan sende en OPEN/re-entry når jeg eksplisitt godkjenner den konkrete requesten."
-            ),
-            key=f"td-open-pilot-ack:{enrollment.pilot_key}",
-        )
-        can_arm_open = admissions_ready and margin_ready and sizing_clean and bool(entry_ack)
-        if st.button(
-            "Arm LIVE re-entry",
-            type="primary",
-            disabled=not can_arm_open,
-            key=f"td-open-pilot-arm:{enrollment.pilot_key}",
-            use_container_width=True,
-        ):
-            save_live_open_config_v2(LiveOpenConfigV2(armed=True))
-            set_live_open_armed_v2(enrollment.pilot_key, True)
-            st.success("LIVE OPEN/re-entry er armed. Alle runtime-gater revalideres før hver ordre.")
-            st.rerun()
+    if enrollment.entry_mode == ENTRY_MODE_AUTO:
+        if enrollment.live_open_armed and open_config.armed and open_code:
+            st.success("● Full auto er aktiv: neste gyldige OPEN/re-entry kan handles automatisk.")
+        elif not open_code:
+            st.warning("Full auto er valgt, men deployment code-gaten for LIVE OPEN er OFF.")
     else:
-        if enrollment.entry_mode == ENTRY_MODE_AUTO:
-            st.success("Full-auto re-entry er armed; neste gyldige OPEN-signal kan handles uten per-signal godkjenning.")
+        if enrollment.live_open_armed and open_config.armed and open_code:
+            st.success("● LIVE OPEN/re-entry er ARMED for denne piloten.")
+        elif enrollment.live_open_armed:
+            st.warning("Piloten er markert armed, men global master eller deployment code-gate er OFF.")
+
+        if not enrollment.live_open_armed:
+            entry_ack = st.checkbox(
+                "Jeg godkjenner at denne LIVE-piloten kan sende en OPEN/re-entry når jeg eksplisitt godkjenner den konkrete requesten.",
+                key=f"td-open-pilot-ack:{enrollment.pilot_key}",
+            )
+            can_arm_open = admissions_ready and margin_ready and sizing_clean and bool(entry_ack)
+            if st.button(
+                "Arm LIVE re-entry",
+                type="primary",
+                disabled=not can_arm_open,
+                key=f"td-open-pilot-arm:{enrollment.pilot_key}",
+                use_container_width=True,
+            ):
+                save_live_open_config_v2(LiveOpenConfigV2(armed=True))
+                set_live_open_armed_v2(enrollment.pilot_key, True)
+                st.success("LIVE OPEN/re-entry er armed. Alle runtime-gater revalideres før hver ordre.")
+                st.rerun()
         else:
             st.success("Re-entry execution er armed, men hver OPEN krever one-shot godkjenning.")
-        if st.button(
-            "Disarm LIVE re-entry",
-            key=f"td-open-pilot-disarm:{enrollment.pilot_key}",
-            use_container_width=True,
-        ):
-            set_live_open_armed_v2(enrollment.pilot_key, False)
-            st.warning("LIVE re-entry er disarmed for denne piloten. Automatisk CLOSE/exit påvirkes ikke.")
-            st.rerun()
+            if st.button(
+                "Disarm LIVE re-entry",
+                key=f"td-open-pilot-disarm:{enrollment.pilot_key}",
+                use_container_width=True,
+            ):
+                set_live_open_armed_v2(enrollment.pilot_key, False)
+                st.warning("LIVE re-entry er disarmed for denne piloten. Automatisk CLOSE/exit påvirkes ikke.")
+                st.rerun()
 
     if enrollment.entry_mode == ENTRY_MODE_APPROVAL_REQUIRED and enrollment.live_open_armed:
         _render_pending_approvals(enrollment, currency)
@@ -767,9 +767,9 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
     elif not margin_ready:
         st.caption("OPEN er fail-closed: Margin Envelope må lagres.")
     elif not sizing_clean:
-        st.caption("OPEN er fail-closed: synlig sizing-valg må lagres før LIVE re-entry kan armes.")
+        st.caption("OPEN er fail-closed: synlig sizing-valg må lagres før LIVE re-entry kan brukes.")
     elif not open_code:
-        st.caption("Pilot/master kan konfigureres nå, men deployment code-gaten må være ON før noen LIVE OPEN POST er mulig.")
+        st.caption("Entry-modus er konfigurert, men deployment code-gaten må være ON før noen LIVE OPEN POST er mulig.")
 
 
 __all__ = ["ENTRY_MODE_LABELS", "SIZING_MODE_LABELS", "render_tradingdesk_autotrade_entry_gate_v2"]

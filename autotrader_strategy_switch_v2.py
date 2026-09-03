@@ -11,6 +11,7 @@ from autotrader_risk_control_v2 import PositionObservationV2, _position_observat
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_catalog_v2 import strategy_spec_v2
 from autotrader_strategy_enrollment_v2 import (
+    ENTRY_MODE_AUTO,
     EXECUTION_MODE_LIVE,
     StrategyEnrollmentV2,
     load_strategy_enrollment_v2,
@@ -219,8 +220,9 @@ def switch_live_strategy_v2(
     LONG/SHORT/FLAT exposure is observed once and carried unchanged into the target
     strategy cohort. The switch itself never POSTs an order and never fabricates a
     close merely to make accounting convenient. Old unstarted intents are superseded,
-    target runtime state is empty (no signal replay), and the current OPEN arming +
-    entry-mode policy is preserved.
+    target runtime state is empty (no signal replay), and the entry-mode policy is
+    preserved. AUTO itself means OPEN/re-entry authority remains armed across the
+    handoff; it does not require a second manual arming step.
 
     Settled pilot capital remains authoritative for sizing. If an open position is
     handed over, its eventual authoritative Saxo close is booked normally; the exact
@@ -239,6 +241,9 @@ def switch_live_strategy_v2(
         raise ValueError("only a LIVE AutoManager pilot can switch LIVE strategy")
 
     target = strategy_spec_v2(str(target_strategy_key))
+    target_live_open_armed = bool(
+        enrollment.entry_mode == ENTRY_MODE_AUTO or enrollment.live_open_armed
+    )
     if target.key == enrollment.strategy_key:
         return StrategySwitchResultV2(
             from_pilot_key=enrollment.pilot_key,
@@ -247,7 +252,7 @@ def switch_live_strategy_v2(
             to_strategy_key=target.key,
             observed_direction="UNCHANGED",
             entry_mode=enrollment.entry_mode,
-            live_open_was_armed=enrollment.live_open_armed,
+            live_open_was_armed=target_live_open_armed,
         )
 
     if _pg_execution_inflight_v2(enrollment):
@@ -255,7 +260,7 @@ def switch_live_strategy_v2(
 
     # Remove old unstarted signal authority before taking the external exposure mark.
     # If the external read fails, the source remains enabled and can continue from a
-    # fresh signal; no live_open_armed policy is silently changed.
+    # fresh signal; entry-mode policy is not silently changed.
     _quiesce_source_authority_v2(enrollment)
     observed = _observed_product_state_v2(enrollment)
     observed_direction = _direction_v2(observed)
@@ -320,7 +325,7 @@ def switch_live_strategy_v2(
                 int(enrollment.market_id),
                 int(enrollment.instrument_id),
                 enrollment.market_name,
-                bool(enrollment.live_open_armed),
+                target_live_open_armed,
                 enrollment.entry_mode,
             ),
         )
@@ -377,7 +382,7 @@ def switch_live_strategy_v2(
                 target.key,
                 observed_direction,
                 enrollment.entry_mode,
-                bool(enrollment.live_open_armed),
+                target_live_open_armed,
                 bool(flat_handoff),
                 provenance_kind,
                 float(source_equity.equity),
@@ -412,8 +417,8 @@ def switch_live_strategy_v2(
         raise RuntimeError("source strategy pilot remained active after switch")
     if refreshed_target is None or not refreshed_target.enabled or refreshed_target.strategy_key != target.key:
         raise RuntimeError("target strategy pilot was not activated")
-    if bool(refreshed_target.live_open_armed) != bool(enrollment.live_open_armed):
-        raise RuntimeError("strategy switch failed to preserve LIVE OPEN arming policy")
+    if bool(refreshed_target.live_open_armed) != target_live_open_armed:
+        raise RuntimeError("strategy switch failed to preserve entry-mode OPEN authority")
     if refreshed_target.anchor_net_position_id != anchor:
         raise RuntimeError("strategy switch failed to preserve the observed Saxo position anchor")
 
@@ -424,7 +429,7 @@ def switch_live_strategy_v2(
         to_strategy_key=refreshed_target.strategy_key,
         observed_direction=observed_direction,
         entry_mode=refreshed_target.entry_mode,
-        live_open_was_armed=enrollment.live_open_armed,
+        live_open_was_armed=target_live_open_armed,
     )
 
 
