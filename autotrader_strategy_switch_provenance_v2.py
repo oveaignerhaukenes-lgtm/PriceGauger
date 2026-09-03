@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_enrollment_v2 import StrategyEnrollmentV2
@@ -27,14 +28,7 @@ def _value(row: Any, key: str, index: int) -> Any:
 
 
 def ensure_strategy_switch_provenance_schema_v2() -> None:
-    """Ensure durable audit state for strategy-to-strategy FLAT handoff once/process.
-
-    PR #265 introduced the switch-event table lazily. These ALTERs deliberately
-    upgrade that existing shape without rewriting historical rows: only events
-    created after the stronger provenance contract may authorize a target pilot's
-    first OPEN. The migration is cached so the 2-second OPEN loop remains read-only
-    after the first process-local initialization.
-    """
+    """Ensure durable audit state for strategy and user-confirmed FLAT authority."""
     global _SCHEMA_READY
     if _SCHEMA_READY:
         return
@@ -89,7 +83,54 @@ def ensure_strategy_switch_provenance_schema_v2() -> None:
                 ON pg_v2_autotrader_strategy_switch_events(to_pilot_key, created_at DESC)
                 """
             )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pg_v2_autotrader_user_flat_authority (
+                    authority_id UUID PRIMARY KEY,
+                    pilot_key TEXT NOT NULL REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
+                    source TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS pg_v2_autotrader_user_flat_authority_time_idx
+                ON pg_v2_autotrader_user_flat_authority(pilot_key, created_at DESC)
+                """
+            )
         _SCHEMA_READY = True
+
+
+def grant_user_confirmed_flat_authority_v2(*, pilot_key: str, source: str = "TRADINGDESK") -> str:
+    """Persist one-shot OPEN authority after a caller has just confirmed Saxo FLAT.
+
+    This is not a synthetic close and does not book P/L. It only records that the user
+    explicitly requested fresh exposure while the exact external product was observed
+    FLAT. The ordinary LIVE OPEN runtime still rechecks that Saxo remains FLAT before POST.
+    """
+    ensure_strategy_switch_provenance_schema_v2()
+    authority_id = str(uuid4())
+    with connect() as db:
+        enrollment = db.execute(
+            """
+            SELECT 1 FROM pg_v2_autotrader_strategy_enrollments
+            WHERE pilot_key = ? AND enabled = TRUE
+            LIMIT 1
+            """,
+            (str(pilot_key),),
+        ).fetchone()
+        if enrollment is None:
+            raise LookupError("active AutoManager pilot not found for user FLAT authority")
+        db.execute(
+            """
+            INSERT INTO pg_v2_autotrader_user_flat_authority(
+                authority_id, pilot_key, source
+            ) VALUES (?, ?, ?)
+            """,
+            (authority_id, str(pilot_key), str(source)),
+        )
+    return authority_id
 
 
 def require_source_settled_flat_provenance_v2(
@@ -173,15 +214,15 @@ def has_unconsumed_settled_flat_handoff_v2(
     pilot_key: str,
     enrolled_at: datetime,
 ) -> bool:
-    """Authorize only the target cohort's first OPEN from a settled FLAT handoff.
+    """Authorize one OPEN from either a settled FLAT handoff or explicit user FLAT.
 
-    The handoff is one-shot in effect. Once an OPEN reaches a state in which Saxo may
-    already have accepted it, future re-entry must again be justified by an ordinary
-    settled PG close inside the target cohort.
+    Both authorities are one-shot in effect. Once an OPEN reaches a state in which
+    Saxo may already have accepted it, future automated re-entry again requires an
+    ordinary settled PG close or a new explicit user target while confirmed FLAT.
     """
     ensure_strategy_switch_provenance_schema_v2()
     with connect() as db:
-        event = db.execute(
+        handoff = db.execute(
             """
             SELECT event_id, created_at
             FROM pg_v2_autotrader_strategy_switch_events
@@ -194,9 +235,26 @@ def has_unconsumed_settled_flat_handoff_v2(
             """,
             (str(pilot_key), enrolled_at),
         ).fetchone()
-        if event is None:
+        user_flat = db.execute(
+            """
+            SELECT authority_id, created_at
+            FROM pg_v2_autotrader_user_flat_authority
+            WHERE pilot_key = ? AND created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (str(pilot_key), enrolled_at),
+        ).fetchone()
+
+        candidates: list[tuple[Any, Any]] = []
+        if handoff is not None:
+            candidates.append((_value(handoff, "event_id", 0), _value(handoff, "created_at", 1)))
+        if user_flat is not None:
+            candidates.append((_value(user_flat, "authority_id", 0), _value(user_flat, "created_at", 1)))
+        if not candidates:
             return False
-        created_at = _value(event, "created_at", 1)
+        _, created_at = max(candidates, key=lambda item: item[1])
+
         consumed = db.execute(
             """
             SELECT 1
@@ -213,6 +271,7 @@ def has_unconsumed_settled_flat_handoff_v2(
 __all__ = [
     "SettledFlatProvenanceV2",
     "ensure_strategy_switch_provenance_schema_v2",
+    "grant_user_confirmed_flat_authority_v2",
     "has_unconsumed_settled_flat_handoff_v2",
     "require_source_settled_flat_provenance_v2",
 ]
