@@ -5,14 +5,17 @@ import time
 
 from autotrader_automanage_runtime_v2 import run_automanage_strategy_once_v2
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
+from autotrader_fast_live_runtime_v2 import run_fast_live_strategy_once_v2
 from autotrader_mtf_flip_live_runtime_v2 import run_mtf_flip_live_strategy_once_v2
 from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
 from autotrader_mtf_short_live_runtime_v2 import run_mtf_short_live_strategy_once_v2
 from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_strategy_catalog_v2 import (
+    MACD_1M_FLIP_STRATEGY_V2,
     MTF_LONG_FLAT_STRATEGY_V2,
     MTF_LONG_SHORT_FLIP_STRATEGY_V2,
     MTF_SHORT_FLAT_STRATEGY_V2,
+    STRONG_COCKTAIL_STRATEGY_V2,
 )
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
 from database import using_postgres
@@ -20,6 +23,7 @@ from saxo_provider import configured_client
 
 
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_dispatch_v2")
+FAST_LIVE_STRATEGIES = {STRONG_COCKTAIL_STRATEGY_V2, MACD_1M_FLIP_STRATEGY_V2}
 
 
 def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tuple[int, int]:
@@ -42,7 +46,13 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
     failed = 0
     for enrollment in enrollments:
         try:
-            if enrollment.strategy_key == MTF_LONG_FLAT_STRATEGY_V2:
+            if enrollment.strategy_key in FAST_LIVE_STRATEGIES:
+                run_fast_live_strategy_once_v2(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+            elif enrollment.strategy_key == MTF_LONG_FLAT_STRATEGY_V2:
                 run_mtf_live_strategy_once_v2(
                     enrollment,
                     db_path=db_path,
