@@ -16,6 +16,7 @@ INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shad
 COCKTAIL_MODE_1_SHADOW_STRATEGY_V2 = "cocktail-mode-1-shadow-v1"
 STRONG_COCKTAIL_STRATEGY_V2 = "strong-cocktail-shadow-v1"
 MACD_1M_FLIP_STRATEGY_V2 = "macd-1m-flip-control-shadow-v1"
+AI_BASELINE_STRATEGY_V2 = "gpt-5-mini-ai-baseline-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +121,17 @@ MACD_1M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
+AI_BASELINE_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=AI_BASELINE_STRATEGY_V2,
+    label="AI baseline · GPT-5 mini · technicals + news",
+    description=(
+        "Experimental GPT-5 mini policy chooses LONG/SHORT/FLAT from persisted technical, price and news context. "
+        "The model never controls sizing or orders; AutoManager's normal execution lifecycle remains authoritative."
+    ),
+    can_long=True,
+    can_short=True,
+)
+
 # Explicit execution-capable catalog. A strategy only gains LIVE eligibility by being
 # listed here; signal runtimes still only emit execution requests into the hardened
 # AutoManager lifecycle and never POST Saxo orders directly.
@@ -132,6 +144,7 @@ AUTOTRADER_STRATEGIES_V2 = (
     MTF_LONG_SHORT_FLIP_SPEC_V2,
     STRONG_COCKTAIL_SPEC_V2,
     MACD_1M_FLIP_SPEC_V2,
+    AI_BASELINE_SPEC_V2,
 )
 
 # These three policies have the established deterministic closed-30m paper replay.
@@ -247,6 +260,8 @@ def strategy_display_label_v2(strategy_key: str) -> str:
 
 
 __all__ = [
+    "AI_BASELINE_SPEC_V2",
+    "AI_BASELINE_STRATEGY_V2",
     "AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2",
     "AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2",
     "AUTOMANAGER_FAST_15M_TEMPLATE_V2",
