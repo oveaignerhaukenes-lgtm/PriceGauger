@@ -23,7 +23,7 @@ from trading_desk_indicators import calculate_indicators
 
 STRONG_COCKTAIL_STRATEGY_KEY = "strong-cocktail-shadow-v1"
 MACD_1M_CONTROL_STRATEGY_KEY = "macd-1m-flip-control-shadow-v1"
-CONFIG_VERSION = "SC-2026-09-03-v1"
+CONFIG_VERSION = "SC-2026-09-03-v2"
 SOURCE_KIND = "COCKTAIL_SAMPLES_PLUS_CANONICAL_1M"
 MAX_GAP_MINUTES = 3.0
 MACD_FAST = 12
@@ -177,6 +177,40 @@ def _normal_entry_direction(evidence: StrongCocktailEvidenceV1) -> str | None:
     return direction if price_qualifier else None
 
 
+def _continuation_entry_direction(evidence: StrongCocktailEvidenceV1) -> str | None:
+    """Re-enter an established fast move after an early exposure-reducing exit.
+
+    A normal adverse 1m cross can deliberately flatten an existing position before
+    Strong Cocktail has enough evidence to commit to the opposite side. That cross is
+    already gone on the following bar, so requiring a second cross would strand the
+    strategy FLAT for the rest of an otherwise clean move. Continuation entry therefore
+    uses persistent 1m momentum + price direction, with stricter evidence than the exit
+    gate and without bypassing the outer WHIPSAW/data-gap gates.
+    """
+    direction = _sign_direction(evidence.spread_1m)
+    if direction not in {STATE_LONG, STATE_SHORT}:
+        return None
+    if _sign_direction(evidence.velocity_1m_atr) != direction:
+        return None
+    if _sign_direction(evidence.move_3m_atr1) != direction:
+        return None
+    if abs(float(evidence.move_3m_atr1)) < 0.35:
+        return None
+    if float(evidence.efficiency_5m) < 0.50:
+        return None
+    if _context_score(direction, evidence) < -1.0:
+        return None
+    price_qualifier = (
+        evidence.structure_direction == direction
+        or evidence.break_direction == direction
+        or evidence.shock_direction == direction
+        or abs(float(evidence.move_5m_atr1)) >= 0.55
+        or float(evidence.range_ratio_1m) >= 1.05
+        or float(evidence.activity_z) >= 0.50
+    )
+    return direction if price_qualifier else None
+
+
 def strong_cocktail_target_v1(
     current_state: str,
     evidence: StrongCocktailEvidenceV1,
@@ -214,7 +248,10 @@ def strong_cocktail_target_v1(
     if strong is not None:
         return strong
     normal = _normal_entry_direction(evidence)
-    return STATE_FLAT if normal is None else normal
+    if normal is not None:
+        return normal
+    continuation = _continuation_entry_direction(evidence)
+    return STATE_FLAT if continuation is None else continuation
 
 
 def macd_1m_control_target_v1(
