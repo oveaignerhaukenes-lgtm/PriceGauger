@@ -14,7 +14,7 @@ from saxo_chart_live import (
     create_chart_subscription,
     forming_candle_from_chart_payload,
 )
-from saxo_provider import SaxoClient, SaxoInstrument
+from saxo_provider import SaxoClient, SaxoError, SaxoInstrument
 from saxo_streaming import (
     BACKFILL_TIMEOUT_SECONDS,
     SaxoRealtimeService,
@@ -31,6 +31,7 @@ STALE_REPAIR_INTERVAL_SECONDS = 60.0
 STALE_QUOTE_AFTER_SECONDS = 90.0
 STALE_REPAIR_LOOKBACK_HOURS = 1
 STALE_REPAIR_PAGE_SIZE = 120
+STALE_AUTH_RETRY_SECONDS = 30 * 60.0
 
 
 def _iso_now() -> str:
@@ -82,6 +83,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         self._stale_repair_lock = threading.Lock()
         self._stale_repair_thread: threading.Thread | None = None
         self._last_stale_repair_started = 0.0
+        self._stale_auth_retry_after: dict[str, float] = {}
         self._forming_store = FormingCandleStore(self.store.path)
         self._chart_reference_to_market: dict[str, str] = {}
         self._chart_delays: dict[str, float | None] = {}
@@ -212,13 +214,26 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
             return True
         return (now - observed).total_seconds() >= STALE_QUOTE_AFTER_SECONDS
 
+    def _stale_repair_auth_blocked(self, market: str, *, now_mono: float) -> bool:
+        retry_after = self._stale_auth_retry_after.get(market)
+        if retry_after is None:
+            return False
+        if now_mono >= retry_after:
+            self._stale_auth_retry_after.pop(market, None)
+            return False
+        return True
+
     def _run_stale_repair(self) -> None:
         if not self._stale_repair_lock.acquire(blocking=False):
             return
         try:
             now = datetime.now(timezone.utc)
+            now_mono = time.monotonic()
             stale_markets = tuple(
-                market for market in self.instruments if self._market_quote_is_stale(market, now=now)
+                market
+                for market in self.instruments
+                if self._market_quote_is_stale(market, now=now)
+                and not self._stale_repair_auth_blocked(market, now_mono=now_mono)
             )
             if not stale_markets:
                 return
@@ -238,8 +253,25 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                         page_size=STALE_REPAIR_PAGE_SIZE,
                         max_pages=1,
                     )
+                    self._stale_auth_retry_after.pop(market, None)
                     total += saved
                     repaired.append(f"{market}:{saved}")
+                except SaxoError as exc:
+                    if exc.status == "AUTH_FAILED" or exc.status_code in {401, 403}:
+                        self._stale_auth_retry_after[market] = time.monotonic() + STALE_AUTH_RETRY_SECONDS
+                        LOGGER.warning(
+                            "Saxo stale-stream repair paused market=%s reason=%s retry_minutes=%.0f",
+                            market,
+                            exc,
+                            STALE_AUTH_RETRY_SECONDS / 60.0,
+                        )
+                        continue
+                    LOGGER.warning(
+                        "Saxo stale-stream repair failed market=%s: %s",
+                        market,
+                        exc,
+                        exc_info=True,
+                    )
                 except Exception as exc:
                     LOGGER.warning(
                         "Saxo stale-stream repair failed market=%s: %s",
