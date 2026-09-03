@@ -7,6 +7,7 @@ from autotrader_ai_live_runtime_v1 import run_ai_live_strategy_once_v1
 from autotrader_automanage_runtime_v2 import run_automanage_strategy_once_v2
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from autotrader_fast_live_runtime_v2 import FastLiveCycleV2, run_fast_live_strategy_once_v2
+from autotrader_manual_target_v2 import manual_target_pending_v2, run_manual_target_once_v2
 from autotrader_mtf_flip_live_runtime_v2 import run_mtf_flip_live_strategy_once_v2
 from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
 from autotrader_mtf_short_live_runtime_v2 import run_mtf_short_live_strategy_once_v2
@@ -30,10 +31,11 @@ _FAST_LOG_FINGERPRINTS: dict[str, tuple[object, ...]] = {}
 
 
 def _log_fast_cycle_if_changed_v2(cycle: FastLiveCycleV2) -> None:
-    """Emit one causal line per meaningful fast/AI LIVE state change, not per poll."""
+    """Emit one causal line per meaningful fast/AI/user state change, not per poll."""
     meaningful = bool(
         cycle.request_created
         or cycle.reason.startswith("TARGET_")
+        or cycle.reason.startswith("USER_TARGET_")
         or cycle.reason == "PENDING_TRANSITION_CONTINUED"
     )
     if not meaningful:
@@ -63,7 +65,7 @@ def _log_fast_cycle_if_changed_v2(cycle: FastLiveCycleV2) -> None:
 
 
 def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tuple[int, int]:
-    """Dispatch active LIVE pilots without giving signal engines order authority."""
+    """Dispatch active LIVE pilots; an explicit user target temporarily has precedence."""
     if not using_postgres():
         return (0, 0)
     enrollments = tuple(
@@ -82,7 +84,18 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
     failed = 0
     for enrollment in enrollments:
         try:
-            if enrollment.strategy_key == AI_BASELINE_STRATEGY_V2:
+            # User-directed LONG/SHORT is a temporary ownership override, not a new
+            # strategy. While it is pending we do not let a strategy generate a
+            # competing target. Once observed, its runtime state is reset and the
+            # selected strategy bootstraps from the user-chosen position.
+            if manual_target_pending_v2(enrollment.pilot_key):
+                cycle = run_manual_target_once_v2(
+                    enrollment,
+                    observations=observations,
+                )
+                if cycle is not None:
+                    _log_fast_cycle_if_changed_v2(cycle)
+            elif enrollment.strategy_key == AI_BASELINE_STRATEGY_V2:
                 cycle = run_ai_live_strategy_once_v1(
                     enrollment,
                     db_path=db_path,
