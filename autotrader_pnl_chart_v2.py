@@ -3,7 +3,10 @@ from __future__ import annotations
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from autotrader_pnl_comparison_v2 import AutoManagerPnlComparisonV2
+from autotrader_pnl_comparison_v2 import (
+    PAPER_SCALE_PILOT_EQUIVALENT,
+    AutoManagerPnlComparisonV2,
+)
 from autotrader_shadow_leverage_v2 import (
     apply_schedule_to_series_v2,
     load_live_leverage_schedule_v2,
@@ -27,31 +30,46 @@ def _strategy_label(strategy_key: str) -> str:
     return strategy_display_label_v2(key)
 
 
-def _pilot_equivalent_models(comparison: AutoManagerPnlComparisonV2):
-    """Return model series scaled to the product's proven LIVE economic exposure.
+def _leverage_schedule(comparison: AutoManagerPnlComparisonV2):
+    account_id, raw_uic, asset_type, _instrument_id = comparison.product_key.split(":", 3)
+    return load_live_leverage_schedule_v2(
+        pilot_key=comparison.pilot_key,
+        account_id=account_id,
+        uic=int(raw_uic),
+        asset_type=asset_type,
+    )
 
-    ``product_key`` is the canonical account/UIC/AssetType/instrument identity emitted
-    by the comparison loader. Tests and legacy callers that supply a synthetic key
-    simply retain 1x model curves rather than failing chart rendering.
+
+def _models_for_chart(comparison: AutoManagerPnlComparisonV2):
+    """Return model series in pilot-equivalent scale exactly once.
+
+    New persisted Strategy Lab points already store pilot-equivalent equity. Legacy or
+    synthetic callers may still supply raw 1x series, in which case the chart retains
+    the old on-render transformation for compatibility. Persisted UI data must never
+    receive the leverage schedule a second time.
     """
+    if comparison.paper_scale == PAPER_SCALE_PILOT_EQUIVALENT:
+        try:
+            return comparison.paper_series, _leverage_schedule(comparison), True
+        except Exception:
+            return comparison.paper_series, None, True
     try:
-        account_id, raw_uic, asset_type, _instrument_id = comparison.product_key.split(":", 3)
-        schedule = load_live_leverage_schedule_v2(
-            pilot_key=comparison.pilot_key,
-            account_id=account_id,
-            uic=int(raw_uic),
-            asset_type=asset_type,
-        )
-        scaled = apply_schedule_to_series_v2(comparison.paper_series, schedule=schedule)
-        return scaled, schedule
+        schedule = _leverage_schedule(comparison)
+        return apply_schedule_to_series_v2(comparison.paper_series, schedule=schedule), schedule, False
     except Exception:
-        return comparison.paper_series, None
+        return comparison.paper_series, None, False
 
 
 def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> go.Figure:
     """One durable product-history figure with linked LIVE and model timelines."""
-    model_series, leverage_schedule = _pilot_equivalent_models(comparison)
-    if leverage_schedule is None:
+    model_series, leverage_schedule, persisted_pilot_scale = _models_for_chart(comparison)
+    if persisted_pilot_scale:
+        if leverage_schedule is None:
+            model_title = "Modeller · persistert pilot-ekvivalent eksponering"
+        else:
+            representative = leverage_schedule.representative_leverage
+            model_title = f"Modeller · persistert pilot-ekvivalent · ca. {representative:.1f}x"
+    elif leverage_schedule is None:
         model_title = "Modeller · 1x signalavkastning"
     else:
         representative = leverage_schedule.representative_leverage
@@ -122,8 +140,6 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
             col=1,
         )
 
-    # Strategy pilots remain separate audit cohorts, but their boundaries are shown
-    # on one product timeline so the user can correlate each epoch with TradingView.
     for epoch in comparison.live_epochs:
         label = _strategy_label(epoch.strategy_key)
         fig.add_shape(
