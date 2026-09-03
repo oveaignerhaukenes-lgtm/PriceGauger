@@ -194,11 +194,11 @@ def _continuation_entry_direction(evidence: StrongCocktailEvidenceV1) -> str | N
         return None
     if _sign_direction(evidence.move_3m_atr1) != direction:
         return None
-    if abs(float(evidence.move_3m_atr1)) < 0.35:
+    context = _context_score(direction, evidence)
+    minimum_move = 0.35 if context >= -1.5 else 0.55
+    if abs(float(evidence.move_3m_atr1)) < minimum_move:
         return None
     if float(evidence.efficiency_5m) < 0.50:
-        return None
-    if _context_score(direction, evidence) < -1.0:
         return None
     price_qualifier = (
         evidence.structure_direction == direction
@@ -208,7 +208,22 @@ def _continuation_entry_direction(evidence: StrongCocktailEvidenceV1) -> str | N
         or float(evidence.range_ratio_1m) >= 1.05
         or float(evidence.activity_z) >= 0.50
     )
-    return direction if price_qualifier else None
+    if not price_qualifier:
+        return None
+    if context < -3.0:
+        strong_price_confirmation = (
+            abs(float(evidence.move_3m_atr1)) >= 0.65
+            and (
+                evidence.structure_direction == direction
+                or evidence.break_direction == direction
+                or evidence.shock_direction == direction
+                or float(evidence.range_ratio_1m) >= 1.15
+                or float(evidence.activity_z) >= 0.80
+            )
+        )
+        if not strong_price_confirmation:
+            return None
+    return direction
 
 
 def strong_cocktail_target_v1(
