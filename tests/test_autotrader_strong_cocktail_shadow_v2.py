@@ -84,6 +84,88 @@ def test_1m_cross_can_enter_without_waiting_for_higher_timeframe_cross() -> None
     assert strong.strong_cocktail_target_v1(STATE_FLAT, evidence) == STATE_LONG
 
 
+def test_counter_cross_can_exit_then_persistent_fast_move_reenters_without_second_cross() -> None:
+    exit_evidence = _evidence(
+        cross=STATE_SHORT,
+        spread1=-0.12,
+        velocity1=-0.18,
+        move3=-0.45,
+        move5=-0.55,
+        efficiency=0.62,
+        spread5=0.3,
+        spread10=0.3,
+        spread15=0.3,
+        spread30=0.3,
+    )
+    assert strong.strong_cocktail_target_v1(STATE_LONG, exit_evidence) == STATE_FLAT
+
+    continuation = _evidence(
+        cross=None,
+        spread1=-0.22,
+        velocity1=-0.20,
+        move3=-0.72,
+        move5=-0.90,
+        efficiency=0.72,
+        structure=STATE_SHORT,
+        range_ratio=1.18,
+        spread5=0.3,
+        spread10=0.3,
+        spread15=0.3,
+        spread30=0.3,
+    )
+    assert strong.strong_cocktail_target_v1(STATE_FLAT, continuation) == STATE_SHORT
+
+
+def test_continuation_entry_is_symmetric_for_long_moves() -> None:
+    continuation = _evidence(
+        cross=None,
+        spread1=0.18,
+        velocity1=0.16,
+        move3=0.42,
+        move5=0.62,
+        efficiency=0.68,
+        break_direction=STATE_LONG,
+        spread5=0.2,
+        spread10=-0.1,
+        spread15=0.1,
+        spread30=0.1,
+    )
+    assert strong.strong_cocktail_target_v1(STATE_FLAT, continuation) == STATE_LONG
+
+
+def test_slow_opposition_raises_continuation_bar_but_does_not_become_sequential_gate() -> None:
+    weak_against_slow_context = _evidence(
+        cross=None,
+        spread1=-0.18,
+        velocity1=-0.12,
+        move3=-0.45,
+        move5=-0.62,
+        efficiency=0.68,
+        range_ratio=1.10,
+        spread5=0.3,
+        spread10=0.3,
+        spread15=0.3,
+        spread30=0.3,
+    )
+    assert strong.strong_cocktail_target_v1(STATE_FLAT, weak_against_slow_context) == STATE_FLAT
+
+    price_confirmed_against_slow_context = _evidence(
+        cross=None,
+        spread1=-0.25,
+        velocity1=-0.20,
+        move3=-0.72,
+        move5=-0.90,
+        efficiency=0.74,
+        structure=STATE_SHORT,
+        range_ratio=1.18,
+        spread5=0.3,
+        spread10=0.3,
+        spread15=0.3,
+        spread30=0.3,
+    )
+    assert strong.strong_cocktail_target_v1(STATE_FLAT, price_confirmed_against_slow_context) == STATE_SHORT
+
+
 def test_heavy_slow_opposition_blocks_ordinary_1m_entry() -> None:
     evidence = _evidence(
         cross=STATE_LONG,
