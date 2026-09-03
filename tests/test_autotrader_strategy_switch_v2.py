@@ -12,7 +12,7 @@ def test_strategy_switch_is_control_plane_only_and_preserves_open_exposure() -> 
     assert "OPEN_POSITION_STRATEGY_HANDOFF" in source
     assert "CONFIRMED_FLAT_STRATEGY_HANDOFF" in source
     assert "anchor = \"\" if observed is None else observed.net_position_id" in source
-    assert "bool(enrollment.live_open_armed)" in source
+    assert "enrollment.entry_mode == ENTRY_MODE_AUTO or enrollment.live_open_armed" in source
     assert "INSERT INTO pg_v2_autotrader_pilot_equity_state" in source
     assert "UPDATE pg_v2_autotrader_strategy_enrollments" in source
     assert "SET enabled = FALSE, live_open_armed = FALSE" in source
@@ -72,10 +72,16 @@ def test_live_open_rechecks_before_submit() -> None:
     assert source.count("_open_orders_exist(client, account_key=account_key, uic=enrollment.uic)") >= 2
 
 
-def test_entry_gate_exposes_strategy_switch() -> None:
+def test_entry_gate_exposes_direct_strategy_switch() -> None:
     source = Path("tradingdesk_autotrade_entry_gate_v2.py").read_text(encoding="utf-8")
     assert "AUTOTRADER_STRATEGIES_V2" in source
     assert "switch_live_strategy_v2" in source
-    assert '"Bytt LIVE-strategi"' in source
+    assert '"LIVE-strategi"' in source
+    assert "Bytt LIVE-strategi direkte i listen" in source
     assert "Selve byttet sender ingen ordre" in source
-    assert "st.rerun()" in source
+    switch_start = source.index("def _render_strategy_switch")
+    switch_end = source.index("def _render_armed_badge")
+    switch_source = source[switch_start:switch_end]
+    assert "st.checkbox" not in switch_source
+    assert '"Bytt LIVE-strategi",' not in switch_source
+    assert "st.rerun()" in switch_source
