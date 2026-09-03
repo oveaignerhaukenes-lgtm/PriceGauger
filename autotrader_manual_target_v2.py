@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from threading import Lock
 from uuid import uuid4
 
 from autotrader_fast_live_runtime_v2 import (
@@ -15,6 +16,8 @@ from autotrader_fast_live_runtime_v2 import (
     _persist_intent_and_request_v2,
     ensure_fast_live_schema_v2,
 )
+from autotrader_managed_positions_v1 import is_position_managed_v1
+from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
 from autotrader_mtf_flip_live_runtime_v2 import ensure_mtf_flip_live_schema_v2
 from autotrader_mtf_live_runtime_v2 import ensure_mtf_live_schema_v2
 from autotrader_mtf_short_live_runtime_v2 import ensure_mtf_short_live_schema_v2
@@ -33,6 +36,8 @@ TARGET_PENDING = "PENDING"
 TARGET_COMPLETE = "COMPLETE"
 TARGET_SUPERSEDED = "SUPERSEDED"
 TARGETS = {DIRECTION_LONG, DIRECTION_SHORT}
+_SCHEMA_LOCK = Lock()
+_SCHEMA_READY = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,25 +73,32 @@ def _utc(value) -> datetime:
 
 
 def ensure_manual_target_schema_v2() -> None:
-    ensure_autotrader_schema_v2()
-    ensure_fast_live_schema_v2()
-    ensure_mtf_live_schema_v2()
-    ensure_mtf_short_live_schema_v2()
-    ensure_mtf_flip_live_schema_v2()
-    with connect() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pg_v2_autotrader_manual_target_state (
-                pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
-                strategy_key TEXT NOT NULL,
-                target_direction TEXT NOT NULL CHECK (target_direction IN ('LONG','SHORT')),
-                intent_event_id UUID NOT NULL,
-                requested_at TIMESTAMPTZ NOT NULL,
-                status TEXT NOT NULL CHECK (status IN ('PENDING','COMPLETE','SUPERSEDED')),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+    with _SCHEMA_LOCK:
+        if _SCHEMA_READY:
+            return
+        ensure_autotrader_schema_v2()
+        ensure_fast_live_schema_v2()
+        ensure_mtf_live_schema_v2()
+        ensure_mtf_short_live_schema_v2()
+        ensure_mtf_flip_live_schema_v2()
+        with connect() as db:
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pg_v2_autotrader_manual_target_state (
+                    pilot_key TEXT PRIMARY KEY REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
+                    strategy_key TEXT NOT NULL,
+                    target_direction TEXT NOT NULL CHECK (target_direction IN ('LONG','SHORT')),
+                    intent_event_id UUID NOT NULL,
+                    requested_at TIMESTAMPTZ NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('PENDING','COMPLETE','SUPERSEDED')),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
             )
-            """
-        )
+        _SCHEMA_READY = True
 
 
 def load_manual_target_state_v2(pilot_key: str) -> ManualTargetStateV2 | None:
@@ -232,6 +244,8 @@ def request_manual_target_v2(
     requested_at = _utc(now or datetime.now(timezone.utc))
     event_id = str(uuid4())
     if observed_direction == target:
+        if observed is not None and not is_position_managed_v1(observed):
+            adopt_user_confirmed_position_v2(enrollment, observed)
         state = ManualTargetStateV2(
             pilot_key=enrollment.pilot_key,
             strategy_key=enrollment.strategy_key,
@@ -245,6 +259,12 @@ def request_manual_target_v2(
         return ManualTargetRequestResultV2(
             enrollment.pilot_key, target, observed_direction, False, True
         )
+
+    # A single target click means "AutoManager owns this transition". If there is an
+    # existing opposite Saxo position, adopt that exact basis first so the ordinary
+    # CLOSE bridge has legitimate authority before the requested reversal starts.
+    if observed is not None and not is_position_managed_v1(observed):
+        adopt_user_confirmed_position_v2(enrollment, observed)
 
     # User target has precedence over any unstarted strategy request. Execution already
     # in SUBMITTING/accepted state was rejected above and is never cancelled here.
@@ -301,6 +321,8 @@ def run_manual_target_once_v2(
     observed = _exact_product_observation(enrollment, observations)
     observed_direction = _observed_direction(observed)
     if observed_direction == state.target_direction:
+        if observed is not None and not is_position_managed_v1(observed):
+            adopt_user_confirmed_position_v2(enrollment, observed)
         _save_target_state_v2(
             ManualTargetStateV2(
                 state.pilot_key, state.strategy_key, state.target_direction,
