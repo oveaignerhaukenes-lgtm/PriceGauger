@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import realtime_gap_repair as gap_repair
 from realtime_gap_repair import GapRepairingSaxoRealtimeService
 from realtime_market_data import RealtimeQuote
-from saxo_provider import SaxoInstrument
+from saxo_provider import SaxoError, SaxoInstrument
 from saxo_streaming import SaxoStreamMessage
 
 
@@ -118,3 +118,23 @@ def test_stale_repair_only_fetches_markets_without_fresh_quotes(tmp_path, monkey
     service._run_stale_repair()
 
     assert repaired == ["Silver"]
+
+
+def test_product_auth_failure_backs_off_stale_repair_instead_of_retrying_every_minute(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    service._status("Gold", "SUBSCRIBED")
+    calls: list[str] = []
+
+    monkeypatch.setattr(gap_repair, "_backfill_client", lambda client: object())
+
+    def denied(**kwargs):
+        calls.append(kwargs["market"])
+        raise SaxoError("Access denied.", status="AUTH_FAILED", status_code=403)
+
+    monkeypatch.setattr(gap_repair, "repair_recent_market_history", denied)
+
+    service._run_stale_repair()
+    service._run_stale_repair()
+
+    assert calls == ["Gold"]
+    assert service._stale_auth_retry_after["Gold"] > 0

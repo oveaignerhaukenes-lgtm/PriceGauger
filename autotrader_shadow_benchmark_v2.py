@@ -34,7 +34,6 @@ SUPPORTED_STRATEGIES = {
 }
 BENCHMARK_WARMUP_DAYS = 10
 BENCHMARK_MAX_1M_BARS = 100_000
-ANCHOR_MAX_DISTANCE = timedelta(minutes=5)
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +279,15 @@ def _initial_state_from_saxo_direction(direction: str) -> str:
 
 
 def _load_product_anchor_v2(enrollments: tuple[StrategyEnrollmentV2, ...]) -> ProductBenchmarkAnchorV2:
+    """Resolve one shared paper cohort from exact persisted LIVE anchor identity.
+
+    The old implementation picked whichever managed-position timestamp happened to
+    sit within five minutes of strategy enrollment. That breaks after restarts,
+    resumes and strategy changes even though the persisted Saxo anchor remains exact.
+    Reporting now uses the same identity contract as the canonical P/L comparison:
+    one LIVE controller establishes the common start position; SHADOW rows are merely
+    policies replayed from that same basis.
+    """
     if not enrollments:
         raise ValueError("at least one strategy enrollment is required")
     first = enrollments[0]
@@ -289,52 +297,57 @@ def _load_product_anchor_v2(enrollments: tuple[StrategyEnrollmentV2, ...]) -> Pr
         if candidate != identity:
             raise ValueError("shadow comparison requires one exact product identity")
 
-    pilot_keys = tuple(dict.fromkeys(str(item.pilot_key) for item in enrollments))
-    placeholders = ", ".join("?" for _ in pilot_keys)
+    live = tuple(item for item in enrollments if item.execution_mode == "LIVE_MANAGE")
+    if len(live) > 1:
+        raise ValueError("shadow comparison requires at most one LIVE controller")
+    anchor_enrollment = live[0] if live else first
+    anchor_id = str(anchor_enrollment.anchor_net_position_id or "").strip()
+    if not anchor_id:
+        raise ValueError("shadow benchmark has no exact starting-position anchor")
+
     with connect() as db:
-        strategy_rows = db.execute(
-            f"""
+        strategy_row = db.execute(
+            """
             SELECT enrolled_at
             FROM pg_v2_autotrader_strategy_enrollments
-            WHERE pilot_key IN ({placeholders})
-            ORDER BY enrolled_at ASC
+            WHERE pilot_key = ?
+            LIMIT 1
             """,
-            pilot_keys,
-        ).fetchall()
-        managed_rows = db.execute(
+            (anchor_enrollment.pilot_key,),
+        ).fetchone()
+        managed_row = db.execute(
             """
             SELECT net_position_id, direction, enrolled_at
             FROM pg_v2_autotrader_managed_positions
-            WHERE account_id = ? AND uic = ? AND asset_type = ?
-            ORDER BY enrolled_at ASC
+            WHERE account_id = ?
+              AND net_position_id = ?
+              AND uic = ?
+              AND asset_type = ?
+            LIMIT 1
             """,
-            (first.account_id, int(first.uic), first.asset_type),
-        ).fetchall()
-
-    if not strategy_rows:
-        raise ValueError("shadow benchmark has no enrollment timestamp for supplied pilot cohort")
-    started_at = min(_utc(dict(row)["enrolled_at"]) for row in strategy_rows)
-    if not managed_rows:
-        raise ValueError("shadow benchmark has no managed starting-position observation")
-
-    candidates = []
-    for row in managed_rows:
-        values = dict(row)
-        enrolled_at = _utc(values["enrolled_at"])
-        candidates.append(
             (
-                abs(enrolled_at - started_at),
-                str(values["net_position_id"]),
-                str(values["direction"]),
-            )
-        )
-    distance, net_position_id, direction = min(candidates, key=lambda item: item[0])
-    if distance > ANCHOR_MAX_DISTANCE:
-        raise ValueError("managed starting-position observation is too far from strategy enrollment")
+                anchor_enrollment.account_id,
+                anchor_id,
+                int(anchor_enrollment.uic),
+                anchor_enrollment.asset_type,
+            ),
+        ).fetchone()
+
+    if strategy_row is None:
+        raise ValueError("shadow benchmark has no enrollment timestamp for supplied pilot cohort")
+    if managed_row is None:
+        raise ValueError(f"shadow benchmark cannot resolve exact managed anchor {anchor_id}")
+
+    strategy_values = dict(strategy_row) if isinstance(strategy_row, dict) else {"enrolled_at": strategy_row[0]}
+    managed_values = dict(managed_row) if isinstance(managed_row, dict) else {
+        "net_position_id": managed_row[0],
+        "direction": managed_row[1],
+        "enrolled_at": managed_row[2],
+    }
     return ProductBenchmarkAnchorV2(
-        started_at=started_at,
-        initial_state=_initial_state_from_saxo_direction(direction),
-        managed_position_id=net_position_id,
+        started_at=_utc(strategy_values["enrolled_at"]),
+        initial_state=_initial_state_from_saxo_direction(str(managed_values["direction"])),
+        managed_position_id=str(managed_values["net_position_id"]),
     )
 
 

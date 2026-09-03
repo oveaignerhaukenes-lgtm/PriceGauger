@@ -14,6 +14,9 @@ class _Rows:
     def fetchall(self):
         return self._rows
 
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
 
 class _FakeDb:
     def __init__(self):
@@ -36,7 +39,9 @@ class _FakeDb:
                     {
                         "net_position_id": "position-1",
                         "direction": "Buy",
-                        "enrolled_at": datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc),
+                        # Deliberately far from strategy enrollment. Exact persisted
+                        # position identity, not timestamp proximity, is authoritative.
+                        "enrolled_at": datetime(2026, 9, 3, 18, 0, tzinfo=timezone.utc),
                     }
                 ]
             )
@@ -61,17 +66,24 @@ def _inactive_live_enrollment() -> StrategyEnrollmentV2:
     )
 
 
-def test_shadow_anchor_uses_supplied_pilot_cohort_even_when_enrollment_is_inactive(monkeypatch):
+def test_shadow_anchor_uses_exact_persisted_position_even_when_timestamps_are_far_apart(monkeypatch):
     db = _FakeDb()
     monkeypatch.setattr(benchmark, "connect", lambda: db)
 
     anchor = benchmark._load_product_anchor_v2((_inactive_live_enrollment(),))
 
     assert anchor.managed_position_id == "position-1"
+    assert anchor.initial_state == benchmark.STATE_LONG
+    assert anchor.started_at == datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc)
+
     strategy_sql, strategy_params = db.queries[0]
-    assert "pilot_key IN (?)" in strategy_sql
+    assert "WHERE pilot_key = ?" in strategy_sql
     assert "enabled = TRUE" not in strategy_sql
     assert strategy_params == ("pilot-history",)
+
+    managed_sql, managed_params = db.queries[1]
+    assert "net_position_id = ?" in managed_sql
+    assert managed_params == ("account", "position-1", 4912, "CfdOnIndex")
 
 
 def test_tradingdesk_pnl_has_read_only_latest_pilot_fallback_and_no_silent_disappearance():
