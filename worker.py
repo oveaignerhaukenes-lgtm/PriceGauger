@@ -12,6 +12,7 @@ import pandas as pd
 
 from analysis_status import AnalysisStatusStore
 from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
+from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
 from config import openai_api_key, openai_market_model
 from database import using_postgres
 from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
@@ -237,6 +238,22 @@ def run_once(
             LOGGER.info("AI baseline shadow persisted decisions=%d", saved)
     except Exception as exc:
         LOGGER.warning("AI baseline shadow refresh failed; other worker functions continue: %s", exc, exc_info=True)
+
+    # Migration bridge: expensive strategy replay happens once in the background, not
+    # in TradingDesk. The resulting common series table is the stable interface that
+    # later native/incremental producers and the Strategy Lab chart will share.
+    try:
+        materialized = materialize_strategy_series_once_v1(db_path=str(db_path))
+        if materialized.points_inserted or materialized.failed_products:
+            LOGGER.info(
+                "strategy series persisted products=%d strategies=%d inserted=%d failed=%d",
+                materialized.products,
+                materialized.strategies,
+                materialized.points_inserted,
+                materialized.failed_products,
+            )
+    except Exception as exc:
+        LOGGER.warning("strategy series materialization failed; worker continues: %s", exc, exc_info=True)
 
     summary = WorkerRunSummary(fetched=len(all_plans))
     LOGGER.info("cycle complete fetched=%s", summary.fetched)
