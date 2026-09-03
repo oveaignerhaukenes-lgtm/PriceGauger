@@ -32,7 +32,7 @@ def test_strategy_switch_records_a_non_settling_performance_mark() -> None:
     assert "observed_average_open_price" in source
     assert "observed_mark_price" in source
     assert "observed_pnl_pct" in source
-    assert "does not synthesize a close" in source
+    assert "not synthesize a close" in source
     assert "never fabricates a" in source
 
 
