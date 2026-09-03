@@ -132,8 +132,8 @@ def _resume_equity_and_entry_mode_v2(
 
     A stop/start cycle disables execution authority but does not create a new economic
     cohort. The immutable pilot ledger therefore remains authoritative on resume.
-    LIVE OPEN stays disarmed by the enrollment upsert below, while the user's prior
-    entry-mode contract is preserved.
+    The user's prior entry-mode contract is preserved; AUTO itself implies OPEN
+    authority and does not need a second per-pilot arming step.
     """
     existing = load_strategy_enrollment_v2(pilot_key)
     if existing is None or existing.enabled:
@@ -165,10 +165,11 @@ def enroll_strategy_position_v2(
     Product identity, strategy policy and entry authority are deliberately separate.
     CLOSE authority comes from LIVE_MANAGE + the existing close gates. `entry_mode`
     controls only whether PriceGauger may create a new position automatically, after
-    one-shot approval, or not at all.
+    one-shot approval, or not at all. AUTO directly enables per-pilot OPEN authority;
+    there is no second manual arming step for the same choice.
 
     A disabled canonical pilot is resumed rather than reseeded: its immutable equity
-    ledger and prior entry-mode contract are preserved, while LIVE OPEN is disarmed.
+    ledger and prior entry-mode contract are preserved.
     """
     ensure_autotrader_schema_v2()
     strategy_spec_v2(strategy_key)
@@ -222,6 +223,7 @@ def enroll_strategy_position_v2(
     if mode == EXECUTION_MODE_LIVE:
         enroll_position_v1(observation)
 
+    live_open_armed = bool(mode == EXECUTION_MODE_LIVE and normalized_entry_mode == ENTRY_MODE_AUTO)
     with connect() as db:
         db.execute(
             """
@@ -229,7 +231,7 @@ def enroll_strategy_position_v2(
                 pilot_key, strategy_key, execution_mode, account_id, anchor_net_position_id,
                 uic, asset_type, market_id, instrument_id, market_name,
                 enabled, live_open_armed, entry_mode, enrolled_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE, ?, now(), now())
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, now(), now())
             ON CONFLICT (pilot_key) DO UPDATE SET
                 strategy_key=EXCLUDED.strategy_key,
                 execution_mode=EXCLUDED.execution_mode,
@@ -241,7 +243,7 @@ def enroll_strategy_position_v2(
                 instrument_id=EXCLUDED.instrument_id,
                 market_name=EXCLUDED.market_name,
                 enabled=TRUE,
-                live_open_armed=FALSE,
+                live_open_armed=EXCLUDED.live_open_armed,
                 entry_mode=EXCLUDED.entry_mode,
                 updated_at=now()
             """,
@@ -256,6 +258,7 @@ def enroll_strategy_position_v2(
                 product.market_id,
                 product.instrument_id,
                 product.market_name,
+                live_open_armed,
                 normalized_entry_mode,
             ),
         )
@@ -373,10 +376,15 @@ def set_entry_mode_v2(pilot_key: str, entry_mode: str) -> StrategyEnrollmentV2:
         db.execute(
             """
             UPDATE pg_v2_autotrader_strategy_enrollments
-            SET entry_mode = ?, live_open_armed = FALSE, updated_at = now()
+            SET entry_mode = ?, live_open_armed = ?, updated_at = now()
             WHERE pilot_key = ? AND enabled = TRUE AND execution_mode = ?
             """,
-            (normalized, str(pilot_key), EXECUTION_MODE_LIVE),
+            (
+                normalized,
+                bool(normalized == ENTRY_MODE_AUTO),
+                str(pilot_key),
+                EXECUTION_MODE_LIVE,
+            ),
         )
     refreshed = load_strategy_enrollment_v2(pilot_key)
     if refreshed is None:
@@ -391,6 +399,10 @@ def set_live_open_armed_v2(pilot_key: str, armed: bool) -> StrategyEnrollmentV2:
         raise LookupError(f"no active strategy enrollment for {pilot_key}")
     if enrollment.execution_mode != EXECUTION_MODE_LIVE:
         raise ValueError("LIVE OPEN cannot be armed for a SHADOW strategy")
+    if enrollment.entry_mode == ENTRY_MODE_AUTO:
+        if not bool(armed):
+            raise ValueError("AUTO entry mode keeps LIVE OPEN armed; change entry mode to disable OPEN")
+        return enrollment
     if bool(armed) and enrollment.entry_mode == ENTRY_MODE_MANUAL_ONLY:
         raise ValueError("MANUAL_ENTRY_ONLY cannot arm LIVE OPEN")
     with connect() as db:
