@@ -90,6 +90,51 @@ CREATE TABLE IF NOT EXISTS pg_v2_technical_states (
 CREATE INDEX IF NOT EXISTS pg_v2_technical_states_market_time_idx
     ON pg_v2_technical_states(market_id, as_of DESC);
 
+-- Immutable, versioned feature snapshots form the common read/learning spine.
+-- One snapshot captures the complete normalized technical state at one observed
+-- instrument clock. New feature semantics use a new feature_set_version rather
+-- than rewriting historical rows.
+CREATE TABLE IF NOT EXISTS pg_v2_feature_snapshots (
+    feature_snapshot_id UUID PRIMARY KEY,
+    market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+    instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+    as_of TIMESTAMPTZ NOT NULL,
+    feature_set TEXT NOT NULL,
+    feature_set_version INTEGER NOT NULL CHECK (feature_set_version > 0),
+    source_technical_state_id UUID REFERENCES pg_v2_technical_states(technical_state_id),
+    primary_timeframe TEXT,
+    trend_state TEXT,
+    momentum_state TEXT,
+    volatility_state TEXT,
+    structure_state TEXT,
+    score DOUBLE PRECISION,
+    confidence DOUBLE PRECISION CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
+    data_quality TEXT NOT NULL,
+    features_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(instrument_id, as_of, feature_set, feature_set_version)
+);
+
+CREATE INDEX IF NOT EXISTS pg_v2_feature_snapshots_instrument_time_idx
+    ON pg_v2_feature_snapshots(instrument_id, as_of DESC);
+
+-- Long-form values give every model/plot a shared query syntax without forcing
+-- experimental features into permanent columns. The snapshot JSON remains the
+-- exact frozen object; this table is the analysis-friendly projection of it.
+CREATE TABLE IF NOT EXISTS pg_v2_feature_values (
+    feature_snapshot_id UUID NOT NULL REFERENCES pg_v2_feature_snapshots(feature_snapshot_id) ON DELETE CASCADE,
+    timeframe TEXT NOT NULL,
+    feature_name TEXT NOT NULL,
+    numeric_value DOUBLE PRECISION,
+    text_value TEXT,
+    PRIMARY KEY (feature_snapshot_id, timeframe, feature_name),
+    CHECK ((numeric_value IS NOT NULL AND text_value IS NULL) OR
+           (numeric_value IS NULL AND text_value IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS pg_v2_feature_values_lookup_idx
+    ON pg_v2_feature_values(timeframe, feature_name, feature_snapshot_id);
+
 CREATE TABLE IF NOT EXISTS pg_v2_analysis_recipes (
     analysis_recipe_id UUID PRIMARY KEY,
     name TEXT NOT NULL,
