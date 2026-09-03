@@ -127,7 +127,7 @@ def test_disabled_canonical_live_pilot_resumes_existing_equity_and_entry_mode(mo
         execution_mode=enrollment_v2.EXECUTION_MODE_LIVE,
         enabled=True,
         entry_mode=enrollment_v2.ENTRY_MODE_AUTO,
-        live_open_armed=False,
+        live_open_armed=True,
     )
     executed: list[tuple[str, tuple[object, ...]]] = []
     lookups = {"count": 0}
@@ -163,9 +163,34 @@ def test_disabled_canonical_live_pilot_resumes_existing_equity_and_entry_mode(mo
     assert managed == [observation]
     assert executed
     sql, params = executed[0]
-    assert "live_open_armed=FALSE" in sql
+    assert "live_open_armed=EXCLUDED.live_open_armed" in sql
     assert "enrolled_at=now()" not in sql.split("ON CONFLICT", 1)[1]
+    assert True in params
     assert enrollment_v2.ENTRY_MODE_AUTO in params
+
+
+def test_set_entry_mode_auto_arms_open_and_other_modes_disarm(monkeypatch):
+    monkeypatch.setattr(enrollment_v2, "ensure_autotrader_schema_v2", lambda: None)
+    active = SimpleNamespace(enabled=True, execution_mode=enrollment_v2.EXECUTION_MODE_LIVE)
+    refreshed = SimpleNamespace(enabled=True, execution_mode=enrollment_v2.EXECUTION_MODE_LIVE)
+    lookups = {"count": 0}
+
+    def _load(_pilot_key):
+        lookups["count"] += 1
+        return active if lookups["count"] == 1 else refreshed
+
+    monkeypatch.setattr(enrollment_v2, "load_strategy_enrollment_v2", _load)
+    executed: list[tuple[str, tuple[object, ...]]] = []
+    monkeypatch.setattr(enrollment_v2, "connect", lambda: _Db(executed))
+
+    assert enrollment_v2.set_entry_mode_v2("pilot", enrollment_v2.ENTRY_MODE_AUTO) is refreshed
+    assert executed[-1][1][0] == enrollment_v2.ENTRY_MODE_AUTO
+    assert executed[-1][1][1] is True
+
+    lookups["count"] = 0
+    assert enrollment_v2.set_entry_mode_v2("pilot", enrollment_v2.ENTRY_MODE_MANUAL_ONLY) is refreshed
+    assert executed[-1][1][0] == enrollment_v2.ENTRY_MODE_MANUAL_ONLY
+    assert executed[-1][1][1] is False
 
 
 def test_resume_rejects_currency_change(monkeypatch):
