@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from autotrader_shadow_benchmark_v2 import ShadowBenchmarkSeriesV2, ShadowEquityPointV2
 from autotrader_shadow_leverage_v2 import LiveLeverageScheduleV2
 from autotrader_strategy_series_materializer_v1 import (
@@ -74,11 +76,11 @@ def test_series_point_projection_keeps_raw_and_pilot_equivalent_equity() -> None
     schedule = LiveLeverageScheduleV2(points=(), fallback_leverage=8.0, source="test")
     projected = _series_points_v1(raw, leveraged, schedule)
     assert len(projected) == 2
-    assert projected[-1].equity_1x == 505.0
-    assert projected[-1].return_pct_1x == 1.0
-    assert projected[-1].effective_leverage == 8.0
-    assert projected[-1].equity_pilot_equivalent == 540.0
-    assert projected[-1].return_pct_pilot_equivalent == 8.0
+    assert projected[-1].equity_1x == pytest.approx(505.0)
+    assert projected[-1].return_pct_1x == pytest.approx(1.0)
+    assert projected[-1].effective_leverage == pytest.approx(8.0)
+    assert projected[-1].equity_pilot_equivalent == pytest.approx(540.0)
+    assert projected[-1].return_pct_pilot_equivalent == pytest.approx(8.0)
     assert projected[-1].position_state == "LONG"
 
 
