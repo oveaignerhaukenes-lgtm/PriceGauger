@@ -33,6 +33,7 @@ from saxo_provider import LIVE_BASE_URL, configured_client
 from time_display_v2 import localize_plotly_figure_v2, oslo_label
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_autotrade_entry_gate_v2 import ENTRY_MODE_LABELS, render_tradingdesk_autotrade_entry_gate_v2
+from tradingdesk_manual_target_ui_v2 import render_tradingdesk_manual_target_v2
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,8 +263,8 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
                     f"{item.position_state} · {item.transitions} skifter · {item.evaluated_bars} bars"
                 )
     st.caption(
-        "Paper-replay bruker samme observerte startposisjon og samme exact canonical 30m-prisbane. "
-        "Ingen spread/slippage/margin modelleres; faktisk Saxo-P/L føres separat i LIVE-ledgeren."
+        "Paper-scorecards bruker det etablerte 30m-replayet. Hovedgrafen under viser i tillegg adaptive modeller "
+        "og skalerer modellavkastningen til pilot-ekvivalent eksponering for direkte økonomisk sammenligning."
     )
 
 
@@ -370,9 +371,9 @@ def render_tradingdesk_automanage_pnl_chart_v2(
         elif live is not None:
             st.caption("Denne pilotens P/L-logg er historisk; AutoManager er ikke aktivert av denne visningen.")
     st.caption(
-        "Øverst vises bare faktisk, avstemt og realisert netto Saxo-P/L; åpen urealisert P/L estimeres ikke. "
-        "Nederst vises long/flat, short/flat og MACD Switch som paper-replay på samme observerte startposisjon "
-        "og samme lukkede canonical 30m-prisbane. Paperlinjene modellerer ikke spread, slippage eller margin."
+        "Øverst vises faktisk, avstemt og realisert netto Saxo-P/L. Nederst beholdes alle strategi- og shadowmodeller "
+        "på samme tidsakse, skalert til pilot-ekvivalent økonomisk eksponering der LIVE-precheck/margin-data finnes. "
+        "Spread, slippage og finansiering er foreløpig ikke trukket fra modellkurvene."
     )
 
 
@@ -393,8 +394,8 @@ def render_tradingdesk_automanage_panel_v2(
         st.info("Saxo LIVE er ikke tilgjengelig i web-runtime.")
         return None
 
-    # This stays visible even while the strategy is FLAT, unlike the position
-    # enrollment controls below which naturally require a currently open position.
+    # Both the explicit target control and execution policy stay visible while FLAT.
+    render_tradingdesk_manual_target_v2(context)
     render_tradingdesk_autotrade_entry_gate_v2(context)
     try:
         context_enrollments = tuple(
