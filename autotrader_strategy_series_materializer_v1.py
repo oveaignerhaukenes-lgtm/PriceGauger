@@ -8,7 +8,7 @@ from typing import Any
 
 from autotrader_ai_baseline_v1 import PROMPT_VERSION as AI_PROMPT_VERSION
 from autotrader_cocktail_mode_1_shadow_v2 import CONFIG_VERSION as COCKTAIL_CONFIG_VERSION
-from autotrader_pnl_comparison_v2 import load_automanager_pnl_comparison_v2
+from autotrader_pnl_comparison_v2 import replay_automanager_pnl_comparison_v2
 from autotrader_shadow_leverage_v2 import (
     apply_schedule_to_series_v2,
     leverage_at_v2,
@@ -69,9 +69,6 @@ def strategy_series_version_v1(strategy_key: str) -> str:
         return str(COCKTAIL_CONFIG_VERSION)
     if key in {item.key for item in PAPER_30M_STRATEGIES_V2}:
         return MACD_30M_SERIES_VERSION
-    # The bridge is intentionally conservative: unknown strategy semantics are not
-    # silently mixed with another version. The strategy key remains a stable version
-    # token until that producer exposes an explicit config version.
     return f"{key}:v1"
 
 
@@ -125,10 +122,9 @@ def materialize_strategy_series_once_v1(
 ) -> StrategySeriesMaterializeSummaryV1:
     """Bridge current model engines into one durable Strategy Lab series contract.
 
-    This is deliberately a migration bridge. Existing model functions remain the
-    source of truth today, but their replay work runs in the background and the UI can
-    later read only persisted points. Native model producers can replace the bridge one
-    at a time without changing the stored chart/query contract.
+    Existing model replay remains temporarily authoritative here, in the background.
+    Interactive UI reads only persisted points. Native model producers can replace
+    this bridge one at a time without changing the stored chart/query contract.
     """
     if not using_postgres():
         return StrategySeriesMaterializeSummaryV1(0, 0, 0, 0)
@@ -146,7 +142,7 @@ def materialize_strategy_series_once_v1(
             continue
         live = live_items[0]
         try:
-            comparison = load_automanager_pnl_comparison_v2(group, db_path=db_path, now=end)
+            comparison = replay_automanager_pnl_comparison_v2(group, db_path=db_path, now=end)
             schedule = load_live_leverage_schedule_v2(
                 pilot_key=live.pilot_key,
                 account_id=live.account_id,
