@@ -128,9 +128,9 @@ def test_reporting_appends_adaptive_shadow_without_live_authority() -> None:
     assert '"SHADOW_ADAPTIVE"' in chart
     assert "strategy_display_label_v2" in chart
     assert 'COCKTAIL_MODE_1_SHADOW_STRATEGY_V2 = "cocktail-mode-1-shadow-v1"' in catalog
-    # Template exists, but it must not be present in the execution-capable tuple.
+    # Cocktail Mode #1 itself remains shadow-only even though Strong Cocktail is now live-capable.
     live_tuple = catalog.split("AUTOTRADER_STRATEGIES_V2 = (", 1)[1].split(")", 1)[0]
-    assert "COCKTAIL" not in live_tuple
+    assert "COCKTAIL_MODE_1" not in live_tuple
 
 
 def test_model_contract_is_documented_as_cross_time_shadow_only() -> None:
