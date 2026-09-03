@@ -190,10 +190,6 @@ def run_live_technical_cycle_v2(
     for market, instrument in tuple(instruments.items()):
         try:
             market_id = register_saxo_instrument_v2(market=market, instrument=instrument)
-            instrument_source = resolve_instrument_source_v2(
-                provider="saxo",
-                provider_instrument_id=str(instrument.uic),
-            )
             produced = produce_technical_runtime_v2(
                 market=market,
                 history_store=history_store,
@@ -206,17 +202,33 @@ def run_live_technical_cycle_v2(
                 analysis_recipe_name=TA_ONLY_V1.name,
                 analysis_recipe_version=TA_ONLY_V1.version,
             )
-            technical_state_id = technical_state_identity_v2(
-                market_id=market_id,
-                as_of=produced.technical_state.as_of,
-                technical_recipe_id=TECHNICAL_CORE_RECIPE_V2_1.recipe_id,
-            )
-            persist_feature_snapshot_v1(
-                market_id=market_id,
-                instrument_id=instrument_source.instrument_id,
-                state=produced.technical_state,
-                source_technical_state_id=technical_state_id,
-            )
+            try:
+                # Snapshot Spine is an observational projection of the already
+                # authoritative Technical Core object. A projection/storage fault
+                # must not make Technical Core or execution unhealthy; it is logged
+                # and can be repaired independently.
+                instrument_source = resolve_instrument_source_v2(
+                    provider="saxo",
+                    provider_instrument_id=str(instrument.uic),
+                )
+                technical_state_id = technical_state_identity_v2(
+                    market_id=market_id,
+                    as_of=produced.technical_state.as_of,
+                    technical_recipe_id=TECHNICAL_CORE_RECIPE_V2_1.recipe_id,
+                )
+                persist_feature_snapshot_v1(
+                    market_id=market_id,
+                    instrument_id=instrument_source.instrument_id,
+                    state=produced.technical_state,
+                    source_technical_state_id=technical_state_id,
+                )
+            except Exception as exc:
+                LOGGER.warning(
+                    "v2 feature snapshot persistence failed market=%s: %s",
+                    market,
+                    exc,
+                    exc_info=True,
+                )
             try:
                 benchmark = run_parallel_forecast_runtime_cycle_v2(
                     produced,
