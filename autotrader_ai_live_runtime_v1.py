@@ -10,7 +10,6 @@ from autotrader_ai_baseline_v1 import (
     load_latest_ai_decision_v1,
 )
 from autotrader_fast_live_runtime_v2 import (
-    DIRECTION_FLAT,
     FastLiveCycleV2,
     FastLiveStateV2,
     _clear_intent_v2,
@@ -128,11 +127,14 @@ def run_ai_live_strategy_once_v1(
         state = _clear_intent_v2(state, observed_direction=observed_direction)
         _persist_state_v2(state)
 
+    new_decision = bool(
+        decision is not None
+        and (state.last_action_at is None or decision.action_at > state.last_action_at)
+    )
     request_created = False
     reason = "WAIT_AI_DECISION"
-    if decision is not None and (
-        state.last_action_at is None or decision.action_at > state.last_action_at
-    ):
+    if new_decision:
+        assert decision is not None
         if not ai_decision_is_fresh_v1(decision, now=current_time):
             state = replace(state, last_action_at=decision.action_at)
             _persist_state_v2(state)
@@ -177,9 +179,7 @@ def run_ai_live_strategy_once_v1(
             supersede_prior=False,
         )
         request_created = request_created or continued
-        if decision is None or not (
-            state.last_action_at is None or decision.action_at > state.last_action_at
-        ):
+        if not new_decision:
             reason = "PENDING_TRANSITION_CONTINUED"
 
     _persist_state_v2(state)
@@ -190,7 +190,7 @@ def run_ai_live_strategy_once_v1(
         observed_direction=observed_direction,
         pending_target_direction=state.pending_target_direction,
         action_at=action_at,
-        processed=decision is not None,
+        processed=new_decision,
         request_created=request_created,
         bootstrap=False,
         reason=reason,
