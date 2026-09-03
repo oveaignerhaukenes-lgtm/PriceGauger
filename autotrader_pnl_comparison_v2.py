@@ -15,6 +15,7 @@ from autotrader_strategy_enrollment_v2 import (
     StrategyEnrollmentV2,
     load_strategy_enrollment_v2,
 )
+from autotrader_strong_cocktail_shadow_v2 import load_strong_cocktail_comparison_series_v1
 from database import connect
 
 
@@ -263,6 +264,29 @@ def _cocktail_series_v2(
     )
 
 
+def _strong_cocktail_series_v2(
+    *,
+    instrument_id: int,
+    seed_equity: float,
+    currency: str,
+    started_at: datetime,
+    as_of: datetime,
+    db_path: str,
+) -> tuple[ShadowBenchmarkSeriesV2, ...]:
+    """Read Strong Cocktail + 1m control opportunistically from the same adaptive clock."""
+    try:
+        return load_strong_cocktail_comparison_series_v1(
+            instrument_id=int(instrument_id),
+            seed_equity=float(seed_equity),
+            currency=str(currency),
+            started_at=started_at,
+            as_of=as_of,
+            db_path=db_path,
+        )
+    except Exception:
+        return ()
+
+
 def load_automanager_pnl_comparison_v2(
     enrollments: Iterable[StrategyEnrollmentV2],
     *,
@@ -305,7 +329,19 @@ def load_automanager_pnl_comparison_v2(
         started_at=started,
         as_of=end,
     )
-    model_series = tuple(paper_controls) + (() if cocktail is None else (cocktail,))
+    strong_controls = _strong_cocktail_series_v2(
+        instrument_id=live.instrument_id,
+        seed_equity=seed,
+        currency=currency,
+        started_at=started,
+        as_of=end,
+        db_path=db_path,
+    )
+    model_series = (
+        tuple(paper_controls)
+        + (() if cocktail is None else (cocktail,))
+        + tuple(strong_controls)
+    )
 
     events = _load_live_realized_events_v2(history)
     actual = build_live_realized_pnl_curve_v2(

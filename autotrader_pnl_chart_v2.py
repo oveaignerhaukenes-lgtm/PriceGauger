@@ -5,13 +5,22 @@ from plotly.subplots import make_subplots
 
 from autotrader_pnl_comparison_v2 import AutoManagerPnlComparisonV2
 from autotrader_strategy_catalog_v2 import strategy_display_label_v2
+from autotrader_strong_cocktail_shadow_v2 import (
+    MACD_1M_CONTROL_STRATEGY_KEY,
+    STRONG_COCKTAIL_STRATEGY_KEY,
+)
 
 
-PAPER_COLORS = ("#2563eb", "#7c3aed", "#059669", "#d97706")
+PAPER_COLORS = ("#2563eb", "#7c3aed", "#059669", "#d97706", "#0891b2", "#be123c")
 
 
 def _strategy_label(strategy_key: str) -> str:
-    return strategy_display_label_v2(strategy_key)
+    key = str(strategy_key)
+    if key == STRONG_COCKTAIL_STRATEGY_KEY:
+        return "Strong Cocktail · 1m event + MTF context"
+    if key == MACD_1M_CONTROL_STRATEGY_KEY:
+        return "1m MACD flip · control"
+    return strategy_display_label_v2(key)
 
 
 def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> go.Figure:
@@ -54,10 +63,12 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
     for index, series in enumerate(comparison.paper_series):
         label = _strategy_label(series.strategy_key)
         points = series.points
-        is_adaptive = str(series.execution_mode).upper() == "SHADOW_ADAPTIVE"
-        prefix = "Shadow" if is_adaptive else "Paper"
-        dash = "solid" if is_adaptive else "dot"
-        width = 2.6 if is_adaptive else 1.8
+        mode = str(series.execution_mode).upper()
+        is_adaptive = mode == "SHADOW_ADAPTIVE"
+        is_control = mode == "SHADOW_CONTROL"
+        prefix = "Shadow" if is_adaptive else ("Control" if is_control else "Paper")
+        dash = "solid" if is_adaptive else ("dash" if is_control else "dot")
+        width = 2.6 if is_adaptive else (2.2 if is_control else 1.8)
         fig.add_trace(
             go.Scatter(
                 x=[item.closed_at for item in points],
