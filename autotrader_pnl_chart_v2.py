@@ -4,6 +4,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from autotrader_pnl_comparison_v2 import AutoManagerPnlComparisonV2
+from autotrader_shadow_leverage_v2 import (
+    apply_schedule_to_series_v2,
+    load_live_leverage_schedule_v2,
+)
 from autotrader_strategy_catalog_v2 import strategy_display_label_v2
 from autotrader_strong_cocktail_shadow_v2 import (
     MACD_1M_CONTROL_STRATEGY_KEY,
@@ -23,8 +27,36 @@ def _strategy_label(strategy_key: str) -> str:
     return strategy_display_label_v2(key)
 
 
+def _pilot_equivalent_models(comparison: AutoManagerPnlComparisonV2):
+    """Return model series scaled to the product's proven LIVE economic exposure.
+
+    ``product_key`` is the canonical account/UIC/AssetType/instrument identity emitted
+    by the comparison loader. Tests and legacy callers that supply a synthetic key
+    simply retain 1x model curves rather than failing chart rendering.
+    """
+    try:
+        account_id, raw_uic, asset_type, _instrument_id = comparison.product_key.split(":", 3)
+        schedule = load_live_leverage_schedule_v2(
+            pilot_key=comparison.pilot_key,
+            account_id=account_id,
+            uic=int(raw_uic),
+            asset_type=asset_type,
+        )
+        scaled = apply_schedule_to_series_v2(comparison.paper_series, schedule=schedule)
+        return scaled, schedule
+    except Exception:
+        return comparison.paper_series, None
+
+
 def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> go.Figure:
     """One durable product-history figure with linked LIVE and model timelines."""
+    model_series, leverage_schedule = _pilot_equivalent_models(comparison)
+    if leverage_schedule is None:
+        model_title = "Modeller · 1x signalavkastning"
+    else:
+        representative = leverage_schedule.representative_leverage
+        model_title = f"Modeller · pilot-ekvivalent eksponering · ca. {representative:.1f}x"
+
     fig = make_subplots(
         rows=2,
         cols=1,
@@ -33,7 +65,7 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
         row_heights=[0.38, 0.62],
         subplot_titles=(
             "Faktisk LIVE · realisert og avstemt Saxo-P/L",
-            "Modeller · canonical controls + adaptive shadow",
+            model_title,
         ),
     )
     live = comparison.live_realized
@@ -60,7 +92,7 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
         col=1,
     )
 
-    for index, series in enumerate(comparison.paper_series):
+    for index, series in enumerate(model_series):
         label = _strategy_label(series.strategy_key)
         points = series.points
         mode = str(series.execution_mode).upper()
@@ -83,7 +115,7 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
                 },
                 hovertemplate=(
                     f"{label}<br>%{{x|%d.%m.%Y %H:%M:%S}} norsk tid<br>"
-                    "%{y:+.2f}%<br>tilstand %{customdata}<extra></extra>"
+                    "%{y:+.2f}% av pilotkapital<br>tilstand %{customdata}<extra></extra>"
                 ),
             ),
             row=2,
