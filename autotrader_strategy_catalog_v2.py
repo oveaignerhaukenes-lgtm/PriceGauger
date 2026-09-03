@@ -14,6 +14,8 @@ FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-15m-long-flat-shadow-v1"
 MTF_LONG_ENTRY_SHADOW_STRATEGY_V2 = "macd-mtf-long-entry-shadow-v1"
 INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shadow-v1"
 COCKTAIL_MODE_1_SHADOW_STRATEGY_V2 = "cocktail-mode-1-shadow-v1"
+STRONG_COCKTAIL_STRATEGY_V2 = "strong-cocktail-shadow-v1"
+MACD_1M_FLIP_STRATEGY_V2 = "macd-1m-flip-control-shadow-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,8 +101,28 @@ MTF_LONG_SHORT_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
-# Explicit execution-capable catalog. Experimental shadow keys below never gain LIVE
-# authority merely by existing in the template catalog.
+STRONG_COCKTAIL_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=STRONG_COCKTAIL_STRATEGY_V2,
+    label="Strong Cocktail · 1m event + MTF context",
+    description=(
+        "Fast 1m price/MACD event timing with Cocktail 5/10/15/30m context. "
+        "Slow horizons qualify confidence rather than acting as sequential entry gates."
+    ),
+    can_long=True,
+    can_short=True,
+)
+
+MACD_1M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD_1M_FLIP_STRATEGY_V2,
+    label="1m MACD flip · long/short",
+    description="Simple 1m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    can_long=True,
+    can_short=True,
+)
+
+# Explicit execution-capable catalog. A strategy only gains LIVE eligibility by being
+# listed here; signal runtimes still only emit execution requests into the hardened
+# AutoManager lifecycle and never POST Saxo orders directly.
 AUTOTRADER_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
@@ -108,6 +130,8 @@ AUTOTRADER_STRATEGIES_V2 = (
     MTF_LONG_FLAT_SPEC_V2,
     MTF_SHORT_FLAT_SPEC_V2,
     MTF_LONG_SHORT_FLIP_SPEC_V2,
+    STRONG_COCKTAIL_SPEC_V2,
+    MACD_1M_FLIP_SPEC_V2,
 )
 
 # These three policies have the established deterministic closed-30m paper replay.
@@ -238,6 +262,8 @@ __all__ = [
     "AutoTraderStrategySpecV2",
     "FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2",
     "INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2",
+    "MACD_1M_FLIP_SPEC_V2",
+    "MACD_1M_FLIP_STRATEGY_V2",
     "MACD_FLIP_SPEC_V2",
     "MACD_LONG_FLAT_SPEC_V2",
     "MACD_LONG_FLAT_STRATEGY_V2",
@@ -250,6 +276,8 @@ __all__ = [
     "MTF_LONG_SHORT_FLIP_STRATEGY_V2",
     "MTF_SHORT_FLAT_SPEC_V2",
     "MTF_SHORT_FLAT_STRATEGY_V2",
+    "STRONG_COCKTAIL_SPEC_V2",
+    "STRONG_COCKTAIL_STRATEGY_V2",
     "strategy_display_label_v2",
     "strategy_spec_v2",
 ]
