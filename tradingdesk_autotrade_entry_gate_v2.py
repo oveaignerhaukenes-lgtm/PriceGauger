@@ -169,7 +169,10 @@ def _render_strategy_switch(enrollment) -> None:
         index=current_index,
         format_func=lambda item: item.label,
         key=f"td-live-strategy-switch-target:{enrollment.pilot_key}",
-        help="Velg strategi. Byttet sender ingen ordre og beholder eventuell åpen Saxo-posisjon.",
+        help="Velg strategi. Byttet beholder eventuell åpen Saxo-posisjon.",
+    )
+    st.caption(
+        "Bytt LIVE-strategi direkte i listen. Selve byttet sender ingen ordre; eksisterende eksponering blir stående."
     )
     st.caption(target.description)
     if target.key == enrollment.strategy_key:
@@ -675,7 +678,7 @@ def render_tradingdesk_autotrade_entry_gate_v2(context: TradingDeskV2Context) ->
                     sizing = find_largest_legal_entry_v2(
                         client,
                         account_key=account_key,
-                        account_currency=account_currency,
+                        account_currency=currency,
                         instrument=instrument,
                         direction=direction,
                         envelope=envelope,
