@@ -340,22 +340,25 @@ def switch_live_strategy_v2(
                 ),
             )
 
-        # A new target starts from the observed Saxo state on its first runtime cycle.
-        # No old cross or pending reversal is inherited or replayed.
-        for table in (
-            "pg_v2_autotrader_strategy_runtime_state",
-            "pg_v2_autotrader_live_pilot_state",
-            "pg_v2_autotrader_mtf_live_state",
-            "pg_v2_autotrader_mtf_short_live_state",
-            "pg_v2_autotrader_mtf_flip_live_state",
-            "pg_v2_autotrader_fast_live_state",
-        ):
-            try:
-                db.execute(f"DELETE FROM {table} WHERE pilot_key = ?", (target_pilot_key,))
-            except Exception:
-                # Optional strategy-specific state tables are created lazily by their
-                # own runtime. Absence is equivalent to the desired no-replay state.
-                pass
+        # These state tables are guaranteed by the schemas initialized above. The
+        # fast/flip tables are intentionally not touched here: a brand-new target has
+        # no row there, and its own runtime creates/bootstraps its table before use.
+        db.execute(
+            "DELETE FROM pg_v2_autotrader_strategy_runtime_state WHERE pilot_key = ?",
+            (target_pilot_key,),
+        )
+        db.execute(
+            "DELETE FROM pg_v2_autotrader_live_pilot_state WHERE pilot_key = ?",
+            (target_pilot_key,),
+        )
+        db.execute(
+            "DELETE FROM pg_v2_autotrader_mtf_live_state WHERE pilot_key = ?",
+            (target_pilot_key,),
+        )
+        db.execute(
+            "DELETE FROM pg_v2_autotrader_mtf_short_live_state WHERE pilot_key = ?",
+            (target_pilot_key,),
+        )
 
         db.execute(
             """
