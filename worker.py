@@ -11,6 +11,7 @@ from typing import Callable
 import pandas as pd
 
 from analysis_status import AnalysisStatusStore
+from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from config import openai_api_key, openai_market_model
 from database import using_postgres
 from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
@@ -227,6 +228,15 @@ def run_once(
         detail = f"{type(exc).__name__}: {exc}"
         status.fail_running(detail)
         LOGGER.exception("telegram/context refresh failed; next cycle will retry")
+
+    # The AI baseline consumes only persisted context. Running it after the news/flow
+    # refresh means each decision can be replayed against exactly what PG knew then.
+    try:
+        saved = run_ai_baseline_shadow_once_v1(db_path=str(db_path))
+        if saved:
+            LOGGER.info("AI baseline shadow persisted decisions=%d", saved)
+    except Exception as exc:
+        LOGGER.warning("AI baseline shadow refresh failed; other worker functions continue: %s", exc, exc_info=True)
 
     summary = WorkerRunSummary(fetched=len(all_plans))
     LOGGER.info("cycle complete fetched=%s", summary.fetched)

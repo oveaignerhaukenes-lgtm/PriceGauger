@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from autotrader_ai_baseline_v1 import load_ai_baseline_series_v1
 from autotrader_cocktail_mode_1_shadow_v2 import load_cocktail_shadow_series_v1
 from autotrader_shadow_benchmark_exact_anchor_v2 import (
     load_shadow_benchmark_series_exact_anchor_v2,
@@ -287,6 +288,29 @@ def _strong_cocktail_series_v2(
         return ()
 
 
+def _ai_baseline_series_v2(
+    *,
+    instrument_id: int,
+    seed_equity: float,
+    currency: str,
+    started_at: datetime,
+    as_of: datetime,
+    db_path: str,
+) -> ShadowBenchmarkSeriesV2 | None:
+    """Read the auditable GPT baseline opportunistically once decisions exist."""
+    try:
+        return load_ai_baseline_series_v1(
+            instrument_id=int(instrument_id),
+            seed_equity=float(seed_equity),
+            currency=str(currency),
+            started_at=started_at,
+            as_of=as_of,
+            db_path=db_path,
+        )
+    except Exception:
+        return None
+
+
 def load_automanager_pnl_comparison_v2(
     enrollments: Iterable[StrategyEnrollmentV2],
     *,
@@ -298,7 +322,7 @@ def load_automanager_pnl_comparison_v2(
     Execution cohorts remain separate and auditable, but reporting is product-level:
     changing LIVE strategy must not reset or hide the realized Saxo history. Closed-30m
     controls replay from the oldest LIVE cohort's exact start anchor. Adaptive shadows
-    are appended only from the moment their own canonical 1m data collection began.
+    are appended only from the moment their own observation history begins.
     """
     items = tuple(enrollments)
     live_items = tuple(item for item in items if item.execution_mode == EXECUTION_MODE_LIVE)
@@ -337,10 +361,19 @@ def load_automanager_pnl_comparison_v2(
         as_of=end,
         db_path=db_path,
     )
+    ai_baseline = _ai_baseline_series_v2(
+        instrument_id=live.instrument_id,
+        seed_equity=seed,
+        currency=currency,
+        started_at=started,
+        as_of=end,
+        db_path=db_path,
+    )
     model_series = (
         tuple(paper_controls)
         + (() if cocktail is None else (cocktail,))
         + tuple(strong_controls)
+        + (() if ai_baseline is None else (ai_baseline,))
     )
 
     events = _load_live_realized_events_v2(history)
