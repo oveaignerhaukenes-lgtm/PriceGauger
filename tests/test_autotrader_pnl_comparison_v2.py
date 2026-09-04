@@ -64,7 +64,7 @@ def test_live_curve_keeps_strategy_attribution_across_pilot_epochs() -> None:
     assert curve[-1].strategy_key == "macd-mtf-30-10-5-long-short-v1"
 
 
-def test_pnl_figure_uses_linked_timeline_range_tools_and_strategy_epochs() -> None:
+def test_pnl_figure_uses_linked_timeline_range_tools_and_compact_right_legend() -> None:
     live = build_live_realized_pnl_curve_v2(
         seed_equity=500.0,
         started_at=START,
@@ -116,6 +116,7 @@ def test_pnl_figure_uses_linked_timeline_range_tools_and_strategy_epochs() -> No
     traces = {trace.name: trace for trace in figure.data}
     assert traces["LIVE · realisert Saxo"].yaxis == "y"
     assert traces["LIVE · realisert Saxo"].line.shape == "hv"
+    assert float(traces["LIVE · realisert Saxo"].line.width) <= 1.5
     assert traces["Paper · 30m MACD long/flat · defensive"].yaxis == "y2"
     assert tuple(traces["Paper · 30m MACD long/flat · defensive"].y) == pytest.approx((0.0, 2.0))
     assert figure.layout.xaxis.matches == "x2"
@@ -123,6 +124,15 @@ def test_pnl_figure_uses_linked_timeline_range_tools_and_strategy_epochs() -> No
     assert [button.label for button in figure.layout.xaxis2.rangeselector.buttons] == [
         "1t", "4t", "12t", "1d", "3d", "Alt"
     ]
+    assert figure.layout.xaxis2.tickformat == "%H:%M"
+    assert figure.layout.xaxis2.title.text == "Tid"
+    assert figure.layout.legend.orientation == "v"
+    assert float(figure.layout.legend.x) > 1.0
+    assert float(figure.layout.legend.maxheight) == pytest.approx(0.52)
+    assert "hover / scroll" in str(figure.layout.legend.title.text)
     assert figure.layout.uirevision.startswith("AutoManagerPnlProduct:acct:4912:CfdOnIndex:7")
-    assert len(figure.layout.shapes) >= 3  # strategy epoch + zero lines for both panels
-    assert any(annotation.text == "30m MACD long/flat · defensive" for annotation in figure.layout.annotations)
+    assert len(figure.layout.shapes) >= 3  # strategy epoch boundary + zero lines for both panels
+    assert not any(
+        annotation.text == "30m MACD long/flat · defensive"
+        for annotation in figure.layout.annotations
+    )

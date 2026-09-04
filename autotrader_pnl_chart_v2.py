@@ -66,10 +66,10 @@ def _leverage_schedule(comparison: AutoManagerPnlComparisonV2):
 def _models_for_chart(comparison: AutoManagerPnlComparisonV2):
     """Return model series in pilot-equivalent scale exactly once.
 
-    New persisted Strategy Lab points already store pilot-equivalent equity. Legacy or
+    Persisted Strategy Series already store pilot-equivalent equity. Legacy or
     synthetic callers may still supply raw 1x series, in which case the chart retains
-    the old on-render transformation for compatibility. Persisted UI data must never
-    receive the leverage schedule a second time.
+    the compatibility transformation. Persisted UI data must never receive leverage
+    a second time.
     """
     if comparison.paper_scale == PAPER_SCALE_PILOT_EQUIVALENT:
         try:
@@ -86,26 +86,19 @@ def _models_for_chart(comparison: AutoManagerPnlComparisonV2):
 def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> go.Figure:
     """One durable product-history figure with linked LIVE and model timelines."""
     model_series, leverage_schedule, persisted_pilot_scale = _models_for_chart(comparison)
-    if persisted_pilot_scale:
-        if leverage_schedule is None:
-            model_title = "Modeller · persistert pilot-ekvivalent eksponering"
-        else:
-            representative = leverage_schedule.representative_leverage
-            model_title = f"Modeller · persistert pilot-ekvivalent · ca. {representative:.1f}x"
-    elif leverage_schedule is None:
-        model_title = "Modeller · 1x signalavkastning"
+    if leverage_schedule is None:
+        model_title = "Modeller · pilot-ekvivalent" if persisted_pilot_scale else "Modeller · 1×"
     else:
-        representative = leverage_schedule.representative_leverage
-        model_title = f"Modeller · pilot-ekvivalent eksponering · ca. {representative:.1f}x"
+        model_title = f"Modeller · ca. {leverage_schedule.representative_leverage:.1f}×"
 
     fig = make_subplots(
         rows=2,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.10,
+        vertical_spacing=0.08,
         row_heights=[0.38, 0.62],
         subplot_titles=(
-            "Faktisk LIVE · realisert og avstemt Saxo-P/L",
+            "LIVE · realisert P/L",
             model_title,
         ),
     )
@@ -121,12 +114,11 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
             customdata=live_custom,
             mode="lines+markers",
             name="LIVE · realisert Saxo",
-            line={"color": "#dc2626", "width": 2.4, "shape": "hv"},
-            marker={"size": 5},
+            line={"color": "#dc2626", "width": 1.5, "shape": "hv"},
+            marker={"size": 4},
             hovertemplate=(
-                "LIVE realisert<br>%{x|%d.%m.%Y %H:%M:%S} norsk tid<br>"
-                "%{y:+.2f}% av historisk startkapital<br>%{customdata[0]:+.2f} "
-                f"{comparison.currency}<br>Strategi: %{{customdata[1]}}<extra></extra>"
+                "LIVE · %{x|%H:%M}<br>%{y:+.2f}% · %{customdata[0]:+.2f} "
+                f"{comparison.currency}<br>%{{customdata[1]}}<extra></extra>"
             ),
         ),
         row=1,
@@ -141,7 +133,7 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
         is_control = mode == "SHADOW_CONTROL"
         prefix = "Shadow" if is_adaptive else ("Control" if is_control else "Paper")
         dash = "solid" if is_adaptive else ("dash" if is_control else "dot")
-        width = 2.6 if is_adaptive else (2.2 if is_control else 1.8)
+        width = 1.5 if is_adaptive else (1.3 if is_control else 1.1)
         fig.add_trace(
             go.Scatter(
                 x=[item.closed_at for item in points],
@@ -155,16 +147,18 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
                     "dash": dash,
                 },
                 hovertemplate=(
-                    f"{label}<br>%{{x|%d.%m.%Y %H:%M:%S}} norsk tid<br>"
-                    "%{y:+.2f}% av pilotkapital<br>tilstand %{customdata}<extra></extra>"
+                    f"{label} · %{{x|%H:%M}}<br>"
+                    "%{y:+.2f}% · %{customdata}<extra></extra>"
                 ),
             ),
             row=2,
             col=1,
         )
 
+    # Strategy switches remain visible as thin boundaries. Their long labels were
+    # intentionally removed from the plotting surface; the strategy itself is already
+    # visible in the legend and activity log, and overlapping annotations obscured data.
     for epoch in comparison.live_epochs:
-        label = _strategy_label(epoch.strategy_key)
         fig.add_shape(
             type="line",
             x0=epoch.started_at,
@@ -173,24 +167,12 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
             y1=1.0,
             xref="x",
             yref="paper",
-            line={"width": 1.0, "dash": "dot", "color": "rgba(17,24,39,0.40)"},
-        )
-        fig.add_annotation(
-            x=epoch.started_at,
-            y=1.015,
-            xref="x",
-            yref="paper",
-            text=label,
-            showarrow=False,
-            xanchor="left",
-            yanchor="bottom",
-            font={"size": 10},
-            textangle=-18,
+            line={"width": 0.8, "dash": "dot", "color": "rgba(17,24,39,0.32)"},
         )
 
     for row in (1, 2):
-        fig.add_hline(y=0.0, line_width=0.8, line_dash="dot", line_color="rgba(17,24,39,0.45)", row=row, col=1)
-        fig.update_yaxes(title_text="P/L · % av historisk startkapital", ticksuffix="%", row=row, col=1)
+        fig.add_hline(y=0.0, line_width=0.7, line_dash="dot", line_color="rgba(17,24,39,0.38)", row=row, col=1)
+        fig.update_yaxes(title_text="P/L · %", ticksuffix="%", row=row, col=1)
 
     range_buttons = [
         {"count": 1, "label": "1t", "step": "hour", "stepmode": "backward"},
@@ -201,27 +183,36 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
         {"label": "Alt", "step": "all"},
     ]
     fig.update_xaxes(
-        tickformat="%d.%m %H:%M",
-        hoverformat="%d.%m.%Y %H:%M:%S",
+        tickformat="%H:%M",
+        hoverformat="%H:%M",
         showspikes=True,
         spikemode="across",
         spikesnap="cursor",
         spikethickness=1,
     )
-    fig.update_xaxes(title_text="Tid · norsk tid", row=2, col=1)
+    fig.update_xaxes(title_text="Tid", row=2, col=1)
     fig.update_xaxes(
         rangeselector={"buttons": range_buttons, "x": 0.0, "xanchor": "left", "y": -0.14, "yanchor": "top"},
-        rangeslider={"visible": True, "thickness": 0.08},
+        rangeslider={"visible": True, "thickness": 0.07},
         row=2,
         col=1,
     )
     fig.update_layout(
         template="plotly_white",
         height=690,
-        margin={"l": 70, "r": 35, "t": 125, "b": 95},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.08, "xanchor": "left", "x": 0},
-        hovermode="x unified",
-        dragmode="zoom",
+        margin={"l": 58, "r": 225, "t": 68, "b": 88},
+        legend={
+            "orientation": "v",
+            "yanchor": "top",
+            "y": 1.0,
+            "xanchor": "left",
+            "x": 1.01,
+            "font": {"size": 11},
+            "title": {"text": "Legend · hover / scroll"},
+            "maxheight": 0.52,
+        },
+        hovermode="closest",
+        dragmode="pan",
         uirevision=f"AutoManagerPnlProduct:{comparison.product_key}:{comparison.started_at.isoformat()}",
     )
     return fig
