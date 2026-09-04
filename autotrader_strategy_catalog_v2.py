@@ -17,6 +17,7 @@ COCKTAIL_MODE_1_SHADOW_STRATEGY_V2 = "cocktail-mode-1-shadow-v1"
 STRONG_COCKTAIL_STRATEGY_V2 = "strong-cocktail-shadow-v1"
 MACD_1M_FLIP_STRATEGY_V2 = "macd-1m-flip-control-shadow-v1"
 MACD_2M_FLIP_STRATEGY_V2 = "macd-2m-flip-control-shadow-v1"
+MACD_5M_FLIP_STRATEGY_V2 = "macd-5m-flip-control-shadow-v1"
 MACD_15M_FLIP_STRATEGY_V2 = "macd-15m-flip-control-shadow-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-2m-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-5m-v1"
@@ -133,6 +134,14 @@ MACD_2M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
+MACD_5M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD_5M_FLIP_STRATEGY_V2,
+    label="5m MACD flip · long/short",
+    description="Simple closed 5m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    can_long=True,
+    can_short=True,
+)
+
 MACD_15M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_15M_FLIP_STRATEGY_V2,
     label="15m MACD flip · long/short",
@@ -145,7 +154,7 @@ MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2,
     label="MACD hybrid · exit 1m / entry 2m",
     description=(
-        "Opposite 1m MACD cross de-risks to FLAT; a closed 2m MACD cross is required for new LONG/SHORT exposure. "
+        "Opposite 1m MACD cross de-risks to FLAT; new exposure requires either a closed 2m cross or a fresh 1m recovery cross aligned with the current closed 2m MACD regime. "
         "Reversals still execute only as CLOSE -> confirmed FLAT -> OPEN."
     ),
     can_long=True,
@@ -156,7 +165,7 @@ MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2,
     label="MACD hybrid · exit 1m / entry 5m",
     description=(
-        "Opposite 1m MACD cross de-risks to FLAT; a closed 5m MACD cross is required for new LONG/SHORT exposure. "
+        "Opposite 1m MACD cross de-risks to FLAT; new exposure requires either a closed 5m cross or a fresh 1m recovery cross aligned with the current closed 5m MACD regime. "
         "Reversals still execute only as CLOSE -> confirmed FLAT -> OPEN."
     ),
     can_long=True,
@@ -187,6 +196,7 @@ AUTOTRADER_STRATEGIES_V2 = (
     STRONG_COCKTAIL_SPEC_V2,
     MACD_1M_FLIP_SPEC_V2,
     MACD_2M_FLIP_SPEC_V2,
+    MACD_5M_FLIP_SPEC_V2,
     MACD_15M_FLIP_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
@@ -327,6 +337,8 @@ __all__ = [
     "MACD_1M_FLIP_STRATEGY_V2",
     "MACD_2M_FLIP_SPEC_V2",
     "MACD_2M_FLIP_STRATEGY_V2",
+    "MACD_5M_FLIP_SPEC_V2",
+    "MACD_5M_FLIP_STRATEGY_V2",
     "MACD_15M_FLIP_SPEC_V2",
     "MACD_15M_FLIP_STRATEGY_V2",
     "MACD_FLIP_SPEC_V2",

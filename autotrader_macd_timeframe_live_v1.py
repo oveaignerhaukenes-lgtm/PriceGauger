@@ -29,7 +29,7 @@ from canonical_market_bars_v2 import CanonicalMarketBarStoreV2, CanonicalMarketB
 from saxo_provider import configured_client
 
 
-LIVE_MACD_CONTROL_TIMEFRAMES_V1 = (2, 15)
+LIVE_MACD_CONTROL_TIMEFRAMES_V1 = (2, 5, 15)
 LIVE_MACD_CONTROL_STRATEGIES_V1 = {
     macd_control_strategy_key_v1(minutes): minutes
     for minutes in LIVE_MACD_CONTROL_TIMEFRAMES_V1
