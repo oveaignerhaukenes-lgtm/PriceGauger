@@ -1,8 +1,14 @@
 from pathlib import Path
 
 
-def test_live_open_is_gated_by_entry_mode_and_exact_one_shot_approval():
-    source = Path("autotrader_live_open_v2.py").read_text(encoding="utf-8")
+def _legacy_source() -> str:
+    return Path("autotrader_live_open_legacy_v2.py").read_text(encoding="utf-8")
+
+
+def test_legacy_live_open_keeps_entry_mode_and_one_shot_approval_compatibility():
+    # Simple Core always uses AUTO; the older modes remain internal compatibility
+    # contracts and are deliberately not exposed as normal TradingDesk gates.
+    source = _legacy_source()
     assert "ENTRY_MODE_MANUAL_ONLY" in source
     assert "ENTRY_MODE_APPROVAL_REQUIRED" in source
     assert "ENTRY_MODE_AUTO" in source
@@ -14,7 +20,7 @@ def test_live_open_is_gated_by_entry_mode_and_exact_one_shot_approval():
 
 
 def test_live_open_never_revives_pre_authority_or_superseded_strategy_signal():
-    source = Path("autotrader_live_open_v2.py").read_text(encoding="utf-8")
+    source = _legacy_source()
     assert "_entry_authority_changed_after_request" in source
     assert 'block_reason="ENTRY_AUTHORITY_CHANGED"' in source
     assert "pg_v2_autotrader_strategy_evaluations" in source
@@ -23,7 +29,7 @@ def test_live_open_never_revives_pre_authority_or_superseded_strategy_signal():
 
 
 def test_live_open_reconciles_accepted_orders_even_when_new_open_is_disarmed():
-    source = Path("autotrader_live_open_v2.py").read_text(encoding="utf-8")
+    source = _legacy_source()
     reconcile_index = source.index("if _accepted_attempts():")
     disarm_index = source.index("if not armed:")
     assert reconcile_index < disarm_index
@@ -31,10 +37,18 @@ def test_live_open_reconciles_accepted_orders_even_when_new_open_is_disarmed():
     assert "no blind retry" not in source.lower() or "STATUS_UNCERTAIN" in source
 
 
-def test_live_open_waits_for_unresolved_close_before_terminal_product_flat_block():
-    source = Path("autotrader_live_open_v2.py").read_text(encoding="utf-8")
-    loop_start = source.index("for request in candidates:")
-    unresolved_index = source.index("if unresolved_close:", loop_start)
-    product_block_index = source.index('block_reason="PRODUCT_NOT_CONFIRMED_FLAT"', loop_start)
-    settled_missing_index = source.index('block_reason="FLAT_WITHOUT_SETTLED_PG_CLOSE"', loop_start)
-    assert unresolved_index < product_block_index < settled_missing_index
+def test_simple_core_reentry_waits_for_execution_certainty_not_realized_pnl_settlement():
+    facade = Path("autotrader_live_open_v2.py").read_text(encoding="utf-8")
+    legacy = _legacy_source()
+
+    assert "P/L reconciliation is accounting" in facade
+    assert "status IN ('SUBMITTING', 'UNCERTAIN')" in facade
+    assert "status IN ('ORDER_ACCEPTED', 'RECONCILED')" in facade
+    assert "_legacy._settled_close_provenance = _execution_close_provenance_v1" in facade
+
+    # The accounting gate is relaxed only after the broker state is independently
+    # confirmed FLAT. The hardened engine still blocks any actual product exposure.
+    loop_start = legacy.index("for request in candidates:")
+    product_block_index = legacy.index('block_reason="PRODUCT_NOT_CONFIRMED_FLAT"', loop_start)
+    sizing_index = legacy.index("find_largest_legal_entry_v2(", product_block_index)
+    assert product_block_index < sizing_index
