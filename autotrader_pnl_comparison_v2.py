@@ -6,6 +6,7 @@ from typing import Any, Iterable
 
 from autotrader_ai_baseline_v1 import load_ai_baseline_series_v1
 from autotrader_cocktail_mode_1_shadow_v2 import load_cocktail_shadow_series_v1
+from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_shadow_benchmark_exact_anchor_v2 import (
     load_shadow_benchmark_series_exact_anchor_v2,
 )
@@ -16,8 +17,13 @@ from autotrader_strategy_enrollment_v2 import (
     StrategyEnrollmentV2,
     load_strategy_enrollment_v2,
 )
+from autotrader_strategy_series_store_v1 import load_persisted_strategy_series_v1
 from autotrader_strong_cocktail_shadow_v2 import load_strong_cocktail_comparison_series_v1
 from database import connect
+
+
+PAPER_SCALE_RAW_1X = "RAW_1X"
+PAPER_SCALE_PILOT_EQUIVALENT = "PILOT_EQUIVALENT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +68,7 @@ class AutoManagerPnlComparisonV2:
     live_realized: tuple[LiveRealizedPnlPointV2, ...]
     live_epochs: tuple[LiveStrategyEpochV2, ...]
     paper_series: tuple[ShadowBenchmarkSeriesV2, ...]
+    paper_scale: str = PAPER_SCALE_RAW_1X
 
 
 def _utc(value: Any) -> datetime:
@@ -243,7 +250,7 @@ def _cocktail_series_v2(
     started_at: datetime,
     as_of: datetime,
 ) -> ShadowBenchmarkSeriesV2 | None:
-    """Read adaptive shadow opportunistically; reporting must survive pre-schema rollout."""
+    """Replay adaptive Cocktail for the background materialization bridge only."""
     try:
         series = load_cocktail_shadow_series_v1(
             instrument_id=int(instrument_id),
@@ -274,7 +281,7 @@ def _strong_cocktail_series_v2(
     as_of: datetime,
     db_path: str,
 ) -> tuple[ShadowBenchmarkSeriesV2, ...]:
-    """Read Strong Cocktail + 1m control opportunistically from the same adaptive clock."""
+    """Replay Strong Cocktail + 1m control for the background bridge only."""
     try:
         return load_strong_cocktail_comparison_series_v1(
             instrument_id=int(instrument_id),
@@ -297,7 +304,7 @@ def _ai_baseline_series_v2(
     as_of: datetime,
     db_path: str,
 ) -> ShadowBenchmarkSeriesV2 | None:
-    """Read the auditable GPT baseline opportunistically once decisions exist."""
+    """Reconstruct the auditable GPT baseline for the background bridge only."""
     try:
         return load_ai_baseline_series_v1(
             instrument_id=int(instrument_id),
@@ -311,18 +318,109 @@ def _ai_baseline_series_v2(
         return None
 
 
+def _product_key_v2(live: StrategyEnrollmentV2) -> str:
+    return ":".join(
+        (
+            live.account_id,
+            str(int(live.uic)),
+            live.asset_type,
+            str(int(live.instrument_id)),
+        )
+    )
+
+
+def _comparison_from_parts_v2(
+    *,
+    live: StrategyEnrollmentV2,
+    history: tuple[_ProductLivePilotV2, ...],
+    seed: float,
+    currency: str,
+    started: datetime,
+    end: datetime,
+    model_series: tuple[ShadowBenchmarkSeriesV2, ...],
+    paper_scale: str,
+) -> AutoManagerPnlComparisonV2:
+    first = history[0]
+    events = _load_live_realized_events_v2(history)
+    actual = build_live_realized_pnl_curve_v2(
+        seed_equity=seed,
+        started_at=started,
+        as_of=end,
+        events=events,
+        initial_pilot_key=first.enrollment.pilot_key,
+        initial_strategy_key=first.enrollment.strategy_key,
+        as_of_pilot_key=live.pilot_key,
+        as_of_strategy_key=live.strategy_key,
+    )
+    return AutoManagerPnlComparisonV2(
+        pilot_key=live.pilot_key,
+        product_key=_product_key_v2(live),
+        currency=currency,
+        seed_equity=seed,
+        started_at=started,
+        as_of=end,
+        live_realized=actual,
+        live_epochs=_live_strategy_epochs_v2(history),
+        paper_series=model_series,
+        paper_scale=paper_scale,
+    )
+
+
 def load_automanager_pnl_comparison_v2(
     enrollments: Iterable[StrategyEnrollmentV2],
     *,
     db_path: str = "pricegauger.db",
     now: datetime | None = None,
 ) -> AutoManagerPnlComparisonV2:
-    """Load durable product-history LIVE P/L beside canonical control models.
+    """Load the lightweight persisted Strategy Lab read model for TradingDesk.
 
-    Execution cohorts remain separate and auditable, but reporting is product-level:
-    changing LIVE strategy must not reset or hide the realized Saxo history. Closed-30m
-    controls replay from the oldest LIVE cohort's exact start anchor. Adaptive shadows
-    are appended only from the moment their own observation history begins.
+    The UI never replays canonical history here. Model calculations are materialized
+    by background producers into ``pg_v2_strategy_series_points`` and this function
+    only reads those immutable pilot-equivalent points plus authoritative LIVE P/L.
+    If persisted model history is unavailable, callers should show a waiting state;
+    there is deliberately no hidden fallback to expensive replay-on-render.
+    """
+    del db_path  # Persisted series live in the authoritative database.
+    items = tuple(enrollments)
+    live_items = tuple(item for item in items if item.execution_mode == EXECUTION_MODE_LIVE)
+    if len(live_items) != 1:
+        raise ValueError("P/L comparison requires exactly one LIVE controller")
+    live = live_items[0]
+    end = _utc(now or datetime.now(timezone.utc))
+    history = _load_product_live_history_v2(live)
+    first = history[0]
+    ledger = load_pilot_equity_v2(pilot_key=first.enrollment.pilot_key)
+    model_series = load_persisted_strategy_series_v1(
+        account_id=live.account_id,
+        uic=live.uic,
+        asset_type=live.asset_type,
+        instrument_id=live.instrument_id,
+        pilot_equivalent=True,
+    )
+    if not model_series:
+        raise ValueError("persisted Strategy Lab series are not available yet")
+    return _comparison_from_parts_v2(
+        live=live,
+        history=history,
+        seed=float(ledger.seed_capital),
+        currency=ledger.currency,
+        started=first.enrolled_at,
+        end=end,
+        model_series=tuple(model_series),
+        paper_scale=PAPER_SCALE_PILOT_EQUIVALENT,
+    )
+
+
+def replay_automanager_pnl_comparison_v2(
+    enrollments: Iterable[StrategyEnrollmentV2],
+    *,
+    db_path: str = "pricegauger.db",
+    now: datetime | None = None,
+) -> AutoManagerPnlComparisonV2:
+    """Legacy replay bridge used only by the background series materializer.
+
+    This remains temporarily authoritative for generating stored series while model
+    producers migrate to native incremental append. Interactive UI must not call it.
     """
     items = tuple(enrollments)
     live_items = tuple(item for item in items if item.execution_mode == EXECUTION_MODE_LIVE)
@@ -375,36 +473,15 @@ def load_automanager_pnl_comparison_v2(
         + tuple(strong_controls)
         + (() if ai_baseline is None else (ai_baseline,))
     )
-
-    events = _load_live_realized_events_v2(history)
-    actual = build_live_realized_pnl_curve_v2(
-        seed_equity=seed,
-        started_at=started,
-        as_of=end,
-        events=events,
-        initial_pilot_key=first.enrollment.pilot_key,
-        initial_strategy_key=first.enrollment.strategy_key,
-        as_of_pilot_key=live.pilot_key,
-        as_of_strategy_key=live.strategy_key,
-    )
-    product_key = ":".join(
-        (
-            live.account_id,
-            str(int(live.uic)),
-            live.asset_type,
-            str(int(live.instrument_id)),
-        )
-    )
-    return AutoManagerPnlComparisonV2(
-        pilot_key=live.pilot_key,
-        product_key=product_key,
+    return _comparison_from_parts_v2(
+        live=live,
+        history=history,
+        seed=seed,
         currency=currency,
-        seed_equity=seed,
-        started_at=started,
-        as_of=end,
-        live_realized=actual,
-        live_epochs=_live_strategy_epochs_v2(history),
-        paper_series=model_series,
+        started=started,
+        end=end,
+        model_series=model_series,
+        paper_scale=PAPER_SCALE_RAW_1X,
     )
 
 
@@ -413,6 +490,9 @@ __all__ = [
     "LiveRealizedPnlEventV2",
     "LiveRealizedPnlPointV2",
     "LiveStrategyEpochV2",
+    "PAPER_SCALE_PILOT_EQUIVALENT",
+    "PAPER_SCALE_RAW_1X",
     "build_live_realized_pnl_curve_v2",
     "load_automanager_pnl_comparison_v2",
+    "replay_automanager_pnl_comparison_v2",
 ]
