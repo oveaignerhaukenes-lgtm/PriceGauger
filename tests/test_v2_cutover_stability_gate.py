@@ -19,14 +19,17 @@ def test_overview_market_cards_are_v2_authoritative() -> None:
 
 def test_tradingdesk_identity_analysis_companion_and_automanager_are_v2_bound() -> None:
     page_source = _source("pages/0_TradingDesk.py")
-    panel_source = _source("tradingdesk_automanage_panel_v2.py")
+    facade_source = _source("tradingdesk_automanage_panel_v2.py")
+    simple_source = _source("tradingdesk_automanager_simple_v1.py")
 
     assert "load_trading_desk_contexts_v2" in page_source
     assert "render_companion_panel_v2" in page_source
     assert "render_tradingdesk_automanage_panel_v2(context)" in page_source
-    assert "TradingDeskV2Context" in panel_source
-    assert "int(product.market_id) == int(context.market_id)" in panel_source
-    assert "resolve_saxo_automanage_product_v2" in panel_source
+    assert "render_tradingdesk_automanager_simple_v1" in facade_source
+    assert "TradingDeskV2Context" in simple_source
+    assert "int(item.market_id) == int(context.market_id)" in simple_source
+    assert "context.instrument.provider_instrument_id" in simple_source
+    assert "context.instrument.asset_type" in simple_source
     assert "configured_instruments" not in page_source
     assert "render_saxo_product_panel" not in page_source
 

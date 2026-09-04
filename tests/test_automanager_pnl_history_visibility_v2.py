@@ -87,7 +87,11 @@ def test_shadow_anchor_uses_exact_persisted_position_even_when_timestamps_are_fa
 
 
 def test_tradingdesk_pnl_has_read_only_latest_pilot_fallback_and_no_silent_disappearance():
-    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    # Simple Core replaces only the control plane. The existing persisted P/L/read
+    # model remains intentionally isolated in the legacy renderer and is re-exported
+    # through tradingdesk_automanage_panel_v2.
+    source = Path("tradingdesk_automanage_panel_legacy_v2.py").read_text(encoding="utf-8")
+    facade = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
 
     assert "def _pnl_enrollments_for_context_v2" in source
     assert "ORDER BY updated_at DESC, enrolled_at DESC" in source
@@ -95,3 +99,4 @@ def test_tradingdesk_pnl_has_read_only_latest_pilot_fallback_and_no_silent_disap
     assert "Ingen aktiv execution-authority gjenopprettes av grafen" in source
     assert "P/L-graf: ingen AutoManager-pilot finnes ennå for dette markedet." in source
     assert "if live is not None and live.enabled" in source
+    assert "render_tradingdesk_automanage_pnl_chart_v2" in facade

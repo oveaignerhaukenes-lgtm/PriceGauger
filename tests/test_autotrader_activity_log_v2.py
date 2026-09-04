@@ -40,7 +40,7 @@ def test_long_pilot_explains_the_next_bearish_exit_signal() -> None:
     )
 
     assert status == "LONG · pilot aktiv"
-    assert "bearish MACD-kryss" in next_step
+    assert "bearish signal" in next_step
     assert "mål FLAT" in next_step
 
 
@@ -52,9 +52,9 @@ def test_strategy_flat_is_not_presented_as_a_stopped_pilot() -> None:
         latest_strategy_close_at=NOW,
     )
 
-    assert status == "FLAT pga. bearish 30m MACD-kryss"
-    assert "automatisk re-entry er armed" in next_step
-    assert "bullish MACD-kryss" in next_step
+    assert status == "FLAT pga. bearish strategisignal"
+    assert "automatisk OPEN/re-entry er aktiv" in next_step
+    assert "bullish signal" in next_step
 
 
 def test_guardian_provenance_wins_when_its_close_is_newer() -> None:
@@ -68,7 +68,7 @@ def test_guardian_provenance_wins_when_its_close_is_newer() -> None:
     )
 
     assert status == "FLAT etter Position Guardian · Trailing stop"
-    assert "bullish MACD-kryss" in next_step
+    assert "bullish signal" in next_step
 
 
 def test_disabled_enrollment_is_explicitly_finished() -> None:
@@ -93,15 +93,15 @@ def test_inflight_close_takes_precedence_over_observed_position() -> None:
     assert next_step == "Ordre akseptert · venter på avstemming"
 
 
-def test_open_position_without_exact_management_authority_is_fail_closed() -> None:
+def test_open_position_without_exact_management_basis_is_auto_registered() -> None:
     status, next_step = build_automanager_lifecycle_status_v2(
         _enrollment(),
         observed_direction="LONG",
         exact_close_authority=False,
     )
 
-    assert status == "LONG · mangler eksakt CLOSE-authority"
-    assert "må eksplisitt overtas" in next_step
+    assert status == "LONG · registrerer AutoManager-basis"
+    assert "ingen brukerbekreftelse kreves" in next_step
 
 
 class _Rows:
@@ -169,7 +169,7 @@ def test_old_close_is_kept_in_history_but_not_claimed_as_current_flat_cause(
     assert any(event.realized_net_pnl == 85.95 for event in log.events)
 
 
-def test_fresh_live_authority_override_wins_over_stored_runtime_basis(monkeypatch) -> None:
+def test_fresh_live_authority_override_reports_auto_basis_registration(monkeypatch) -> None:
     monkeypatch.setattr(activity_v2, "connect", lambda: _ActivityDb())
 
     log = activity_v2.load_automanager_activity_log_v2(
@@ -178,5 +178,5 @@ def test_fresh_live_authority_override_wins_over_stored_runtime_basis(monkeypatc
         exact_close_authority_override=False,
     )
 
-    assert log.lifecycle_status == "LONG · mangler eksakt CLOSE-authority"
-    assert "må eksplisitt overtas" in log.next_step
+    assert log.lifecycle_status == "LONG · registrerer AutoManager-basis"
+    assert "ingen brukerbekreftelse kreves" in log.next_step
