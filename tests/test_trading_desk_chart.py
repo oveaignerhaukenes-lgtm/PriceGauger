@@ -44,7 +44,8 @@ def test_axis_titles_are_explicit_and_stable() -> None:
     assert fig.layout.yaxis3.title.text == "Brent · volum"
     assert fig.layout.yaxis3.side == "right"
     assert fig.layout.xaxis2.title.text == "Tid · UTC"
-    assert fig.layout.title.text == "Brent · 5m · 24t"
+    assert str(fig.layout.title.text).startswith("Brent<br>")
+    assert "5m · 24t" in str(fig.layout.title.text)
 
 
 def test_normalized_overlay_uses_secondary_axis_and_volume_uses_lower_panel() -> None:
