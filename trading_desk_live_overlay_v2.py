@@ -84,7 +84,7 @@ export default function(component) {
 
         const direction = String(marker.direction || '').toUpperCase();
         const active = Boolean(marker.active);
-        const radius = active ? 11 : 7;
+        const radius = active ? 4 : 3;
         const color = direction === 'LONG' ? '#16a34a' : '#dc2626';
         const upward = direction === 'LONG';
 
@@ -103,17 +103,17 @@ export default function(component) {
         context.closePath();
         context.fillStyle = color;
         context.fill();
-        context.lineWidth = active ? 2.2 : 1.1;
+        context.lineWidth = active ? 1.2 : 0.8;
         context.strokeStyle = active ? '#111827' : 'rgba(17,24,39,0.58)';
         context.stroke();
 
         if (active) {
             context.globalAlpha = 1.0;
-            context.font = '600 11px system-ui, -apple-system, sans-serif';
+            context.font = '600 10px system-ui, -apple-system, sans-serif';
             context.textAlign = 'center';
             context.textBaseline = upward ? 'bottom' : 'top';
             context.fillStyle = color;
-            context.fillText(`AKTIV ${direction}`, x, y + (upward ? -radius - 4 : radius + 4));
+            context.fillText(`AKTIV ${direction}`, x, y + (upward ? -radius - 3 : radius + 3));
         }
         context.restore();
     }

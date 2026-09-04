@@ -213,6 +213,77 @@ export default function(component) {
         return Number.isFinite(start) && Number.isFinite(end) && start !== end ? [start, end] : null;
     }
 
+    function plotGeometry(graph) {
+        const layout = graph?._fullLayout;
+        const size = layout?._size;
+        if (!layout || !size) return null;
+        return { layout, size, rect: graph.getBoundingClientRect() };
+    }
+
+    function pointerInsidePlot(graph, clientX, clientY) {
+        const geometry = plotGeometry(graph);
+        if (!geometry) return false;
+        const { size, rect } = geometry;
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        return x >= size.l && x <= size.l + size.w && y >= size.t && y <= size.t + size.h;
+    }
+
+    function ensureCrosshair(graph) {
+        let line = graph.querySelector(':scope > .pg-linked-crosshair');
+        if (!line) {
+            line = document.createElement('div');
+            line.className = 'pg-linked-crosshair';
+            Object.assign(line.style, {
+                position: 'absolute',
+                width: '1px',
+                background: 'rgba(17,24,39,.34)',
+                pointerEvents: 'none',
+                display: 'none',
+                zIndex: '7',
+            });
+            graph.style.position = 'relative';
+            graph.appendChild(line);
+        }
+        return line;
+    }
+
+    function hideLinkedCrosshairs() {
+        for (const graph of enhanced.keys()) {
+            const line = graph.querySelector(':scope > .pg-linked-crosshair');
+            if (line) line.style.display = 'none';
+        }
+    }
+
+    function showLinkedCrosshairs(sourceGraph, clientX) {
+        const sourceGeometry = plotGeometry(sourceGraph);
+        const sourceAxis = sourceGeometry?.layout?.xaxis;
+        if (!sourceGeometry || !sourceAxis?.p2c) return;
+        const sourcePixel = clientX - sourceGeometry.rect.left - sourceGeometry.size.l;
+        if (sourcePixel < 0 || sourcePixel > sourceGeometry.size.w) {
+            hideLinkedCrosshairs();
+            return;
+        }
+        const xValue = sourceAxis.p2c(sourcePixel);
+        if (!Number.isFinite(xValue)) return;
+
+        for (const graph of enhanced.keys()) {
+            const geometry = plotGeometry(graph);
+            const axis = geometry?.layout?.xaxis;
+            if (!geometry || !axis?.c2p) continue;
+            const pixel = axis.c2p(xValue);
+            const line = ensureCrosshair(graph);
+            if (!Number.isFinite(pixel) || pixel < 0 || pixel > geometry.size.w) {
+                line.style.display = 'none';
+                continue;
+            }
+            line.style.left = `${geometry.size.l + pixel}px`;
+            line.style.top = `${geometry.size.t}px`;
+            line.style.height = `${geometry.size.h}px`;
+            line.style.display = 'block';
+        }
+    }
+
     function enhance(graph, kind) {
         if (!graph || enhanced.has(graph)) return;
         const state = {
@@ -226,6 +297,7 @@ export default function(component) {
         state.opacity = originalOpacity(graph);
         state.fingerprint = traceFingerprint(graph);
         hideHoverPopup(graph);
+        ensureCrosshair(graph);
 
         const onLegendOver = (event) => {
             const item = event.target?.closest?.('.legend .traces');
@@ -241,9 +313,20 @@ export default function(component) {
             if (to === item) return;
             restore(graph, state);
         };
+        const onPointerMove = (event) => {
+            if (!pointerInsidePlot(graph, event.clientX, event.clientY)) {
+                hideLinkedCrosshairs();
+                return;
+            }
+            showLinkedCrosshairs(graph, event.clientX);
+        };
+        const onPointerLeave = () => hideLinkedCrosshairs();
         const onPlotHover = (event) => {
             const point = event?.points?.[0];
-            if (point) highlight(graph, state, Number(point.curveNumber));
+            if (point) {
+                highlight(graph, state, Number(point.curveNumber));
+                renderPointInfo(graph, point);
+            }
             hideHoverPopup(graph);
         };
         const onPlotUnhover = () => restore(graph, state);
@@ -295,28 +378,45 @@ export default function(component) {
             const range = yRange(yaxis);
             if (!range) return;
             const [start, end] = range;
-            const shift = (gesture.dy / Math.max(1, size.h)) * (end - start);
+            const span = end - start;
+            const rect = graph.getBoundingClientRect();
+            const pixel = gesture.clientY - rect.top - size.t;
+            const ratioFromBottom = 1 - Math.max(0, Math.min(1, pixel / Math.max(1, size.h)));
+            const anchor = start + span * ratioFromBottom;
+            const factor = Math.max(0.84, Math.min(1.18, Math.exp(gesture.dy * 0.0024)));
+            const nextStart = anchor + (start - anchor) * factor;
+            const nextEnd = anchor + (end - anchor) * factor;
             window.Plotly.relayout(graph, {
-                'yaxis.range': [start + shift, end + shift],
+                'yaxis.range': [nextStart, nextEnd],
                 'yaxis.autorange': false,
             });
         }
 
         const onWheel = (event) => {
             if (kind !== 'live') return;
+            if (!pointerInsidePlot(graph, event.clientX, event.clientY)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
-            const current = state.wheel || { dx: 0, dy: 0, ctrl: false, clientX: event.clientX };
+            const current = state.wheel || {
+                dx: 0,
+                dy: 0,
+                ctrl: false,
+                clientX: event.clientX,
+                clientY: event.clientY,
+            };
             current.dx += Number(event.deltaX || 0);
             current.dy += Number(event.deltaY || 0);
             current.ctrl = current.ctrl || Boolean(event.ctrlKey || event.metaKey);
             current.clientX = event.clientX;
+            current.clientY = event.clientY;
             state.wheel = current;
             if (!state.wheelFrame) state.wheelFrame = window.requestAnimationFrame(flushWheel);
         };
 
         graph.addEventListener('pointerover', onLegendOver);
         graph.addEventListener('pointerout', onLegendOut);
+        graph.addEventListener('pointermove', onPointerMove);
+        graph.addEventListener('pointerleave', onPointerLeave);
         graph.addEventListener('wheel', onWheel, { passive: false, capture: true });
         graph.on?.('plotly_hover', onPlotHover);
         graph.on?.('plotly_unhover', onPlotUnhover);
@@ -326,12 +426,16 @@ export default function(component) {
         state.cleanup = () => {
             graph.removeEventListener('pointerover', onLegendOver);
             graph.removeEventListener('pointerout', onLegendOut);
+            graph.removeEventListener('pointermove', onPointerMove);
+            graph.removeEventListener('pointerleave', onPointerLeave);
             graph.removeEventListener('wheel', onWheel, true);
             graph.removeListener?.('plotly_hover', onPlotHover);
             graph.removeListener?.('plotly_unhover', onPlotUnhover);
             graph.removeListener?.('plotly_click', onPlotClick);
             graph.removeListener?.('plotly_afterplot', onAfterPlot);
             if (state.wheelFrame) window.cancelAnimationFrame(state.wheelFrame);
+            const crosshair = graph.querySelector(':scope > .pg-linked-crosshair');
+            crosshair?.remove();
             restore(graph, state);
         };
     }
@@ -374,10 +478,13 @@ _legend_hover_component = st.components.v2.component(
 def render_trading_desk_legend_hover_v1(*, uirevision: str) -> None:
     """Install lightweight browser interactions for TradingDesk Plotly charts.
 
-    Hover highlights the focused trace without opening Plotly's large tooltip layer;
-    click leaves one compact information line below the chart. On the LIVE chart,
-    trackpad pinch zooms only X, horizontal two-finger motion pans X, and vertical
-    two-finger motion pans the price Y-axis. This is presentation-only behavior.
+    Hover highlights the focused trace and continuously updates one compact information
+    line without opening Plotly's large tooltip layer. A linked vertical cursor spans
+    the full Live/indicator stack and the AutoManager comparison chart at the same time.
+    On the LIVE chart, trackpad pinch zooms only X, horizontal two-finger motion pans X,
+    and vertical two-finger motion scales the price Y-axis around the pointer. Wheel
+    gestures are captured only inside the actual plot rectangle so surrounding page
+    scrolling and axis labels remain native browser behavior.
     """
     _legend_hover_component(
         key=f"pg-trading-desk-legend-hover:{uirevision}",
