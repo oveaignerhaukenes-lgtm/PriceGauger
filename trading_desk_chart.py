@@ -16,6 +16,7 @@ from trading_desk_indicators import (
     INDICATOR_RSI,
     INDICATOR_SMA50,
     INDICATOR_STOCHASTIC,
+    INDICATOR_VWAP,
     TechnicalIndicators,
 )
 
@@ -28,6 +29,7 @@ GRID_COLOR = "rgba(17,24,39,0.12)"
 REFERENCE_COLOR = "rgba(17,24,39,0.48)"
 MACD_HIST_POSITIVE_COLOR = "#16a34a"
 MACD_HIST_NEGATIVE_COLOR = "#7c3aed"
+MAX_INLINE_LEGEND_ITEMS = 8
 
 
 def overlay_axis_title(mode: str) -> str:
@@ -58,6 +60,27 @@ def _axis_style() -> dict[str, object]:
         "linecolor": "rgba(17,24,39,0.35)",
         "tickcolor": "rgba(17,24,39,0.45)",
     }
+
+
+def _compact_legend(fig: go.Figure) -> tuple[str, ...]:
+    """Keep the in-chart legend bounded while preserving a full UI-readable list."""
+    full: list[str] = []
+    shown = 0
+    for trace in fig.data:
+        name = str(getattr(trace, "name", "") or "").strip()
+        if not name or getattr(trace, "showlegend", None) is False:
+            continue
+        full.append(name)
+        shown += 1
+        if shown > MAX_INLINE_LEGEND_ITEMS:
+            trace.showlegend = False
+    fig.update_layout(
+        meta={
+            "full_legend": full,
+            "hidden_legend_count": max(0, len(full) - MAX_INLINE_LEGEND_ITEMS),
+        }
+    )
+    return tuple(full)
 
 
 def build_trading_desk_figure(
@@ -168,6 +191,7 @@ def build_trading_desk_figure(
                 (INDICATOR_EMA20, "EMA 20", indicators.ema20, "#2563eb", 1.55),
                 (INDICATOR_EMA50, "EMA 50", indicators.ema50, "#d97706", 1.55),
                 (INDICATOR_SMA50, "SMA 50", indicators.sma50, "#7c3aed", 1.35),
+                (INDICATOR_VWAP, "VWAP · vindu", indicators.vwap, "#111827", 1.8),
             )
             for indicator, name, points, color, width in price_overlays:
                 if indicator not in selected:
@@ -393,11 +417,24 @@ def build_trading_desk_figure(
 
     fig.update_layout(
         template="plotly_white",
-        title={"text": f"{market} · {timeframe} · {int(window_hours)}t", "x": 0.0, "xanchor": "left", "font": {"color": TEXT_COLOR, "size": 17}},
+        title={
+            "text": f"{market}<br><span style='font-size:12px'>{timeframe} · {int(window_hours)}t</span>",
+            "x": 0.0,
+            "xanchor": "left",
+            "font": {"color": TEXT_COLOR, "size": 17},
+        },
         height=max(620, int(chart_height)),
-        margin={"l": 74, "r": 96, "t": 66, "b": 30},
+        margin={"l": 74, "r": 225, "t": 82, "b": 30},
         font={"color": TEXT_COLOR, "size": 13},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.01, "xanchor": "left", "x": 0, "font": {"color": TEXT_COLOR, "size": 12}},
+        legend={
+            "orientation": "v",
+            "yanchor": "top",
+            "y": 1.0,
+            "xanchor": "left",
+            "x": 1.01,
+            "font": {"color": TEXT_COLOR, "size": 11},
+            "title": {"text": "Legend"},
+        },
         hovermode="closest",
         dragmode="pan",
         paper_bgcolor="white",
@@ -412,6 +449,7 @@ def build_trading_desk_figure(
             price_panel_share=price_share,
         ),
     )
+    _compact_legend(fig)
     return fig
 
 
