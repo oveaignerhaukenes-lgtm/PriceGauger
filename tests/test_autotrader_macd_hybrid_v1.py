@@ -15,6 +15,7 @@ def test_hybrid_long_exits_on_fast_bearish_cross_without_slow_entry() -> None:
         STATE_LONG,
         cross_1m=STATE_SHORT,
         cross_entry=None,
+        entry_regime=STATE_LONG,
         data_gap=False,
     ) == STATE_FLAT
 
@@ -24,27 +25,58 @@ def test_hybrid_short_exits_on_fast_bullish_cross_without_slow_entry() -> None:
         STATE_SHORT,
         cross_1m=STATE_LONG,
         cross_entry=None,
+        entry_regime=STATE_SHORT,
         data_gap=False,
     ) == STATE_FLAT
 
 
-def test_hybrid_flat_requires_entry_timeframe_cross() -> None:
+def test_hybrid_flat_reenters_on_fast_recovery_when_slow_regime_agrees() -> None:
     assert hybrid_target_v1(
         STATE_FLAT,
         cross_1m=STATE_LONG,
         cross_entry=None,
+        entry_regime=STATE_LONG,
+        data_gap=False,
+    ) == STATE_LONG
+    assert hybrid_target_v1(
+        STATE_FLAT,
+        cross_1m=STATE_SHORT,
+        cross_entry=None,
+        entry_regime=STATE_SHORT,
+        data_gap=False,
+    ) == STATE_SHORT
+
+
+def test_hybrid_flat_does_not_reenter_against_slow_regime() -> None:
+    assert hybrid_target_v1(
+        STATE_FLAT,
+        cross_1m=STATE_LONG,
+        cross_entry=None,
+        entry_regime=STATE_SHORT,
         data_gap=False,
     ) == STATE_FLAT
     assert hybrid_target_v1(
         STATE_FLAT,
+        cross_1m=STATE_SHORT,
+        cross_entry=None,
+        entry_regime=STATE_LONG,
+        data_gap=False,
+    ) == STATE_FLAT
+
+
+def test_hybrid_flat_still_accepts_fresh_entry_timeframe_cross() -> None:
+    assert hybrid_target_v1(
+        STATE_FLAT,
         cross_1m=None,
         cross_entry=STATE_LONG,
+        entry_regime=STATE_LONG,
         data_gap=False,
     ) == STATE_LONG
     assert hybrid_target_v1(
         STATE_FLAT,
         cross_1m=None,
         cross_entry=STATE_SHORT,
+        entry_regime=STATE_SHORT,
         data_gap=False,
     ) == STATE_SHORT
 
@@ -56,6 +88,7 @@ def test_entry_cross_can_carry_reversal_without_direct_reverse_order() -> None:
         STATE_LONG,
         cross_1m=STATE_SHORT,
         cross_entry=STATE_SHORT,
+        entry_regime=STATE_SHORT,
         data_gap=False,
     ) == STATE_SHORT
 
@@ -65,6 +98,7 @@ def test_gap_never_invents_hybrid_transition() -> None:
         STATE_LONG,
         cross_1m=STATE_SHORT,
         cross_entry=STATE_SHORT,
+        entry_regime=STATE_SHORT,
         data_gap=True,
     ) == STATE_LONG
 
