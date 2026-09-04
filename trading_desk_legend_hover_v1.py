@@ -8,6 +8,7 @@ export default function(component) {
     const { data, parentElement } = component;
     const liveKey = String(data.uirevision || '');
     const enhanced = new Map();
+    const viewRegistry = window.__pricegaugerPlotlyViews ||= new Map();
     let observer = null;
 
     function targetKind(graph) {
@@ -100,6 +101,69 @@ export default function(component) {
             month: '2-digit',
             hour: '2-digit',
             minute: '2-digit',
+        });
+    }
+
+    function viewKey(graph) {
+        return String(graph?.layout?.uirevision || graph?._fullLayout?.uirevision || '');
+    }
+
+    function isNavigationRelayout(eventData) {
+        const keys = Object.keys(eventData || {});
+        return keys.some((key) => /^(xaxis|yaxis)\d*\.(range(?:\[\d\])?|autorange)$/.test(key));
+    }
+
+    function snapshotBrowserView(graph) {
+        const layout = graph?._fullLayout;
+        if (!layout) return null;
+        const ranges = {};
+        for (const key of Object.keys(layout)) {
+            if (!/^(xaxis|yaxis)\d*$/.test(key)) continue;
+            const range = layout[key]?.range;
+            if (!Array.isArray(range) || range.length !== 2) continue;
+            ranges[key] = range.map((value) => value instanceof Date ? value.toISOString() : value);
+        }
+        return Object.keys(ranges).length ? { ranges } : null;
+    }
+
+    function rangeScalar(axisKey, value) {
+        if (axisKey.startsWith('xaxis')) return xMillis(value);
+        const number = Number(value);
+        return Number.isFinite(number) ? number : NaN;
+    }
+
+    function sameRange(axisKey, left, right) {
+        if (!Array.isArray(left) || !Array.isArray(right) || left.length !== 2 || right.length !== 2) return false;
+        return left.every((value, index) => {
+            const a = rangeScalar(axisKey, value);
+            const b = rangeScalar(axisKey, right[index]);
+            if (!Number.isFinite(a) || !Number.isFinite(b)) return String(value) === String(right[index]);
+            const scale = axisKey.startsWith('xaxis') ? 1 : Math.max(1, Math.abs(a), Math.abs(b));
+            const tolerance = axisKey.startsWith('xaxis') ? 1 : scale * 1e-9;
+            return Math.abs(a - b) <= tolerance;
+        });
+    }
+
+    function browserViewAlreadyApplied(graph, saved) {
+        const layout = graph?._fullLayout;
+        if (!layout || !saved?.ranges) return true;
+        return Object.entries(saved.ranges).every(([axisKey, range]) => sameRange(axisKey, layout[axisKey]?.range, range));
+    }
+
+    function applyBrowserView(graph, state) {
+        const key = viewKey(graph);
+        const saved = key ? viewRegistry.get(key) : null;
+        if (!saved || state.restoringView || !window.Plotly?.relayout || browserViewAlreadyApplied(graph, saved)) return;
+        const updates = {};
+        for (const [axisKey, range] of Object.entries(saved.ranges || {})) {
+            if (!Array.isArray(range) || range.length !== 2 || !graph?._fullLayout?.[axisKey]) continue;
+            updates[`${axisKey}.range`] = range.slice();
+            updates[`${axisKey}.autorange`] = false;
+        }
+        if (!Object.keys(updates).length) return;
+        state.restoringView = true;
+        Promise.resolve(window.Plotly.relayout(graph, updates)).finally(() => {
+            state.restoringView = false;
         });
     }
 
@@ -295,7 +359,7 @@ export default function(component) {
                 });
                 continue;
             }
-            const rawValue = Array.isArray(trace?.y) || trace?.y?.length !== undefined ? trace.y?.[index] : undefined;
+            const rawValue = trace?.y?.[index];
             const number = Number(rawValue);
             if (!Number.isFinite(number)) continue;
             const custom = trace?.customdata?.[index];
@@ -463,6 +527,8 @@ export default function(component) {
             fingerprint: traceFingerprint(graph),
             wheelFrame: null,
             wheel: null,
+            restoringView: false,
+            resettingView: false,
         };
         enhanced.set(graph, state);
         compactPresentation(graph, kind);
@@ -471,6 +537,7 @@ export default function(component) {
         hideHoverPopup(graph);
         ensureCrosshair(graph);
         renderInspectorPlaceholder(graph);
+        window.requestAnimationFrame(() => applyBrowserView(graph, state));
 
         const onLegendOver = (event) => {
             const item = event.target?.closest?.('.legend .traces');
@@ -506,9 +573,24 @@ export default function(component) {
             const value = point ? xMillis(point.x) : NaN;
             if (Number.isFinite(value)) renderInspectorsAtX(value);
         };
+        const onRelayout = (eventData) => {
+            if (state.restoringView || state.resettingView || !isNavigationRelayout(eventData)) return;
+            const snapshot = snapshotBrowserView(graph);
+            const key = viewKey(graph);
+            if (snapshot && key) viewRegistry.set(key, snapshot);
+        };
+        const onDoubleClick = () => {
+            const key = viewKey(graph);
+            if (key) viewRegistry.delete(key);
+            state.resettingView = true;
+            window.setTimeout(() => {
+                state.resettingView = false;
+            }, 350);
+        };
         const onAfterPlot = () => {
             hideHoverPopup(graph);
             positionInspector(graph);
+            applyBrowserView(graph, state);
         };
 
         function flushWheel() {
@@ -599,6 +681,8 @@ export default function(component) {
         graph.on?.('plotly_hover', onPlotHover);
         graph.on?.('plotly_unhover', onPlotUnhover);
         graph.on?.('plotly_click', onPlotClick);
+        graph.on?.('plotly_relayout', onRelayout);
+        graph.on?.('plotly_doubleclick', onDoubleClick);
         graph.on?.('plotly_afterplot', onAfterPlot);
 
         state.cleanup = () => {
@@ -610,6 +694,8 @@ export default function(component) {
             graph.removeListener?.('plotly_hover', onPlotHover);
             graph.removeListener?.('plotly_unhover', onPlotUnhover);
             graph.removeListener?.('plotly_click', onPlotClick);
+            graph.removeListener?.('plotly_relayout', onRelayout);
+            graph.removeListener?.('plotly_doubleclick', onDoubleClick);
             graph.removeListener?.('plotly_afterplot', onAfterPlot);
             if (state.wheelFrame) window.cancelAnimationFrame(state.wheelFrame);
             graph.querySelector(':scope > .pg-linked-crosshair')?.remove();
@@ -659,9 +745,10 @@ def render_trading_desk_legend_hover_v1(*, uirevision: str) -> None:
     Legend hover highlights the focused trace while Plotly's large tooltip layer stays
     hidden. A compact inspector lives in the chart's right margin below the legend and
     follows the linked time cursor across the Live/indicator and AutoManager comparison
-    charts. On the LIVE chart, trackpad pinch zooms only X, horizontal two-finger motion
-    pans X, and vertical two-finger motion scales the price Y-axis around the pointer.
-    Wheel gestures are captured only inside the actual plot rectangle.
+    charts. Pan/zoom ranges are kept browser-local by stable ``uirevision`` so Streamlit
+    refreshes do not snap the chart back. On the LIVE chart, trackpad pinch zooms only
+    X, horizontal two-finger motion pans X, and vertical two-finger motion scales the
+    price Y-axis around the pointer. Wheel gestures are captured only inside the plot.
     """
     _legend_hover_component(
         key=f"pg-trading-desk-legend-hover:{uirevision}",
