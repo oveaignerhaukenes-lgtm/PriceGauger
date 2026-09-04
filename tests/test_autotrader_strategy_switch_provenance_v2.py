@@ -20,10 +20,19 @@ class _Cursor:
 
 
 class _Db:
-    def __init__(self, *, unresolved=None, settled=None, handoff=None, consumed=None):
+    def __init__(
+        self,
+        *,
+        unresolved=None,
+        settled=None,
+        handoff=None,
+        user_flat=None,
+        consumed=None,
+    ):
         self.unresolved = unresolved
         self.settled = settled
         self.handoff = handoff
+        self.user_flat = user_flat
         self.consumed = consumed
 
     def __enter__(self):
@@ -42,6 +51,8 @@ class _Db:
             return _Cursor(self.settled)
         if "FROM pg_v2_autotrader_strategy_switch_events" in normalized:
             return _Cursor(self.handoff)
+        if "FROM pg_v2_autotrader_user_flat_authority" in normalized:
+            return _Cursor(self.user_flat)
         if "FROM pg_v2_autotrader_execution_requests" in normalized:
             return _Cursor(self.consumed)
         raise AssertionError(normalized)
@@ -105,6 +116,21 @@ def test_target_flat_handoff_is_available_until_first_submit(monkeypatch) -> Non
     ) is True
 
     _patch(monkeypatch, _Db(handoff=handoff, consumed={"exists": 1}))
+    assert module.has_unconsumed_settled_flat_handoff_v2(
+        pilot_key="target-pilot",
+        enrolled_at=NOW,
+    ) is False
+
+
+def test_explicit_user_flat_authority_can_seed_one_open(monkeypatch) -> None:
+    user_flat = {"authority_id": "user-flat", "created_at": NOW}
+    _patch(monkeypatch, _Db(user_flat=user_flat, consumed=None))
+    assert module.has_unconsumed_settled_flat_handoff_v2(
+        pilot_key="target-pilot",
+        enrolled_at=NOW,
+    ) is True
+
+    _patch(monkeypatch, _Db(user_flat=user_flat, consumed={"exists": 1}))
     assert module.has_unconsumed_settled_flat_handoff_v2(
         pilot_key="target-pilot",
         enrolled_at=NOW,
