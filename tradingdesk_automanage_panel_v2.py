@@ -12,7 +12,6 @@ from autotrader_pnl_chart_v2 import build_automanager_pnl_figure_v2
 from autotrader_pnl_comparison_v2 import load_automanager_pnl_comparison_v2
 from autotrader_pilot_equity_v2 import DEFAULT_PILOT_SEED_CAPITAL, load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
-from autotrader_shadow_benchmark_v2 import load_shadow_benchmark_snapshots_v2
 from autotrader_strategy_catalog_v2 import (
     AUTOTRADER_STRATEGIES_V2,
     AutoTraderStrategySpecV2,
@@ -28,6 +27,7 @@ from autotrader_strategy_enrollment_v2 import (
     load_strategy_enrollment_v2,
     stop_strategy_enrollment_v2,
 )
+from autotrader_strategy_series_store_v1 import load_persisted_strategy_series_v1
 from database import connect, using_postgres
 from saxo_provider import LIVE_BASE_URL, configured_client
 from time_display_v2 import localize_plotly_figure_v2, oslo_label
@@ -48,6 +48,20 @@ class AutoManagePanelSnapshotV2:
     last_outcome: str | None
     last_signal: str | None
     last_signal_at: str | None
+
+
+def _automanager_fragment_v2():
+    """Return a Streamlit fragment decorator when the runtime supports it.
+
+    Keeping this compatibility shim local lets TradingDesk isolate AutoManager without
+    requiring every supported Streamlit version to expose the same decorator name.
+    """
+    fragment_api = getattr(st, "fragment", None)
+    if fragment_api is None:
+        fragment_api = getattr(st, "experimental_fragment", None)
+    if fragment_api is None:
+        return lambda function: function
+    return fragment_api
 
 
 def _account_currency(client, account_id: str) -> str | None:
@@ -191,13 +205,7 @@ def _default_shadow_index(candidates: tuple[AutoTraderStrategySpecV2, ...]) -> i
 def _pnl_enrollments_for_context_v2(
     context: TradingDeskV2Context,
 ) -> tuple[tuple[StrategyEnrollmentV2, ...], bool]:
-    """Prefer active pilots, but preserve the latest LIVE pilot as read-only history.
-
-    P/L/audit history is a reporting concern and must not disappear merely because
-    execution authority is disabled. The fallback never mutates enrollment state and
-    returns only the latest historical LIVE pilot, so it cannot create order authority
-    or make a multi-controller comparison ambiguous.
-    """
+    """Prefer active pilots, but preserve the latest LIVE pilot as read-only history."""
     active = tuple(
         item
         for item in load_active_strategy_enrollments_v2()
@@ -224,7 +232,20 @@ def _pnl_enrollments_for_context_v2(
     return ((latest,) if latest is not None else ()), True
 
 
+def _series_transitions_v2(points) -> int:
+    return sum(
+        1
+        for previous, current in zip(points, points[1:])
+        if previous.position_state != current.position_state
+    )
+
+
 def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -> None:
+    """Render compact model scorecards from persisted Strategy Series only.
+
+    TradingDesk must never trigger historical paper replay. The background materializer
+    owns that migration bridge; this UI only reads its durable result.
+    """
     if not enrollments:
         return
     groups: dict[tuple[str, int, str, int], list[StrategyEnrollmentV2]] = {}
@@ -240,30 +261,41 @@ def _render_strategy_scorecards(enrollments: tuple[StrategyEnrollmentV2, ...]) -
     st.markdown("**LIVE / SHADOW · samme startgrunnlag**")
     for key, group in groups.items():
         try:
-            snapshots = load_shadow_benchmark_snapshots_v2(tuple(group))
+            persisted = load_persisted_strategy_series_v1(
+                account_id=key[0],
+                uic=key[1],
+                asset_type=key[2],
+                instrument_id=key[3],
+                pilot_equivalent=True,
+            )
         except Exception as exc:
-            st.caption(f"UIC {key[1]} · paper-benchmark venter: {exc}")
+            st.caption(f"UIC {key[1]} · lagret modelserie venter: {exc}")
             continue
+        by_strategy = {item.strategy_key: item for item in persisted}
         if len(groups) > 1:
             st.caption(f"UIC {key[1]} · {key[2]}")
-        columns = st.columns(max(1, len(snapshots)))
-        for column, item in zip(columns, snapshots):
-            spec = strategy_spec_v2(item.strategy_key)
-            mode = "LIVE-strategi" if item.execution_mode == EXECUTION_MODE_LIVE else "SHADOW"
+        columns = st.columns(max(1, len(group)))
+        for column, enrollment in zip(columns, group):
+            spec = strategy_spec_v2(enrollment.strategy_key)
+            series = by_strategy.get(enrollment.strategy_key)
+            mode = "LIVE-strategi" if enrollment.execution_mode == EXECUTION_MODE_LIVE else "SHADOW"
             with column:
                 st.caption(mode)
                 st.markdown(f"**{spec.label}**")
-                if item.evaluated_bars == 0:
-                    st.metric("Paper P/L", "venter")
-                    st.caption("Første nye lukkede 30m-bar etter enrollment starter sammenligningen.")
+                if series is None or not series.points:
+                    st.metric("Model P/L", "venter")
+                    st.caption("Bakgrunnsprosess har ennå ikke materialisert denne modelserien.")
                     continue
-                st.metric("Paper P/L", f"{item.return_pct:+.2f}%")
+                latest = series.points[-1]
+                return_pct = ((float(latest.equity) / float(series.seed_equity)) - 1.0) * 100.0
+                st.metric("Model P/L", f"{return_pct:+.2f}%")
                 st.caption(
-                    f"{item.position_state} · {item.transitions} skifter · {item.evaluated_bars} bars"
+                    f"{latest.position_state} · {_series_transitions_v2(series.points)} skifter · "
+                    f"{len(series.points)} lagrede punkter"
                 )
     st.caption(
-        "Paper-replay bruker samme observerte startposisjon og samme exact canonical 30m-prisbane. "
-        "Ingen spread/slippage/margin modelleres; faktisk Saxo-P/L føres separat i LIVE-ledgeren."
+        "Scorekortene leser pilot-ekvivalente, persistente Strategy Series. "
+        "Ingen historisk replay eller indikatorberegning kjøres fra TradingDesk."
     )
 
 
@@ -317,12 +349,13 @@ def _render_automanager_activity_log_v2(
                 st.caption(" · ".join(item for item in details if item))
 
 
+@_automanager_fragment_v2()
 def render_tradingdesk_automanage_pnl_chart_v2(
     context: TradingDeskV2Context,
     *,
     observations: tuple[PositionObservationV2, ...] | None = None,
 ) -> None:
-    """Render the bottom-of-workspace LIVE/paper comparison on explicit contracts."""
+    """Render the bottom-of-workspace LIVE/model comparison as an isolated fragment."""
     if not using_postgres():
         return
     try:
@@ -371,15 +404,16 @@ def render_tradingdesk_automanage_pnl_chart_v2(
             st.caption("Denne pilotens P/L-logg er historisk; AutoManager er ikke aktivert av denne visningen.")
     st.caption(
         "Øverst vises bare faktisk, avstemt og realisert netto Saxo-P/L; åpen urealisert P/L estimeres ikke. "
-        "Nederst vises long/flat, short/flat og MACD Switch som paper-replay på samme observerte startposisjon "
-        "og samme lukkede canonical 30m-prisbane. Paperlinjene modellerer ikke spread, slippage eller margin."
+        "Nederst leses persistente modelserier på samme pilotkapital-skala. "
+        "TradingDesk kjører ikke historisk replay for å tegne grafen."
     )
 
 
+@_automanager_fragment_v2()
 def render_tradingdesk_automanage_panel_v2(
     context: TradingDeskV2Context,
 ) -> tuple[PositionObservationV2, ...] | None:
-    """Wide AutoManager workspace for strategy-neutral product management."""
+    """Wide AutoManager workspace isolated from the rest of TradingDesk reruns."""
     st.markdown("**AutoManager**")
     st.caption("Eksakt LIVE-produkt · strategivalg · separat execution-policy")
 
@@ -393,8 +427,6 @@ def render_tradingdesk_automanage_panel_v2(
         st.info("Saxo LIVE er ikke tilgjengelig i web-runtime.")
         return None
 
-    # This stays visible even while the strategy is FLAT, unlike the position
-    # enrollment controls below which naturally require a currently open position.
     render_tradingdesk_autotrade_entry_gate_v2(context)
     try:
         context_enrollments = tuple(
