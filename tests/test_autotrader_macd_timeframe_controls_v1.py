@@ -62,10 +62,10 @@ def test_each_timeframe_builds_a_closed_bar_macd_flip_control() -> None:
         assert any(point.position_state != STATE_FLAT for point in series.points[1:])
 
 
-def test_timeframe_controls_have_readable_labels_and_only_2m_15m_are_live() -> None:
+def test_timeframe_controls_have_readable_labels_and_only_2m_5m_15m_are_live() -> None:
     live_keys = {item.key for item in AUTOTRADER_STRATEGIES_V2}
     for minutes, key in controls.MACD_CONTROL_STRATEGY_KEYS_V1.items():
-        if minutes in {2, 15}:
+        if minutes in {2, 5, 15}:
             assert key in live_keys
         else:
             assert key not in live_keys
