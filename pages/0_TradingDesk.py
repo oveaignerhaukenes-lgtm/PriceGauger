@@ -21,6 +21,7 @@ from trading_desk_chart import (
     build_trading_desk_figure,
     trading_desk_uirevision,
 )
+from trading_desk_legend_hover_v1 import render_trading_desk_legend_hover_v1
 from trading_desk_live_overlay_v2 import (
     live_chart_overlay_key_v2,
     parse_live_chart_view_v2,
@@ -386,6 +387,7 @@ def _render_live_chart_controls() -> None:
                 help="Velger timeframe for MACD-panelet i chartet.",
             )
             st.caption("Kun chartvisning. AutoManager beholder sin eksplisitt valgte strategi og signal-timeframes.")
+    render_trading_desk_legend_hover_v1(uirevision=_live_chart_uirevision())
 
 
 def _live_chart_uirevision() -> str:
@@ -530,18 +532,6 @@ def _render_live_chart() -> None:
         fig.update_xaxes(range=list(saved_view.x_range), autorange=False)
         fig.update_yaxes(range=list(saved_view.y_range), autorange=False, row=1, col=1, secondary_y=False)
 
-    legend_meta = dict(fig.layout.meta or {})
-    full_legend = tuple(str(value) for value in legend_meta.get("full_legend", ()) if str(value).strip())
-    hidden_legend_count = int(legend_meta.get("hidden_legend_count", 0) or 0)
-    if hidden_legend_count > 0:
-        with st.popover(f"Legend · {len(full_legend)} serier", width="stretch"):
-            st.caption(
-                f"Chartet viser de første {len(full_legend) - hidden_legend_count} legend-elementene. "
-                f"{hidden_legend_count} flere er skjult for å holde grafen ryddig."
-            )
-            for legend_name in full_legend:
-                st.markdown(f"- {legend_name}")
-
     st.plotly_chart(
         fig,
         width="stretch",
@@ -553,6 +543,7 @@ def _render_live_chart() -> None:
         key=f"tradingdesk-live-chart:{market}",
     )
     st.caption(
+        "Legend: hold musen over en serie for å fremheve den; scroll i legend-feltet for resten. "
         "Navigasjon: dra i selve plottet for å flytte visningen. Dra langs tidsaksen for bare tid, "
         "og langs prisaksen til høyre for bare prisnivå. Dobbeltklikk nullstiller visningen."
     )
