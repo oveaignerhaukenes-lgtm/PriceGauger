@@ -29,7 +29,6 @@ GRID_COLOR = "rgba(17,24,39,0.12)"
 REFERENCE_COLOR = "rgba(17,24,39,0.48)"
 MACD_HIST_POSITIVE_COLOR = "#16a34a"
 MACD_HIST_NEGATIVE_COLOR = "#7c3aed"
-MAX_INLINE_LEGEND_ITEMS = 8
 
 
 def overlay_axis_title(mode: str) -> str:
@@ -60,27 +59,6 @@ def _axis_style() -> dict[str, object]:
         "linecolor": "rgba(17,24,39,0.35)",
         "tickcolor": "rgba(17,24,39,0.45)",
     }
-
-
-def _compact_legend(fig: go.Figure) -> tuple[str, ...]:
-    """Keep the in-chart legend bounded while preserving a full UI-readable list."""
-    full: list[str] = []
-    shown = 0
-    for trace in fig.data:
-        name = str(getattr(trace, "name", "") or "").strip()
-        if not name or getattr(trace, "showlegend", None) is False:
-            continue
-        full.append(name)
-        shown += 1
-        if shown > MAX_INLINE_LEGEND_ITEMS:
-            trace.showlegend = False
-    fig.update_layout(
-        meta={
-            "full_legend": full,
-            "hidden_legend_count": max(0, len(full) - MAX_INLINE_LEGEND_ITEMS),
-        }
-    )
-    return tuple(full)
 
 
 def build_trading_desk_figure(
@@ -433,7 +411,8 @@ def build_trading_desk_figure(
             "xanchor": "left",
             "x": 1.01,
             "font": {"color": TEXT_COLOR, "size": 11},
-            "title": {"text": "Legend"},
+            "title": {"text": "Legend · hover / scroll"},
+            "maxheight": 0.52,
         },
         hovermode="closest",
         dragmode="pan",
@@ -449,7 +428,6 @@ def build_trading_desk_figure(
             price_panel_share=price_share,
         ),
     )
-    _compact_legend(fig)
     return fig
 
 
