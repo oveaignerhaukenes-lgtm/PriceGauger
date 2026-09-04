@@ -169,6 +169,9 @@ export default function(component) {
             updates['legend.font.size'] = 11;
             updates['margin.r'] = Math.max(Number(layout.margin?.r || 0), 225);
         }
+        if (kind === 'live' && graph._context) {
+            graph._context.scrollZoom = false;
+        }
         plotly.relayout(graph, updates);
 
         if (kind === 'live' && plotly.restyle) {
@@ -220,6 +223,8 @@ export default function(component) {
         };
         enhanced.set(graph, state);
         compactPresentation(graph, kind);
+        state.opacity = originalOpacity(graph);
+        state.fingerprint = traceFingerprint(graph);
         hideHoverPopup(graph);
 
         const onLegendOver = (event) => {
