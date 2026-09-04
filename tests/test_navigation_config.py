@@ -1,18 +1,30 @@
 from navigation_config import PAGE_GROUPS
 
 
+RETIRED_V1_PAGE_PATHS = {
+    "pages/1_Kjerneflyt.py",
+    "pages/2_Direct_Technical.py",
+    "pages/5_AI_Market_Assessment.py",
+    "pages/2_Signalaggregat.py",
+    "pages/Market_State.py",
+    "pages/Signal_History.py",
+    "pages/7_Forecast_Learning.py",
+    "pages/1_Historical_Event_Lab.py",
+}
+
+
 def _all_pages():
     return [page for group in PAGE_GROUPS.values() for page in group]
 
 
-def test_navigation_groups_separate_product_from_developer_surfaces() -> None:
+def test_navigation_contains_only_active_product_and_developer_groups() -> None:
     assert list(PAGE_GROUPS) == [
         "",
         "Analyse",
         "Tilkoblinger og handel",
         "Utviklerverktøy",
-        "Utviklerverktøy · Legacy",
     ]
+    assert all("legacy" not in section.casefold() for section in PAGE_GROUPS)
 
 
 def test_overview_is_the_only_default_page() -> None:
@@ -49,23 +61,11 @@ def test_connections_menu_separates_saxo_browser_and_autotrader() -> None:
     assert browser["url_path"] == "Product_Browser"
 
 
-def test_legacy_surfaces_are_visibly_isolated_from_product_groups() -> None:
-    product_groups = ("", "Analyse", "Tilkoblinger og handel")
-    product_pages = [page for group in product_groups for page in PAGE_GROUPS[group]]
-    legacy_pages = PAGE_GROUPS["Utviklerverktøy · Legacy"]
-
-    retired_paths = {
-        "pages/1_Kjerneflyt.py",
-        "pages/2_Direct_Technical.py",
-        "pages/5_AI_Market_Assessment.py",
-        "pages/2_Signalaggregat.py",
-        "pages/Market_State.py",
-        "pages/Signal_History.py",
-        "pages/7_Forecast_Learning.py",
-    }
-    assert retired_paths.isdisjoint({page["page"] for page in product_pages})
-    assert retired_paths == {page["page"] for page in legacy_pages}
-    assert all(page["title"].startswith("Legacy · ") for page in legacy_pages)
+def test_retired_v1_surfaces_are_absent_from_active_navigation() -> None:
+    pages = _all_pages()
+    active_paths = {page["page"] for page in pages}
+    assert RETIRED_V1_PAGE_PATHS.isdisjoint(active_paths)
+    assert all("legacy" not in page["title"].casefold() for page in pages)
 
 
 def test_active_diagnostics_remain_available_under_developer_tools() -> None:
@@ -80,9 +80,3 @@ def test_active_diagnostics_remain_available_under_developer_tools() -> None:
 def test_saxo_callback_route_is_preserved() -> None:
     saxo = next(page for page in _all_pages() if page["title"] == "Saxo")
     assert saxo["url_path"] == "Saxo_OpenAPI"
-
-
-def test_retired_historical_event_lab_is_absent_from_navigation() -> None:
-    pages = _all_pages()
-    assert all(page["page"] != "pages/1_Historical_Event_Lab.py" for page in pages)
-    assert all(page["title"] != "Historisk hendelsessøk (legacy)" for page in pages)

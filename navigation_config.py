@@ -85,50 +85,6 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "url_path": "Benchmark",
         },
     ),
-    "Utviklerverktøy · Legacy": (
-        {
-            "page": "pages/1_Kjerneflyt.py",
-            "title": "Legacy · Historisk motor",
-            "icon": "🔗",
-            "url_path": "Historisk_motor",
-        },
-        {
-            "page": "pages/2_Direct_Technical.py",
-            "title": "Legacy · Direct Technical",
-            "icon": "📈",
-            "url_path": "Direct_Technical",
-        },
-        {
-            "page": "pages/5_AI_Market_Assessment.py",
-            "title": "Legacy · AI-markedsvurdering v1",
-            "icon": "🧠",
-            "url_path": "AI_Market_Assessment",
-        },
-        {
-            "page": "pages/2_Signalaggregat.py",
-            "title": "Legacy · Signalaggregat",
-            "icon": "📶",
-            "url_path": "Signalaggregat",
-        },
-        {
-            "page": "pages/Market_State.py",
-            "title": "Legacy · Market State",
-            "icon": "🧭",
-            "url_path": "Market_State",
-        },
-        {
-            "page": "pages/Signal_History.py",
-            "title": "Legacy · Signalhistorikk",
-            "icon": "📊",
-            "url_path": "Signal_History",
-        },
-        {
-            "page": "pages/7_Forecast_Learning.py",
-            "title": "Legacy · Graf/forecast-lab",
-            "icon": "📈",
-            "url_path": "Forecast_Learning",
-        },
-    ),
 }
 
 

@@ -7,11 +7,19 @@ import pandas as pd
 import streamlit as st
 
 from engine_sidebar import render_engine_sidebar
-from historical_engine_ui import compact_timestamp
 from telegram_channel_store import TelegramChannelStore, telegram_message_key
 from telegram_flow_engine import OpenAITelegramFlowScorer, aggregate_scored_posts
 from telegram_flow_store import TelegramFlowStore
 from telegram_query_builder import fetch_search_plans
+
+
+def _compact_timestamp(value: object) -> str:
+    if value in (None, ""):
+        return "–"
+    parsed = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(parsed):
+        return str(value)
+    return parsed.tz_convert("Europe/Oslo").strftime("%d.%m.%y · %H:%M")
 
 
 st.set_page_config(page_title="Telegram Flow", page_icon="📡", layout="wide")
@@ -121,7 +129,7 @@ if run:
                     "source": "manual/database",
                 }
         except Exception as exc:
-            st.error(f"Telegram Flow kunne ikke fullføres: {exc}")
+            st.error(f"Telegram Flow kunne ikke fullføre: {exc}")
 
 result = st.session_state.get(state_key)
 if result is None:
@@ -130,7 +138,7 @@ else:
     assessment = result["assessment"]
     st.caption(
         f"Kilde: {result.get('source', 'ukjent')} · modell: {result['model']} · poster: {assessment.post_count} · "
-        f"hendelsesklynger: {assessment.event_cluster_count} · oppdatert: {compact_timestamp(assessment.as_of)}"
+        f"hendelsesklynger: {assessment.event_cluster_count} · oppdatert: {_compact_timestamp(assessment.as_of)}"
     )
 
     st.subheader("Fortløpende markedsbias")
@@ -159,7 +167,7 @@ else:
     rows = [item.to_record() for item in assessment.contributions]
     if rows:
         frame = pd.DataFrame(rows)
-        frame["published_at"] = frame["published_at"].map(compact_timestamp)
+        frame["published_at"] = frame["published_at"].map(_compact_timestamp)
         display = frame[
             [
                 "selected", "asset", "raw_score", "channel", "published_at", "event_key",
@@ -194,7 +202,7 @@ else:
                     continue
                 st.markdown(f"**{item.asset} · {item.raw_score:+.3f} · {item.channel} · {item.event_key}**")
                 st.write(item.rationale)
-                st.caption(compact_timestamp(item.published_at))
+                st.caption(_compact_timestamp(item.published_at))
 
     with st.expander("Strukturert output"):
         record = assessment.to_record()
