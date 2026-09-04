@@ -46,7 +46,7 @@ def test_vwap_uses_typical_price_weighted_by_real_volume() -> None:
     assert indicators.vwap[1].value == pytest.approx((first_typical * 1.0 + second_typical * 2.0) / 3.0)
 
 
-def test_live_chart_uses_two_line_title_right_legend_and_compacts_long_legend() -> None:
+def test_live_chart_uses_two_line_title_right_scrollable_full_legend() -> None:
     bars = _bars()
     indicators = calculate_indicators(bars)
     selected = (
@@ -75,10 +75,9 @@ def test_live_chart_uses_two_line_title_right_legend_and_compacts_long_legend() 
     assert "<br>" in str(fig.layout.title.text)
     assert fig.layout.legend.orientation == "v"
     assert float(fig.layout.legend.x) > 1.0
+    assert float(fig.layout.legend.maxheight) == pytest.approx(0.52)
+    assert "hover / scroll" in str(fig.layout.legend.title.text)
     names = [str(item.name) for item in fig.data]
     assert "VWAP · vindu" in names
-    meta = dict(fig.layout.meta)
-    assert len(meta["full_legend"]) > 8
-    assert int(meta["hidden_legend_count"]) == len(meta["full_legend"]) - 8
-    visible_legend_items = sum(item.showlegend is not False for item in fig.data if getattr(item, "name", None))
-    assert visible_legend_items == 8
+    assert len(names) > 8
+    assert all(item.showlegend is not False for item in fig.data if getattr(item, "name", None))
