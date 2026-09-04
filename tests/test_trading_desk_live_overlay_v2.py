@@ -44,7 +44,7 @@ def test_forming_candle_payload_is_browser_only_price_data_in_oslo_time() -> Non
     assert forming_candle_payload_v2(_candle(), timeframe_minutes=30)["bar_time"] == "2026-08-31T14:30:00"
 
 
-def test_saved_chart_view_is_validated_before_reapplying_ranges() -> None:
+def test_saved_chart_view_compatibility_parser_still_validates_old_payloads() -> None:
     view = parse_live_chart_view_v2(
         {
             "view": {
@@ -67,6 +67,21 @@ def test_overlay_component_draws_without_intercepting_pointer_navigation() -> No
     assert "document.createElement('canvas')" in source
     assert "pointerEvents: 'none'" in source
     assert "plotly_relayout" in source
+    assert "plotly_afterplot" in source
     assert "plotly_doubleclick" in source
-    assert "setStateValue('view', view)" in source
+    assert "entry.view = view" in source
+    assert "applyStoredView" in source
+    assert "window.__pricegaugerLiveCandleOverlays" in source
+    assert "setStateValue('view', view)" not in source
     assert live_chart_overlay_key_v2("revision") == "pg-live-candle-overlay:revision"
+
+
+def test_browser_local_view_restore_is_guarded_and_double_click_clears_it() -> None:
+    source = Path("trading_desk_live_overlay_v2.py").read_text(encoding="utf-8")
+
+    assert "entry.restoringView" in source
+    assert "viewsEqual(current, entry.view)" in source
+    assert "'xaxis.autorange': false" in source
+    assert "'yaxis.autorange': false" in source
+    assert "entry.view = null" in source
+    assert "entry.resettingView = true" in source
