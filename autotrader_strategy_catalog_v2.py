@@ -16,6 +16,8 @@ INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shad
 COCKTAIL_MODE_1_SHADOW_STRATEGY_V2 = "cocktail-mode-1-shadow-v1"
 STRONG_COCKTAIL_STRATEGY_V2 = "strong-cocktail-shadow-v1"
 MACD_1M_FLIP_STRATEGY_V2 = "macd-1m-flip-control-shadow-v1"
+MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-2m-v1"
+MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-5m-v1"
 AI_BASELINE_STRATEGY_V2 = "gpt-5-mini-ai-baseline-v1"
 
 
@@ -121,6 +123,28 @@ MACD_1M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
+MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2,
+    label="MACD hybrid · exit 1m / entry 2m",
+    description=(
+        "Opposite 1m MACD cross de-risks to FLAT; a closed 2m MACD cross is required for new LONG/SHORT exposure. "
+        "Reversals still execute only as CLOSE -> confirmed FLAT -> OPEN."
+    ),
+    can_long=True,
+    can_short=True,
+)
+
+MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2,
+    label="MACD hybrid · exit 1m / entry 5m",
+    description=(
+        "Opposite 1m MACD cross de-risks to FLAT; a closed 5m MACD cross is required for new LONG/SHORT exposure. "
+        "Reversals still execute only as CLOSE -> confirmed FLAT -> OPEN."
+    ),
+    can_long=True,
+    can_short=True,
+)
+
 AI_BASELINE_SPEC_V2 = AutoTraderStrategySpecV2(
     key=AI_BASELINE_STRATEGY_V2,
     label="AI baseline · GPT-5 mini · technicals + news",
@@ -144,6 +168,8 @@ AUTOTRADER_STRATEGIES_V2 = (
     MTF_LONG_SHORT_FLIP_SPEC_V2,
     STRONG_COCKTAIL_SPEC_V2,
     MACD_1M_FLIP_SPEC_V2,
+    MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
+    MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
     AI_BASELINE_SPEC_V2,
 )
 
@@ -280,6 +306,10 @@ __all__ = [
     "MACD_1M_FLIP_SPEC_V2",
     "MACD_1M_FLIP_STRATEGY_V2",
     "MACD_FLIP_SPEC_V2",
+    "MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2",
+    "MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2",
+    "MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2",
+    "MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2",
     "MACD_LONG_FLAT_SPEC_V2",
     "MACD_LONG_FLAT_STRATEGY_V2",
     "MACD_SHORT_FLAT_SPEC_V2",

@@ -8,6 +8,11 @@ from typing import Any
 
 from autotrader_ai_baseline_v1 import PROMPT_VERSION as AI_PROMPT_VERSION
 from autotrader_cocktail_mode_1_shadow_v2 import CONFIG_VERSION as COCKTAIL_CONFIG_VERSION
+from autotrader_macd_hybrid_v1 import (
+    HYBRID_SERIES_VERSION_V1,
+    HYBRID_STRATEGY_KEYS_V1,
+    load_macd_hybrid_series_v1,
+)
 from autotrader_macd_timeframe_controls_v1 import (
     MACD_CONTROL_STRATEGY_KEYS_V1,
     SERIES_VERSION_V1 as MACD_TIMEFRAME_SERIES_VERSION,
@@ -70,6 +75,8 @@ def strategy_series_version_v1(strategy_key: str) -> str:
         return MACD_1M_SERIES_VERSION
     if key in set(MACD_CONTROL_STRATEGY_KEYS_V1.values()):
         return str(MACD_TIMEFRAME_SERIES_VERSION)
+    if key in set(HYBRID_STRATEGY_KEYS_V1.values()):
+        return str(HYBRID_SERIES_VERSION_V1)
     if key == AI_BASELINE_STRATEGY_V2:
         return str(AI_PROMPT_VERSION)
     if key == COCKTAIL_MODE_1_SHADOW_STRATEGY_V2:
@@ -164,7 +171,19 @@ def materialize_strategy_series_once_v1(
                 as_of=end,
                 db_path=db_path,
             )
-            raw_model_series = tuple(comparison.paper_series) + tuple(timeframe_controls)
+            hybrid_controls = load_macd_hybrid_series_v1(
+                instrument_id=live.instrument_id,
+                seed_equity=comparison.seed_equity,
+                currency=comparison.currency,
+                started_at=comparison.started_at,
+                as_of=end,
+                db_path=db_path,
+            )
+            raw_model_series = (
+                tuple(comparison.paper_series)
+                + tuple(timeframe_controls)
+                + tuple(hybrid_controls)
+            )
             leveraged = apply_schedule_to_series_v2(raw_model_series, schedule=schedule)
             if len(leveraged) != len(raw_model_series):
                 raise ValueError("leverage transformation changed strategy-series count")
