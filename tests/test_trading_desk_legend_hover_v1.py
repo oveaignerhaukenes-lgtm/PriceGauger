@@ -25,6 +25,7 @@ def test_live_chart_trackpad_contract_is_x_zoom_x_pan_and_price_y_pan() -> None:
     source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
 
     assert "event.ctrlKey || event.metaKey" in source
+    assert "graph._context.scrollZoom = false" in source
     assert "'xaxis.range'" in source
     assert "Math.abs(gesture.dx) > Math.abs(gesture.dy)" in source
     assert "'yaxis.range'" in source
