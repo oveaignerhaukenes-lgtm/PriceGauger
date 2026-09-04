@@ -31,6 +31,7 @@ from trading_desk_indicators import (
     INDICATOR_MACD,
     INDICATOR_OPTIONS,
     INDICATOR_SWING_BANDS,
+    INDICATOR_VWAP,
     INDICATOR_WARMUP_PERIODS,
     calculate_indicators,
     clip_indicators,
@@ -247,8 +248,8 @@ with controls_column:
             list(INDICATOR_OPTIONS),
             default=list(DEFAULT_INDICATORS),
             help=(
-                "Bollinger/EMA/SMA og Swing high/low ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
-                "Swing-sonene er bekreftede lokale pivoter og er kun en teknisk visualisering."
+                "Bollinger/EMA/SMA/VWAP og Swing high/low ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
+                "VWAP er volumvektet over det viste chart-vinduet. Swing-sonene er bekreftede lokale pivoter og er kun en teknisk visualisering."
             ),
         )
 
@@ -475,6 +476,8 @@ def _render_live_chart() -> None:
             indicator_source = _load(market, range_start=warmup_start, range_end=resolved_end, limit=20000)
             technical = calculate_indicators(indicator_source)
             technical = clip_indicators(technical, start=primary[0].bar_time, end=primary[-1].bar_time)
+            if INDICATOR_VWAP in indicator_names:
+                technical = replace(technical, vwap=calculate_indicators(primary).vwap)
             macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
             if INDICATOR_MACD in indicator_names and macd_timeframe != timeframe:
                 macd_warmup_minutes = TIMEFRAME_MINUTES[macd_timeframe] * INDICATOR_WARMUP_PERIODS
@@ -503,10 +506,8 @@ def _render_live_chart() -> None:
     if primary:
         latest_display = f"{primary[-1].close:g} @ {oslo_label(primary[-1].bar_time)}"
 
-    st.caption(
-        f"**{market}** · v2 instrument_id {context.instrument.instrument_id} · {timeframe} · {window_hours}t · "
-        f"siste close {latest_display}"
-    )
+    st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
+    st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
     fig = build_trading_desk_figure(
         market=market,
         timeframe=timeframe,
@@ -529,6 +530,18 @@ def _render_live_chart() -> None:
         fig.update_xaxes(range=list(saved_view.x_range), autorange=False)
         fig.update_yaxes(range=list(saved_view.y_range), autorange=False, row=1, col=1, secondary_y=False)
 
+    legend_meta = dict(fig.layout.meta or {})
+    full_legend = tuple(str(value) for value in legend_meta.get("full_legend", ()) if str(value).strip())
+    hidden_legend_count = int(legend_meta.get("hidden_legend_count", 0) or 0)
+    if hidden_legend_count > 0:
+        with st.popover(f"Legend · {len(full_legend)} serier", width="stretch"):
+            st.caption(
+                f"Chartet viser de første {len(full_legend) - hidden_legend_count} legend-elementene. "
+                f"{hidden_legend_count} flere er skjult for å holde grafen ryddig."
+            )
+            for legend_name in full_legend:
+                st.markdown(f"- {legend_name}")
+
     st.plotly_chart(
         fig,
         width="stretch",
@@ -550,7 +563,7 @@ def _render_live_chart() -> None:
         volume_points = sum(item.volume is not None for item in primary)
         if volume_points < len(primary):
             st.caption(
-                "Volum vises bare der canonical bar har ekte Saxo chart-volume. "
+                "Volum og VWAP bruker bare bars der canonical bar har ekte Saxo chart-volume. "
                 "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
             )
 
