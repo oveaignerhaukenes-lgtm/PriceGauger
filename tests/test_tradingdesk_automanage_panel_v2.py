@@ -42,16 +42,25 @@ def test_automanage_panel_is_generic_product_strategy_enrollment_not_order_submi
     assert "4912" not in source
 
 
-def test_automanage_panel_exposes_same_basis_live_shadow_scorecards_even_when_flat():
+def test_automanage_interactive_surfaces_are_streamlit_fragments():
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-    assert "load_shadow_benchmark_snapshots_v2" in source
+    assert "def _automanager_fragment_v2()" in source
+    assert 'getattr(st, "fragment", None)' in source
+    assert 'getattr(st, "experimental_fragment", None)' in source
+    assert source.count("@_automanager_fragment_v2()") == 2
+    assert "isolated from the rest of TradingDesk reruns" in source
+    assert "comparison as an isolated fragment" in source
+
+
+def test_automanage_scorecards_read_persisted_strategy_series_without_ui_replay():
+    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    assert "load_persisted_strategy_series_v1" in source
+    assert "load_shadow_benchmark_snapshots_v2" not in source
     assert "load_active_strategy_enrollments_v2" in source
     assert "LIVE / SHADOW · samme startgrunnlag" in source
-    assert 'st.metric("Paper P/L", f"{item.return_pct:+.2f}%")' in source
-    assert "samme observerte startposisjon" in source
-    assert "same exact canonical 30m-prisbane" not in source
-    assert "samme exact canonical 30m-prisbane" in source
-    assert "faktisk Saxo-P/L føres separat i LIVE-ledgeren" in source
+    assert 'st.metric("Model P/L", f"{return_pct:+.2f}%")' in source
+    assert "pilot-ekvivalente, persistente Strategy Series" in source
+    assert "Ingen historisk replay eller indikatorberegning kjøres fra TradingDesk" in source
     assert "strategitest over forblir synlig" in source
 
 
@@ -92,13 +101,14 @@ def test_automanage_workspace_explains_active_pilot_vs_available_live_strategy()
     assert "MTF 30/10/5 er nå et LIVE-kapabelt alternativ" in source
 
 
-def test_automanage_bottom_chart_keeps_actual_live_and_paper_semantics_separate():
+def test_automanage_bottom_chart_keeps_actual_live_and_persisted_model_semantics_separate():
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "load_automanager_pnl_comparison_v2" in source
     assert "build_automanager_pnl_figure_v2" in source
     assert "P/L · LIVE og modellene" in source
     assert "bare faktisk, avstemt og realisert netto Saxo-P/L" in source
-    assert "long/flat, short/flat og MACD Switch" in source
+    assert "persistente modelserier på samme pilotkapital-skala" in source
+    assert "TradingDesk kjører ikke historisk replay for å tegne grafen" in source
 
 
 def test_automanage_bottom_chart_exposes_engine_provenance_and_next_status():
