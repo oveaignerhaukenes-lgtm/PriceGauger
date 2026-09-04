@@ -16,6 +16,8 @@ INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2 = "macd-30m-intrabar-1m-long-flat-shad
 COCKTAIL_MODE_1_SHADOW_STRATEGY_V2 = "cocktail-mode-1-shadow-v1"
 STRONG_COCKTAIL_STRATEGY_V2 = "strong-cocktail-shadow-v1"
 MACD_1M_FLIP_STRATEGY_V2 = "macd-1m-flip-control-shadow-v1"
+MACD_2M_FLIP_STRATEGY_V2 = "macd-2m-flip-control-shadow-v1"
+MACD_15M_FLIP_STRATEGY_V2 = "macd-15m-flip-control-shadow-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-2m-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-5m-v1"
 AI_BASELINE_STRATEGY_V2 = "gpt-5-mini-ai-baseline-v1"
@@ -123,6 +125,22 @@ MACD_1M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
+MACD_2M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD_2M_FLIP_STRATEGY_V2,
+    label="2m MACD flip · long/short",
+    description="Simple closed 2m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    can_long=True,
+    can_short=True,
+)
+
+MACD_15M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD_15M_FLIP_STRATEGY_V2,
+    label="15m MACD flip · long/short",
+    description="Simple closed 15m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    can_long=True,
+    can_short=True,
+)
+
 MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2,
     label="MACD hybrid · exit 1m / entry 2m",
@@ -168,6 +186,8 @@ AUTOTRADER_STRATEGIES_V2 = (
     MTF_LONG_SHORT_FLIP_SPEC_V2,
     STRONG_COCKTAIL_SPEC_V2,
     MACD_1M_FLIP_SPEC_V2,
+    MACD_2M_FLIP_SPEC_V2,
+    MACD_15M_FLIP_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
     AI_BASELINE_SPEC_V2,
@@ -305,6 +325,10 @@ __all__ = [
     "INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2",
     "MACD_1M_FLIP_SPEC_V2",
     "MACD_1M_FLIP_STRATEGY_V2",
+    "MACD_2M_FLIP_SPEC_V2",
+    "MACD_2M_FLIP_STRATEGY_V2",
+    "MACD_15M_FLIP_SPEC_V2",
+    "MACD_15M_FLIP_STRATEGY_V2",
     "MACD_FLIP_SPEC_V2",
     "MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2",
     "MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2",
