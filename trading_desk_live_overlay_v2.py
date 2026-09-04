@@ -43,6 +43,7 @@ export default function(component) {
     let graph = null;
     let canvas = null;
     let observer = null;
+    let persistTimer = null;
 
     function findGraph() {
         return Array.from(document.querySelectorAll('.js-plotly-plot')).find(
@@ -141,7 +142,7 @@ export default function(component) {
             const centerValue = xaxis.d2c(String(candle.bar_time));
             const centerX = size.l + xaxis.c2p(centerValue);
             const nextX = size.l + xaxis.c2p(centerValue + Number(data.timeframe_minutes) * 60000);
-            const bodyWidth = Math.max(3, Math.min(26, Math.abs(nextX - centerX) * 0.62));
+            const bodyWidth = Math.max(3, Math.min(7, Math.abs(nextX - centerX) * 0.38));
             const priceTrace = Array.from(graph.data || []).find((trace) => trace.type === 'candlestick');
             let baseIndex = -1;
             if (priceTrace) {
@@ -168,13 +169,13 @@ export default function(component) {
 
             context.strokeStyle = color;
             context.fillStyle = color;
-            context.lineWidth = 1.4;
+            context.lineWidth = 1.0;
             context.beginPath();
             context.moveTo(centerX, highY);
             context.lineTo(centerX, lowY);
             context.stroke();
             const top = Math.min(openY, closeY);
-            const height = Math.max(1.5, Math.abs(closeY - openY));
+            const height = Math.max(1.25, Math.abs(closeY - openY));
             context.fillRect(centerX - bodyWidth / 2, top, bodyWidth, height);
         }
 
@@ -195,17 +196,27 @@ export default function(component) {
         };
     }
 
+    function persistViewSoon() {
+        if (persistTimer) window.clearTimeout(persistTimer);
+        persistTimer = window.setTimeout(() => {
+            persistTimer = null;
+            const view = currentView();
+            if (view) setStateValue('view', view);
+        }, 180);
+    }
+
     function attach() {
         if (!ensureCanvas()) return false;
         draw();
         const onRelayout = () => {
-            window.requestAnimationFrame(() => {
-                draw();
-                const view = currentView();
-                if (view) setStateValue('view', view);
-            });
+            window.requestAnimationFrame(draw);
+            persistViewSoon();
         };
-        const onDoubleClick = () => setStateValue('view', null);
+        const onDoubleClick = () => {
+            if (persistTimer) window.clearTimeout(persistTimer);
+            persistTimer = null;
+            setStateValue('view', null);
+        };
         graph.on('plotly_relayout', onRelayout);
         graph.on('plotly_doubleclick', onDoubleClick);
         window.addEventListener('resize', draw);
@@ -214,6 +225,8 @@ export default function(component) {
             graph?.removeListener?.('plotly_relayout', onRelayout);
             graph?.removeListener?.('plotly_doubleclick', onDoubleClick);
             window.removeEventListener('resize', draw);
+            if (persistTimer) window.clearTimeout(persistTimer);
+            persistTimer = null;
         };
         return true;
     }
