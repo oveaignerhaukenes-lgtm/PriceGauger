@@ -26,11 +26,15 @@ def oslo_chart_time(value) -> datetime:
 
 
 def oslo_label(value, *, include_date: bool = True) -> str:
+    """Return compact local wall-clock text.
+
+    TradingDesk is already a Norwegian-local UI, so repeating CEST/CET/"norsk tid"
+    on every timestamp adds noise without adding information.
+    """
     parsed = oslo_time(value)
-    suffix = parsed.tzname() or "norsk tid"
     if include_date:
-        return f"{parsed:%d.%m.%Y %H:%M} {suffix}"
-    return f"{parsed:%H:%M} {suffix}"
+        return f"{parsed:%d.%m.%Y %H:%M}"
+    return f"{parsed:%H:%M}"
 
 
 def _local_plotly_x(value):
@@ -47,15 +51,20 @@ def localize_plotly_figure_v2(fig) -> None:
 
     Stored timestamps remain UTC. Trace x-values plus time-anchored layout shapes
     and annotations are converted at the final UI boundary so linked analytical
-    overlays keep exact alignment while the display clock matches TradingDesk.
+    overlays keep exact alignment while the displayed clock is local.
     """
     for trace in getattr(fig, "data", ()):
         values = getattr(trace, "x", None)
         if values is not None:
             trace.x = tuple(_local_plotly_x(value) for value in values)
         hover = getattr(trace, "hovertemplate", None)
-        if isinstance(hover, str) and "UTC" in hover:
-            trace.hovertemplate = hover.replace("UTC", "norsk tid")
+        if isinstance(hover, str):
+            trace.hovertemplate = (
+                hover.replace(" UTC", "")
+                .replace("UTC", "")
+                .replace(" norsk tid", "")
+                .replace("norsk tid", "")
+            )
 
     layout = getattr(fig, "layout", None)
     if layout is None:
@@ -79,5 +88,5 @@ def localize_plotly_figure_v2(fig) -> None:
             continue
         axis = layout[key]
         title = getattr(getattr(axis, "title", None), "text", None)
-        if title == "Tid · UTC":
-            axis.title.text = "Tid · norsk tid"
+        if title in {"Tid · UTC", "Tid · norsk tid"}:
+            axis.title.text = "Tid"
