@@ -51,7 +51,8 @@ def test_comparison_scale_contract_preserves_legacy_default() -> None:
 def test_public_ui_loader_reads_persisted_series_and_replay_is_explicit_bridge() -> None:
     comparison = (ROOT / "autotrader_pnl_comparison_v2.py").read_text(encoding="utf-8")
     materializer = (ROOT / "autotrader_strategy_series_materializer_v1.py").read_text(encoding="utf-8")
-    panel = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    read_model = (ROOT / "tradingdesk_automanage_panel_legacy_v2.py").read_text(encoding="utf-8")
+    facade = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
 
     public_start = comparison.index("def load_automanager_pnl_comparison_v2(")
     replay_start = comparison.index("def replay_automanager_pnl_comparison_v2(")
@@ -62,7 +63,8 @@ def test_public_ui_loader_reads_persisted_series_and_replay_is_explicit_bridge()
 
     assert "replay_automanager_pnl_comparison_v2" in materializer
     assert "load_automanager_pnl_comparison_v2" not in materializer
-    assert "load_automanager_pnl_comparison_v2(tuple(group))" in panel
+    assert "load_automanager_pnl_comparison_v2(tuple(group))" in read_model
+    assert "render_tradingdesk_automanage_pnl_chart_v2" in facade
 
 
 def test_chart_does_not_apply_leverage_twice_to_persisted_series() -> None:
