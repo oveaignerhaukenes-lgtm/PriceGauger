@@ -3,6 +3,10 @@ from __future__ import annotations
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from autotrader_macd_timeframe_controls_v1 import (
+    MACD_CONTROL_STRATEGY_KEYS_V1,
+    macd_control_strategy_label_v1,
+)
 from autotrader_pnl_comparison_v2 import (
     PAPER_SCALE_PILOT_EQUIVALENT,
     AutoManagerPnlComparisonV2,
@@ -18,7 +22,23 @@ from autotrader_strong_cocktail_shadow_v2 import (
 )
 
 
-PAPER_COLORS = ("#2563eb", "#7c3aed", "#059669", "#d97706", "#0891b2", "#be123c")
+PAPER_COLORS = (
+    "#2563eb",
+    "#7c3aed",
+    "#059669",
+    "#d97706",
+    "#0891b2",
+    "#be123c",
+    "#4f46e5",
+    "#0f766e",
+    "#a16207",
+    "#9333ea",
+    "#0369a1",
+    "#b91c1c",
+)
+_MACD_CONTROL_MINUTES_BY_KEY = {
+    key: minutes for minutes, key in MACD_CONTROL_STRATEGY_KEYS_V1.items()
+}
 
 
 def _strategy_label(strategy_key: str) -> str:
@@ -27,6 +47,9 @@ def _strategy_label(strategy_key: str) -> str:
         return "Strong Cocktail · 1m event + MTF context"
     if key == MACD_1M_CONTROL_STRATEGY_KEY:
         return "1m MACD flip · control"
+    minutes = _MACD_CONTROL_MINUTES_BY_KEY.get(key)
+    if minutes is not None:
+        return macd_control_strategy_label_v1(minutes)
     return strategy_display_label_v2(key)
 
 
