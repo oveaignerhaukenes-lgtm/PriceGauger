@@ -12,6 +12,7 @@ UNCERTAIN closes still block.
 import autotrader_live_open_legacy_v2 as _legacy
 from autotrader_live_open_legacy_v2 import *  # noqa: F401,F403
 from autotrader_strategy_switch_provenance_v2 import has_unconsumed_settled_flat_handoff_v2
+from autotrader_trade_markers_v1 import ensure_autotrader_trade_marker_schema_v1
 from database import connect
 
 
@@ -86,5 +87,12 @@ def _execution_close_provenance_v1(pilot_key: str) -> tuple[bool, bool]:
 # final precheck and durable-attempt-before-POST exactly as before.
 _legacy._settled_close_provenance = _execution_close_provenance_v1
 _settled_close_provenance = _execution_close_provenance_v1
+
+
+def run_live_open_forever_v2(*, interval_seconds: int = 2) -> None:
+    """Install the observational marker projection before entering the hardened loop."""
+    ensure_autotrader_trade_marker_schema_v1()
+    _legacy.run_live_open_forever_v2(interval_seconds=interval_seconds)
+
 
 __all__ = list(_legacy.__all__)
