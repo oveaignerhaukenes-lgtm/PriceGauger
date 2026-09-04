@@ -16,6 +16,7 @@ from trading_desk_indicators import (
     INDICATOR_RSI,
     INDICATOR_SMA50,
     INDICATOR_STOCHASTIC,
+    INDICATOR_VWAP,
     TechnicalIndicators,
 )
 
@@ -168,6 +169,7 @@ def build_trading_desk_figure(
                 (INDICATOR_EMA20, "EMA 20", indicators.ema20, "#2563eb", 1.55),
                 (INDICATOR_EMA50, "EMA 50", indicators.ema50, "#d97706", 1.55),
                 (INDICATOR_SMA50, "SMA 50", indicators.sma50, "#7c3aed", 1.35),
+                (INDICATOR_VWAP, "VWAP · vindu", indicators.vwap, "#111827", 1.8),
             )
             for indicator, name, points, color, width in price_overlays:
                 if indicator not in selected:
@@ -393,11 +395,25 @@ def build_trading_desk_figure(
 
     fig.update_layout(
         template="plotly_white",
-        title={"text": f"{market} · {timeframe} · {int(window_hours)}t", "x": 0.0, "xanchor": "left", "font": {"color": TEXT_COLOR, "size": 17}},
+        title={
+            "text": f"{market}<br><span style='font-size:12px'>{timeframe} · {int(window_hours)}t</span>",
+            "x": 0.0,
+            "xanchor": "left",
+            "font": {"color": TEXT_COLOR, "size": 17},
+        },
         height=max(620, int(chart_height)),
-        margin={"l": 74, "r": 96, "t": 66, "b": 30},
+        margin={"l": 74, "r": 225, "t": 82, "b": 30},
         font={"color": TEXT_COLOR, "size": 13},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.01, "xanchor": "left", "x": 0, "font": {"color": TEXT_COLOR, "size": 12}},
+        legend={
+            "orientation": "v",
+            "yanchor": "top",
+            "y": 1.0,
+            "xanchor": "left",
+            "x": 1.01,
+            "font": {"color": TEXT_COLOR, "size": 11},
+            "title": {"text": "Legend · hover / scroll"},
+            "maxheight": 0.52,
+        },
         hovermode="closest",
         dragmode="pan",
         paper_bgcolor="white",

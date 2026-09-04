@@ -13,6 +13,7 @@ INDICATOR_RSI = "RSI"
 INDICATOR_EMA20 = "EMA 20"
 INDICATOR_EMA50 = "EMA 50"
 INDICATOR_SMA50 = "SMA 50"
+INDICATOR_VWAP = "VWAP"
 INDICATOR_STOCHASTIC = "Stochastic"
 INDICATOR_ATR = "ATR"
 INDICATOR_SWING_BANDS = "Swing high/low"
@@ -23,11 +24,12 @@ INDICATOR_OPTIONS = (
     INDICATOR_EMA20,
     INDICATOR_EMA50,
     INDICATOR_SMA50,
+    INDICATOR_VWAP,
     INDICATOR_STOCHASTIC,
     INDICATOR_ATR,
     INDICATOR_SWING_BANDS,
 )
-DEFAULT_INDICATORS = (INDICATOR_BOLLINGER, INDICATOR_MACD, INDICATOR_RSI)
+DEFAULT_INDICATORS = (INDICATOR_BOLLINGER, INDICATOR_MACD, INDICATOR_RSI, INDICATOR_VWAP)
 INDICATOR_WARMUP_PERIODS = 120
 
 
@@ -49,6 +51,7 @@ class TechnicalIndicators:
     ema20: tuple[IndicatorPoint, ...] = ()
     ema50: tuple[IndicatorPoint, ...] = ()
     sma50: tuple[IndicatorPoint, ...] = ()
+    vwap: tuple[IndicatorPoint, ...] = ()
     stochastic_k: tuple[IndicatorPoint, ...] = ()
     stochastic_d: tuple[IndicatorPoint, ...] = ()
     atr: tuple[IndicatorPoint, ...] = ()
@@ -89,6 +92,27 @@ def _points(bars: Sequence[ChartBar], values: Sequence[float | None]) -> tuple[I
         for bar, value in zip(bars, values)
         if value is not None
     )
+
+
+def _vwap(bars: Sequence[ChartBar]) -> list[float | None]:
+    """Window-anchored VWAP using only canonical bars with real positive volume.
+
+    Missing/zero-volume bars do not invent volume. The cumulative numerator and
+    denominator simply wait for the next real volume observation; callers label this
+    explicitly as window VWAP rather than exchange-session VWAP.
+    """
+    result: list[float | None] = [None] * len(bars)
+    cumulative_pv = 0.0
+    cumulative_volume = 0.0
+    for index, bar in enumerate(bars):
+        volume = None if bar.volume is None else float(bar.volume)
+        if volume is not None and volume > 0.0:
+            typical_price = (float(bar.high) + float(bar.low) + float(bar.close)) / 3.0
+            cumulative_pv += typical_price * volume
+            cumulative_volume += volume
+        if cumulative_volume > 0.0:
+            result[index] = cumulative_pv / cumulative_volume
+    return result
 
 
 def _stochastic(
@@ -225,6 +249,7 @@ def calculate_indicators(
         ema20=_points(bars, _ema(closes, 20)),
         ema50=_points(bars, _ema(closes, 50)),
         sma50=_points(bars, _sma(closes, 50)),
+        vwap=_points(bars, _vwap(bars)),
         stochastic_k=_points(bars, stochastic_k),
         stochastic_d=_points(bars, stochastic_d),
         atr=_points(bars, atr_values),
@@ -251,6 +276,7 @@ def clip_indicators(
         ema20=clip(indicators.ema20),
         ema50=clip(indicators.ema50),
         sma50=clip(indicators.sma50),
+        vwap=clip(indicators.vwap),
         stochastic_k=clip(indicators.stochastic_k),
         stochastic_d=clip(indicators.stochastic_d),
         atr=clip(indicators.atr),

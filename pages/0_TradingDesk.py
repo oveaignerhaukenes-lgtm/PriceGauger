@@ -21,6 +21,7 @@ from trading_desk_chart import (
     build_trading_desk_figure,
     trading_desk_uirevision,
 )
+from trading_desk_legend_hover_v1 import render_trading_desk_legend_hover_v1
 from trading_desk_live_overlay_v2 import (
     live_chart_overlay_key_v2,
     parse_live_chart_view_v2,
@@ -31,6 +32,7 @@ from trading_desk_indicators import (
     INDICATOR_MACD,
     INDICATOR_OPTIONS,
     INDICATOR_SWING_BANDS,
+    INDICATOR_VWAP,
     INDICATOR_WARMUP_PERIODS,
     calculate_indicators,
     clip_indicators,
@@ -247,8 +249,8 @@ with controls_column:
             list(INDICATOR_OPTIONS),
             default=list(DEFAULT_INDICATORS),
             help=(
-                "Bollinger/EMA/SMA og Swing high/low ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
-                "Swing-sonene er bekreftede lokale pivoter og er kun en teknisk visualisering."
+                "Bollinger/EMA/SMA/VWAP og Swing high/low ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
+                "VWAP er volumvektet over det viste chart-vinduet. Swing-sonene er bekreftede lokale pivoter og er kun en teknisk visualisering."
             ),
         )
 
@@ -385,6 +387,7 @@ def _render_live_chart_controls() -> None:
                 help="Velger timeframe for MACD-panelet i chartet.",
             )
             st.caption("Kun chartvisning. AutoManager beholder sin eksplisitt valgte strategi og signal-timeframes.")
+    render_trading_desk_legend_hover_v1(uirevision=_live_chart_uirevision())
 
 
 def _live_chart_uirevision() -> str:
@@ -475,6 +478,8 @@ def _render_live_chart() -> None:
             indicator_source = _load(market, range_start=warmup_start, range_end=resolved_end, limit=20000)
             technical = calculate_indicators(indicator_source)
             technical = clip_indicators(technical, start=primary[0].bar_time, end=primary[-1].bar_time)
+            if INDICATOR_VWAP in indicator_names:
+                technical = replace(technical, vwap=calculate_indicators(primary).vwap)
             macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
             if INDICATOR_MACD in indicator_names and macd_timeframe != timeframe:
                 macd_warmup_minutes = TIMEFRAME_MINUTES[macd_timeframe] * INDICATOR_WARMUP_PERIODS
@@ -503,10 +508,8 @@ def _render_live_chart() -> None:
     if primary:
         latest_display = f"{primary[-1].close:g} @ {oslo_label(primary[-1].bar_time)}"
 
-    st.caption(
-        f"**{market}** · v2 instrument_id {context.instrument.instrument_id} · {timeframe} · {window_hours}t · "
-        f"siste close {latest_display}"
-    )
+    st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
+    st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
     fig = build_trading_desk_figure(
         market=market,
         timeframe=timeframe,
@@ -540,6 +543,7 @@ def _render_live_chart() -> None:
         key=f"tradingdesk-live-chart:{market}",
     )
     st.caption(
+        "Legend: hold musen over en serie for å fremheve den; scroll i legend-feltet for resten. "
         "Navigasjon: dra i selve plottet for å flytte visningen. Dra langs tidsaksen for bare tid, "
         "og langs prisaksen til høyre for bare prisnivå. Dobbeltklikk nullstiller visningen."
     )
@@ -550,7 +554,7 @@ def _render_live_chart() -> None:
         volume_points = sum(item.volume is not None for item in primary)
         if volume_points < len(primary):
             st.caption(
-                "Volum vises bare der canonical bar har ekte Saxo chart-volume. "
+                "Volum og VWAP bruker bare bars der canonical bar har ekte Saxo chart-volume. "
                 "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
             )
 
