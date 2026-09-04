@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import autotrader_activity_log_legacy_v2 as _legacy
 from autotrader_activity_log_legacy_v2 import *  # noqa: F401,F403
+from database import connect as _default_connect
 
 
+# Kept as a module binding so existing focused tests and diagnostics can inject a DB.
+connect = _default_connect
 ENGINE_AUTOMANAGER = "AutoManager"
 _legacy.ENGINE_AUTOMANAGER = ENGINE_AUTOMANAGER
 _original_build = _legacy.build_automanager_lifecycle_status_v2
@@ -54,7 +57,15 @@ def build_automanager_lifecycle_status_v2(
     return status, next_step
 
 
+def load_automanager_activity_log_v2(*args, **kwargs):
+    # Preserve the legacy loader/read model while making this facade's injectable DB
+    # binding authoritative for tests and diagnostics.
+    _legacy.connect = connect
+    _legacy.build_automanager_lifecycle_status_v2 = build_automanager_lifecycle_status_v2
+    _legacy.ENGINE_AUTOMANAGER = ENGINE_AUTOMANAGER
+    return _legacy.load_automanager_activity_log_v2(*args, **kwargs)
+
+
 _legacy.build_automanager_lifecycle_status_v2 = build_automanager_lifecycle_status_v2
-load_automanager_activity_log_v2 = _legacy.load_automanager_activity_log_v2
 
 __all__ = list(_legacy.__all__)
