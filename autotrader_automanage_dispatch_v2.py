@@ -8,6 +8,7 @@ from autotrader_automanage_runtime_v2 import run_automanage_strategy_once_v2
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from autotrader_fast_live_runtime_v2 import FastLiveCycleV2, run_fast_live_strategy_once_v2
 from autotrader_macd_hybrid_v1 import run_macd_hybrid_live_once_v1
+from autotrader_macd_timeframe_live_v1 import run_macd_timeframe_live_once_v1
 from autotrader_mtf_flip_live_runtime_v2 import run_mtf_flip_live_strategy_once_v2
 from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
 from autotrader_mtf_short_live_runtime_v2 import run_mtf_short_live_strategy_once_v2
@@ -15,6 +16,8 @@ from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_strategy_catalog_v2 import (
     AI_BASELINE_STRATEGY_V2,
     MACD_1M_FLIP_STRATEGY_V2,
+    MACD_2M_FLIP_STRATEGY_V2,
+    MACD_15M_FLIP_STRATEGY_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2,
     MTF_LONG_FLAT_STRATEGY_V2,
@@ -29,6 +32,7 @@ from saxo_provider import configured_client
 
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_dispatch_v2")
 FAST_LIVE_STRATEGIES = {STRONG_COCKTAIL_STRATEGY_V2, MACD_1M_FLIP_STRATEGY_V2}
+TIMEFRAME_MACD_LIVE_STRATEGIES = {MACD_2M_FLIP_STRATEGY_V2, MACD_15M_FLIP_STRATEGY_V2}
 HYBRID_LIVE_STRATEGIES = {
     MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2,
@@ -98,6 +102,13 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in HYBRID_LIVE_STRATEGIES:
                 cycle = run_macd_hybrid_live_once_v1(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+                _log_fast_cycle_if_changed_v2(cycle)
+            elif enrollment.strategy_key in TIMEFRAME_MACD_LIVE_STRATEGIES:
+                cycle = run_macd_timeframe_live_once_v1(
                     enrollment,
                     db_path=db_path,
                     observations=observations,
