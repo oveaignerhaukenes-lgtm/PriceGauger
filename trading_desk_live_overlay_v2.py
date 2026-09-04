@@ -15,10 +15,19 @@ from time_display_v2 import oslo_chart_time
 
 _OVERLAY_JS = r"""
 export default function(component) {
-    const { data, parentElement, setStateValue } = component;
+    const { data, parentElement } = component;
     const registry = window.__pricegaugerLiveCandleOverlays ||= new Map();
     const registryKey = String(data.uirevision);
-    const entry = registry.get(registryKey) || { candles: new Map(), tradeMarkers: [] };
+    const entry = registry.get(registryKey) || {
+        candles: new Map(),
+        tradeMarkers: [],
+        view: null,
+        restoringView: false,
+        resettingView: false,
+    };
+    if (!('view' in entry)) entry.view = null;
+    if (!('restoringView' in entry)) entry.restoringView = false;
+    if (!('resettingView' in entry)) entry.resettingView = false;
     registry.set(registryKey, entry);
 
     if (data.active && data.candle) {
@@ -43,7 +52,6 @@ export default function(component) {
     let graph = null;
     let canvas = null;
     let observer = null;
-    let persistTimer = null;
 
     function findGraph() {
         return Array.from(document.querySelectorAll('.js-plotly-plot')).find(
@@ -106,15 +114,6 @@ export default function(component) {
         context.lineWidth = active ? 1.2 : 0.8;
         context.strokeStyle = active ? '#111827' : 'rgba(17,24,39,0.58)';
         context.stroke();
-
-        if (active) {
-            context.globalAlpha = 1.0;
-            context.font = '600 10px system-ui, -apple-system, sans-serif';
-            context.textAlign = 'center';
-            context.textBaseline = upward ? 'bottom' : 'top';
-            context.fillStyle = color;
-            context.fillText(`AKTIV ${direction}`, x, y + (upward ? -radius - 3 : radius + 3));
-        }
         context.restore();
     }
 
@@ -190,44 +189,88 @@ export default function(component) {
         const xRange = graph._fullLayout.xaxis?.range;
         const yRange = graph._fullLayout.yaxis?.range;
         if (!Array.isArray(xRange) || !Array.isArray(yRange)) return null;
+        const yValues = yRange.map(Number);
+        if (!yValues.every(Number.isFinite)) return null;
         return {
             x_range: xRange.map((value) => value instanceof Date ? value.toISOString() : String(value)),
-            y_range: yRange.map(Number),
+            y_range: yValues,
         };
     }
 
-    function persistViewSoon() {
-        if (persistTimer) window.clearTimeout(persistTimer);
-        persistTimer = window.setTimeout(() => {
-            persistTimer = null;
-            const view = currentView();
-            if (view) setStateValue('view', view);
-        }, 180);
+    function xValue(value) {
+        const parsed = new Date(String(value)).getTime();
+        return Number.isFinite(parsed) ? parsed : NaN;
+    }
+
+    function viewsEqual(left, right) {
+        if (!left || !right) return false;
+        const lx = Array.isArray(left.x_range) ? left.x_range : [];
+        const rx = Array.isArray(right.x_range) ? right.x_range : [];
+        const ly = Array.isArray(left.y_range) ? left.y_range : [];
+        const ry = Array.isArray(right.y_range) ? right.y_range : [];
+        if (lx.length !== 2 || rx.length !== 2 || ly.length !== 2 || ry.length !== 2) return false;
+        const xMatches = lx.every((value, index) => Math.abs(xValue(value) - xValue(rx[index])) <= 1);
+        const yMatches = ly.every((value, index) => {
+            const a = Number(value);
+            const b = Number(ry[index]);
+            const scale = Math.max(1, Math.abs(a), Math.abs(b));
+            return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= scale * 1e-9;
+        });
+        return xMatches && yMatches;
+    }
+
+    function applyStoredView() {
+        if (!graph?._fullLayout || !entry.view || entry.restoringView || !window.Plotly?.relayout) return;
+        const current = currentView();
+        if (viewsEqual(current, entry.view)) return;
+        entry.restoringView = true;
+        const updates = {
+            'xaxis.range': entry.view.x_range.slice(),
+            'xaxis.autorange': false,
+            'yaxis.range': entry.view.y_range.slice(),
+            'yaxis.autorange': false,
+        };
+        Promise.resolve(window.Plotly.relayout(graph, updates)).finally(() => {
+            entry.restoringView = false;
+            window.requestAnimationFrame(draw);
+        });
     }
 
     function attach() {
         if (!ensureCanvas()) return false;
-        draw();
+        entry.cleanup?.();
+
         const onRelayout = () => {
             window.requestAnimationFrame(draw);
-            persistViewSoon();
+            if (entry.restoringView || entry.resettingView) return;
+            const view = currentView();
+            if (view) entry.view = view;
+        };
+        const onAfterPlot = () => {
+            applyStoredView();
+            window.requestAnimationFrame(draw);
         };
         const onDoubleClick = () => {
-            if (persistTimer) window.clearTimeout(persistTimer);
-            persistTimer = null;
-            setStateValue('view', null);
+            entry.view = null;
+            entry.resettingView = true;
+            window.setTimeout(() => {
+                entry.resettingView = false;
+            }, 350);
         };
+
         graph.on('plotly_relayout', onRelayout);
+        graph.on('plotly_afterplot', onAfterPlot);
         graph.on('plotly_doubleclick', onDoubleClick);
         window.addEventListener('resize', draw);
-        entry.cleanup?.();
         entry.cleanup = () => {
             graph?.removeListener?.('plotly_relayout', onRelayout);
+            graph?.removeListener?.('plotly_afterplot', onAfterPlot);
             graph?.removeListener?.('plotly_doubleclick', onDoubleClick);
             window.removeEventListener('resize', draw);
-            if (persistTimer) window.clearTimeout(persistTimer);
-            persistTimer = null;
         };
+
+        applyStoredView();
+        draw();
         return true;
     }
 
@@ -262,6 +305,12 @@ def live_chart_overlay_key_v2(uirevision: str) -> str:
 
 
 def parse_live_chart_view_v2(value: Any) -> LiveChartViewV2 | None:
+    """Compatibility parser for pre-browser-local navigation state.
+
+    New chart navigation is intentionally kept in the browser to avoid a Streamlit
+    rerun on every pan/zoom gesture. The parser remains for old session payloads and
+    tests, but TradingDesk no longer reapplies this state to fresh figures.
+    """
     if not isinstance(value, Mapping):
         return None
     raw = value.get("view", value)
@@ -352,8 +401,6 @@ def render_live_candle_overlay_v2(
             "candle": forming_candle_payload_v2(candle, timeframe_minutes=timeframe_minutes) if candle is not None else None,
             "trade_markers": trade_markers,
         },
-        default={"view": None},
-        on_view_change=lambda: None,
         height=0,
     )
 
