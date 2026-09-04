@@ -35,6 +35,19 @@ def test_cursor_inspector_lives_under_legend_and_follows_nearest_time() -> None:
     assert "isPnl ? '%' : ''" in source
 
 
+def test_browser_local_view_registry_prevents_pan_zoom_snap_back() -> None:
+    source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
+
+    assert "window.__pricegaugerPlotlyViews" in source
+    assert "function isNavigationRelayout" in source
+    assert "snapshotBrowserView(graph)" in source
+    assert "applyBrowserView(graph, state)" in source
+    assert "graph.on?.('plotly_relayout', onRelayout)" in source
+    assert "graph.on?.('plotly_doubleclick', onDoubleClick)" in source
+    assert "viewRegistry.delete(key)" in source
+    assert "state.restoringView" in source
+
+
 def test_live_chart_trackpad_contract_is_x_zoom_x_pan_and_price_y_scale() -> None:
     source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
 
