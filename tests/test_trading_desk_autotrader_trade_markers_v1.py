@@ -41,5 +41,5 @@ def test_marker_loader_separates_historical_autotrader_open_from_active_fallback
     source = _source("autotrader_trade_markers_v1.py")
     assert 'source="AUTOTRADER_OPEN"' in source
     assert 'source="ACTIVE_MANAGED_POSITION"' in source
-    assert "historical triangles come only from reconciled AutoTrader OPEN requests" in source.lower()
+    assert "historical triangles come only from reconciled autotrader open requests" in source.lower()
     assert "managed.managed = TRUE" in source
