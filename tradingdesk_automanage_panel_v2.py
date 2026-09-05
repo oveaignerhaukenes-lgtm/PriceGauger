@@ -10,7 +10,7 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     render_tradingdesk_automanage_pnl_chart_v2,
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
-from tradingdesk_ui.charts import render_tradingdesk_responsive_runtime_v1
+from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
 
 
 def render_tradingdesk_automanage_panel_v2(
