@@ -49,10 +49,10 @@ def ensure_spring_schema_v1() -> None:
         )
 
 
-def persist_spring_observation_v1(observation: SpringObservationV1) -> None:
+def persist_spring_observation_v1(observation: SpringObservationV1) -> int:
     ensure_spring_schema_v1()
     with connect() as db:
-        db.execute(
+        cursor = db.execute(
             """
             INSERT INTO pg_v2_spring_observations(
                 instrument_id, observed_at, schema_version, model_version,
@@ -92,6 +92,7 @@ def persist_spring_observation_v1(observation: SpringObservationV1) -> None:
                 observation.data_quality,
             ),
         )
+        return max(0, int(getattr(cursor, "rowcount", 0) or 0))
 
 
 __all__ = ["MODEL_VERSION", "ensure_spring_schema_v1", "persist_spring_observation_v1"]
