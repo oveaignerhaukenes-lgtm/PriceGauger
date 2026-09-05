@@ -39,12 +39,14 @@ div[data-testid="stPlotlyChart"] .modebar-group {{
         padding-top: .55rem !important;
     }}
 
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} div[data-testid="stHorizontalBlock"] {{
+    /* TradingDesk deliberately becomes a single-column cockpit on narrow screens.
+       The CSS is injected only by TradingDesk, so this does not alter other pages. */
+    .block-container div[data-testid="stHorizontalBlock"] {{
         flex-direction: column !important;
         flex-wrap: nowrap !important;
         gap: .55rem !important;
     }}
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
+    .block-container div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
         width: 100% !important;
         min-width: 0 !important;
         flex: 1 1 100% !important;
@@ -55,22 +57,19 @@ div[data-testid="stPlotlyChart"] .modebar-group {{
     .st-key-{TRADINGDESK_ANALYSIS_SECTION_KEY} {{ order: 3 !important; }}
     .st-key-{TRADINGDESK_CONTROLS_WIDTH_SETTING_KEY} {{ display: none !important; }}
 
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} div[data-testid="stPlotlyChart"] {{
-        width: 100% !important;
-        min-width: 0 !important;
-    }}
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} div[data-testid="stPlotlyChart"] > div {{
+    .block-container div[data-testid="stPlotlyChart"],
+    .block-container div[data-testid="stPlotlyChart"] > div {{
         width: 100% !important;
         min-width: 0 !important;
     }}
 
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} button,
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} [data-testid="stBaseButton-secondary"],
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} [data-testid="stBaseButton-primary"] {{
+    .block-container button,
+    .block-container [data-testid="stBaseButton-secondary"],
+    .block-container [data-testid="stBaseButton-primary"] {{
         min-height: 2.6rem;
     }}
 
-    .st-key-{TRADINGDESK_RESPONSIVE_SHELL_KEY} [data-testid="stMetric"] {{
+    .block-container [data-testid="stMetric"] {{
         min-width: 0 !important;
     }}
 
@@ -96,11 +95,10 @@ def render_tradingdesk_responsive_foundation_v1() -> None:
 
 
 def tradingdesk_responsive_columns_v1(*, controls_width_pct: int):
-    """Create the desktop split inside a responsive shell.
+    """Create the desktop split inside a responsive shell for the next migration step.
 
-    Desktop keeps the adjustable chart/control split. At the mobile breakpoint CSS
-    stacks the same components at full width, preserving one shared application state
-    rather than maintaining a second mobile TradingDesk implementation.
+    The current page still owns composition. New TradingDesk components should use this
+    helper as they move into the package so desktop/mobile share one application state.
     """
 
     controls = max(20, min(40, int(controls_width_pct)))
