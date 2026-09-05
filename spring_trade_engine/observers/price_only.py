@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from math import exp, log, sqrt
+from math import log, sqrt
 from statistics import fmean, pstdev
 from typing import Any, Sequence
 
@@ -48,9 +48,8 @@ def observe_bars_v1(
 ) -> SpringObservationV1:
     """Create one blind price-only Spring observation from canonical 1m bars.
 
-    This is intentionally model-light. It records primitives that later oscillator,
-    event and regime models can consume; it does not declare that a spring regime
-    exists and has no trading side effects.
+    The first observer records primitives only. It does not declare that a damped
+    oscillator exists and it cannot create any execution request.
     """
     ordered = tuple(bars)
     if len(ordered) < max(4, int(minimum_bars)):
