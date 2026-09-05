@@ -189,15 +189,18 @@ def persist_runtime_coverage_v1(coverage: SpringRuntimeCoverageV1) -> None:
 def load_pending_forward_label_seeds_v1(
     *,
     horizon_minutes: int,
+    eligible_after: datetime,
     eligible_before: datetime,
     limit: int = 100,
 ) -> tuple[SpringForwardLabelSeedV1, ...]:
+    """Load only recently eligible seeds so market closures cannot starve the queue."""
     with connect() as db:
         rows = db.execute(
             """
             SELECT o.instrument_id, o.observed_at, o.close_price
             FROM pg_v2_spring_observations o
             WHERE o.model_version = ?
+              AND o.observed_at >= ?
               AND o.observed_at <= ?
               AND NOT EXISTS (
                   SELECT 1
@@ -211,7 +214,10 @@ def load_pending_forward_label_seeds_v1(
             ORDER BY o.observed_at ASC
             LIMIT ?
             """,
-            (MODEL_VERSION, eligible_before, EVALUATION_VERSION, int(horizon_minutes), max(1, int(limit))),
+            (
+                MODEL_VERSION, eligible_after, eligible_before, EVALUATION_VERSION,
+                int(horizon_minutes), max(1, int(limit)),
+            ),
         ).fetchall()
     return tuple(
         SpringForwardLabelSeedV1(
