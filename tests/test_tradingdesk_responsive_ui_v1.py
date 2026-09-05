@@ -45,6 +45,18 @@ def test_chart_presentation_removes_redundant_titles_and_compacts_mobile_left_ax
     assert "tickfont.size" in source
 
 
+def test_navigation_sync_prevents_stale_browser_view_from_winning_during_drag() -> None:
+    source = Path("tradingdesk_ui/charts/navigation_sync.py").read_text(encoding="utf-8")
+    assert "window.__pricegaugerPlotlyViews" in source
+    assert "plotly_relayouting" in source
+    assert "plotly_relayout" in source
+    assert "pointerdown" in source
+    assert "viewRegistry.delete(key)" in source
+    assert "rememberView(graph)" in source
+    assert "TradingDesk:" in source
+    assert "AutoManagerPnlProduct:" in source
+
+
 def test_responsive_ui_boundary_has_no_execution_authority() -> None:
     root = Path("tradingdesk_ui")
     source = "\n".join(
@@ -68,4 +80,6 @@ def test_transitional_facade_mounts_responsive_runtime_without_moving_execution(
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "tradingdesk_ui.charts.responsive_runtime" in source
     assert "render_tradingdesk_responsive_runtime_v1()" in source
+    assert "tradingdesk_ui.charts.navigation_sync" in source
+    assert "render_tradingdesk_navigation_sync_v1()" in source
     assert "render_tradingdesk_automanager_simple_v1(context)" in source
