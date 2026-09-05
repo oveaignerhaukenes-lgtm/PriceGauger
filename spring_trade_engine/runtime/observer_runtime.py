@@ -8,8 +8,22 @@ import time
 
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect, using_postgres
+from spring_trade_engine.contracts import (
+    SpringEpisodeCandidateV1,
+    SpringRuntimeCoverageV1,
+    SpringTurningPointV1,
+)
 from spring_trade_engine.observers import observe_bars_v1
-from spring_trade_engine.persistence import ensure_spring_schema_v1, persist_spring_observation_v1
+from spring_trade_engine.persistence import (
+    ensure_spring_evaluation_schema_v1,
+    ensure_spring_schema_v1,
+    persist_episode_candidate_v1,
+    persist_forward_label_v1,
+    persist_runtime_coverage_v1,
+    persist_spring_observation_v1,
+    persist_turning_point_v1,
+)
+from spring_trade_engine.research.forward_labels import collect_forward_labels_v1
 
 
 LOGGER = logging.getLogger("pricegauger.spring_trade_engine")
@@ -32,6 +46,11 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_SPRING_EQUILIBRIUM_SPAN", "20")),
     )
+    parser.add_argument(
+        "--shock-z-threshold",
+        type=float,
+        default=float(os.getenv("PRICEGAUGER_SPRING_SHOCK_Z_THRESHOLD", "3.0")),
+    )
     return parser
 
 
@@ -50,13 +69,22 @@ def _active_instruments() -> tuple[tuple[int, str], ...]:
     return tuple((int(row["instrument_id"]), str(row["market_name"])) for row in rows)
 
 
-def run_cycle(*, window_minutes: int, equilibrium_span: int) -> int:
-    now = datetime.now(timezone.utc)
+def run_cycle(
+    *,
+    window_minutes: int,
+    equilibrium_span: int,
+    shock_z_threshold: float = 3.0,
+) -> int:
+    cycle_started_at = datetime.now(timezone.utc)
+    now = cycle_started_at
     start = now - timedelta(minutes=max(30, int(window_minutes)))
     store = CanonicalMarketBarStoreV2()
+    active = _active_instruments()
     persisted = 0
+    skipped = 0
+    failures = 0
 
-    for instrument_id, market_name in _active_instruments():
+    for instrument_id, market_name in active:
         try:
             bars = store.load_instrument_range(
                 instrument_id=instrument_id,
@@ -65,6 +93,7 @@ def run_cycle(*, window_minutes: int, equilibrium_span: int) -> int:
                 limit=max(500, int(window_minutes) + 30),
             )
             if len(bars) < 12:
+                skipped += 1
                 continue
             observation = observe_bars_v1(
                 bars,
@@ -73,6 +102,33 @@ def run_cycle(*, window_minutes: int, equilibrium_span: int) -> int:
             )
             persist_spring_observation_v1(observation)
             persisted += 1
+
+            if observation.turning_state in {"TURN_UP", "TURN_DOWN"}:
+                persist_turning_point_v1(
+                    SpringTurningPointV1(
+                        instrument_id=observation.instrument_id,
+                        observed_at=observation.observed_at,
+                        direction=observation.turning_state,
+                        close_price=observation.close_price,
+                        displacement_pct=observation.displacement_pct,
+                        shock_score=observation.shock_score,
+                        energy_proxy=observation.energy_proxy,
+                    )
+                )
+
+            if observation.shock_score >= float(shock_z_threshold):
+                persist_episode_candidate_v1(
+                    SpringEpisodeCandidateV1(
+                        instrument_id=observation.instrument_id,
+                        observed_at=observation.observed_at,
+                        close_price=observation.close_price,
+                        displacement_pct=observation.displacement_pct,
+                        shock_score=observation.shock_score,
+                        energy_proxy=observation.energy_proxy,
+                        trigger_rule=f"abs_return_z>={float(shock_z_threshold):g}",
+                    )
+                )
+
             LOGGER.info(
                 "spring observation market=%s instrument_id=%s observed_at=%s displacement_pct=%.5f velocity_pct_per_min=%.5f shock_score=%.3f energy_proxy=%.3f turning=%s",
                 market_name,
@@ -85,6 +141,7 @@ def run_cycle(*, window_minutes: int, equilibrium_span: int) -> int:
                 observation.turning_state,
             )
         except Exception as exc:
+            failures += 1
             LOGGER.warning(
                 "spring observation failed market=%s instrument_id=%s error=%s",
                 market_name,
@@ -92,6 +149,26 @@ def run_cycle(*, window_minutes: int, equilibrium_span: int) -> int:
                 exc,
                 exc_info=True,
             )
+
+    label_count = 0
+    try:
+        for label in collect_forward_labels_v1(now=now):
+            label_count += persist_forward_label_v1(label)
+    except Exception as exc:
+        failures += 1
+        LOGGER.warning("spring forward-label collection failed error=%s", exc, exc_info=True)
+
+    persist_runtime_coverage_v1(
+        SpringRuntimeCoverageV1(
+            cycle_started_at=cycle_started_at,
+            cycle_finished_at=datetime.now(timezone.utc),
+            active_instruments=len(active),
+            observations_persisted=persisted,
+            instruments_skipped=skipped,
+            failures=failures,
+            forward_labels_persisted=label_count,
+        )
+    )
     return persisted
 
 
@@ -100,18 +177,21 @@ def main() -> None:
         raise SystemExit("Spring Trade Engine runtime requires PostgreSQL")
     args = _parser().parse_args()
     ensure_spring_schema_v1()
+    ensure_spring_evaluation_schema_v1()
     interval = max(15, int(args.interval_seconds))
     LOGGER.info(
-        "Spring Trade Engine observer started interval_seconds=%d window_minutes=%d equilibrium_span=%d observational_only=true",
+        "Spring Trade Engine observer started interval_seconds=%d window_minutes=%d equilibrium_span=%d shock_z_threshold=%.2f observational_only=true",
         interval,
         max(30, int(args.window_minutes)),
         max(2, int(args.equilibrium_span)),
+        float(args.shock_z_threshold),
     )
     while True:
         cycle_started = time.monotonic()
         run_cycle(
             window_minutes=max(30, int(args.window_minutes)),
             equilibrium_span=max(2, int(args.equilibrium_span)),
+            shock_z_threshold=max(0.0, float(args.shock_z_threshold)),
         )
         elapsed = time.monotonic() - cycle_started
         time.sleep(max(1.0, interval - elapsed))
