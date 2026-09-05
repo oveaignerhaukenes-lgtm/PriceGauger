@@ -20,6 +20,7 @@ from autotrader_strong_cocktail_shadow_v2 import (
     MACD_1M_CONTROL_STRATEGY_KEY,
     STRONG_COCKTAIL_STRATEGY_KEY,
 )
+from spring_trade_engine.persistence import load_spring_observations_v1
 
 
 PAPER_COLORS = (
@@ -83,23 +84,40 @@ def _models_for_chart(comparison: AutoManagerPnlComparisonV2):
         return comparison.paper_series, None, False
 
 
+def _spring_points_for_chart(comparison: AutoManagerPnlComparisonV2):
+    """Read Spring's persisted blind observations without making them a strategy."""
+    try:
+        _account_id, _raw_uic, _asset_type, raw_instrument_id = comparison.product_key.split(":", 3)
+        return load_spring_observations_v1(
+            instrument_id=int(raw_instrument_id),
+            start=comparison.started_at,
+            end=comparison.as_of,
+            limit=10000,
+        )
+    except Exception:
+        return ()
+
+
 def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> go.Figure:
-    """One durable product-history figure with linked LIVE and model timelines."""
+    """One durable product-history figure with LIVE, model and Spring timelines."""
     model_series, leverage_schedule, persisted_pilot_scale = _models_for_chart(comparison)
+    spring_points = _spring_points_for_chart(comparison)
     if leverage_schedule is None:
         model_title = "Modeller · pilot-ekvivalent" if persisted_pilot_scale else "Modeller · 1×"
     else:
         model_title = f"Modeller · ca. {leverage_schedule.representative_leverage:.1f}×"
 
     fig = make_subplots(
-        rows=2,
+        rows=3,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
-        row_heights=[0.38, 0.62],
+        vertical_spacing=0.06,
+        row_heights=[0.24, 0.48, 0.28],
+        specs=[[{}], [{}], [{"secondary_y": True}]],
         subplot_titles=(
             "LIVE · realisert P/L",
             model_title,
+            "Spring · blind observasjon",
         ),
     )
     live = comparison.live_realized
@@ -155,6 +173,94 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
             col=1,
         )
 
+    if spring_points:
+        fig.add_trace(
+            go.Scatter(
+                x=[item.observed_at for item in spring_points],
+                y=[item.displacement_pct for item in spring_points],
+                customdata=[
+                    [
+                        item.turning_state,
+                        item.shock_score,
+                        item.energy_proxy,
+                        item.velocity_pct_per_min,
+                    ]
+                    for item in spring_points
+                ],
+                mode="lines",
+                name="Spring · displacement fra 0",
+                line={"color": "#111827", "width": 1.3},
+                hovertemplate=(
+                    "Spring · %{x|%H:%M}<br>"
+                    "Δeq %{y:+.3f}% · %{customdata[0]}<br>"
+                    "shock z %{customdata[1]:.2f} · energy %{customdata[2]:.2f}<br>"
+                    "velocity %{customdata[3]:+.3f}%/min<extra></extra>"
+                ),
+            ),
+            row=3,
+            col=1,
+            secondary_y=False,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[item.observed_at for item in spring_points],
+                y=[item.shock_score for item in spring_points],
+                mode="lines",
+                name="Spring · shock z",
+                line={"color": "#9ca3af", "width": 0.9, "dash": "dot"},
+                hovertemplate="Spring shock · %{x|%H:%M}<br>z %{y:.2f}<extra></extra>",
+            ),
+            row=3,
+            col=1,
+            secondary_y=True,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[item.observed_at for item in spring_points],
+                y=[item.energy_proxy for item in spring_points],
+                mode="lines",
+                name="Spring · energy proxy",
+                visible="legendonly",
+                line={"color": "#6b7280", "width": 0.8, "dash": "dash"},
+                hovertemplate="Spring energy · %{x|%H:%M}<br>%{y:.2f}<extra></extra>",
+            ),
+            row=3,
+            col=1,
+            secondary_y=True,
+        )
+        turning_points = tuple(
+            item for item in spring_points if item.turning_state in {"TURN_UP", "TURN_DOWN"}
+        )
+        if turning_points:
+            fig.add_trace(
+                go.Scatter(
+                    x=[item.observed_at for item in turning_points],
+                    y=[item.displacement_pct for item in turning_points],
+                    customdata=[
+                        [item.turning_state, item.shock_score, item.energy_proxy]
+                        for item in turning_points
+                    ],
+                    mode="markers",
+                    name="Spring · vending",
+                    marker={
+                        "size": 8,
+                        "symbol": [
+                            "triangle-up" if item.turning_state == "TURN_UP" else "triangle-down"
+                            for item in turning_points
+                        ],
+                        "color": "#111827",
+                    },
+                    hovertemplate=(
+                        "%{customdata[0]} · %{x|%H:%M}<br>"
+                        "Δeq %{y:+.3f}% · shock %{customdata[1]:.2f} · energy %{customdata[2]:.2f}"
+                        "<extra></extra>"
+                    ),
+                ),
+                row=3,
+                col=1,
+                secondary_y=False,
+            )
+
     # Strategy switches remain visible as thin boundaries. Their long labels were
     # intentionally removed from the plotting surface; the strategy itself is already
     # visible in the legend and activity log, and overlapping annotations obscured data.
@@ -173,6 +279,9 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
     for row in (1, 2):
         fig.add_hline(y=0.0, line_width=0.7, line_dash="dot", line_color="rgba(17,24,39,0.38)", row=row, col=1)
         fig.update_yaxes(title_text="P/L · %", ticksuffix="%", row=row, col=1)
+    fig.add_hline(y=0.0, line_width=0.8, line_dash="dot", line_color="rgba(17,24,39,0.45)", row=3, col=1)
+    fig.update_yaxes(title_text="Δ eq · %", ticksuffix="%", row=3, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="shock / energy", row=3, col=1, secondary_y=True)
 
     range_buttons = [
         {"count": 1, "label": "1t", "step": "hour", "stepmode": "backward"},
@@ -190,17 +299,17 @@ def build_automanager_pnl_figure_v2(comparison: AutoManagerPnlComparisonV2) -> g
         spikesnap="cursor",
         spikethickness=1,
     )
-    fig.update_xaxes(title_text="Tid", row=2, col=1)
+    fig.update_xaxes(title_text="Tid", row=3, col=1)
     fig.update_xaxes(
         rangeselector={"buttons": range_buttons, "x": 0.0, "xanchor": "left", "y": -0.14, "yanchor": "top"},
         rangeslider={"visible": True, "thickness": 0.07},
-        row=2,
+        row=3,
         col=1,
     )
     fig.update_layout(
         template="plotly_white",
-        height=690,
-        margin={"l": 58, "r": 225, "t": 68, "b": 88},
+        height=840,
+        margin={"l": 58, "r": 235, "t": 68, "b": 88},
         legend={
             "orientation": "v",
             "yanchor": "top",
