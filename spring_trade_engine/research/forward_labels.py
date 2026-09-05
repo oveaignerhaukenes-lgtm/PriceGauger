@@ -9,6 +9,7 @@ from spring_trade_engine.persistence.evaluation_store import load_pending_forwar
 
 
 DEFAULT_FORWARD_HORIZONS_MINUTES = (5, 15, 30, 60, 120)
+DEFAULT_LABEL_GRACE_MINUTES = 180
 
 
 def _utc(value: Any) -> datetime:
@@ -63,15 +64,21 @@ def collect_forward_labels_v1(
     now: datetime,
     horizons: Sequence[int] = DEFAULT_FORWARD_HORIZONS_MINUTES,
     pending_limit_per_horizon: int = 100,
+    label_grace_minutes: int = DEFAULT_LABEL_GRACE_MINUTES,
 ) -> tuple[SpringForwardLabelV1, ...]:
+    """Collect recently matured labels without retrying market-closure gaps forever."""
     store = CanonicalMarketBarStoreV2()
     labels: list[SpringForwardLabelV1] = []
     current = _utc(now)
+    grace = max(5, int(label_grace_minutes))
     for horizon in horizons:
         horizon_minutes = max(1, int(horizon))
+        eligible_before = current - timedelta(minutes=horizon_minutes)
+        eligible_after = eligible_before - timedelta(minutes=grace)
         seeds = load_pending_forward_label_seeds_v1(
             horizon_minutes=horizon_minutes,
-            eligible_before=current - timedelta(minutes=horizon_minutes),
+            eligible_after=eligible_after,
+            eligible_before=eligible_before,
             limit=pending_limit_per_horizon,
         )
         for seed in seeds:
@@ -95,6 +102,7 @@ def collect_forward_labels_v1(
 
 __all__ = [
     "DEFAULT_FORWARD_HORIZONS_MINUTES",
+    "DEFAULT_LABEL_GRACE_MINUTES",
     "build_forward_label_v1",
     "collect_forward_labels_v1",
 ]
