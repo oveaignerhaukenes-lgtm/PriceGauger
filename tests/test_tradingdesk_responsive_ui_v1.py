@@ -35,6 +35,16 @@ def test_responsive_chart_runtime_handles_live_and_strategy_charts() -> None:
     assert "margin.r" in source
 
 
+def test_chart_presentation_removes_redundant_titles_and_compacts_mobile_left_axis() -> None:
+    source = Path("tradingdesk_ui/charts/responsive_runtime.py").read_text(encoding="utf-8")
+    assert "commonPresentationUpdates" in source
+    assert "'title.text': ''" in source
+    assert "axisSide(graph, key) === 'right'" in source
+    assert "compactLeftTickformat" in source
+    assert "'~s'" in source
+    assert "tickfont.size" in source
+
+
 def test_responsive_ui_boundary_has_no_execution_authority() -> None:
     root = Path("tradingdesk_ui")
     source = "\n".join(
