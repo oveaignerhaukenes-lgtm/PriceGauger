@@ -21,7 +21,7 @@ class _Bar:
     close: float
 
 
-def test_forward_label_records_terminal_return_and_path_excursions() -> None:
+def test_forward_label_records_terminal_return_and_direction_neutral_excursions() -> None:
     bars = (
         _Bar(START + timedelta(minutes=1), 101.0, 99.5, 100.5),
         _Bar(START + timedelta(minutes=2), 102.0, 100.0, 101.5),
@@ -41,8 +41,8 @@ def test_forward_label_records_terminal_return_and_path_excursions() -> None:
     assert label is not None
     assert label.realized_at == START + timedelta(minutes=5)
     assert label.return_pct == pytest.approx(1.0)
-    assert label.max_favorable_excursion_pct == pytest.approx(2.0)
-    assert label.max_adverse_excursion_pct == pytest.approx(-2.0)
+    assert label.max_up_excursion_pct == pytest.approx(2.0)
+    assert label.max_down_excursion_pct == pytest.approx(-2.0)
 
 
 def test_forward_label_refuses_incomplete_horizon() -> None:
@@ -65,6 +65,8 @@ def test_spring_evaluation_is_observational_and_chart_is_consumer_side_link() ->
     chart_source = (ROOT / "autotrader_pnl_chart_v2.py").read_text(encoding="utf-8")
 
     assert "pg_v2_spring_forward_labels" in evaluation_source
+    assert "max_up_excursion_pct" in evaluation_source
+    assert "max_down_excursion_pct" in evaluation_source
     assert "pg_v2_spring_runtime_coverage" in evaluation_source
     assert "pg_v2_spring_episode_candidates" in evaluation_source
     assert "persist_turning_point_v1" in runtime_source
