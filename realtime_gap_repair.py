@@ -4,9 +4,12 @@ from datetime import datetime, timedelta, timezone
 import logging
 import threading
 import time
+from typing import Any
 
-from canonical_market_bars_v2 import QUALITY_BACKFILL
-from realtime_market_data import RealtimeMarketDataStore, RealtimeQuote, minute_start, utc
+from canonical_market_bars_v2 import QUALITY_BACKFILL, QUALITY_REALTIME
+from database import connect, using_postgres
+from instrument_registry_v2 import resolve_instrument_source_v2
+from realtime_market_data import MinuteBarAggregator, RealtimeMarketDataStore, RealtimeQuote, minute_start, utc
 from saxo_chart_live import (
     ChartStreamStatus,
     FormingCandleStore,
@@ -20,7 +23,10 @@ from saxo_streaming import (
     SaxoRealtimeService,
     SaxoStreamMessage,
     _backfill_client,
+    _find_value,
+    _should_log_count,
     bars_from_chart_frame,
+    merge_delta,
 )
 
 LOGGER = logging.getLogger("pricegauger.realtime_gap_repair")
@@ -32,10 +38,119 @@ STALE_QUOTE_AFTER_SECONDS = 90.0
 STALE_REPAIR_LOOKBACK_HOURS = 1
 STALE_REPAIR_PAGE_SIZE = 120
 STALE_AUTH_RETRY_SECONDS = 30 * 60.0
+_PRICE_UPDATE_FIELDS = frozenset(
+    {"Bid", "BidPrice", "Ask", "AskPrice", "LastTraded", "LastTradedPrice", "Price", "Mid"}
+)
 
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _payload_contains_price_update(payload: Any) -> bool:
+    """True only when this delta itself carries a price value.
+
+    Saxo uses delta compression. A LastUpdated-only delta must not be merged with an
+    old Quote snapshot and then treated as if the old Bid/Ask were newly observed.
+    """
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in _PRICE_UPDATE_FIELDS and value is not None:
+                return True
+            if _payload_contains_price_update(value):
+                return True
+    elif isinstance(payload, list):
+        return any(_payload_contains_price_update(value) for value in payload)
+    return False
+
+
+def _normalised(value: Any) -> str:
+    return "" if value is None else str(value).strip().casefold().replace("_", "").replace(" ", "")
+
+
+def _payload_explicitly_stale_or_closed(payload: Any) -> bool:
+    """Reject a price delta when that delta itself says the quote is not live."""
+    state = _normalised(_find_value(payload, ("MarketState",)))
+    if state and ("closed" in state or state in {"offline", "unavailable"}):
+        return True
+    price_type_bid = _normalised(_find_value(payload, ("PriceTypeBid",)))
+    price_type_ask = _normalised(_find_value(payload, ("PriceTypeAsk",)))
+    return price_type_bid == "oldindicative" or price_type_ask == "oldindicative"
+
+
+def _snapshot_is_closed_or_old_indicative(payload: Any) -> bool:
+    state = _normalised(_find_value(payload, ("MarketState",)))
+    if state and ("closed" in state or state in {"offline", "unavailable"}):
+        return True
+    price_type_bid = _normalised(_find_value(payload, ("PriceTypeBid",)))
+    price_type_ask = _normalised(_find_value(payload, ("PriceTypeAsk",)))
+    return price_type_bid == "oldindicative" and price_type_ask == "oldindicative"
+
+
+def _closed_snapshot_cutoff(payload: Any) -> datetime | None:
+    if not _snapshot_is_closed_or_old_indicative(payload):
+        return None
+    raw = _find_value(payload, ("LastUpdated", "Timestamp"))
+    if raw is None:
+        return None
+    try:
+        return minute_start(utc(str(raw)))
+    except (TypeError, ValueError):
+        return None
+
+
+def repair_closed_market_realtime_tail(
+    *,
+    store: RealtimeMarketDataStore,
+    market: str,
+    instrument: SaxoInstrument,
+    cutoff: datetime,
+) -> int:
+    """Remove only impossible quote-built bars after Saxo's last live close stamp.
+
+    Historical/backfill canonical rows are deliberately preserved. The repair is
+    exact-product scoped and is only invoked from an explicitly closed/OldIndicative
+    subscription snapshot.
+    """
+    cutoff_at = minute_start(cutoff)
+    deleted = 0
+    source = None
+    if using_postgres():
+        try:
+            source = resolve_instrument_source_v2(
+                provider="saxo",
+                provider_instrument_id=str(instrument.uic),
+                require_subscription=True,
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "Closed-market tail repair could not resolve canonical source market=%s uic=%s: %s",
+                market,
+                instrument.uic,
+                exc,
+            )
+
+    with connect(store.path) as db:
+        legacy = db.execute(
+            """
+            DELETE FROM realtime_bars_1m
+            WHERE market=? AND uic=? AND provider=? AND bar_time>?
+            """,
+            (market, int(instrument.uic), "Saxo OpenAPI", cutoff_at.isoformat()),
+        )
+        if legacy.rowcount and legacy.rowcount > 0:
+            deleted += int(legacy.rowcount)
+        if source is not None:
+            canonical = db.execute(
+                """
+                DELETE FROM pg_v2_market_bars_1m
+                WHERE instrument_id=? AND bar_time>? AND COALESCE(quality_flags,0)=?
+                """,
+                (int(source.instrument_id), cutoff_at, int(QUALITY_REALTIME)),
+            )
+            if canonical.rowcount and canonical.rowcount > 0:
+                deleted += int(canonical.rowcount)
+    return deleted
 
 
 def repair_recent_market_history(
@@ -127,6 +242,39 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
 
     def subscribe_all(self, context_id: str) -> None:
         super().subscribe_all(context_id)
+
+        # A reconnect while the market is closed can return an OldIndicative quote
+        # whose provider timestamp is the real closing timestamp. Purge any realtime-
+        # only tail that was previously fabricated from heartbeat/LastUpdated deltas,
+        # and reset the in-memory aggregator so the stale snapshot cannot later
+        # overwrite the real closing OHLC when the market reopens.
+        for ref, market in tuple(self.reference_to_market.items()):
+            snapshot = self.snapshots.get(ref, {})
+            cutoff = _closed_snapshot_cutoff(snapshot)
+            if cutoff is None:
+                continue
+            removed = repair_closed_market_realtime_tail(
+                store=self.store,
+                market=market,
+                instrument=self.instruments[market],
+                cutoff=cutoff,
+            )
+            self.aggregators[market] = MinuteBarAggregator()
+            previous = self._status_cache.get(market)
+            self._status(
+                market,
+                "SUBSCRIBED",
+                reference_id=ref,
+                last_quote_at=None if previous is None else previous.last_quote_at,
+                detail="market closed; OldIndicative snapshot is not a live quote",
+            )
+            LOGGER.warning(
+                "Saxo closed-market realtime tail checked market=%s uic=%s cutoff=%s removed_rows=%d",
+                market,
+                self.instruments[market].uic,
+                cutoff.isoformat(),
+                removed,
+            )
 
         self._chart_reference_to_market.clear()
         self._chart_delays.clear()
@@ -341,6 +489,30 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
             )
             self._start_stale_repair_if_due()
             return
+
+        price_market = self.reference_to_market.get(ref)
+        if price_market is not None and isinstance(message.payload, dict):
+            current = self.snapshots.get(ref, {})
+            merged = merge_delta(current, message.payload)
+            has_price = _payload_contains_price_update(message.payload)
+            explicitly_stale = _payload_explicitly_stale_or_closed(message.payload)
+            if not has_price or explicitly_stale:
+                # Keep delta-compressed snapshot state current, but crucially do not
+                # replay Bid/Ask inherited from an older snapshot as a new observation.
+                self.snapshots[ref] = merged
+                count = self._message_counts.get(ref, 0) + 1
+                self._message_counts[ref] = count
+                if _should_log_count(count):
+                    LOGGER.info(
+                        "Saxo price delta ignored market=%s reference=%s count=%d reason=%s payload_keys=%s",
+                        price_market,
+                        ref,
+                        count,
+                        "stale_or_closed" if explicitly_stale else "no_price_update",
+                        ",".join(sorted(str(key) for key in message.payload)) or "none",
+                    )
+                self._start_stale_repair_if_due()
+                return
 
         super().handle_message(message, received_at=received_at)
         self._start_stale_repair_if_due()
