@@ -63,6 +63,18 @@ div[data-testid="stPlotlyChart"] .modebar-group {{
         min-width: 0 !important;
     }}
 
+    /* The existing inspector JS repositions the card on each pointer update. These
+       important mobile anchors keep it inside the reserved bottom chart margin. */
+    .block-container .pg-chart-inspector {{
+        left: 8px !important;
+        right: 8px !important;
+        top: auto !important;
+        bottom: 8px !important;
+        width: auto !important;
+        max-height: 160px !important;
+        box-sizing: border-box !important;
+    }}
+
     .block-container button,
     .block-container [data-testid="stBaseButton-secondary"],
     .block-container [data-testid="stBaseButton-primary"] {{
