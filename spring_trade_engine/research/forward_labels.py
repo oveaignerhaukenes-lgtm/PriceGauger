@@ -28,9 +28,9 @@ def build_forward_label_v1(
 ) -> SpringForwardLabelV1 | None:
     """Label what actually happened after one Spring observation.
 
-    The label is deliberately non-predictive: it records terminal return plus maximum
-    favorable/adverse excursion from the observation price. It does not decide whether
-    the original Spring state was tradable.
+    The label is deliberately direction-neutral: terminal return plus the largest
+    upward and downward excursions from the observation price. It does not assume a
+    LONG/SHORT position and does not decide whether the original state was tradable.
     """
     if start_price <= 0:
         raise ValueError("Spring forward label requires positive start_price")
@@ -53,8 +53,8 @@ def build_forward_label_v1(
         horizon_minutes=horizon,
         realized_at=terminal_at,
         return_pct=((terminal_close / float(start_price)) - 1.0) * 100.0,
-        max_favorable_excursion_pct=((max(highs) / float(start_price)) - 1.0) * 100.0,
-        max_adverse_excursion_pct=((min(lows) / float(start_price)) - 1.0) * 100.0,
+        max_up_excursion_pct=((max(highs) / float(start_price)) - 1.0) * 100.0,
+        max_down_excursion_pct=((min(lows) / float(start_price)) - 1.0) * 100.0,
     )
 
 
