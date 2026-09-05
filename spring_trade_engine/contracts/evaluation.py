@@ -33,8 +33,8 @@ class SpringForwardLabelV1:
     horizon_minutes: int
     realized_at: datetime
     return_pct: float
-    max_favorable_excursion_pct: float
-    max_adverse_excursion_pct: float
+    max_up_excursion_pct: float
+    max_down_excursion_pct: float
 
 
 @dataclass(frozen=True, slots=True)
