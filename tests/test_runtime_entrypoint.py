@@ -44,8 +44,11 @@ def test_runtime_entrypoint_rejects_missing_or_non_python_target():
 def test_railway_worker_configs_use_explicit_logging_launcher():
     stream = Path("railway.stream.toml").read_text(encoding="utf-8")
     worker = Path("railway.worker.toml").read_text(encoding="utf-8")
+    stream_preflight = Path("realtime_stream_entrypoint.py").read_text(encoding="utf-8")
 
-    assert "python runtime_entrypoint.py realtime_worker.py" in stream
+    assert "python runtime_entrypoint.py realtime_stream_entrypoint.py" in stream
+    assert "realtime_worker.py" in stream_preflight
+    assert "runpy.run_path" in stream_preflight
     assert "python runtime_entrypoint.py telegram_multi_worker.py" in worker
     assert "python realtime_worker.py" not in stream
     assert "python telegram_multi_worker.py" not in worker
