@@ -26,6 +26,28 @@ export default function(component) {
         return Number.isFinite(parsed) ? parsed : fallback;
     }
 
+    function yAxisKeys(graph) {
+        const layout = graph?._fullLayout || graph?.layout || {};
+        return Object.keys(layout).filter((key) => /^yaxis\d*$/.test(key));
+    }
+
+    function axisSide(graph, key) {
+        return String(graph?._fullLayout?.[key]?.side || graph?.layout?.[key]?.side || 'left');
+    }
+
+    function compactLeftTickformat(graph, key) {
+        const axis = graph?._fullLayout?.[key] || graph?.layout?.[key] || {};
+        if (axisSide(graph, key) !== 'left') return null;
+        const range = axis.range;
+        if (!Array.isArray(range) || range.length !== 2) return '.4~g';
+        const values = range.map((value) => Math.abs(Number(value))).filter(Number.isFinite);
+        const maxAbs = values.length ? Math.max(...values) : 0;
+        if (maxAbs >= 10000) return '~s';
+        if (maxAbs >= 1000) return ',.0f';
+        if (maxAbs >= 100) return ',.1f';
+        return '.4~g';
+    }
+
     function captureDesktop(graph) {
         const layout = graph?.layout || {};
         const legend = layout.legend || {};
@@ -51,9 +73,26 @@ export default function(component) {
         };
     }
 
-    function mobileUpdates(state, kind) {
+    function commonPresentationUpdates(graph, kind) {
+        const updates = {
+            // TradingDesk already renders market/timeframe immediately above the plot.
+            // Do not spend plot area repeating the same title inside Plotly.
+            'title.text': '',
+        };
+        if (kind === 'live') {
+            // Price/volume titles on the right merely repeated the selected market.
+            // Keep the numeric scales and useful indicator panel titles.
+            for (const key of yAxisKeys(graph)) {
+                if (axisSide(graph, key) === 'right') updates[`${key}.title.text`] = '';
+            }
+        }
+        return updates;
+    }
+
+    function mobileUpdates(graph, state, kind) {
         const desktop = state.desktop;
-        return {
+        const updates = {
+            ...commonPresentationUpdates(graph, kind),
             height: desktop.height + numberOr(profile.mobile_height_extra_px, 200),
             'margin.l': numberOr(profile.mobile_left_margin_px, 46),
             'margin.r': numberOr(profile.mobile_right_margin_px, 16),
@@ -70,11 +109,21 @@ export default function(component) {
             'legend.font.size': numberOr(profile.mobile_legend_font_size, 10),
             'legend.title.text': '',
         };
+        for (const key of yAxisKeys(graph)) {
+            const tickformat = compactLeftTickformat(graph, key);
+            if (tickformat) {
+                updates[`${key}.tickformat`] = tickformat;
+                updates[`${key}.tickfont.size`] = 10;
+                updates[`${key}.automargin`] = true;
+            }
+        }
+        return updates;
     }
 
-    function desktopUpdates(state) {
+    function desktopUpdates(graph, state, kind) {
         const desktop = state.desktop;
         return {
+            ...commonPresentationUpdates(graph, kind),
             height: desktop.height,
             'margin.l': desktop.margin.l,
             'margin.r': desktop.margin.r,
@@ -122,7 +171,9 @@ export default function(component) {
             return;
         }
         state.mode = mode;
-        const updates = mode === 'mobile' ? mobileUpdates(state, kind) : desktopUpdates(state);
+        const updates = mode === 'mobile'
+            ? mobileUpdates(graph, state, kind)
+            : desktopUpdates(graph, state, kind);
         Promise.resolve(window.Plotly.relayout(graph, updates)).finally(() => {
             window.Plotly?.Plots?.resize?.(graph);
             positionInspector(graph, state, kind);
