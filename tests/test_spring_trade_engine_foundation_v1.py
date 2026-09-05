@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from spring_trade_engine.observer import observe_bars_v1
+from spring_trade_engine.inputs import SpringContextInputV1
+from spring_trade_engine.observers import observe_bars_v1
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,9 +60,25 @@ def test_blind_observer_emits_model_light_spring_primitives() -> None:
     assert observation.context_equilibrium_price is None
 
 
+def test_context_input_is_neutral_adapter_contract() -> None:
+    value = SpringContextInputV1(
+        source_key="telegram-news",
+        observed_at=datetime(2026, 9, 5, 12, 0, tzinfo=timezone.utc),
+        market_id=3,
+        equilibrium_prior_return_pct=-0.75,
+        shock_prior_score=3.2,
+        confidence=0.8,
+        ttl_seconds=600,
+        features={"hawkish": True},
+    )
+    assert value.source_key == "telegram-news"
+    assert value.equilibrium_prior_return_pct == -0.75
+    assert value.confidence == 0.8
+
+
 def test_spring_runtime_has_no_execution_authority_imports() -> None:
     package = ROOT / "spring_trade_engine"
-    python_sources = "\n".join(path.read_text(encoding="utf-8") for path in package.glob("*.py"))
+    python_sources = "\n".join(path.read_text(encoding="utf-8") for path in package.rglob("*.py"))
 
     assert "autotrader_live_open" not in python_sources
     assert "autotrader_live_close" not in python_sources
@@ -73,6 +90,6 @@ def test_spring_runtime_has_no_execution_authority_imports() -> None:
 def test_spring_has_dedicated_railway_service_configuration() -> None:
     source = (ROOT / "railway.spring.toml").read_text(encoding="utf-8")
 
-    assert "spring_trade_engine/runtime.py" in source
+    assert "spring_trade_engine/runtime/observer_runtime.py" in source
     assert "realtime_worker.py" not in source
     assert "telegram_multi_worker.py" not in source
