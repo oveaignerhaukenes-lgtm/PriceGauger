@@ -68,8 +68,8 @@ def ensure_spring_evaluation_schema_v1() -> None:
                 horizon_minutes INTEGER NOT NULL CHECK (horizon_minutes > 0),
                 realized_at TIMESTAMPTZ NOT NULL,
                 return_pct DOUBLE PRECISION NOT NULL,
-                max_favorable_excursion_pct DOUBLE PRECISION NOT NULL,
-                max_adverse_excursion_pct DOUBLE PRECISION NOT NULL,
+                max_up_excursion_pct DOUBLE PRECISION NOT NULL,
+                max_down_excursion_pct DOUBLE PRECISION NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 PRIMARY KEY (instrument_id, observed_at, model_version, evaluation_version, horizon_minutes)
             )
@@ -151,7 +151,7 @@ def persist_forward_label_v1(label: SpringForwardLabelV1) -> int:
             INSERT INTO pg_v2_spring_forward_labels(
                 instrument_id, observed_at, model_version, evaluation_version,
                 horizon_minutes, realized_at, return_pct,
-                max_favorable_excursion_pct, max_adverse_excursion_pct
+                max_up_excursion_pct, max_down_excursion_pct
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (
                 instrument_id, observed_at, model_version, evaluation_version, horizon_minutes
@@ -160,7 +160,7 @@ def persist_forward_label_v1(label: SpringForwardLabelV1) -> int:
             (
                 label.instrument_id, label.observed_at, MODEL_VERSION, EVALUATION_VERSION,
                 label.horizon_minutes, label.realized_at, label.return_pct,
-                label.max_favorable_excursion_pct, label.max_adverse_excursion_pct,
+                label.max_up_excursion_pct, label.max_down_excursion_pct,
             ),
         )
         return max(0, int(getattr(cursor, "rowcount", 0) or 0))
