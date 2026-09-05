@@ -132,7 +132,7 @@ def test_pnl_figure_uses_linked_timeline_range_tools_and_compact_right_legend() 
     assert float(figure.layout.legend.maxheight) == pytest.approx(0.52)
     assert "hover / scroll" in str(figure.layout.legend.title.text)
     assert figure.layout.uirevision.startswith("AutoManagerPnlProduct:acct:4912:CfdOnIndex:7")
-    assert len(figure.layout.shapes) >= 4  # strategy epoch boundary + zero lines for three panels
+    assert len(figure.layout.shapes) >= 3  # strategy epoch boundary + LIVE/model zero lines; Spring zero line exists once Spring data exists
     assert any(annotation.text == "Spring · blind observasjon" for annotation in figure.layout.annotations)
     assert not any(
         annotation.text == "30m MACD long/flat · defensive"
