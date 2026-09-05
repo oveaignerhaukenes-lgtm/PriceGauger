@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any, Iterable
 _ENV_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
 _SECRET_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
 _DEFAULT_SQLITE_PATH = "pricegauger.db"
+_DOLLAR_QUOTE_RE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 
 
 def _running_in_streamlit() -> bool:
@@ -117,6 +119,130 @@ def _is_read_only_sql(sql: str) -> bool:
     return normalized.startswith(("SELECT ", "SHOW ", "WITH "))
 
 
+def _split_postgres_script(script: str) -> tuple[str, ...]:
+    """Split SQL statements without treating semicolons inside SQL syntax as delimiters.
+
+    PriceGauger schema files contain ordinary PostgreSQL line/block comments and may
+    contain quoted strings or dollar-quoted bodies. A raw ``str.split(';')`` corrupts
+    a script whenever any of those regions contains a semicolon; production hit this
+    when a descriptive ``--`` comment contained one.
+    """
+    statements: list[str] = []
+    current: list[str] = []
+    index = 0
+    mode = "normal"
+    block_depth = 0
+    dollar_tag: str | None = None
+
+    while index < len(script):
+        if mode == "normal":
+            if script.startswith("--", index):
+                current.append("--")
+                index += 2
+                mode = "line_comment"
+                continue
+            if script.startswith("/*", index):
+                current.append("/*")
+                index += 2
+                mode = "block_comment"
+                block_depth = 1
+                continue
+            char = script[index]
+            if char == "'":
+                current.append(char)
+                index += 1
+                mode = "single_quote"
+                continue
+            if char == '"':
+                current.append(char)
+                index += 1
+                mode = "double_quote"
+                continue
+            if char == "$":
+                match = _DOLLAR_QUOTE_RE.match(script, index)
+                if match is not None:
+                    dollar_tag = match.group(0)
+                    current.append(dollar_tag)
+                    index = match.end()
+                    mode = "dollar_quote"
+                    continue
+            if char == ";":
+                statement = "".join(current).strip()
+                if statement:
+                    statements.append(statement)
+                current = []
+                index += 1
+                continue
+            current.append(char)
+            index += 1
+            continue
+
+        if mode == "line_comment":
+            char = script[index]
+            current.append(char)
+            index += 1
+            if char == "\n":
+                mode = "normal"
+            continue
+
+        if mode == "block_comment":
+            if script.startswith("/*", index):
+                current.append("/*")
+                index += 2
+                block_depth += 1
+                continue
+            if script.startswith("*/", index):
+                current.append("*/")
+                index += 2
+                block_depth -= 1
+                if block_depth == 0:
+                    mode = "normal"
+                continue
+            current.append(script[index])
+            index += 1
+            continue
+
+        if mode == "single_quote":
+            char = script[index]
+            current.append(char)
+            index += 1
+            if char == "'":
+                if index < len(script) and script[index] == "'":
+                    current.append("'")
+                    index += 1
+                else:
+                    mode = "normal"
+            continue
+
+        if mode == "double_quote":
+            char = script[index]
+            current.append(char)
+            index += 1
+            if char == '"':
+                if index < len(script) and script[index] == '"':
+                    current.append('"')
+                    index += 1
+                else:
+                    mode = "normal"
+            continue
+
+        if mode == "dollar_quote":
+            if dollar_tag is not None and script.startswith(dollar_tag, index):
+                current.append(dollar_tag)
+                index += len(dollar_tag)
+                dollar_tag = None
+                mode = "normal"
+                continue
+            current.append(script[index])
+            index += 1
+            continue
+
+    statement = "".join(current).strip()
+    if statement:
+        statements.append(statement)
+    return tuple(statements)
+
+
 class DatabaseConnection(AbstractContextManager):
     """Minimal connection adapter shared by SQLite and PostgreSQL stores.
 
@@ -179,10 +305,8 @@ class DatabaseConnection(AbstractContextManager):
         if not self.is_postgres:
             self._connection.executescript(script)
             return
-        for statement in script.split(";"):
-            statement = statement.strip()
-            if statement:
-                self._connection.execute(statement)
+        for statement in _split_postgres_script(script):
+            self._connection.execute(statement)
 
     def __enter__(self) -> "DatabaseConnection":
         return self
