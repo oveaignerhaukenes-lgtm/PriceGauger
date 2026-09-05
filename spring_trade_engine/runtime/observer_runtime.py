@@ -100,8 +100,7 @@ def run_cycle(
                 equilibrium_span=equilibrium_span,
                 minimum_bars=12,
             )
-            persist_spring_observation_v1(observation)
-            persisted += 1
+            persisted += persist_spring_observation_v1(observation)
 
             if observation.turning_state in {"TURN_UP", "TURN_DOWN"}:
                 persist_turning_point_v1(
