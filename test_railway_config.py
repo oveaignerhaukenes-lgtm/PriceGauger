@@ -33,7 +33,7 @@ def test_realtime_stream_service_is_isolated_and_requests_one_second_updates():
     deploy = _load("railway.stream.toml")["deploy"]
 
     assert deploy["startCommand"] == (
-        "python runtime_entrypoint.py realtime_worker.py --refresh-ms 1000 "
+        "python runtime_entrypoint.py realtime_stream_entrypoint.py --refresh-ms 1000 "
         "--autotrader-risk-control-seconds 10 "
         "--autotrader-managed-risk-reaction-seconds 2 "
         "--autotrader-live-close-seconds 2"
