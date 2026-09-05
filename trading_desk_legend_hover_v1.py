@@ -8,6 +8,7 @@ export default function(component) {
     const { data, parentElement } = component;
     const liveKey = String(data.uirevision || '');
     const enhanced = new Map();
+    const viewRegistry = window.__pricegaugerPlotlyViews ||= new Map();
     let observer = null;
 
     function targetKind(graph) {
@@ -85,65 +86,371 @@ export default function(component) {
         return number.toLocaleString('nb-NO', { maximumFractionDigits: digits }) + suffix;
     }
 
-    function formatClock(value) {
-        if (value == null) return '';
-        const text = String(value);
-        const match = text.match(/(?:T|\s)(\d{2}:\d{2})/);
-        if (match) return match[1];
-        const date = new Date(text);
-        if (!Number.isFinite(date.getTime())) return text.slice(0, 5);
-        return date.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' });
+    function xMillis(value) {
+        if (value instanceof Date) return value.getTime();
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+        const parsed = new Date(String(value)).getTime();
+        return Number.isFinite(parsed) ? parsed : NaN;
     }
 
-    function infoHost(graph) {
-        return graph.closest('[data-testid="stPlotlyChart"]') || graph.parentElement;
+    function formatTimestamp(value) {
+        const millis = xMillis(value);
+        if (!Number.isFinite(millis)) return String(value ?? '');
+        return new Date(millis).toLocaleString('nb-NO', {
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     }
 
-    function ensureInfoLine(graph) {
-        const host = infoHost(graph);
-        if (!host) return null;
-        let line = host.querySelector(':scope > .pg-chart-click-info');
+    function viewKey(graph) {
+        return String(graph?.layout?.uirevision || graph?._fullLayout?.uirevision || '');
+    }
+
+    function isNavigationRelayout(eventData) {
+        const keys = Object.keys(eventData || {});
+        return keys.some((key) => /^(xaxis|yaxis)\d*\.(range(?:\[\d\])?|autorange)$/.test(key));
+    }
+
+    function snapshotBrowserView(graph) {
+        const layout = graph?._fullLayout;
+        if (!layout) return null;
+        const ranges = {};
+        for (const key of Object.keys(layout)) {
+            if (!/^(xaxis|yaxis)\d*$/.test(key)) continue;
+            const range = layout[key]?.range;
+            if (!Array.isArray(range) || range.length !== 2) continue;
+            ranges[key] = range.map((value) => value instanceof Date ? value.toISOString() : value);
+        }
+        return Object.keys(ranges).length ? { ranges } : null;
+    }
+
+    function rangeScalar(axisKey, value) {
+        if (axisKey.startsWith('xaxis')) return xMillis(value);
+        const number = Number(value);
+        return Number.isFinite(number) ? number : NaN;
+    }
+
+    function sameRange(axisKey, left, right) {
+        if (!Array.isArray(left) || !Array.isArray(right) || left.length !== 2 || right.length !== 2) return false;
+        return left.every((value, index) => {
+            const a = rangeScalar(axisKey, value);
+            const b = rangeScalar(axisKey, right[index]);
+            if (!Number.isFinite(a) || !Number.isFinite(b)) return String(value) === String(right[index]);
+            const scale = axisKey.startsWith('xaxis') ? 1 : Math.max(1, Math.abs(a), Math.abs(b));
+            const tolerance = axisKey.startsWith('xaxis') ? 1 : scale * 1e-9;
+            return Math.abs(a - b) <= tolerance;
+        });
+    }
+
+    function browserViewAlreadyApplied(graph, saved) {
+        const layout = graph?._fullLayout;
+        if (!layout || !saved?.ranges) return true;
+        return Object.entries(saved.ranges).every(([axisKey, range]) => sameRange(axisKey, layout[axisKey]?.range, range));
+    }
+
+    function applyBrowserView(graph, state) {
+        const key = viewKey(graph);
+        const saved = key ? viewRegistry.get(key) : null;
+        if (!saved || state.restoringView || !window.Plotly?.relayout || browserViewAlreadyApplied(graph, saved)) return;
+        const updates = {};
+        for (const [axisKey, range] of Object.entries(saved.ranges || {})) {
+            if (!Array.isArray(range) || range.length !== 2 || !graph?._fullLayout?.[axisKey]) continue;
+            updates[`${axisKey}.range`] = range.slice();
+            updates[`${axisKey}.autorange`] = false;
+        }
+        if (!Object.keys(updates).length) return;
+        state.restoringView = true;
+        Promise.resolve(window.Plotly.relayout(graph, updates)).finally(() => {
+            state.restoringView = false;
+        });
+    }
+
+    function plotGeometry(graph) {
+        const layout = graph?._fullLayout;
+        const size = layout?._size;
+        if (!layout || !size) return null;
+        return { layout, size, rect: graph.getBoundingClientRect() };
+    }
+
+    function pointerInsidePlot(graph, clientX, clientY) {
+        const geometry = plotGeometry(graph);
+        if (!geometry) return false;
+        const { size, rect } = geometry;
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        return x >= size.l && x <= size.l + size.w && y >= size.t && y <= size.t + size.h;
+    }
+
+    function pointerXValue(graph, clientX) {
+        const geometry = plotGeometry(graph);
+        const axis = geometry?.layout?.xaxis;
+        if (!geometry || !axis?.p2c) return NaN;
+        const pixel = clientX - geometry.rect.left - geometry.size.l;
+        if (pixel < 0 || pixel > geometry.size.w) return NaN;
+        return Number(axis.p2c(pixel));
+    }
+
+    function ensureCrosshair(graph) {
+        let line = graph.querySelector(':scope > .pg-linked-crosshair');
         if (!line) {
             line = document.createElement('div');
-            line.className = 'pg-chart-click-info';
+            line.className = 'pg-linked-crosshair';
             Object.assign(line.style, {
-                minHeight: '1.25rem',
-                marginTop: '.2rem',
-                padding: '0 .2rem',
-                font: '500 12px/1.35 system-ui, -apple-system, sans-serif',
-                color: '#4b5563',
-                whiteSpace: 'normal',
+                position: 'absolute',
+                width: '1px',
+                background: 'rgba(17,24,39,.34)',
+                pointerEvents: 'none',
+                display: 'none',
+                zIndex: '7',
             });
-            host.appendChild(line);
+            graph.style.position = 'relative';
+            graph.appendChild(line);
         }
         return line;
     }
 
-    function renderPointInfo(graph, point) {
-        if (!point) return;
-        const traceIndex = Number(point.curveNumber);
-        const trace = graph.data?.[traceIndex];
-        if (!trace) return;
-        const pointIndex = Number(point.pointNumber ?? point.pointIndex ?? 0);
-        const name = String(trace.name || 'Serie');
-        const clock = formatClock(point.x);
-        const pieces = [name];
-        if (clock) pieces.push(clock);
-
-        if (String(trace.type || '') === 'candlestick') {
-            pieces.push(`O ${formatNumber(trace.open?.[pointIndex])}`);
-            pieces.push(`H ${formatNumber(trace.high?.[pointIndex])}`);
-            pieces.push(`L ${formatNumber(trace.low?.[pointIndex])}`);
-            pieces.push(`C ${formatNumber(trace.close?.[pointIndex])}`);
-        } else {
-            const isPnl = String(graph.layout?.uirevision || '').startsWith('AutoManagerPnlProduct:');
-            pieces.push(formatNumber(point.y, isPnl ? '%' : ''));
-            const custom = point.customdata;
-            if (typeof custom === 'string' && custom) pieces.push(custom);
-            else if (Array.isArray(custom) && custom.length && typeof custom[0] === 'string') pieces.push(custom[0]);
+    function hideLinkedCrosshairs() {
+        for (const graph of enhanced.keys()) {
+            const line = graph.querySelector(':scope > .pg-linked-crosshair');
+            if (line) line.style.display = 'none';
         }
-        const line = ensureInfoLine(graph);
-        if (line) line.textContent = pieces.join(' · ');
+    }
+
+    function showLinkedCrosshairs(sourceGraph, clientX) {
+        const sourceGeometry = plotGeometry(sourceGraph);
+        const sourceAxis = sourceGeometry?.layout?.xaxis;
+        if (!sourceGeometry || !sourceAxis?.p2c) return NaN;
+        const sourcePixel = clientX - sourceGeometry.rect.left - sourceGeometry.size.l;
+        if (sourcePixel < 0 || sourcePixel > sourceGeometry.size.w) {
+            hideLinkedCrosshairs();
+            return NaN;
+        }
+        const xValue = sourceAxis.p2c(sourcePixel);
+        if (!Number.isFinite(xValue)) return NaN;
+
+        for (const graph of enhanced.keys()) {
+            const geometry = plotGeometry(graph);
+            const axis = geometry?.layout?.xaxis;
+            if (!geometry || !axis?.c2p) continue;
+            const pixel = axis.c2p(xValue);
+            const line = ensureCrosshair(graph);
+            if (!Number.isFinite(pixel) || pixel < 0 || pixel > geometry.size.w) {
+                line.style.display = 'none';
+                continue;
+            }
+            line.style.left = `${geometry.size.l + pixel}px`;
+            line.style.top = `${geometry.size.t}px`;
+            line.style.height = `${geometry.size.h}px`;
+            line.style.display = 'block';
+        }
+        return Number(xValue);
+    }
+
+    function ensureInspector(graph) {
+        let panel = graph.querySelector(':scope > .pg-chart-inspector');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'pg-chart-inspector';
+            Object.assign(panel.style, {
+                position: 'absolute',
+                zIndex: '6',
+                boxSizing: 'border-box',
+                border: '1px solid rgba(17,24,39,.12)',
+                borderRadius: '6px',
+                background: 'rgba(255,255,255,.96)',
+                color: '#374151',
+                font: '500 11px/1.35 system-ui, -apple-system, sans-serif',
+                padding: '7px 8px',
+                pointerEvents: 'none',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                boxShadow: '0 1px 2px rgba(17,24,39,.04)',
+            });
+            graph.style.position = 'relative';
+            graph.appendChild(panel);
+        }
+        positionInspector(graph, panel);
+        return panel;
+    }
+
+    function positionInspector(graph, panel = null) {
+        const target = panel || graph.querySelector(':scope > .pg-chart-inspector');
+        const geometry = plotGeometry(graph);
+        if (!target || !geometry) return;
+        const { size, rect } = geometry;
+        let left = size.l + size.w + 12;
+        let top = size.t + Math.max(110, size.h * 0.56);
+        const legend = graph.querySelector('.legend');
+        if (legend) {
+            const legendRect = legend.getBoundingClientRect();
+            const candidateLeft = legendRect.left - rect.left;
+            const candidateTop = legendRect.bottom - rect.top + 8;
+            if (Number.isFinite(candidateLeft) && candidateLeft >= size.l + size.w - 4) left = candidateLeft;
+            if (Number.isFinite(candidateTop) && candidateTop > size.t) top = candidateTop;
+        }
+        const availableWidth = Math.max(118, rect.width - left - 8);
+        const availableHeight = Math.max(78, rect.height - top - 8);
+        target.style.left = `${Math.round(left)}px`;
+        target.style.top = `${Math.round(top)}px`;
+        target.style.width = `${Math.round(Math.min(202, availableWidth))}px`;
+        target.style.maxHeight = `${Math.round(availableHeight)}px`;
+    }
+
+    function nearestIndex(trace, targetMillis) {
+        const xs = Array.from(trace?.x || []);
+        if (!xs.length || !Number.isFinite(targetMillis)) return null;
+        let low = 0;
+        let high = xs.length - 1;
+        while (low < high) {
+            const mid = Math.floor((low + high) / 2);
+            const value = xMillis(xs[mid]);
+            if (!Number.isFinite(value) || value < targetMillis) low = mid + 1;
+            else high = mid;
+        }
+        const candidates = [low, low - 1].filter((index) => index >= 0 && index < xs.length);
+        let best = null;
+        for (const index of candidates) {
+            const value = xMillis(xs[index]);
+            if (!Number.isFinite(value)) continue;
+            const distance = Math.abs(value - targetMillis);
+            if (best === null || distance < best.distance) best = { index, millis: value, distance };
+        }
+        return best;
+    }
+
+    function nearestAnchor(graph, targetMillis) {
+        let best = null;
+        const traces = Array.from(graph?.data || []);
+        const preferred = traces.find((trace) => trace?.type === 'candlestick' && trace?.visible !== false);
+        const candidates = preferred ? [preferred, ...traces.filter((trace) => trace !== preferred)] : traces;
+        for (const trace of candidates) {
+            if (trace?.visible === false || trace?.visible === 'legendonly') continue;
+            const nearest = nearestIndex(trace, targetMillis);
+            if (!nearest) continue;
+            if (preferred && trace === preferred) return nearest.millis;
+            if (best === null || nearest.distance < best.distance) best = nearest;
+        }
+        return best?.millis ?? NaN;
+    }
+
+    function customSummary(value) {
+        if (typeof value === 'string' && value) return value;
+        if (!Array.isArray(value) || !value.length) return '';
+        const text = value.find((item) => typeof item === 'string' && item);
+        return text ? String(text) : '';
+    }
+
+    function inspectorRows(graph, anchorMillis) {
+        const rows = [];
+        const isPnl = String(graph.layout?.uirevision || '').startsWith('AutoManagerPnlProduct:');
+        for (const trace of Array.from(graph?.data || [])) {
+            if (trace?.visible === false || trace?.visible === 'legendonly') continue;
+            const nearest = nearestIndex(trace, anchorMillis);
+            if (!nearest) continue;
+            const index = nearest.index;
+            const name = String(trace?.name || 'Serie');
+            if (String(trace?.type || '') === 'candlestick') {
+                rows.push({
+                    name,
+                    value: `O ${formatNumber(trace.open?.[index])}  H ${formatNumber(trace.high?.[index])}  L ${formatNumber(trace.low?.[index])}  C ${formatNumber(trace.close?.[index])}`,
+                    extra: '',
+                });
+                continue;
+            }
+            const rawValue = trace?.y?.[index];
+            const number = Number(rawValue);
+            if (!Number.isFinite(number)) continue;
+            const custom = trace?.customdata?.[index];
+            rows.push({
+                name,
+                value: formatNumber(number, isPnl ? '%' : ''),
+                extra: customSummary(custom),
+            });
+        }
+        return rows.slice(0, 16);
+    }
+
+    function renderInspector(graph, targetX) {
+        const targetMillis = Number(targetX);
+        if (!Number.isFinite(targetMillis)) return;
+        const anchorMillis = nearestAnchor(graph, targetMillis);
+        if (!Number.isFinite(anchorMillis)) return;
+        const panel = ensureInspector(graph);
+        if (!panel) return;
+        const rows = inspectorRows(graph, anchorMillis);
+        panel.replaceChildren();
+
+        const header = document.createElement('div');
+        header.textContent = formatTimestamp(anchorMillis);
+        Object.assign(header.style, {
+            fontWeight: '700',
+            color: '#111827',
+            marginBottom: '5px',
+            paddingBottom: '4px',
+            borderBottom: '1px solid rgba(17,24,39,.10)',
+        });
+        panel.appendChild(header);
+
+        if (!rows.length) {
+            const empty = document.createElement('div');
+            empty.textContent = 'Ingen verdi ved markøren';
+            empty.style.color = '#6b7280';
+            panel.appendChild(empty);
+            return;
+        }
+
+        for (const row of rows) {
+            const item = document.createElement('div');
+            item.style.marginBottom = '5px';
+            const name = document.createElement('div');
+            name.textContent = row.name;
+            Object.assign(name.style, {
+                color: '#6b7280',
+                fontSize: '10px',
+                lineHeight: '1.2',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+            });
+            const value = document.createElement('div');
+            value.textContent = row.value;
+            Object.assign(value.style, {
+                color: '#1f2937',
+                fontWeight: '600',
+                overflowWrap: 'anywhere',
+            });
+            item.appendChild(name);
+            item.appendChild(value);
+            if (row.extra) {
+                const extra = document.createElement('div');
+                extra.textContent = row.extra;
+                Object.assign(extra.style, {
+                    color: '#6b7280',
+                    fontSize: '10px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                });
+                item.appendChild(extra);
+            }
+            panel.appendChild(item);
+        }
+    }
+
+    function renderInspectorsAtX(xValue) {
+        if (!Number.isFinite(Number(xValue))) return;
+        for (const graph of enhanced.keys()) renderInspector(graph, Number(xValue));
+    }
+
+    function renderInspectorPlaceholder(graph) {
+        const panel = ensureInspector(graph);
+        if (!panel || panel.childNodes.length) return;
+        const text = document.createElement('div');
+        text.textContent = 'Flytt markøren over grafen';
+        text.style.color = '#6b7280';
+        panel.appendChild(text);
     }
 
     function compactPresentation(graph, kind) {
@@ -213,77 +520,6 @@ export default function(component) {
         return Number.isFinite(start) && Number.isFinite(end) && start !== end ? [start, end] : null;
     }
 
-    function plotGeometry(graph) {
-        const layout = graph?._fullLayout;
-        const size = layout?._size;
-        if (!layout || !size) return null;
-        return { layout, size, rect: graph.getBoundingClientRect() };
-    }
-
-    function pointerInsidePlot(graph, clientX, clientY) {
-        const geometry = plotGeometry(graph);
-        if (!geometry) return false;
-        const { size, rect } = geometry;
-        const x = clientX - rect.left;
-        const y = clientY - rect.top;
-        return x >= size.l && x <= size.l + size.w && y >= size.t && y <= size.t + size.h;
-    }
-
-    function ensureCrosshair(graph) {
-        let line = graph.querySelector(':scope > .pg-linked-crosshair');
-        if (!line) {
-            line = document.createElement('div');
-            line.className = 'pg-linked-crosshair';
-            Object.assign(line.style, {
-                position: 'absolute',
-                width: '1px',
-                background: 'rgba(17,24,39,.34)',
-                pointerEvents: 'none',
-                display: 'none',
-                zIndex: '7',
-            });
-            graph.style.position = 'relative';
-            graph.appendChild(line);
-        }
-        return line;
-    }
-
-    function hideLinkedCrosshairs() {
-        for (const graph of enhanced.keys()) {
-            const line = graph.querySelector(':scope > .pg-linked-crosshair');
-            if (line) line.style.display = 'none';
-        }
-    }
-
-    function showLinkedCrosshairs(sourceGraph, clientX) {
-        const sourceGeometry = plotGeometry(sourceGraph);
-        const sourceAxis = sourceGeometry?.layout?.xaxis;
-        if (!sourceGeometry || !sourceAxis?.p2c) return;
-        const sourcePixel = clientX - sourceGeometry.rect.left - sourceGeometry.size.l;
-        if (sourcePixel < 0 || sourcePixel > sourceGeometry.size.w) {
-            hideLinkedCrosshairs();
-            return;
-        }
-        const xValue = sourceAxis.p2c(sourcePixel);
-        if (!Number.isFinite(xValue)) return;
-
-        for (const graph of enhanced.keys()) {
-            const geometry = plotGeometry(graph);
-            const axis = geometry?.layout?.xaxis;
-            if (!geometry || !axis?.c2p) continue;
-            const pixel = axis.c2p(xValue);
-            const line = ensureCrosshair(graph);
-            if (!Number.isFinite(pixel) || pixel < 0 || pixel > geometry.size.w) {
-                line.style.display = 'none';
-                continue;
-            }
-            line.style.left = `${geometry.size.l + pixel}px`;
-            line.style.top = `${geometry.size.t}px`;
-            line.style.height = `${geometry.size.h}px`;
-            line.style.display = 'block';
-        }
-    }
-
     function enhance(graph, kind) {
         if (!graph || enhanced.has(graph)) return;
         const state = {
@@ -291,6 +527,8 @@ export default function(component) {
             fingerprint: traceFingerprint(graph),
             wheelFrame: null,
             wheel: null,
+            restoringView: false,
+            resettingView: false,
         };
         enhanced.set(graph, state);
         compactPresentation(graph, kind);
@@ -298,6 +536,8 @@ export default function(component) {
         state.fingerprint = traceFingerprint(graph);
         hideHoverPopup(graph);
         ensureCrosshair(graph);
+        renderInspectorPlaceholder(graph);
+        window.requestAnimationFrame(() => applyBrowserView(graph, state));
 
         const onLegendOver = (event) => {
             const item = event.target?.closest?.('.legend .traces');
@@ -318,20 +558,40 @@ export default function(component) {
                 hideLinkedCrosshairs();
                 return;
             }
-            showLinkedCrosshairs(graph, event.clientX);
+            const xValue = showLinkedCrosshairs(graph, event.clientX);
+            if (Number.isFinite(xValue)) renderInspectorsAtX(xValue);
         };
         const onPointerLeave = () => hideLinkedCrosshairs();
         const onPlotHover = (event) => {
             const point = event?.points?.[0];
-            if (point) {
-                highlight(graph, state, Number(point.curveNumber));
-                renderPointInfo(graph, point);
-            }
+            if (point) highlight(graph, state, Number(point.curveNumber));
             hideHoverPopup(graph);
         };
         const onPlotUnhover = () => restore(graph, state);
-        const onPlotClick = (event) => renderPointInfo(graph, event?.points?.[0]);
-        const onAfterPlot = () => hideHoverPopup(graph);
+        const onPlotClick = (event) => {
+            const point = event?.points?.[0];
+            const value = point ? xMillis(point.x) : NaN;
+            if (Number.isFinite(value)) renderInspectorsAtX(value);
+        };
+        const onRelayout = (eventData) => {
+            if (state.restoringView || state.resettingView || !isNavigationRelayout(eventData)) return;
+            const snapshot = snapshotBrowserView(graph);
+            const key = viewKey(graph);
+            if (snapshot && key) viewRegistry.set(key, snapshot);
+        };
+        const onDoubleClick = () => {
+            const key = viewKey(graph);
+            if (key) viewRegistry.delete(key);
+            state.resettingView = true;
+            window.setTimeout(() => {
+                state.resettingView = false;
+            }, 350);
+        };
+        const onAfterPlot = () => {
+            hideHoverPopup(graph);
+            positionInspector(graph);
+            applyBrowserView(graph, state);
+        };
 
         function flushWheel() {
             state.wheelFrame = null;
@@ -421,6 +681,8 @@ export default function(component) {
         graph.on?.('plotly_hover', onPlotHover);
         graph.on?.('plotly_unhover', onPlotUnhover);
         graph.on?.('plotly_click', onPlotClick);
+        graph.on?.('plotly_relayout', onRelayout);
+        graph.on?.('plotly_doubleclick', onDoubleClick);
         graph.on?.('plotly_afterplot', onAfterPlot);
 
         state.cleanup = () => {
@@ -432,10 +694,12 @@ export default function(component) {
             graph.removeListener?.('plotly_hover', onPlotHover);
             graph.removeListener?.('plotly_unhover', onPlotUnhover);
             graph.removeListener?.('plotly_click', onPlotClick);
+            graph.removeListener?.('plotly_relayout', onRelayout);
+            graph.removeListener?.('plotly_doubleclick', onDoubleClick);
             graph.removeListener?.('plotly_afterplot', onAfterPlot);
             if (state.wheelFrame) window.cancelAnimationFrame(state.wheelFrame);
-            const crosshair = graph.querySelector(':scope > .pg-linked-crosshair');
-            crosshair?.remove();
+            graph.querySelector(':scope > .pg-linked-crosshair')?.remove();
+            graph.querySelector(':scope > .pg-chart-inspector')?.remove();
             restore(graph, state);
         };
     }
@@ -476,15 +740,15 @@ _legend_hover_component = st.components.v2.component(
 
 
 def render_trading_desk_legend_hover_v1(*, uirevision: str) -> None:
-    """Install lightweight browser interactions for TradingDesk Plotly charts.
+    """Install browser-local interactions for TradingDesk Plotly charts.
 
-    Hover highlights the focused trace and continuously updates one compact information
-    line without opening Plotly's large tooltip layer. A linked vertical cursor spans
-    the full Live/indicator stack and the AutoManager comparison chart at the same time.
-    On the LIVE chart, trackpad pinch zooms only X, horizontal two-finger motion pans X,
-    and vertical two-finger motion scales the price Y-axis around the pointer. Wheel
-    gestures are captured only inside the actual plot rectangle so surrounding page
-    scrolling and axis labels remain native browser behavior.
+    Legend hover highlights the focused trace while Plotly's large tooltip layer stays
+    hidden. A compact inspector lives in the chart's right margin below the legend and
+    follows the linked time cursor across the Live/indicator and AutoManager comparison
+    charts. Pan/zoom ranges are kept browser-local by stable ``uirevision`` so Streamlit
+    refreshes do not snap the chart back. On the LIVE chart, trackpad pinch zooms only
+    X, horizontal two-finger motion pans X, and vertical two-finger motion scales the
+    price Y-axis around the pointer. Wheel gestures are captured only inside the plot.
     """
     _legend_hover_component(
         key=f"pg-trading-desk-legend-hover:{uirevision}",

@@ -22,11 +22,7 @@ from trading_desk_chart import (
     trading_desk_uirevision,
 )
 from trading_desk_legend_hover_v1 import render_trading_desk_legend_hover_v1
-from trading_desk_live_overlay_v2 import (
-    live_chart_overlay_key_v2,
-    parse_live_chart_view_v2,
-    render_live_candle_overlay_v2,
-)
+from trading_desk_live_overlay_v2 import render_live_candle_overlay_v2
 from trading_desk_indicators import (
     DEFAULT_INDICATORS,
     INDICATOR_MACD,
@@ -206,13 +202,8 @@ with controls_column:
             key=f"tradingdesk-v2-interpreter:{market}",
         )
 
-        st.caption(f"market_id {baseline_context.market_id}")
         if baseline_context.instrument is None:
             st.warning("Ingen aktiv/subscribed v2-instrumentkilde. Chart og AutoManager er deaktivert for markedet.")
-        else:
-            st.caption(
-                f"instrument_id {baseline_context.instrument.instrument_id} · {baseline_context.instrument_label}"
-            )
 
     with st.expander("Graf", expanded=True):
         st.markdown("**Timeframe**")
@@ -526,11 +517,6 @@ def _render_live_chart() -> None:
     if primary and INDICATOR_SWING_BANDS in indicator_names:
         add_swing_bands_to_figure(fig, primary)
     localize_plotly_figure_v2(fig)
-    navigation_key = live_chart_overlay_key_v2(_live_chart_uirevision())
-    saved_view = parse_live_chart_view_v2(st.session_state.get(navigation_key))
-    if saved_view is not None:
-        fig.update_xaxes(range=list(saved_view.x_range), autorange=False)
-        fig.update_yaxes(range=list(saved_view.y_range), autorange=False, row=1, col=1, secondary_y=False)
 
     st.plotly_chart(
         fig,

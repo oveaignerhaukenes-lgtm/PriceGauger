@@ -27,13 +27,14 @@ def test_trade_marker_schema_is_installed_by_live_open_runtime_not_streamlit_ui(
     assert "ensure_autotrader_trade_marker_schema_v1" not in overlay
 
 
-def test_live_chart_overlay_draws_directional_and_active_markers() -> None:
+def test_live_chart_overlay_draws_directional_text_free_markers() -> None:
     source = _source("trading_desk_live_overlay_v2.py")
     assert 'direction === \'LONG\' ? \'#16a34a\' : \'#dc2626\'' in source
     assert "const upward = direction === 'LONG'" in source
     assert "entry.tradeMarkers" in source
     assert "drawTradeMarker(context, xaxis, yaxis, size, marker)" in source
-    assert "AKTIV ${direction}" in source
+    assert "AKTIV ${direction}" not in source
+    assert "context.fillText" not in source
     assert '"trade_markers": trade_markers' in source
 
 

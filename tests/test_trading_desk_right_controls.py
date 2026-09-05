@@ -27,6 +27,18 @@ def test_tradingdesk_keeps_page_controls_out_of_global_sidebar_and_automanager_o
     assert "render_tradingdesk_automanage_panel_v2(context)" in source
 
 
+def test_right_control_market_section_omits_duplicate_runtime_identity_labels() -> None:
+    source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
+    market_controls = source.split('with st.expander("V2 marked / analyse", expanded=True):', 1)[1].split(
+        'with st.expander("Graf", expanded=True):', 1
+    )[0]
+
+    assert 'st.caption(f"market_id ' not in market_controls
+    assert 'st.caption(\n                f"instrument_id ' not in market_controls
+    assert "baseline_context.instrument_label" not in market_controls
+    assert "Ingen aktiv/subscribed v2-instrumentkilde" in market_controls
+
+
 def test_tradingdesk_plotly_modebar_stays_in_header_space_not_over_data() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
 
@@ -74,12 +86,15 @@ def test_timed_fragments_do_not_recreate_interactive_controls() -> None:
     assert "value=st.session_state[MODE_KEY]" not in companion_source
 
 
-def test_second_updates_use_browser_overlay_instead_of_replacing_plotly_chart() -> None:
+def test_second_updates_use_browser_overlay_without_server_side_range_reapply() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert "render_live_candle_overlay_v2(" in source
-    assert "parse_live_chart_view_v2(st.session_state.get(navigation_key))" in source
-    assert "fig.update_xaxes(range=list(saved_view.x_range), autorange=False)" in source
-    assert "fig.update_yaxes(range=list(saved_view.y_range), autorange=False" in source
+    assert "live_chart_overlay_key_v2" not in source
+    assert "parse_live_chart_view_v2" not in source
+    assert "navigation_key =" not in source
+    assert "saved_view =" not in source
+    assert "fig.update_xaxes(range=list(saved_view.x_range)" not in source
+    assert "fig.update_yaxes(range=list(saved_view.y_range)" not in source
     assert source.count('run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s"') == 1
     assert source.count('run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s"') == 1

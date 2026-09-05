@@ -16,12 +16,39 @@ def test_chart_interaction_component_highlights_hover_and_replaces_large_popup()
     assert "plotly_click" in source
     assert "window.Plotly" in source
     assert "Math.min(0.12, value)" in source
-    assert "pg-chart-click-info" in source
+    assert "pg-chart-inspector" in source
+    assert "pg-chart-click-info" not in source
     assert "hideHoverPopup" in source
     assert "maximumFractionDigits" in source
 
 
-def test_live_chart_trackpad_contract_is_x_zoom_x_pan_and_price_y_pan() -> None:
+def test_cursor_inspector_lives_under_legend_and_follows_nearest_time() -> None:
+    source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
+
+    assert "function positionInspector" in source
+    assert "legend.getBoundingClientRect()" in source
+    assert "legendRect.bottom - rect.top + 8" in source
+    assert "function nearestAnchor" in source
+    assert "function nearestIndex" in source
+    assert "renderInspectorsAtX(xValue)" in source
+    assert "O ${formatNumber(trace.open?.[index])}" in source
+    assert "isPnl ? '%' : ''" in source
+
+
+def test_browser_local_view_registry_prevents_pan_zoom_snap_back() -> None:
+    source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
+
+    assert "window.__pricegaugerPlotlyViews" in source
+    assert "function isNavigationRelayout" in source
+    assert "snapshotBrowserView(graph)" in source
+    assert "applyBrowserView(graph, state)" in source
+    assert "graph.on?.('plotly_relayout', onRelayout)" in source
+    assert "graph.on?.('plotly_doubleclick', onDoubleClick)" in source
+    assert "viewRegistry.delete(key)" in source
+    assert "state.restoringView" in source
+
+
+def test_live_chart_trackpad_contract_is_x_zoom_x_pan_and_price_y_scale() -> None:
     source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
 
     assert "event.ctrlKey || event.metaKey" in source
@@ -38,6 +65,7 @@ def test_strategy_chart_is_discovered_by_same_interaction_component() -> None:
     assert "AutoManagerPnlProduct:" in source
     assert "legend.maxheight" in source
     assert "Legend · hover / scroll" in source
+    assert "renderInspectorsAtX" in source
 
 
 def test_interaction_component_is_rendered_with_stable_chart_controls() -> None:
