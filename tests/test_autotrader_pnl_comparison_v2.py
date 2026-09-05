@@ -119,19 +119,21 @@ def test_pnl_figure_uses_linked_timeline_range_tools_and_compact_right_legend() 
     assert float(traces["LIVE · realisert Saxo"].line.width) <= 1.5
     assert traces["Paper · 30m MACD long/flat · defensive"].yaxis == "y2"
     assert tuple(traces["Paper · 30m MACD long/flat · defensive"].y) == pytest.approx((0.0, 2.0))
-    assert figure.layout.xaxis.matches == "x2"
-    assert figure.layout.xaxis2.rangeslider.visible is True
-    assert [button.label for button in figure.layout.xaxis2.rangeselector.buttons] == [
+    assert figure.layout.xaxis.matches == "x3"
+    assert figure.layout.xaxis2.matches == "x3"
+    assert figure.layout.xaxis3.rangeslider.visible is True
+    assert [button.label for button in figure.layout.xaxis3.rangeselector.buttons] == [
         "1t", "4t", "12t", "1d", "3d", "Alt"
     ]
-    assert figure.layout.xaxis2.tickformat == "%H:%M"
-    assert figure.layout.xaxis2.title.text == "Tid"
+    assert figure.layout.xaxis3.tickformat == "%H:%M"
+    assert figure.layout.xaxis3.title.text == "Tid"
     assert figure.layout.legend.orientation == "v"
     assert float(figure.layout.legend.x) > 1.0
     assert float(figure.layout.legend.maxheight) == pytest.approx(0.52)
     assert "hover / scroll" in str(figure.layout.legend.title.text)
     assert figure.layout.uirevision.startswith("AutoManagerPnlProduct:acct:4912:CfdOnIndex:7")
-    assert len(figure.layout.shapes) >= 3  # strategy epoch boundary + zero lines for both panels
+    assert len(figure.layout.shapes) >= 4  # strategy epoch boundary + zero lines for three panels
+    assert any(annotation.text == "Spring · blind observasjon" for annotation in figure.layout.annotations)
     assert not any(
         annotation.text == "30m MACD long/flat · defensive"
         for annotation in figure.layout.annotations
