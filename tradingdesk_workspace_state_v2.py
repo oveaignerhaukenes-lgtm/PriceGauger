@@ -19,6 +19,7 @@ WINDOW_HOURS_SESSION_KEY = "tradingdesk-window-hours"
 OVERLAY_MODE_SESSION_KEY = "tradingdesk-overlay-mode"
 OVERLAYS_SESSION_KEY = "tradingdesk-overlays"
 INDICATORS_SESSION_KEY = "tradingdesk-indicators"
+INDICATOR_AI_SESSION_KEY = "tradingdesk-indicator-ai-enabled"
 CHART_HEIGHT_SESSION_KEY = "tradingdesk-chart-height"
 PRICE_PANEL_PCT_SESSION_KEY = "tradingdesk-price-panel-pct"
 
@@ -33,6 +34,7 @@ _SAFE_SESSION_KEYS = {
     "overlay_mode": OVERLAY_MODE_SESSION_KEY,
     "overlays": OVERLAYS_SESSION_KEY,
     "indicators": INDICATORS_SESSION_KEY,
+    "indicator_ai_enabled": INDICATOR_AI_SESSION_KEY,
     "chart_height": CHART_HEIGHT_SESSION_KEY,
     "price_panel_pct": PRICE_PANEL_PCT_SESSION_KEY,
 }
@@ -43,6 +45,7 @@ _INT_PREFERENCES = {
     "chart_height",
     "price_panel_pct",
 }
+_BOOL_PREFERENCES = {"auto_refresh", "indicator_ai_enabled"}
 _LIST_PREFERENCES = {"overlays", "indicators"}
 
 
@@ -91,7 +94,7 @@ def _safe_state_from_session(available_markets: set[str]) -> dict[str, Any]:
             text = str(value or "").strip()
             if text:
                 result[persisted_key] = text
-        elif persisted_key == "auto_refresh":
+        elif persisted_key in _BOOL_PREFERENCES:
             result[persisted_key] = bool(value)
         elif persisted_key in _INT_PREFERENCES:
             try:
@@ -149,7 +152,7 @@ def restore_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> 
             value = str(value or "").strip()
             if not value:
                 continue
-        elif persisted_key == "auto_refresh":
+        elif persisted_key in _BOOL_PREFERENCES:
             value = bool(value)
         elif persisted_key in _INT_PREFERENCES:
             try:
@@ -209,6 +212,7 @@ __all__ = [
     "AUTO_REFRESH_SESSION_KEY",
     "CHART_HEIGHT_SESSION_KEY",
     "CONTROLS_WIDTH_SESSION_KEY",
+    "INDICATOR_AI_SESSION_KEY",
     "INDICATORS_SESSION_KEY",
     "MACD_TIMEFRAME_SESSION_KEY",
     "MARKET_SESSION_KEY",
