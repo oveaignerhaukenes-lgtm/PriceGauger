@@ -41,6 +41,14 @@ export default function(component) {
         return String(graph?.layout?.uirevision || graph?._fullLayout?.uirevision || '');
     }
 
+    function timeframeSeconds(graph) {
+        const match = chartKey(graph).match(/^TradingDesk:(.*):(1m|2m|5m|10m|15m|20m|30m|1h):/);
+        const value = match?.[2] || '1m';
+        if (value === '1h') return 3600;
+        const minutes = Number(String(value).replace('m', ''));
+        return Number.isFinite(minutes) && minutes > 0 ? minutes * 60 : 60;
+    }
+
     function epoch(value) {
         if (typeof value === 'number' && Number.isFinite(value)) {
             return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
@@ -149,6 +157,48 @@ export default function(component) {
         return result;
     }
 
+    function overlayEntry(graph) {
+        return window.__pricegaugerLiveCandleOverlays?.get?.(chartKey(graph)) || null;
+    }
+
+    function formingCandle(graph, canonicalCandles) {
+        const overlay = overlayEntry(graph);
+        const raw = Array.from(overlay?.candles?.values?.() || [])
+            .map((item) => ({
+                time: epoch(item?.bar_time),
+                open: cleanNumber(item?.open),
+                high: cleanNumber(item?.high),
+                low: cleanNumber(item?.low),
+                close: cleanNumber(item?.close),
+            }))
+            .filter((item) => item.time != null && [item.open, item.high, item.low, item.close].every((value) => value != null))
+            .sort((a, b) => a.time - b.time);
+        if (!raw.length) return null;
+
+        const seconds = timeframeSeconds(graph);
+        const latestTime = raw[raw.length - 1].time;
+        const bucketTime = Math.floor(latestTime / seconds) * seconds;
+        const bucket = raw.filter((item) => Math.floor(item.time / seconds) * seconds === bucketTime);
+        if (!bucket.length) return null;
+
+        const canonical = Array.from(canonicalCandles || []).find((item) => Number(item.time) === bucketTime) || null;
+        const first = bucket[0];
+        const last = bucket[bucket.length - 1];
+        const highs = bucket.map((item) => Number(item.high));
+        const lows = bucket.map((item) => Number(item.low));
+        if (canonical) {
+            highs.push(Number(canonical.high));
+            lows.push(Number(canonical.low));
+        }
+        return {
+            time: bucketTime,
+            open: canonical ? Number(canonical.open) : Number(first.open),
+            high: Math.max(...highs),
+            low: Math.min(...lows),
+            close: Number(last.close),
+        };
+    }
+
     function nearestTime(times, raw) {
         if (!times.length) return null;
         let best = times[0];
@@ -161,8 +211,7 @@ export default function(component) {
     }
 
     function markerPayload(graph, candleTimes) {
-        const key = chartKey(graph);
-        const overlay = window.__pricegaugerLiveCandleOverlays?.get?.(key);
+        const overlay = overlayEntry(graph);
         const markers = Array.from(overlay?.tradeMarkers || []);
         return markers.flatMap((marker, index) => {
             const raw = epoch(marker.executed_at);
@@ -282,6 +331,8 @@ export default function(component) {
             priceLineVisible: true, lastValueVisible: true,
         }, 0);
         candles.setData(candlesData);
+        const forming = formingCandle(graph, candlesData);
+        if (forming) candles.update(forming);
 
         const { mapping, axes } = paneMapping(graph);
         const labels = new Map([[candles, String(candleTrace.name || 'Pris')]]);
@@ -327,9 +378,12 @@ export default function(component) {
             labels.set(series, String(trace.name || 'Serie'));
         }
 
+        const markerTimes = candlesData.map((item) => item.time);
+        if (forming && !markerTimes.includes(forming.time)) markerTimes.push(forming.time);
+        markerTimes.sort((a, b) => a - b);
         const markers = LWC.createSeriesMarkers?.(
             candles,
-            markerPayload(graph, candlesData.map((item) => item.time)),
+            markerPayload(graph, markerTimes),
             { autoScale: false, zOrder: 'top' }
         ) || null;
 
@@ -373,13 +427,36 @@ export default function(component) {
         return { graph, root, chart, candles, apis, markers, fingerprint: traceFingerprint(graph) };
     }
 
+    function edge(values) {
+        const items = Array.from(values || []);
+        if (!items.length) return ['', ''];
+        return [String(items[0] ?? ''), String(items[items.length - 1] ?? '')];
+    }
+
     function traceFingerprint(graph) {
-        return Array.from(graph?.data || []).map((trace) => [
-            String(trace?.type || ''), String(trace?.name || ''),
-            Array.isArray(trace?.x) ? trace.x.length : 0,
-            Array.isArray(trace?.y) ? trace.y.length : Array.isArray(trace?.close) ? trace.close.length : 0,
-            String(trace?.visible ?? true), String(trace?.yaxis || 'y'),
-        ].join(':')).join('|');
+        return Array.from(graph?.data || []).map((trace) => {
+            const xs = Array.from(trace?.x || []);
+            const values = Array.isArray(trace?.close) ? Array.from(trace.close) : Array.from(trace?.y || []);
+            const [firstX, lastX] = edge(xs);
+            const [firstValue, lastValue] = edge(values);
+            return [
+                String(trace?.type || ''), String(trace?.name || ''),
+                xs.length, values.length, firstX, lastX, firstValue, lastValue,
+                String(trace?.visible ?? true), String(trace?.yaxis || 'y'),
+            ].join(':');
+        }).join('|');
+    }
+
+    function refreshLiveBrowserData(entry, graph) {
+        const candleTrace = Array.from(graph?.data || []).find((trace) => String(trace?.type || '') === 'candlestick');
+        if (!candleTrace) return;
+        const canonical = candleData(candleTrace);
+        const forming = formingCandle(graph, canonical);
+        if (forming) entry.candles.update(forming);
+        const markerTimes = canonical.map((item) => item.time);
+        if (forming && !markerTimes.includes(forming.time)) markerTimes.push(forming.time);
+        markerTimes.sort((a, b) => a - b);
+        entry.markers?.setMarkers?.(markerPayload(graph, markerTimes));
     }
 
     function refreshBridge(graph, LWC) {
@@ -387,7 +464,7 @@ export default function(component) {
         const existing = registry.get(key);
         const fingerprint = traceFingerprint(graph);
         if (existing && existing.graph === graph && existing.fingerprint === fingerprint && document.body.contains(existing.root)) {
-            existing.markers?.setMarkers?.(markerPayload(graph, candleData(Array.from(graph.data || []).find((trace) => trace.type === 'candlestick')).map((item) => item.time)));
+            refreshLiveBrowserData(existing, graph);
             return;
         }
         let visible = null;
@@ -416,7 +493,9 @@ export default function(component) {
         scan(LWC);
         observer = new MutationObserver(() => scan(LWC));
         observer.observe(document.body, { childList: true, subtree: true });
-        const timer = window.setInterval(() => scan(LWC), 1200);
+        // The 250 ms poll only mirrors the UI-only forming candle/marker read-model.
+        // Native chart navigation itself never crosses this timer or Streamlit.
+        const timer = window.setInterval(() => scan(LWC), 250);
         parentElement.style.display = 'none';
         parentElement.dataset.pgLightweightBridgeTimer = String(timer);
     }).catch((error) => {
