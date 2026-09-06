@@ -11,6 +11,7 @@ from tradingdesk_automanage_panel_legacy_v2 import (
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
 from tradingdesk_ui.charts.interaction_capture_v2 import render_tradingdesk_interaction_capture_v2
+from tradingdesk_ui.charts.lightweight.bridge import render_lightweight_plotly_bridge_v1
 from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_sync_v1
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
 
@@ -26,6 +27,7 @@ def render_tradingdesk_automanage_panel_v2(
     render_tradingdesk_responsive_runtime_v1()
     render_tradingdesk_navigation_sync_v1()
     render_tradingdesk_interaction_capture_v2()
+    render_lightweight_plotly_bridge_v1()
 
     @st.fragment
     def _automanager_fragment_v2():
