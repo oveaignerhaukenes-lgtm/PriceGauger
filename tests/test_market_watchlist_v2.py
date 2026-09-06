@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from market_watchlist_v2 import _series_for_market
 
 
@@ -17,7 +19,7 @@ def test_watchlist_series_uses_recent_close_and_relative_change():
     row = _series_for_market(_Store([100.0, 101.0, 103.0]), "Gold")
     assert row["market"] == "Gold"
     assert row["price"] == 103.0
-    assert row["change_pct"] == 3.0
+    assert row["change_pct"] == pytest.approx(3.0)
     assert row["points"] == [100.0, 101.0, 103.0]
 
 
