@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import logging
 from typing import Mapping
 
+from futures_rollover_schema_v1 import ensure_futures_rollover_audit_ready_v1
 from futures_rollover_v1 import resolve_saxo_futures_rollovers_once_v1
 from instrument_registry_v2 import InstrumentSourceV2, list_subscribed_sources_v2
 from saxo_discovered_history_seed_v2 import seed_discovered_saxo_history_once_v2
@@ -66,6 +67,18 @@ def _discover_open_positions_best_effort() -> None:
         )
 
 
+def _prepare_futures_rollover_audit_best_effort() -> None:
+    """Ensure rollover audit schema exists and recover any partial prior switch."""
+    try:
+        recovered = ensure_futures_rollover_audit_ready_v1()
+    except Exception as exc:
+        # Without the audit boundary we deliberately skip automatic rollover rather
+        # than allow another unaudited collection identity transition.
+        raise RuntimeError(f"futures rollover audit preparation failed: {exc}") from exc
+    if recovered:
+        LOGGER.warning("Recovered futures rollover audit rows=%d", recovered)
+
+
 def _resolve_futures_rollovers_best_effort() -> None:
     """Move collection subscriptions to current futures contracts, never execution authority."""
     try:
@@ -108,16 +121,18 @@ def load_runtime_instruments_v2(
 ) -> RuntimeInstrumentSetV2:
     """Overlay explicit v2 collection subscriptions on the legacy configured feed set.
 
-    Registry refresh first discovers externally opened products, then resolves expiring
-    subscribed futures to a new immutable collection identity, and only afterwards seeds
-    exact history for any newly active product. Rollover never changes an AutoManager or
-    AutoTrader LIVE controller UIC; execution keeps its separate close/FLAT/admission gate.
+    Registry refresh first discovers externally opened products, prepares/reconciles the
+    rollover audit boundary, then resolves expiring subscribed futures to a new immutable
+    collection identity. Only afterwards does it seed exact history for any newly active
+    product. Rollover never changes an AutoManager or AutoTrader LIVE controller UIC;
+    execution keeps its separate close/FLAT/admission gate.
 
     PriceGauger's realtime/Technical-Core bridge remains single-feed-per-market, so
     multiple enabled instruments for the same canonical market fail closed instead of
     silently mixing two price series.
     """
     _discover_open_positions_best_effort()
+    _prepare_futures_rollover_audit_best_effort()
     _resolve_futures_rollovers_best_effort()
     _seed_discovered_history_best_effort()
 
