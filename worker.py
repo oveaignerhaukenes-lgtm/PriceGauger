@@ -15,6 +15,7 @@ from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
 from config import openai_api_key, openai_market_model
 from database import using_postgres
+from indicator_ai_insights_v1 import refresh_indicator_ai_once_v1
 from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
 from news_context_store import NewsContextStore
 from telegram_flow_engine import OpenAITelegramFlowScorer, TelegramFlowAssessment, aggregate_scored_posts
@@ -238,6 +239,18 @@ def run_once(
             LOGGER.info("AI baseline shadow persisted decisions=%d", saved)
     except Exception as exc:
         LOGGER.warning("AI baseline shadow refresh failed; other worker functions continue: %s", exc, exc_info=True)
+
+    # Indicator AI is explanatory/read-model only. The persisted TradingDesk opt-in
+    # is OFF by default; without it this path returns before any provider call.
+    try:
+        indicator_snapshots = refresh_indicator_ai_once_v1(
+            api_key=openai_api_key(),
+            db_path=str(db_path),
+        )
+        if indicator_snapshots:
+            LOGGER.info("indicator AI read model persisted snapshots=%d", indicator_snapshots)
+    except Exception as exc:
+        LOGGER.warning("indicator AI refresh failed; worker continues: %s", exc, exc_info=True)
 
     # Migration bridge: expensive strategy replay happens once in the background, not
     # in TradingDesk. The resulting common series table is the stable interface that
