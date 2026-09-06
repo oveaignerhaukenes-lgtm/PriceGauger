@@ -12,7 +12,7 @@ export default function(component) {
     let observer = null;
 
     function targetKind(graph) {
-        const key = String(graph?.layout?.uirevision || '');
+        const key = String(graph?.layout?.uirevision || graph?._fullLayout?.uirevision || '');
         if (key === liveKey) return 'live';
         if (key.startsWith('AutoManagerPnlProduct:')) return 'strategy';
         return null;
@@ -38,15 +38,14 @@ export default function(component) {
     function restore(graph, state) {
         if (!window.Plotly?.restyle || !graph) return;
         const indexes = state.opacity.map((_, index) => index);
-        if (!indexes.length) return;
-        window.Plotly.restyle(graph, { opacity: state.opacity.slice() }, indexes);
+        if (indexes.length) window.Plotly.restyle(graph, { opacity: state.opacity.slice() }, indexes);
     }
 
     function highlight(graph, state, targetIndex) {
-        if (!window.Plotly?.restyle || !graph || targetIndex == null) return;
-        const currentFingerprint = traceFingerprint(graph);
-        if (currentFingerprint !== state.fingerprint) {
-            state.fingerprint = currentFingerprint;
+        if (!window.Plotly?.restyle || targetIndex == null) return;
+        const fingerprint = traceFingerprint(graph);
+        if (fingerprint !== state.fingerprint) {
+            state.fingerprint = fingerprint;
             state.opacity = originalOpacity(graph);
         }
         const indexes = state.opacity.map((_, index) => index);
@@ -109,8 +108,9 @@ export default function(component) {
     }
 
     function isNavigationRelayout(eventData) {
-        const keys = Object.keys(eventData || {});
-        return keys.some((key) => /^(xaxis|yaxis)\d*\.(range(?:\[\d\])?|autorange)$/.test(key));
+        return Object.keys(eventData || {}).some((key) =>
+            /^(xaxis|yaxis)\d*\.(range(?:\[\d\])?|autorange)$/.test(key)
+        );
     }
 
     function snapshotBrowserView(graph) {
@@ -147,7 +147,9 @@ export default function(component) {
     function browserViewAlreadyApplied(graph, saved) {
         const layout = graph?._fullLayout;
         if (!layout || !saved?.ranges) return true;
-        return Object.entries(saved.ranges).every(([axisKey, range]) => sameRange(axisKey, layout[axisKey]?.range, range));
+        return Object.entries(saved.ranges).every(([axisKey, range]) =>
+            sameRange(axisKey, layout[axisKey]?.range, range)
+        );
     }
 
     function applyBrowserView(graph, state) {
@@ -174,13 +176,67 @@ export default function(component) {
         return { layout, size, rect: graph.getBoundingClientRect() };
     }
 
-    function pointerInsidePlot(graph, clientX, clientY) {
+    function localPoint(graph, clientX, clientY) {
         const geometry = plotGeometry(graph);
-        if (!geometry) return false;
-        const { size, rect } = geometry;
-        const x = clientX - rect.left;
-        const y = clientY - rect.top;
-        return x >= size.l && x <= size.l + size.w && y >= size.t && y <= size.t + size.h;
+        if (!geometry) return null;
+        return {
+            geometry,
+            x: clientX - geometry.rect.left,
+            y: clientY - geometry.rect.top,
+        };
+    }
+
+    function pointerInsidePlot(graph, clientX, clientY) {
+        const point = localPoint(graph, clientX, clientY);
+        if (!point) return false;
+        const { size } = point.geometry;
+        return point.x >= size.l && point.x <= size.l + size.w &&
+            point.y >= size.t && point.y <= size.t + size.h;
+    }
+
+    function axisKeyFromTraceRef(ref) {
+        const value = String(ref || 'y');
+        return value === 'y' ? 'yaxis' : `yaxis${value.slice(1)}`;
+    }
+
+    function priceYAxis(graph) {
+        const layout = graph?._fullLayout;
+        if (!layout) return null;
+        const candle = Array.from(graph?._fullData || graph?.data || []).find(
+            (trace) => String(trace?.type || '') === 'candlestick' && trace?.visible !== false
+        );
+        const key = axisKeyFromTraceRef(candle?.yaxis || 'y');
+        const axis = layout[key];
+        return axis ? { key, axis } : (layout.yaxis ? { key: 'yaxis', axis: layout.yaxis } : null);
+    }
+
+    function visibleYAxisCandidates(graph) {
+        const layout = graph?._fullLayout;
+        if (!layout) return [];
+        return Object.keys(layout)
+            .filter((key) => /^yaxis\d*$/.test(key))
+            .map((key) => ({ key, axis: layout[key] }))
+            .filter(({ axis }) => axis && axis.visible !== false);
+    }
+
+    function pointerAxisTarget(graph, clientX, clientY) {
+        const point = localPoint(graph, clientX, clientY);
+        if (!point) return null;
+        const { size } = point.geometry;
+        if (point.y < size.t || point.y > size.t + size.h) return null;
+        const leftDistance = size.l - point.x;
+        const rightDistance = point.x - (size.l + size.w);
+        let side = null;
+        if (leftDistance >= -8 && leftDistance <= 72) side = 'left';
+        if (rightDistance >= -8 && rightDistance <= 72) side = 'right';
+        if (!side) return null;
+
+        const price = priceYAxis(graph);
+        const candidates = visibleYAxisCandidates(graph).filter(({ axis }) =>
+            String(axis.side || 'left') === side
+        );
+        if (price && String(price.axis.side || 'left') === side) return price;
+        return candidates[0] || price;
     }
 
     function pointerXValue(graph, clientX) {
@@ -198,12 +254,8 @@ export default function(component) {
             line = document.createElement('div');
             line.className = 'pg-linked-crosshair';
             Object.assign(line.style, {
-                position: 'absolute',
-                width: '1px',
-                background: 'rgba(17,24,39,.34)',
-                pointerEvents: 'none',
-                display: 'none',
-                zIndex: '7',
+                position: 'absolute', width: '1px', background: 'rgba(17,24,39,.34)',
+                pointerEvents: 'none', display: 'none', zIndex: '7',
             });
             graph.style.position = 'relative';
             graph.appendChild(line);
@@ -229,7 +281,6 @@ export default function(component) {
         }
         const xValue = sourceAxis.p2c(sourcePixel);
         if (!Number.isFinite(xValue)) return NaN;
-
         for (const graph of enhanced.keys()) {
             const geometry = plotGeometry(graph);
             const axis = geometry?.layout?.xaxis;
@@ -254,19 +305,12 @@ export default function(component) {
             panel = document.createElement('div');
             panel.className = 'pg-chart-inspector';
             Object.assign(panel.style, {
-                position: 'absolute',
-                zIndex: '6',
-                boxSizing: 'border-box',
-                border: '1px solid rgba(17,24,39,.12)',
-                borderRadius: '6px',
-                background: 'rgba(255,255,255,.96)',
-                color: '#374151',
+                position: 'absolute', zIndex: '6', boxSizing: 'border-box',
+                border: '1px solid rgba(17,24,39,.12)', borderRadius: '6px',
+                background: 'rgba(255,255,255,.96)', color: '#374151',
                 font: '500 11px/1.35 system-ui, -apple-system, sans-serif',
-                padding: '7px 8px',
-                pointerEvents: 'none',
-                overflowY: 'auto',
-                overflowX: 'hidden',
-                boxShadow: '0 1px 2px rgba(17,24,39,.04)',
+                padding: '7px 8px', pointerEvents: 'none', overflowY: 'auto',
+                overflowX: 'hidden', boxShadow: '0 1px 2px rgba(17,24,39,.04)',
             });
             graph.style.position = 'relative';
             graph.appendChild(panel);
@@ -359,14 +403,12 @@ export default function(component) {
                 });
                 continue;
             }
-            const rawValue = trace?.y?.[index];
-            const number = Number(rawValue);
+            const number = Number(trace?.y?.[index]);
             if (!Number.isFinite(number)) continue;
-            const custom = trace?.customdata?.[index];
             rows.push({
                 name,
                 value: formatNumber(number, isPnl ? '%' : ''),
-                extra: customSummary(custom),
+                extra: customSummary(trace?.customdata?.[index]),
             });
         }
         return rows.slice(0, 16);
@@ -378,21 +420,15 @@ export default function(component) {
         const anchorMillis = nearestAnchor(graph, targetMillis);
         if (!Number.isFinite(anchorMillis)) return;
         const panel = ensureInspector(graph);
-        if (!panel) return;
-        const rows = inspectorRows(graph, anchorMillis);
         panel.replaceChildren();
-
         const header = document.createElement('div');
         header.textContent = formatTimestamp(anchorMillis);
         Object.assign(header.style, {
-            fontWeight: '700',
-            color: '#111827',
-            marginBottom: '5px',
-            paddingBottom: '4px',
-            borderBottom: '1px solid rgba(17,24,39,.10)',
+            fontWeight: '700', color: '#111827', marginBottom: '5px',
+            paddingBottom: '4px', borderBottom: '1px solid rgba(17,24,39,.10)',
         });
         panel.appendChild(header);
-
+        const rows = inspectorRows(graph, anchorMillis);
         if (!rows.length) {
             const empty = document.createElement('div');
             empty.textContent = 'Ingen verdi ved markøren';
@@ -400,39 +436,21 @@ export default function(component) {
             panel.appendChild(empty);
             return;
         }
-
         for (const row of rows) {
             const item = document.createElement('div');
             item.style.marginBottom = '5px';
             const name = document.createElement('div');
             name.textContent = row.name;
-            Object.assign(name.style, {
-                color: '#6b7280',
-                fontSize: '10px',
-                lineHeight: '1.2',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-            });
+            Object.assign(name.style, { color: '#6b7280', fontSize: '10px', lineHeight: '1.2' });
             const value = document.createElement('div');
             value.textContent = row.value;
-            Object.assign(value.style, {
-                color: '#1f2937',
-                fontWeight: '600',
-                overflowWrap: 'anywhere',
-            });
+            Object.assign(value.style, { color: '#1f2937', fontWeight: '600', overflowWrap: 'anywhere' });
             item.appendChild(name);
             item.appendChild(value);
             if (row.extra) {
                 const extra = document.createElement('div');
                 extra.textContent = row.extra;
-                Object.assign(extra.style, {
-                    color: '#6b7280',
-                    fontSize: '10px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                });
+                Object.assign(extra.style, { color: '#6b7280', fontSize: '10px' });
                 item.appendChild(extra);
             }
             panel.appendChild(item);
@@ -458,12 +476,9 @@ export default function(component) {
         if (!plotly?.relayout) return;
         const updates = {};
         const layout = graph.layout || {};
-        const xAxes = Object.keys(layout).filter((key) => /^xaxis\d*$/.test(key));
-        for (const key of xAxes) {
+        for (const key of Object.keys(layout).filter((key) => /^xaxis\d*$/.test(key))) {
             updates[`${key}.tickformat`] = '%H:%M';
             updates[`${key}.hoverformat`] = '%H:%M';
-            const title = layout[key]?.title?.text;
-            if (title) updates[`${key}.title.text`] = title.includes('Tid') ? 'Tid' : title;
         }
         if (kind === 'strategy') {
             updates['legend.orientation'] = 'v';
@@ -476,32 +491,8 @@ export default function(component) {
             updates['legend.font.size'] = 11;
             updates['margin.r'] = Math.max(Number(layout.margin?.r || 0), 225);
         }
-        if (kind === 'live' && graph._context) {
-            graph._context.scrollZoom = false;
-        }
+        if (kind === 'live' && graph._context) graph._context.scrollZoom = false;
         plotly.relayout(graph, updates);
-
-        if (kind === 'live' && plotly.restyle) {
-            const candleIndexes = [];
-            const lineIndexes = [];
-            Array.from(graph.data || []).forEach((trace, index) => {
-                if (trace?.type === 'candlestick') candleIndexes.push(index);
-                if (trace?.type === 'scatter' && trace?.mode?.includes?.('lines')) lineIndexes.push(index);
-            });
-            if (candleIndexes.length) {
-                plotly.restyle(graph, {
-                    'increasing.line.width': 0.8,
-                    'decreasing.line.width': 0.8,
-                    'increasing.fillcolor': 'rgba(22,163,74,0.62)',
-                    'decreasing.fillcolor': 'rgba(220,38,38,0.62)',
-                    opacity: 0.94,
-                }, candleIndexes);
-            }
-            for (const index of lineIndexes) {
-                const width = Number(graph.data[index]?.line?.width || 1.2);
-                if (width > 1.35) plotly.restyle(graph, { 'line.width': 1.35 }, [index]);
-            }
-        }
     }
 
     function dateRange(axis) {
@@ -520,20 +511,82 @@ export default function(component) {
         return Number.isFinite(start) && Number.isFinite(end) && start !== end ? [start, end] : null;
     }
 
+    function relayoutXZoom(graph, clientX, factor) {
+        const geometry = plotGeometry(graph);
+        const xaxis = geometry?.layout?.xaxis;
+        const range = dateRange(xaxis);
+        if (!geometry || !range || !window.Plotly?.relayout) return;
+        const [start, end] = range;
+        const pixel = clientX - geometry.rect.left - geometry.size.l;
+        const ratio = Math.max(0, Math.min(1, pixel / Math.max(1, geometry.size.w)));
+        const anchor = start + (end - start) * ratio;
+        const bounded = Math.max(0.72, Math.min(1.36, factor));
+        window.Plotly.relayout(graph, {
+            'xaxis.range': [
+                new Date(anchor + (start - anchor) * bounded).toISOString(),
+                new Date(anchor + (end - anchor) * bounded).toISOString(),
+            ],
+            'xaxis.autorange': false,
+        });
+    }
+
+    function relayoutXPan(graph, dx) {
+        const geometry = plotGeometry(graph);
+        const range = dateRange(geometry?.layout?.xaxis);
+        if (!geometry || !range || !window.Plotly?.relayout) return;
+        const [start, end] = range;
+        const shift = (dx / Math.max(1, geometry.size.w)) * (end - start);
+        window.Plotly.relayout(graph, {
+            'xaxis.range': [new Date(start + shift).toISOString(), new Date(end + shift).toISOString()],
+            'xaxis.autorange': false,
+        });
+    }
+
+    function relayoutYScale(graph, axisTarget, clientY, factor) {
+        const geometry = plotGeometry(graph);
+        const target = axisTarget || priceYAxis(graph);
+        const range = yRange(target?.axis);
+        if (!geometry || !target || !range || !window.Plotly?.relayout) return;
+        const [start, end] = range;
+        const pixel = clientY - geometry.rect.top - geometry.size.t;
+        const ratioFromBottom = 1 - Math.max(0, Math.min(1, pixel / Math.max(1, geometry.size.h)));
+        const anchor = start + (end - start) * ratioFromBottom;
+        const bounded = Math.max(0.72, Math.min(1.36, factor));
+        window.Plotly.relayout(graph, {
+            [`${target.key}.range`]: [
+                anchor + (start - anchor) * bounded,
+                anchor + (end - anchor) * bounded,
+            ],
+            [`${target.key}.autorange`]: false,
+        });
+    }
+
+    function graphAtPoint(clientX, clientY, requireLive = false) {
+        const graphs = Array.from(enhanced.keys());
+        for (const graph of graphs) {
+            if (requireLive && targetKind(graph) !== 'live') continue;
+            const rect = graph.getBoundingClientRect();
+            if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) return graph;
+        }
+        return null;
+    }
+
     function enhance(graph, kind) {
         if (!graph || enhanced.has(graph)) return;
         const state = {
             opacity: originalOpacity(graph),
             fingerprint: traceFingerprint(graph),
-            wheelFrame: null,
-            wheel: null,
             restoringView: false,
             resettingView: false,
+            wheelFrame: null,
+            wheel: null,
+            activePointers: new Map(),
+            pinch: null,
+            axisDrag: null,
         };
         enhanced.set(graph, state);
         compactPresentation(graph, kind);
-        state.opacity = originalOpacity(graph);
-        state.fingerprint = traceFingerprint(graph);
+        if (kind === 'live') graph.style.touchAction = 'none';
         hideHoverPopup(graph);
         ensureCrosshair(graph);
         renderInspectorPlaceholder(graph);
@@ -542,15 +595,11 @@ export default function(component) {
         const onLegendOver = (event) => {
             const item = event.target?.closest?.('.legend .traces');
             if (!item || !graph.contains(item)) return;
-            const from = event.relatedTarget?.closest?.('.legend .traces');
-            if (from === item) return;
             highlight(graph, state, legendTraceIndex(graph, item));
         };
         const onLegendOut = (event) => {
             const item = event.target?.closest?.('.legend .traces');
             if (!item || !graph.contains(item)) return;
-            const to = event.relatedTarget?.closest?.('.legend .traces');
-            if (to === item) return;
             restore(graph, state);
         };
         const onPointerMove = (event) => {
@@ -583,9 +632,7 @@ export default function(component) {
             const key = viewKey(graph);
             if (key) viewRegistry.delete(key);
             state.resettingView = true;
-            window.setTimeout(() => {
-                state.resettingView = false;
-            }, 350);
+            window.setTimeout(() => { state.resettingView = false; }, 350);
         };
         const onAfterPlot = () => {
             hideHoverPopup(graph);
@@ -597,72 +644,22 @@ export default function(component) {
             state.wheelFrame = null;
             const gesture = state.wheel;
             state.wheel = null;
-            if (!gesture || !window.Plotly?.relayout || kind !== 'live') return;
-            const layout = graph._fullLayout;
-            const xaxis = layout?.xaxis;
-            const yaxis = layout?.yaxis;
-            const size = layout?._size;
-            if (!xaxis || !yaxis || !size) return;
-
+            if (!gesture || kind !== 'live') return;
             if (gesture.ctrl) {
-                const range = dateRange(xaxis);
-                if (!range) return;
-                const [start, end] = range;
-                const span = end - start;
-                const rect = graph.getBoundingClientRect();
-                const pixel = gesture.clientX - rect.left - size.l;
-                const ratio = Math.max(0, Math.min(1, pixel / Math.max(1, size.w)));
-                const anchor = start + span * ratio;
-                const factor = Math.max(0.84, Math.min(1.18, Math.exp(gesture.dy * 0.0024)));
-                const nextStart = anchor + (start - anchor) * factor;
-                const nextEnd = anchor + (end - anchor) * factor;
-                window.Plotly.relayout(graph, {
-                    'xaxis.range': [new Date(nextStart).toISOString(), new Date(nextEnd).toISOString()],
-                    'xaxis.autorange': false,
-                });
-                return;
+                relayoutXZoom(graph, gesture.clientX, Math.exp(gesture.dy * 0.0024));
+            } else if (Math.abs(gesture.dx) > Math.abs(gesture.dy)) {
+                relayoutXPan(graph, gesture.dx);
+            } else {
+                relayoutYScale(graph, priceYAxis(graph), gesture.clientY, Math.exp(gesture.dy * 0.0024));
             }
-
-            if (Math.abs(gesture.dx) > Math.abs(gesture.dy)) {
-                const range = dateRange(xaxis);
-                if (!range) return;
-                const [start, end] = range;
-                const shift = (gesture.dx / Math.max(1, size.w)) * (end - start);
-                window.Plotly.relayout(graph, {
-                    'xaxis.range': [new Date(start + shift).toISOString(), new Date(end + shift).toISOString()],
-                    'xaxis.autorange': false,
-                });
-                return;
-            }
-
-            const range = yRange(yaxis);
-            if (!range) return;
-            const [start, end] = range;
-            const span = end - start;
-            const rect = graph.getBoundingClientRect();
-            const pixel = gesture.clientY - rect.top - size.t;
-            const ratioFromBottom = 1 - Math.max(0, Math.min(1, pixel / Math.max(1, size.h)));
-            const anchor = start + span * ratioFromBottom;
-            const factor = Math.max(0.84, Math.min(1.18, Math.exp(gesture.dy * 0.0024)));
-            const nextStart = anchor + (start - anchor) * factor;
-            const nextEnd = anchor + (end - anchor) * factor;
-            window.Plotly.relayout(graph, {
-                'yaxis.range': [nextStart, nextEnd],
-                'yaxis.autorange': false,
-            });
         }
 
         const onWheel = (event) => {
-            if (kind !== 'live') return;
-            if (!pointerInsidePlot(graph, event.clientX, event.clientY)) return;
+            if (kind !== 'live' || !pointerInsidePlot(graph, event.clientX, event.clientY)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
             const current = state.wheel || {
-                dx: 0,
-                dy: 0,
-                ctrl: false,
-                clientX: event.clientX,
-                clientY: event.clientY,
+                dx: 0, dy: 0, ctrl: false, clientX: event.clientX, clientY: event.clientY,
             };
             current.dx += Number(event.deltaX || 0);
             current.dy += Number(event.deltaY || 0);
@@ -704,6 +701,96 @@ export default function(component) {
         };
     }
 
+    function onDocumentPointerDown(event) {
+        const graph = graphAtPoint(event.clientX, event.clientY, true);
+        if (!graph) return;
+        const state = enhanced.get(graph);
+        if (!state) return;
+
+        const axisTarget = pointerAxisTarget(graph, event.clientX, event.clientY);
+        if (axisTarget) {
+            state.axisDrag = {
+                pointerId: event.pointerId,
+                axisTarget,
+                startY: event.clientY,
+                lastY: event.clientY,
+            };
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+
+        if (event.pointerType !== 'touch' || !pointerInsidePlot(graph, event.clientX, event.clientY)) return;
+        state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (state.activePointers.size === 2) {
+            const points = Array.from(state.activePointers.values());
+            const dx = points[1].x - points[0].x;
+            const dy = points[1].y - points[0].y;
+            state.pinch = {
+                distance: Math.max(12, Math.hypot(dx, dy)),
+                midpointX: (points[0].x + points[1].x) / 2,
+                midpointY: (points[0].y + points[1].y) / 2,
+            };
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }
+
+    function onDocumentPointerMove(event) {
+        for (const [graph, state] of enhanced.entries()) {
+            if (targetKind(graph) !== 'live') continue;
+            if (state.axisDrag?.pointerId === event.pointerId) {
+                const dy = event.clientY - state.axisDrag.lastY;
+                state.axisDrag.lastY = event.clientY;
+                relayoutYScale(
+                    graph,
+                    state.axisDrag.axisTarget,
+                    event.clientY,
+                    Math.exp(dy * 0.006)
+                );
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            if (event.pointerType !== 'touch' || !state.activePointers.has(event.pointerId)) continue;
+            state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (state.activePointers.size < 2) continue;
+            const points = Array.from(state.activePointers.values());
+            const dx = points[1].x - points[0].x;
+            const dy = points[1].y - points[0].y;
+            const distance = Math.max(12, Math.hypot(dx, dy));
+            const midpointX = (points[0].x + points[1].x) / 2;
+            const midpointY = (points[0].y + points[1].y) / 2;
+            if (!state.pinch) {
+                state.pinch = { distance, midpointX, midpointY };
+                continue;
+            }
+            const previous = state.pinch;
+            const scale = previous.distance / distance;
+            const moveX = midpointX - previous.midpointX;
+            const moveY = midpointY - previous.midpointY;
+            if (Math.abs(distance - previous.distance) >= 2) {
+                relayoutXZoom(graph, midpointX, scale);
+            } else if (Math.abs(moveX) > Math.abs(moveY) && Math.abs(moveX) >= 1) {
+                relayoutXPan(graph, -moveX);
+            } else if (Math.abs(moveY) >= 1) {
+                relayoutYScale(graph, priceYAxis(graph), midpointY, Math.exp(moveY * 0.006));
+            }
+            state.pinch = { distance, midpointX, midpointY };
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+    }
+
+    function onDocumentPointerUp(event) {
+        for (const state of enhanced.values()) {
+            if (state.axisDrag?.pointerId === event.pointerId) state.axisDrag = null;
+            state.activePointers.delete(event.pointerId);
+            if (state.activePointers.size < 2) state.pinch = null;
+        }
+    }
+
     function scan() {
         const graphs = Array.from(document.querySelectorAll('.js-plotly-plot'));
         for (const graph of graphs) {
@@ -718,6 +805,11 @@ export default function(component) {
         }
     }
 
+    document.addEventListener('pointerdown', onDocumentPointerDown, { capture: true, passive: false });
+    document.addEventListener('pointermove', onDocumentPointerMove, { capture: true, passive: false });
+    document.addEventListener('pointerup', onDocumentPointerUp, { capture: true, passive: false });
+    document.addEventListener('pointercancel', onDocumentPointerUp, { capture: true, passive: false });
+
     scan();
     observer = new MutationObserver(scan);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -725,6 +817,10 @@ export default function(component) {
     parentElement.style.display = 'none';
     return () => {
         observer?.disconnect();
+        document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+        document.removeEventListener('pointermove', onDocumentPointerMove, true);
+        document.removeEventListener('pointerup', onDocumentPointerUp, true);
+        document.removeEventListener('pointercancel', onDocumentPointerUp, true);
         for (const state of enhanced.values()) state.cleanup?.();
         enhanced.clear();
     };
@@ -740,15 +836,12 @@ _legend_hover_component = st.components.v2.component(
 
 
 def render_trading_desk_legend_hover_v1(*, uirevision: str) -> None:
-    """Install browser-local interactions for TradingDesk Plotly charts.
+    """Install browser-local interaction and navigation for TradingDesk Plotly charts.
 
-    Legend hover highlights the focused trace while Plotly's large tooltip layer stays
-    hidden. A compact inspector lives in the chart's right margin below the legend and
-    follows the linked time cursor across the Live/indicator and AutoManager comparison
-    charts. Pan/zoom ranges are kept browser-local by stable ``uirevision`` so Streamlit
-    refreshes do not snap the chart back. On the LIVE chart, trackpad pinch zooms only
-    X, horizontal two-finger motion pans X, and vertical two-finger motion scales the
-    price Y-axis around the pointer. Wheel gestures are captured only inside the plot.
+    The LIVE chart keeps navigation in the browser: trackpad pinch zooms X, horizontal
+    two-finger motion pans X, vertical two-finger motion scales the candlestick price
+    axis, and direct drag on either visible Y-axis margin scales that exact axis.
+    Native one-pointer plot dragging remains available for ordinary pan.
     """
     _legend_hover_component(
         key=f"pg-trading-desk-legend-hover:{uirevision}",
