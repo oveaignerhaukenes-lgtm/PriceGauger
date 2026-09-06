@@ -16,12 +16,15 @@ def test_tradingdesk_chart_settings_live_in_right_control_panel() -> None:
     assert '"Hovedgrafens andel"' in source
 
 
-def test_tradingdesk_has_direct_timeframe_buttons() -> None:
+def test_tradingdesk_timeframe_workbar_is_above_live_chart() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    toolbar = Path("tradingdesk_ui/charts/lightweight/toolbar.py").read_text(encoding="utf-8")
 
-    assert 'QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")' in source
-    assert "on_click=_select_timeframe" in source
-    assert "args=(value,)" in source
+    assert "LIGHTWEIGHT_TIMEFRAMES_V1" in source
+    assert "render_lightweight_timeframe_toolbar_v1(state_key=TIMEFRAME_STATE_KEY)" in source
+    assert '("1m", "2m", "5m", "10m", "15m", "30m")' in toolbar
+    assert 'key=f"pg-lightweight-timeframe:{value}"' in toolbar
+    assert 'type="primary" if current == value else "secondary"' in toolbar
 
 
 def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_default() -> None:

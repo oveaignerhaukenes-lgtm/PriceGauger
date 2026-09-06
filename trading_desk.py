@@ -10,6 +10,7 @@ from realtime_market_data import RealtimeBar1m
 
 TIMEFRAME_MINUTES: dict[str, int] = {
     "1m": 1,
+    "2m": 2,
     "5m": 5,
     "10m": 10,
     "15m": 15,
