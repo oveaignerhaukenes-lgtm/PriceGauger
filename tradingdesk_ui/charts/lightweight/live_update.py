@@ -36,12 +36,18 @@ export default function(component) {
     }
 
     function markerPayload(entry) {
-        const times = Array.from(entry?.baseCandles?.keys?.() || []).map(Number).filter(Number.isFinite);
+        const times = Array.from(entry?.baseCandles?.keys?.() || [])
+            .map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        if (!times.length) return [];
+        const grace = Math.max(60, Number(data.timeframe_seconds || 60));
+        const first = times[0];
+        const last = times[times.length - 1];
         return Array.from(data.trade_markers || []).flatMap((marker, index) => {
             const raw = Number(marker.executed_at);
             const price = cleanNumber(marker.execution_price);
-            const time = Number.isFinite(raw) ? nearestTime(times, raw) : null;
-            if (time == null || price == null) return [];
+            if (!Number.isFinite(raw) || price == null || raw < first - grace || raw > last + grace) return [];
+            const time = nearestTime(times, raw);
+            if (time == null) return [];
             const direction = String(marker.direction || '').toUpperCase();
             if (direction !== 'LONG' && direction !== 'SHORT') return [];
             return [{
@@ -177,16 +183,14 @@ def render_lightweight_live_update_v1(
 ) -> None:
     """Update the direct Lightweight LIVE candle/markers without Streamlit navigation state."""
 
+    minutes = int(timeframe_minutes)
     _live_update_component(
         key=f"pg-lightweight-live-update:{chart_id}",
         data={
             "chart_id": str(chart_id),
+            "timeframe_seconds": minutes * 60,
             "active": candle is not None,
-            "candle": (
-                _forming_payload(candle, timeframe_minutes=int(timeframe_minutes))
-                if candle is not None
-                else None
-            ),
+            "candle": _forming_payload(candle, timeframe_minutes=minutes) if candle is not None else None,
             "trade_markers": _marker_payload(trade_markers),
         },
         height=0,
