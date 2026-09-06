@@ -14,18 +14,20 @@ def test_hover_updates_cursor_inspector_and_linked_crosshair() -> None:
 
 def test_live_wheel_is_captured_only_inside_plot_rectangle() -> None:
     source = Path("trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
-    guard = "if (!pointerInsidePlot(graph, event.clientX, event.clientY)) return;"
-    assert guard in source
-    assert source.index(guard) < source.index("event.preventDefault();", source.index("const onWheel"))
+    wheel = source.split("const onWheel = (event) => {", 1)[1].split("};", 1)[0]
+    assert "pointerInsidePlot(graph, event.clientX, event.clientY)" in wheel
+    assert wheel.index("pointerInsidePlot") < wheel.index("event.preventDefault();")
+    assert "event.stopImmediatePropagation();" in wheel
 
 
-def test_vertical_trackpad_motion_scales_price_y_axis_instead_of_panning() -> None:
+def test_vertical_trackpad_motion_scales_actual_candlestick_price_axis() -> None:
     source = Path("trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
+    assert "function priceYAxis" in source
+    assert "axisKeyFromTraceRef(candle?.yaxis || 'y')" in source
     assert "ratioFromBottom" in source
-    assert "const anchor = start + span * ratioFromBottom;" in source
-    assert "const nextStart = anchor + (start - anchor) * factor;" in source
-    assert "const nextEnd = anchor + (end - anchor) * factor;" in source
-    assert "'yaxis.range': [nextStart, nextEnd]" in source
+    assert "function relayoutYScale" in source
+    assert "[`${target.key}.range`]" in source
+    assert "relayoutYScale(graph, priceYAxis(graph)" in source
 
 
 def test_autotrader_trade_triangles_are_compact_and_text_free() -> None:
