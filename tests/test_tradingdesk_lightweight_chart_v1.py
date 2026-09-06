@@ -8,6 +8,7 @@ from trading_desk import ChartBar
 from trading_desk_chart import OVERLAY_NORMALIZED
 from trading_desk_indicators import IndicatorPoint, TechnicalIndicators
 from tradingdesk_ui.charts.lightweight.contract import build_lightweight_live_payload_v1
+from tradingdesk_ui.charts.lightweight.direct_contract import build_lightweight_direct_live_payload_v1
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,9 +37,8 @@ def _points(bars: tuple[ChartBar, ...], offset: float) -> tuple[IndicatorPoint, 
     return tuple(IndicatorPoint(bar_time=bar.bar_time, value=bar.close + offset) for bar in bars)
 
 
-def test_lightweight_contract_is_json_safe_and_preserves_price_series() -> None:
-    bars = _bars()
-    technical = TechnicalIndicators(
+def _technical(bars: tuple[ChartBar, ...]) -> TechnicalIndicators:
+    return TechnicalIndicators(
         bollinger_middle=_points(bars, 0.0),
         bollinger_upper=_points(bars, 20.0),
         bollinger_lower=_points(bars, -20.0),
@@ -48,7 +48,10 @@ def test_lightweight_contract_is_json_safe_and_preserves_price_series() -> None:
         macd_histogram=tuple(IndicatorPoint(bar_time=bar.bar_time, value=index * 0.1) for index, bar in enumerate(bars)),
         rsi=tuple(IndicatorPoint(bar_time=bar.bar_time, value=45.0 + index) for index, bar in enumerate(bars)),
     )
-    marker = AutoTraderTradeMarkerV1(
+
+
+def _marker() -> AutoTraderTradeMarkerV1:
+    return AutoTraderTradeMarkerV1(
         executed_at=datetime(2026, 9, 4, 20, 47, tzinfo=timezone.utc),
         execution_price=29491.0,
         direction="LONG",
@@ -59,18 +62,21 @@ def test_lightweight_contract_is_json_safe_and_preserves_price_series() -> None:
         source="autotrader",
     )
 
+
+def test_lightweight_contract_is_json_safe_and_preserves_price_series() -> None:
+    bars = _bars()
     payload = build_lightweight_live_payload_v1(
         market="US Tech 100 NAS",
         timeframe="5m",
         primary=bars,
         overlays={},
         overlay_mode=OVERLAY_NORMALIZED,
-        indicators=technical,
+        indicators=_technical(bars),
         indicator_names=("Bollinger", "MACD", "RSI", "VWAP"),
         indicator_timeframes={"MACD": "5m"},
         chart_height=780,
         price_panel_share=0.5,
-        trade_markers=(marker,),
+        trade_markers=(_marker(),),
     )
 
     assert payload["version"] == 1
@@ -86,8 +92,32 @@ def test_lightweight_contract_is_json_safe_and_preserves_price_series() -> None:
     assert isinstance(payload["candles"][0]["time"], int)
 
 
-def test_lightweight_renderer_uses_native_chart_navigation_not_plotly_relayout() -> None:
-    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "renderer.py").read_text(encoding="utf-8")
+def test_direct_contract_keeps_stable_contract_and_adds_structural_slot() -> None:
+    bars = _bars()
+    payload = build_lightweight_direct_live_payload_v1(
+        market="US Tech 100 NAS",
+        timeframe="5m",
+        primary=bars,
+        overlays={},
+        overlay_mode=OVERLAY_NORMALIZED,
+        indicators=_technical(bars),
+        indicator_names=("Bollinger", "MACD", "RSI", "VWAP", "Swing high/low"),
+        indicator_timeframes={"MACD": "5m"},
+        chart_height=780,
+        price_panel_share=0.5,
+        trade_markers=(_marker(),),
+    )
+
+    assert payload["version"] == 1
+    assert "swing_bands" in payload
+    assert "direct-v1" in payload["signature"]
+    assert payload["markers"][0]["price"] == 29491.0
+
+
+def test_direct_lightweight_runtime_owns_native_navigation_without_plotly() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "direct_runtime.py").read_text(
+        encoding="utf-8"
+    )
     assert "lightweight-charts@5.2.1" in source
     assert "pinch: true" in source
     assert "pressedMouseMove: true" in source
@@ -95,41 +125,46 @@ def test_lightweight_renderer_uses_native_chart_navigation_not_plotly_relayout()
     assert "axisDoubleClickReset" in source
     assert "kineticScroll" in source
     assert "attributionLogo: true" in source
-    assert "Plotly.relayout" not in source
+    assert "window.__pricegaugerLightweightCharts" in source
+    assert "baseCandles" in source
+    assert "formingCandles" in source
+    assert "Plotly" not in source
 
 
-def test_transitional_bridge_covers_live_plotly_with_native_lightweight_canvas() -> None:
-    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "bridge.py").read_text(encoding="utf-8")
-    assert "key.startsWith('TradingDesk:')" in source
-    assert "pg-lightweight-bridge-root" in source
-    assert "zIndex: '50'" in source
-    assert "pinch: true" in source
-    assert "axisPressedMouseMove" in source
-    assert "createSeriesMarkers" in source
-    assert "atPriceMiddle" in source
-    assert "window.__pricegaugerLiveCandleOverlays" in source
-
-
-def test_lightweight_bridge_mounts_with_live_chart_and_legacy_gesture_layer_is_not_mounted() -> None:
-    page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
-    controls = page.split("def _render_live_chart_controls() -> None:", 1)[1].split(
-        "def _live_chart_uirevision()", 1
-    )[0]
-    assert "tradingdesk_ui.charts.lightweight.bridge" in page
-    assert "render_lightweight_plotly_bridge_v1()" in controls
-    assert "render_trading_desk_legend_hover_v1" not in page
-
-
-def test_lightweight_presentation_cleanup_hides_indicator_value_chips_until_interaction() -> None:
-    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "presentation_cleanup.py").read_text(
+def test_direct_runtime_declutters_series_but_keeps_current_candle_price() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "direct_runtime.py").read_text(
         encoding="utf-8"
     )
+    assert "title: '', upColor" in source
+    assert "priceLineVisible: true, lastValueVisible: true" in source
+    assert "priceLineVisible: false, lastValueVisible: false" in source
+    assert "inspector.style.opacity = '0'" in source
+    assert "subscribeCrosshairMove" in source
+
+
+def test_native_live_update_updates_forming_candle_and_trade_markers_in_same_registry() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
+        encoding="utf-8"
+    )
+    assert "window.__pricegaugerLightweightCharts" in source
+    assert "entry.candles.update(merged)" in source
+    assert "entry.baseCandles" in source
+    assert "entry.formingCandles" in source
+    assert "entry.markers?.setMarkers?." in source
+    assert "Plotly" not in source
+
+
+def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> None:
     page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
-    assert "entry.candles?.applyOptions?.({ title: '', lastValueVisible: true })" in source
-    assert "lastValueVisible: false" in source
-    assert "legend.style.opacity = '0'" in source
-    assert "pointermove" in source
-    assert "render_lightweight_presentation_cleanup_v1()" in page
+    live_chart = page.split("def _render_live_chart() -> None:", 1)[1].split(
+        "def _render_lightweight_live_update()", 1
+    )[0]
+    assert "build_lightweight_direct_live_payload_v1(" in live_chart
+    assert "render_lightweight_direct_live_v1(" in live_chart
+    assert "st.plotly_chart(" not in live_chart
+    assert "render_lightweight_plotly_bridge_v1" not in page
+    assert "render_lightweight_presentation_cleanup_v1" not in page
+    assert "render_trading_desk_legend_hover_v1" not in page
 
 
 def test_lightweight_timeframe_toolbar_exposes_intraday_workline() -> None:
