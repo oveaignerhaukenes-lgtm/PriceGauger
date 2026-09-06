@@ -50,6 +50,33 @@ CREATE TABLE IF NOT EXISTS pg_v2_collection_subscriptions (
     CHECK (resolution = '1m')
 );
 
+-- Futures rollover is a market-data identity transition, not an execution mutation.
+-- Old and new immutable contract instruments are kept separately, and this audit row
+-- gives charts/research an explicit boundary so roll gaps are never interpreted as
+-- an unexplained market event.
+CREATE TABLE IF NOT EXISTS pg_v2_instrument_rollovers (
+    rollover_id BIGSERIAL PRIMARY KEY,
+    market_id BIGINT NOT NULL REFERENCES pg_v2_markets(market_id),
+    old_instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+    new_instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
+    provider TEXT NOT NULL,
+    old_provider_instrument_id TEXT NOT NULL,
+    new_provider_instrument_id TEXT NOT NULL,
+    old_symbol TEXT,
+    new_symbol TEXT,
+    occurred_at TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(provider, old_provider_instrument_id, new_provider_instrument_id)
+);
+
+CREATE INDEX IF NOT EXISTS pg_v2_instrument_rollovers_market_time_idx
+    ON pg_v2_instrument_rollovers(market_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS pg_v2_instrument_rollovers_new_instrument_idx
+    ON pg_v2_instrument_rollovers(new_instrument_id, occurred_at DESC);
+
 CREATE TABLE IF NOT EXISTS pg_v2_market_bars_1m (
     instrument_id BIGINT NOT NULL REFERENCES pg_v2_instruments(instrument_id),
     bar_time TIMESTAMPTZ NOT NULL,
