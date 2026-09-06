@@ -8,6 +8,7 @@ import streamlit as st
 from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
+from indicator_guide_v1 import render_indicator_guide_v1
 from realtime_market_data import RealtimeMarketDataStore
 from saxo_chart_live import (
     FormingCandleStore,
@@ -510,14 +511,34 @@ def _render_live_chart() -> None:
         price_panel_share=price_panel_pct / 100.0,
         trade_markers=_load_trade_markers(),
     )
-    render_lightweight_direct_live_v1(
-        payload,
-        key=f"tradingdesk-lightweight-direct:{market}",
-    )
-    st.caption(
-        "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
-        "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
-    )
+
+    if indicator_names:
+        chart_surface, indicator_surface = st.columns([4.4, 1.35], gap="small")
+    else:
+        chart_surface, indicator_surface = st.container(), None
+    with chart_surface:
+        render_lightweight_direct_live_v1(
+            payload,
+            key=f"tradingdesk-lightweight-direct:{market}",
+        )
+        st.caption(
+            "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
+            "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
+        )
+    if indicator_surface is not None:
+        with indicator_surface:
+            view = context.forecast
+            render_indicator_guide_v1(
+                st,
+                indicator_names=indicator_names,
+                technical=technical,
+                latest_close=None if not primary else float(primary[-1].close),
+                trend_state=view.trend_state,
+                momentum_state=view.momentum_state,
+                volatility_state=view.volatility_state,
+                structure_state=view.structure_state,
+                ai_summary=(view.interpreter_summary if use_interpreter else None),
+            )
 
     if not primary:
         st.info(f"Fant ingen canonical 1m-bars for {market}, heller ikke rundt siste registrerte bar.")
