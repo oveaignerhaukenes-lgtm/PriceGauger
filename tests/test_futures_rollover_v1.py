@@ -83,7 +83,8 @@ def test_non_future_subscription_is_never_rollover_mutated(monkeypatch) -> None:
 def test_rollover_chart_marker_is_red_and_snaps_to_first_new_bar() -> None:
     bars = (
         ChartBar(
-            bar_time=datetime(2026, 9, 7, 6, 0, tzinfo=timezone.utc),
+            market="Brent",
+            bar_time="2026-09-07T06:00:00+00:00",
             open=90.0,
             high=91.0,
             low=89.5,
@@ -91,7 +92,8 @@ def test_rollover_chart_marker_is_red_and_snaps_to_first_new_bar() -> None:
             volume=10.0,
         ),
         ChartBar(
-            bar_time=datetime(2026, 9, 7, 6, 1, tzinfo=timezone.utc),
+            market="Brent",
+            bar_time="2026-09-07T06:01:00+00:00",
             open=90.5,
             high=91.2,
             low=90.2,
@@ -119,7 +121,7 @@ def test_rollover_chart_marker_is_red_and_snaps_to_first_new_bar() -> None:
         ),
     )
     rollover = next(item for item in payload["markers"] if str(item.get("text", "")).startswith("ROLLOVER"))
-    assert rollover["time"] == int(bars[0].bar_time.timestamp())
+    assert rollover["time"] == int(datetime.fromisoformat(bars[0].bar_time).timestamp())
     assert rollover["color"] == "#dc2626"
     assert "COU6 → COV6" in rollover["text"]
 
