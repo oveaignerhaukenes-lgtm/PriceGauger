@@ -8,12 +8,18 @@ def test_tradingdesk_chart_settings_live_in_right_control_panel() -> None:
     assert "with controls_column:" in source
     assert 'market = st.selectbox(' in source
     assert '"Marked",' in source
-    assert 'st.selectbox("Vindu", [6, 12, 24, 48]' in source
-    assert 'st.radio("Overlay-akse"' in source
-    assert 'st.multiselect("Sammenlign med", overlay_options)' in source
+    assert '"Vindu",' in source
+    assert "WINDOW_HOURS_STATE_KEY" in source
+    assert '"Overlay-akse",' in source
+    assert "OVERLAY_MODE_STATE_KEY" in source
+    assert '"Sammenlign med",' in source
+    assert "OVERLAYS_STATE_KEY" in source
     assert '"Vis indikatorer",' in source
+    assert "INDICATORS_STATE_KEY" in source
     assert '"Total grafhøyde"' in source
+    assert "CHART_HEIGHT_STATE_KEY" in source
     assert '"Hovedgrafens andel"' in source
+    assert "PRICE_PANEL_PCT_STATE_KEY" in source
 
 
 def test_tradingdesk_timeframe_workbar_is_above_live_chart() -> None:
