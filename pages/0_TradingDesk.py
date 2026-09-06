@@ -39,6 +39,13 @@ from tradingdesk_automanage_panel_v2 import (
     render_tradingdesk_automanage_pnl_chart_v2,
 )
 from tradingdesk_ui.charts.lightweight.bridge import render_lightweight_plotly_bridge_v1
+from tradingdesk_ui.charts.lightweight.presentation_cleanup import (
+    render_lightweight_presentation_cleanup_v1,
+)
+from tradingdesk_ui.charts.lightweight.toolbar import (
+    LIGHTWEIGHT_TIMEFRAMES_V1,
+    render_lightweight_timeframe_toolbar_v1,
+)
 from v2_forecast_visualization import (
     V2_FORECAST_CSS,
     render_v2_forecast_chart,
@@ -49,7 +56,8 @@ from v2_forecast_visualization import (
 V2_ANALYSIS_REFRESH_SECONDS = 60
 LIVE_CHART_BASE_REFRESH_SECONDS = 60
 LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
-QUICK_TIMEFRAMES = ("1m", "5m", "10m", "15m", "30m", "1h")
+QUICK_TIMEFRAMES = LIGHTWEIGHT_TIMEFRAMES_V1
+MACD_TIMEFRAMES = tuple(TIMEFRAME_MINUTES)
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
@@ -131,9 +139,7 @@ if not 20 <= controls_width_pct <= 40:
     controls_width_pct = 30
 st.session_state[CONTROLS_WIDTH_STATE_KEY] = controls_width_pct
 
-
-def _select_timeframe(value: str) -> None:
-    st.session_state[TIMEFRAME_STATE_KEY] = value
+timeframe = str(st.session_state[TIMEFRAME_STATE_KEY])
 
 
 def _persist_market_selection() -> None:
@@ -206,24 +212,6 @@ with controls_column:
             st.warning("Ingen aktiv/subscribed v2-instrumentkilde. Chart og AutoManager er deaktivert for markedet.")
 
     with st.expander("Graf", expanded=True):
-        st.markdown("**Timeframe**")
-        timeframe_rows = (QUICK_TIMEFRAMES[:3], QUICK_TIMEFRAMES[3:])
-        for row_index, values in enumerate(timeframe_rows):
-            quick_columns = st.columns(len(values), gap="small")
-            for column, value in zip(quick_columns, values):
-                with column:
-                    label = "1t" if value == "1h" else value
-                    st.button(
-                        label,
-                        key=f"tradingdesk_tf_{row_index}_{value}",
-                        help=f"Bytt direkte til {value}",
-                        type="primary" if st.session_state[TIMEFRAME_STATE_KEY] == value else "secondary",
-                        width="stretch",
-                        on_click=_select_timeframe,
-                        args=(value,),
-                    )
-        timeframe = st.session_state[TIMEFRAME_STATE_KEY]
-
         window_hours = st.selectbox("Vindu", [6, 12, 24, 48], index=2, format_func=lambda value: f"{value}t")
         overlay_mode = st.radio("Overlay-akse", [OVERLAY_NORMALIZED, OVERLAY_ACTUAL], index=0)
 
@@ -372,16 +360,20 @@ def _render_live_chart_controls() -> None:
         with st.popover(f"MACD · {_timeframe_label(macd_timeframe)}", width="stretch"):
             st.radio(
                 "MACD-timeframe",
-                QUICK_TIMEFRAMES,
+                MACD_TIMEFRAMES,
                 key=MACD_TIMEFRAME_STATE_KEY,
                 format_func=_timeframe_label,
                 help="Velger timeframe for MACD-panelet i chartet.",
             )
             st.caption("Kun chartvisning. AutoManager beholder sin eksplisitt valgte strategi og signal-timeframes.")
+
+    render_lightweight_timeframe_toolbar_v1(state_key=TIMEFRAME_STATE_KEY)
+
     # Lightweight Charts owns LIVE navigation natively. Do not mount the old
     # Plotly gesture/legend component in parallel; competing capture listeners are
     # exactly what made pinch and price-axis scaling janky.
     render_lightweight_plotly_bridge_v1()
+    render_lightweight_presentation_cleanup_v1()
 
 
 def _live_chart_uirevision() -> str:
