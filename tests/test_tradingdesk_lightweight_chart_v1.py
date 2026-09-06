@@ -120,6 +120,25 @@ def test_lightweight_bridge_mounts_with_live_chart_and_legacy_gesture_layer_is_n
     assert "render_trading_desk_legend_hover_v1" not in page
 
 
+def test_lightweight_presentation_cleanup_hides_indicator_value_chips_until_interaction() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "presentation_cleanup.py").read_text(
+        encoding="utf-8"
+    )
+    page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
+    assert "entry.candles?.applyOptions?.({ title: '', lastValueVisible: true })" in source
+    assert "lastValueVisible: false" in source
+    assert "legend.style.opacity = '0'" in source
+    assert "pointermove" in source
+    assert "render_lightweight_presentation_cleanup_v1()" in page
+
+
+def test_lightweight_timeframe_toolbar_exposes_intraday_workline() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "toolbar.py").read_text(encoding="utf-8")
+    assert '("1m", "2m", "5m", "10m", "15m", "30m")' in source
+    assert "st.columns(len(LIGHTWEIGHT_TIMEFRAMES_V1)" in source
+    assert 'type="primary" if current == value else "secondary"' in source
+
+
 def test_lightweight_boundary_contains_no_execution_authority() -> None:
     root = ROOT / "tradingdesk_ui" / "charts" / "lightweight"
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py"))
