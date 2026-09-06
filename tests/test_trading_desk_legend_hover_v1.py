@@ -95,7 +95,7 @@ def test_strategy_chart_is_discovered_by_same_interaction_component() -> None:
     assert "renderInspectorsAtX" in source
 
 
-def test_interaction_component_is_rendered_with_stable_chart_controls() -> None:
+def test_legacy_interaction_component_is_not_mounted_on_lightweight_live_chart() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
     controls = source.split("def _render_live_chart_controls() -> None:", 1)[1].split(
         "def _live_chart_uirevision()", 1
@@ -104,5 +104,6 @@ def test_interaction_component_is_rendered_with_stable_chart_controls() -> None:
         "def _render_automanager_workspace()", 1
     )[0]
 
-    assert "render_trading_desk_legend_hover_v1" in controls
+    assert "render_trading_desk_legend_hover_v1" not in controls
     assert "render_trading_desk_legend_hover_v1" not in live_chart
+    assert "render_lightweight_plotly_bridge_v1()" in controls
