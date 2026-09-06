@@ -86,7 +86,26 @@ def test_strategy_lab_spring_energy_is_visible_by_default() -> None:
     ).read_text(encoding="utf-8")
     assert "Spring · energy proxy" in source
     assert "visible: true" in source
-    assert "addLegend(energy, 'Spring · energy proxy', '#f59e0b', true)" in source
+    assert "addLegend(energy, 'energy proxy', '#f59e0b', true, springLegend)" in source
+
+
+def test_strategy_lab_legend_wraps_and_spring_has_explicit_observation_field() -> None:
+    source = (
+        ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "pnl_strategy_lab.py"
+    ).read_text(encoding="utf-8")
+    assert "flexWrap: 'wrap'" in source
+    assert "overflowX: 'visible'" in source
+    assert "whiteSpace: 'normal'" in source
+    assert "makeLegendGroup('Spring · blind observasjon')" in source
+    assert "springPaneLabel.textContent = 'Spring · blind observasjon'" in source
+    assert "currentPanes[0]?.getHeight?.()" in source
+    assert "currentPanes[1]?.getHeight?.()" in source
+    assert "addLegendNote(springLegend, 'turning points'" in source
+    assert "payload.spring?.displacement" in source
+    assert "payload.spring?.shock" in source
+    assert "payload.spring?.energy" in source
+    assert "absorption" not in source.lower()
+    assert "dampening" not in source.lower()
 
 
 def test_strategy_lab_keeps_native_lightweight_navigation_and_two_charts() -> None:
