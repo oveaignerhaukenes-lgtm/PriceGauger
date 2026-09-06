@@ -12,9 +12,15 @@ SCHEMA_VERSION = 1
 
 MARKET_SESSION_KEY = "tradingdesk-v2-market"
 TIMEFRAME_SESSION_KEY = "tradingdesk_timeframe"
-MACD_TIMEFRAME_SESSION_KEY = "tradingdesk_macd_timeframe"
+MACD_TIMEFRAME_SESSION_KEY = "tradingdesk_macd_timeframe"  # legacy safe preference; no longer rendered independently
 AUTO_REFRESH_SESSION_KEY = "tradingdesk_auto_refresh"
 CONTROLS_WIDTH_SESSION_KEY = "tradingdesk-controls-width-pct"
+WINDOW_HOURS_SESSION_KEY = "tradingdesk-window-hours"
+OVERLAY_MODE_SESSION_KEY = "tradingdesk-overlay-mode"
+OVERLAYS_SESSION_KEY = "tradingdesk-overlays"
+INDICATORS_SESSION_KEY = "tradingdesk-indicators"
+CHART_HEIGHT_SESSION_KEY = "tradingdesk-chart-height"
+PRICE_PANEL_PCT_SESSION_KEY = "tradingdesk-price-panel-pct"
 
 # Explicit allow-list: UI workspace restore must never carry trading authority.
 _SAFE_SESSION_KEYS = {
@@ -23,7 +29,21 @@ _SAFE_SESSION_KEYS = {
     "macd_timeframe": MACD_TIMEFRAME_SESSION_KEY,
     "auto_refresh": AUTO_REFRESH_SESSION_KEY,
     "controls_width_pct": CONTROLS_WIDTH_SESSION_KEY,
+    "window_hours": WINDOW_HOURS_SESSION_KEY,
+    "overlay_mode": OVERLAY_MODE_SESSION_KEY,
+    "overlays": OVERLAYS_SESSION_KEY,
+    "indicators": INDICATORS_SESSION_KEY,
+    "chart_height": CHART_HEIGHT_SESSION_KEY,
+    "price_panel_pct": PRICE_PANEL_PCT_SESSION_KEY,
 }
+
+_INT_PREFERENCES = {
+    "controls_width_pct",
+    "window_hours",
+    "chart_height",
+    "price_panel_pct",
+}
+_LIST_PREFERENCES = {"overlays", "indicators"}
 
 
 def _has_streamlit_run_context() -> bool:
@@ -45,6 +65,17 @@ def _normalized_query_market() -> str:
     return str(value or "").strip()
 
 
+def _safe_string_list(value: object) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    result: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
 def _safe_state_from_session(available_markets: set[str]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for persisted_key, session_key in _SAFE_SESSION_KEYS.items():
@@ -56,15 +87,22 @@ def _safe_state_from_session(available_markets: set[str]) -> dict[str, Any]:
             if market not in available_markets:
                 continue
             result[persisted_key] = market
-        elif persisted_key in {"timeframe", "macd_timeframe"}:
-            result[persisted_key] = str(value or "").strip()
+        elif persisted_key in {"timeframe", "macd_timeframe", "overlay_mode"}:
+            text = str(value or "").strip()
+            if text:
+                result[persisted_key] = text
         elif persisted_key == "auto_refresh":
             result[persisted_key] = bool(value)
-        elif persisted_key == "controls_width_pct":
+        elif persisted_key in _INT_PREFERENCES:
             try:
                 result[persisted_key] = int(value)
             except (TypeError, ValueError):
                 continue
+        elif persisted_key in _LIST_PREFERENCES:
+            items = _safe_string_list(value)
+            if persisted_key == "overlays":
+                items = [item for item in items if item in available_markets]
+            result[persisted_key] = items
     return result
 
 
@@ -107,17 +145,21 @@ def restore_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> 
         if persisted_key not in stored:
             continue
         value = stored[persisted_key]
-        if persisted_key in {"timeframe", "macd_timeframe"}:
+        if persisted_key in {"timeframe", "macd_timeframe", "overlay_mode"}:
             value = str(value or "").strip()
             if not value:
                 continue
         elif persisted_key == "auto_refresh":
             value = bool(value)
-        elif persisted_key == "controls_width_pct":
+        elif persisted_key in _INT_PREFERENCES:
             try:
                 value = int(value)
             except (TypeError, ValueError):
                 continue
+        elif persisted_key in _LIST_PREFERENCES:
+            value = _safe_string_list(value)
+            if persisted_key == "overlays":
+                value = [item for item in value if item in markets]
         st.session_state[session_key] = value
 
     selected = str(st.session_state.get(MARKET_SESSION_KEY, "") or "").strip()
@@ -165,12 +207,18 @@ def sync_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str
 
 __all__ = [
     "AUTO_REFRESH_SESSION_KEY",
+    "CHART_HEIGHT_SESSION_KEY",
     "CONTROLS_WIDTH_SESSION_KEY",
+    "INDICATORS_SESSION_KEY",
     "MACD_TIMEFRAME_SESSION_KEY",
     "MARKET_SESSION_KEY",
+    "OVERLAY_MODE_SESSION_KEY",
+    "OVERLAYS_SESSION_KEY",
     "PAGE_KEY",
+    "PRICE_PANEL_PCT_SESSION_KEY",
     "SCHEMA_VERSION",
     "TIMEFRAME_SESSION_KEY",
+    "WINDOW_HOURS_SESSION_KEY",
     "persist_tradingdesk_workspace_state_v2",
     "restore_tradingdesk_workspace_state_v2",
     "sync_tradingdesk_workspace_state_v2",
