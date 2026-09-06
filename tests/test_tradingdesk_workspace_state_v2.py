@@ -44,6 +44,12 @@ def test_persisted_market_and_safe_view_state_restore_after_new_session(monkeypa
             macd_timeframe="30m",
             auto_refresh=False,
             controls_width_pct=36,
+            window_hours=48,
+            overlay_mode="Faktisk pris",
+            overlays=["Brent"],
+            indicators=["Bollinger", "RSI"],
+            chart_height=640,
+            price_panel_pct=55,
         ),
     )
     saved = []
@@ -59,6 +65,12 @@ def test_persisted_market_and_safe_view_state_restore_after_new_session(monkeypa
     assert fake.session_state[workspace.MACD_TIMEFRAME_SESSION_KEY] == "30m"
     assert fake.session_state[workspace.AUTO_REFRESH_SESSION_KEY] is False
     assert fake.session_state[workspace.CONTROLS_WIDTH_SESSION_KEY] == 36
+    assert fake.session_state[workspace.WINDOW_HOURS_SESSION_KEY] == 48
+    assert fake.session_state[workspace.OVERLAY_MODE_SESSION_KEY] == "Faktisk pris"
+    assert fake.session_state[workspace.OVERLAYS_SESSION_KEY] == ["Brent"]
+    assert fake.session_state[workspace.INDICATORS_SESSION_KEY] == ["Bollinger", "RSI"]
+    assert fake.session_state[workspace.CHART_HEIGHT_SESSION_KEY] == 640
+    assert fake.session_state[workspace.PRICE_PANEL_PCT_SESSION_KEY] == 55
     assert saved == []
 
 
@@ -87,9 +99,18 @@ def test_explicit_market_query_wins_and_updates_durable_state(monkeypatch):
     assert saved[-1][1] == {"selected_market": "US Tech 100 NAS · Saxo 4912"}
 
 
-def test_current_session_selection_is_persisted(monkeypatch):
+def test_current_session_selection_and_chart_choices_are_persisted(monkeypatch):
     fake = _FakeStreamlit(
-        session_state={workspace.MARKET_SESSION_KEY: "US Tech 100 NAS · Saxo 4912"}
+        session_state={
+            workspace.MARKET_SESSION_KEY: "US Tech 100 NAS · Saxo 4912",
+            workspace.TIMEFRAME_SESSION_KEY: "15m",
+            workspace.WINDOW_HOURS_SESSION_KEY: 12,
+            workspace.OVERLAY_MODE_SESSION_KEY: "Normalisert (100)",
+            workspace.OVERLAYS_SESSION_KEY: ["Brent", "Delisted"],
+            workspace.INDICATORS_SESSION_KEY: ["MACD", "RSI"],
+            workspace.CHART_HEIGHT_SESSION_KEY: 720,
+            workspace.PRICE_PANEL_PCT_SESSION_KEY: 60,
+        }
     )
     monkeypatch.setattr(workspace, "st", fake)
     monkeypatch.setattr(workspace, "_has_streamlit_run_context", lambda: True)
@@ -110,6 +131,12 @@ def test_current_session_selection_is_persisted(monkeypatch):
     )
 
     assert saved[-1]["selected_market"] == "US Tech 100 NAS · Saxo 4912"
+    assert saved[-1]["timeframe"] == "15m"
+    assert saved[-1]["window_hours"] == 12
+    assert saved[-1]["overlays"] == ["Brent"]
+    assert saved[-1]["indicators"] == ["MACD", "RSI"]
+    assert saved[-1]["chart_height"] == 720
+    assert saved[-1]["price_panel_pct"] == 60
 
 
 def test_repeated_sync_does_not_rewrite_instantiated_market_widget(monkeypatch):
@@ -201,4 +228,10 @@ def test_workspace_restore_allowlist_cannot_persist_execution_authority(monkeypa
         "macd_timeframe",
         "auto_refresh",
         "controls_width_pct",
+        "window_hours",
+        "overlay_mode",
+        "overlays",
+        "indicators",
+        "chart_height",
+        "price_panel_pct",
     }
