@@ -39,24 +39,37 @@ def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_de
     assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")' in source
 
 
-def test_tradingdesk_overlays_recent_forming_candle_only_in_browser_ui() -> None:
+def test_tradingdesk_updates_recent_forming_candle_directly_in_lightweight_browser_series() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert "forming_store.load(market=market)" in source
     assert "forming_candle_event_age_seconds(candidate)" in source
-    assert "render_live_candle_overlay_v2(" in source
-    assert "primary=primary" in source
-    assert "Sekundbevegelsen tegnes i nettleseren" in source
+    assert "render_lightweight_live_update_v1(" in source
+    assert "Sekundbevegelsen oppdaterer Lightweight-serien direkte" in source
+    assert "render_live_candle_overlay_v2" not in source
 
 
-def test_plotly_graph_operators_use_horizontal_header_space() -> None:
+def test_plotly_graph_operators_remain_available_for_non_live_charts() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert 'div[data-testid="stPlotlyChart"] .modebar' in source
     assert 'right: .35rem !important' in source
     assert 'top: .35rem !important' in source
     assert 'flex-direction: row !important' in source
-    assert 'top: 3.2rem !important' not in source
+
+
+def test_tradingdesk_live_chart_is_direct_lightweight_not_plotly_bridge() -> None:
+    source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    live_chart = source.split("def _render_live_chart() -> None:", 1)[1].split(
+        "def _render_lightweight_live_update()", 1
+    )[0]
+
+    assert "build_lightweight_direct_live_payload_v1(" in live_chart
+    assert "render_lightweight_direct_live_v1(" in live_chart
+    assert "st.plotly_chart(" not in live_chart
+    assert "build_trading_desk_figure(" not in live_chart
+    assert "render_lightweight_plotly_bridge_v1" not in source
+    assert "render_lightweight_presentation_cleanup_v1" not in source
 
 
 def test_tradingdesk_market_analysis_root_is_v2_only() -> None:
