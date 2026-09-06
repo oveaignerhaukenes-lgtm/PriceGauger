@@ -12,6 +12,7 @@ from instrument_registry_v2 import (
     ensure_instrument_source_v2,
     ensure_instrument_v2,
     list_subscribed_sources_v2,
+    resolve_instrument_source_v2,
     set_collection_subscription_v2,
 )
 from saxo_provider import SaxoClient, SaxoInstrument, configured_client, select_contract_for_timestamp
@@ -194,30 +195,47 @@ def _apply_rollover(
     symbol = str(candidate_details.get("Symbol") or candidate.symbol or "").strip()
     description = str(candidate_details.get("Description") or candidate.description or "").strip()
     expiry = candidate_details.get("ExpiryDateTime") or candidate_details.get("ExpiryDate") or candidate.expiry
-    display_name = description or symbol or f"{source.market_name} · UIC {candidate.uic}"
-    new_instrument_id = ensure_instrument_v2(
-        market_id=int(source.market_id),
-        instrument_type=str(source.instrument_type),
-        display_name=display_name,
-    )
-    metadata = dict(source.metadata or {})
-    metadata.update(
-        {
-            "description": description or display_name,
-            "expiry": str(expiry) if expiry else None,
-            "rollover_from_uic": str(source.provider_instrument_id),
-            "rollover_reason": reason,
-        }
-    )
-    ensure_instrument_source_v2(
-        instrument_id=int(new_instrument_id),
-        provider="saxo",
-        provider_instrument_id=int(candidate.uic),
-        asset_type=str(candidate.asset_type or source.asset_type or "ContractFutures"),
-        symbol=symbol or None,
-        price_multiplier=float(source.price_multiplier or 1.0),
-        metadata=metadata,
-    )
+
+    try:
+        existing = resolve_instrument_source_v2(
+            provider="saxo",
+            provider_instrument_id=int(candidate.uic),
+            require_subscription=False,
+        )
+    except LookupError:
+        existing = None
+
+    if existing is not None:
+        if int(existing.market_id) != int(source.market_id):
+            raise ValueError(
+                f"candidate UIC {candidate.uic} is already mapped to another canonical market"
+            )
+        new_instrument_id = int(existing.instrument_id)
+    else:
+        display_name = description or symbol or f"{source.market_name} · UIC {candidate.uic}"
+        new_instrument_id = ensure_instrument_v2(
+            market_id=int(source.market_id),
+            instrument_type=str(source.instrument_type),
+            display_name=display_name,
+        )
+        metadata = dict(source.metadata or {})
+        metadata.update(
+            {
+                "description": description or display_name,
+                "expiry": str(expiry) if expiry else None,
+                "rollover_from_uic": str(source.provider_instrument_id),
+                "rollover_reason": reason,
+            }
+        )
+        ensure_instrument_source_v2(
+            instrument_id=int(new_instrument_id),
+            provider="saxo",
+            provider_instrument_id=int(candidate.uic),
+            asset_type=str(candidate.asset_type or source.asset_type or "ContractFutures"),
+            symbol=symbol or None,
+            price_multiplier=float(source.price_multiplier or 1.0),
+            metadata=metadata,
+        )
 
     # Collection authority rolls to the new immutable contract identity. Execution
     # authority does not: any LIVE controller remains bound to its exact old UIC and
@@ -230,7 +248,7 @@ def _apply_rollover(
         new_instrument_id=int(new_instrument_id),
         candidate=candidate,
         old_symbol=str(source.symbol or "") or None,
-        new_symbol=symbol or None,
+        new_symbol=symbol or str(existing.symbol if existing else "") or None,
         occurred_at=occurred_at,
         reason=reason,
         metadata={
