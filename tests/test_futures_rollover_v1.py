@@ -133,6 +133,7 @@ def test_rollover_schema_and_runtime_keep_execution_authority_separate() -> None
     assert "pg_v2_instrument_rollovers" in schema
     assert "_resolve_futures_rollovers_best_effort()" in runtime
     assert "PrimaryListing" in rollover
-    assert "set_collection_subscription_v2" in rollover
+    assert "_commit_collection_rollover_v1" in rollover
+    assert "set_collection_subscription_v2" not in rollover
     for forbidden in ("place_order", "submit_order", "autotrader_live_open", "autotrader_live_close"):
         assert forbidden not in rollover
