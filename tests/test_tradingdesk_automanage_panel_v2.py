@@ -54,13 +54,12 @@ def test_simple_core_removes_activation_ack_and_manual_takeover_ceremony():
     assert "is_position_managed_v1" in source
 
 
-def test_live_chart_exposes_explicit_clickable_macd_timeframe_without_rearming_execution():
+def test_live_chart_macd_follows_selected_chart_timeframe_without_redundant_control():
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert 'MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"' in source
-    assert 'st.popover(f"MACD · {_timeframe_label(macd_timeframe)}"' in source
-    assert '"MACD-timeframe"' in source
-    assert "Kun chartvisning" in source
-    assert "indicator_timeframes={INDICATOR_MACD:" in source
+    assert 'st.popover(f"MACD ·' not in source
+    assert '"MACD-timeframe"' not in source
+    assert "indicator_timeframes={INDICATOR_MACD: timeframe}" in source
+    assert "selected_timeframe=macd_timeframe" not in source
 
 
 def test_simple_core_strategy_selector_is_catalog_driven_and_hot_switches_existing_controller():
