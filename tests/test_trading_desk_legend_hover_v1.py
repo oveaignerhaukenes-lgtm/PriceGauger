@@ -55,9 +55,36 @@ def test_live_chart_trackpad_contract_is_x_zoom_x_pan_and_price_y_scale() -> Non
     assert "graph._context.scrollZoom = false" in source
     assert "'xaxis.range'" in source
     assert "Math.abs(gesture.dx) > Math.abs(gesture.dy)" in source
-    assert "'yaxis.range'" in source
+    assert "relayoutYScale(graph, priceYAxis(graph)" in source
     assert "event.preventDefault()" in source
     assert "capture: true" in source
+
+
+def test_live_chart_touch_pinch_has_real_two_pointer_fallback() -> None:
+    source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
+
+    assert "activePointers: new Map()" in source
+    assert "event.pointerType !== 'touch'" in source
+    assert "Math.hypot(dx, dy)" in source
+    assert "state.activePointers.size === 2" in source
+    assert "relayoutXZoom(graph, midpointX, scale)" in source
+    assert "document.addEventListener('pointerdown'" in source
+    assert "document.addEventListener('pointermove'" in source
+    assert "pointercancel" in source
+    assert "graph.style.touchAction = 'none'" in source
+
+
+def test_y_axis_drag_targets_visible_side_and_candlestick_axis() -> None:
+    source = (ROOT / "trading_desk_legend_hover_v1.py").read_text(encoding="utf-8")
+
+    assert "function priceYAxis" in source
+    assert "axisKeyFromTraceRef(candle?.yaxis || 'y')" in source
+    assert "function pointerAxisTarget" in source
+    assert "leftDistance >= -8 && leftDistance <= 72" in source
+    assert "rightDistance >= -8 && rightDistance <= 72" in source
+    assert "String(price.axis.side || 'left') === side" in source
+    assert "state.axisDrag" in source
+    assert "relayoutYScale(" in source
 
 
 def test_strategy_chart_is_discovered_by_same_interaction_component() -> None:
