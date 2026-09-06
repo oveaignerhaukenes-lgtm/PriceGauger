@@ -48,6 +48,7 @@ def test_persisted_market_and_safe_view_state_restore_after_new_session(monkeypa
             overlay_mode="Faktisk pris",
             overlays=["Brent"],
             indicators=["Bollinger", "RSI"],
+            indicator_ai_enabled=True,
             chart_height=640,
             price_panel_pct=55,
         ),
@@ -69,6 +70,7 @@ def test_persisted_market_and_safe_view_state_restore_after_new_session(monkeypa
     assert fake.session_state[workspace.OVERLAY_MODE_SESSION_KEY] == "Faktisk pris"
     assert fake.session_state[workspace.OVERLAYS_SESSION_KEY] == ["Brent"]
     assert fake.session_state[workspace.INDICATORS_SESSION_KEY] == ["Bollinger", "RSI"]
+    assert fake.session_state[workspace.INDICATOR_AI_SESSION_KEY] is True
     assert fake.session_state[workspace.CHART_HEIGHT_SESSION_KEY] == 640
     assert fake.session_state[workspace.PRICE_PANEL_PCT_SESSION_KEY] == 55
     assert saved == []
@@ -108,6 +110,7 @@ def test_current_session_selection_and_chart_choices_are_persisted(monkeypatch):
             workspace.OVERLAY_MODE_SESSION_KEY: "Normalisert (100)",
             workspace.OVERLAYS_SESSION_KEY: ["Brent", "Delisted"],
             workspace.INDICATORS_SESSION_KEY: ["MACD", "RSI"],
+            workspace.INDICATOR_AI_SESSION_KEY: True,
             workspace.CHART_HEIGHT_SESSION_KEY: 720,
             workspace.PRICE_PANEL_PCT_SESSION_KEY: 60,
         }
@@ -135,6 +138,7 @@ def test_current_session_selection_and_chart_choices_are_persisted(monkeypatch):
     assert saved[-1]["window_hours"] == 12
     assert saved[-1]["overlays"] == ["Brent"]
     assert saved[-1]["indicators"] == ["MACD", "RSI"]
+    assert saved[-1]["indicator_ai_enabled"] is True
     assert saved[-1]["chart_height"] == 720
     assert saved[-1]["price_panel_pct"] == 60
 
@@ -232,6 +236,10 @@ def test_workspace_restore_allowlist_cannot_persist_execution_authority(monkeypa
         "overlay_mode",
         "overlays",
         "indicators",
+        "indicator_ai_enabled",
         "chart_height",
         "price_panel_pct",
     }
+    assert "live_open_armed" not in workspace._SAFE_SESSION_KEYS
+    assert "entry_mode" not in workspace._SAFE_SESSION_KEYS
+    assert "approval_request_id" not in workspace._SAFE_SESSION_KEYS
