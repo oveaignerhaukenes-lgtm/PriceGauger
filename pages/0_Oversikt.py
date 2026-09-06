@@ -9,6 +9,7 @@ from analysis_status_ui import ANALYSIS_STATUS_CSS, render_analysis_status
 from build_info import render_build_badge
 from context_overview_read_model_v2 import load_context_overview_v2
 from market_navigation import market_detail_href
+from market_watchlist_v2 import render_market_watchlist_v2
 from overview_v2_cards import render_v2_overview_market_cards
 from overview_visuals import asset_color
 from saxo_auth import configured_oauth_client
@@ -43,6 +44,8 @@ with refresh_col:
     st.button("Oppdater nå", key="overview-manual-refresh", use_container_width=True)
 with refresh_note_col:
     st.caption("Oversikt oppdateres ved brukerhandling/refresh. Ingen automatisk redraw av grafkort mens du leser siden.")
+
+render_market_watchlist_v2()
 
 
 def _render_analysis_status() -> None:
