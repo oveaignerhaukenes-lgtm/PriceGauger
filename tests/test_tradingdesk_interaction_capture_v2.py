@@ -18,10 +18,12 @@ def test_interaction_capture_v2_routes_gestures_before_plotly_and_hides_stale_ov
     assert "canvas.style.opacity = '1'" in source
 
 
-def test_interaction_capture_v2_is_mounted_from_tradingdesk_ui_facade() -> None:
-    source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-    assert "tradingdesk_ui.charts.interaction_capture_v2" in source
-    assert "render_tradingdesk_interaction_capture_v2()" in source
+def test_interaction_capture_v2_is_retained_as_rollback_but_not_mounted_with_lightweight_live() -> None:
+    facade = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    assert "tradingdesk_ui.charts.interaction_capture_v2" not in facade
+    assert "render_tradingdesk_interaction_capture_v2()" not in facade
+    assert "render_lightweight_plotly_bridge_v1()" in page
 
 
 def test_interaction_capture_v2_has_no_execution_authority() -> None:
