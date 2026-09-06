@@ -10,7 +10,6 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     render_tradingdesk_automanage_pnl_chart_v2,
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
-from tradingdesk_ui.charts.lightweight.bridge import render_lightweight_plotly_bridge_v1
 from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_sync_v1
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
 
@@ -21,12 +20,10 @@ def render_tradingdesk_automanage_panel_v2(
     """Render interactive Simple Core controls in their own rerun domain."""
 
     # Transitional mount point for the new TradingDesk presentation boundary.
-    # Lightweight Charts now owns LIVE gestures natively; the old custom gesture
-    # capturer remains in the repository as rollback code but is intentionally not
-    # mounted while this bridge is active.
+    # LIVE chart rendering/gestures now mount with the Live Chart itself; this facade
+    # keeps only shared responsive/navigation support plus AutoManager controls.
     render_tradingdesk_responsive_runtime_v1()
     render_tradingdesk_navigation_sync_v1()
-    render_lightweight_plotly_bridge_v1()
 
     @st.fragment
     def _automanager_fragment_v2():
