@@ -110,10 +110,14 @@ def test_transitional_bridge_covers_live_plotly_with_native_lightweight_canvas()
     assert "window.__pricegaugerLiveCandleOverlays" in source
 
 
-def test_lightweight_bridge_is_mounted_inside_presentation_facade_only() -> None:
-    source = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-    assert "tradingdesk_ui.charts.lightweight.bridge" in source
-    assert "render_lightweight_plotly_bridge_v1()" in source
+def test_lightweight_bridge_mounts_with_live_chart_and_legacy_gesture_layer_is_not_mounted() -> None:
+    page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
+    controls = page.split("def _render_live_chart_controls() -> None:", 1)[1].split(
+        "def _live_chart_uirevision()", 1
+    )[0]
+    assert "tradingdesk_ui.charts.lightweight.bridge" in page
+    assert "render_lightweight_plotly_bridge_v1()" in controls
+    assert "render_trading_desk_legend_hover_v1" not in page
 
 
 def test_lightweight_boundary_contains_no_execution_authority() -> None:
