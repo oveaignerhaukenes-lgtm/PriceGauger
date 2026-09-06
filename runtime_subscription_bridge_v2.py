@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import logging
 from typing import Mapping
 
+from futures_rollover_v1 import roll_subscribed_futures_once_v1
 from instrument_registry_v2 import InstrumentSourceV2, list_subscribed_sources_v2
 from saxo_discovered_history_seed_v2 import seed_discovered_saxo_history_once_v2
 from saxo_open_position_discovery_v2 import discover_open_saxo_positions_once_v2
@@ -52,9 +53,6 @@ def _discover_open_positions_best_effort() -> None:
     try:
         summary = discover_open_saxo_positions_once_v2()
     except Exception as exc:
-        # Registry loading must remain available during a temporary Saxo GET or
-        # Reference Data outage. Discovery is additive and grants no execution
-        # authority, so a failed discovery cycle is safe to retry on the next poll.
         LOGGER.warning("Saxo open-position discovery cycle failed: %s", exc, exc_info=True)
         return
     if summary.onboarded or summary.subscriptions_reactivated or summary.failed:
@@ -68,14 +66,29 @@ def _discover_open_positions_best_effort() -> None:
         )
 
 
+def _roll_futures_best_effort() -> None:
+    """Advance monitored expiring futures without migrating execution authority."""
+    try:
+        summary = roll_subscribed_futures_once_v1()
+    except Exception as exc:
+        LOGGER.warning("Saxo futures rollover cycle failed: %s", exc, exc_info=True)
+        return
+    if summary.rolled or summary.blocked or summary.failed:
+        LOGGER.info(
+            "Saxo futures rollover checked=%d unchanged=%d rolled=%d blocked=%d failed=%d",
+            summary.checked,
+            summary.unchanged,
+            summary.rolled,
+            summary.blocked,
+            summary.failed,
+        )
+
+
 def _seed_discovered_history_best_effort() -> None:
     """Give newly discovered products enough exact history for strategy bootstrap."""
     try:
         summary = seed_discovered_saxo_history_once_v2()
     except Exception as exc:
-        # Deep history is useful for immediate strategy readiness but must never
-        # make an otherwise valid registry unavailable. The seed module throttles
-        # retries for incomplete/failed products.
         LOGGER.warning("Saxo discovered-history seed cycle failed: %s", exc, exc_info=True)
         return
     if summary.attempted or summary.failed:
@@ -95,15 +108,16 @@ def load_runtime_instruments_v2(
 ) -> RuntimeInstrumentSetV2:
     """Overlay explicit v2 collection subscriptions on the legacy configured feed set.
 
-    The registry refresh performs best-effort discovery of currently open Saxo
-    positions and a deeper one-time history seed for products discovered through
-    that path. Unknown exact UIC+AssetType identities are onboarded through the same
-    canonical boundary as Product Explorer, but no AutoManage/execution authority is
-    granted. PriceGauger's current realtime/Technical-Core bridge remains
-    single-feed-per-market, so multiple enabled instruments for the same canonical
-    market fail closed instead of silently mixing two price series.
+    Registry refresh order is deliberate: discover externally-open positions first,
+    then perform a guarded collection-only futures rollover, then seed any newly
+    discovered history. Exact old UIC source rows remain immutable for audit and
+    execution identity. Rollover never migrates Product Admission or LIVE authority.
+
+    The realtime/Technical-Core bridge remains single-feed-per-market, so multiple
+    enabled collection instruments for one canonical market fail closed.
     """
     _discover_open_positions_best_effort()
+    _roll_futures_best_effort()
     _seed_discovered_history_best_effort()
 
     result = dict(configured)
