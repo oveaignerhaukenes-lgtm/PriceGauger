@@ -14,7 +14,7 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     _render_automanager_activity_log_v2,
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
-from tradingdesk_ui.charts.lightweight.pnl_comparison import render_lightweight_pnl_comparison_v1
+from tradingdesk_ui.charts.lightweight.pnl_strategy_lab import render_strategy_lab_pnl_v1
 from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_sync_v1
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
 
@@ -42,7 +42,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(
     *,
     observations: tuple | None = None,
 ) -> None:
-    """Render persisted LIVE/model/Spring history with the Lightweight chart engine."""
+    """Render persisted benchmark/advanced strategy history with Lightweight charts."""
 
     @st.fragment
     def _pnl_fragment_v2() -> None:
@@ -68,7 +68,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(
             groups.setdefault(key, []).append(enrollment)
 
         st.divider()
-        st.markdown("**P/L · LIVE og modellene**")
+        st.markdown("**P/L · benchmark og Strategy Lab**")
         if historical_fallback:
             st.caption(
                 "Viser siste AutoManager-pilot som historikk. "
@@ -84,9 +84,9 @@ def render_tradingdesk_automanage_pnl_chart_v2(
 
             if len(groups) > 1:
                 st.caption(f"UIC {key[1]} · {key[2]}")
-            render_lightweight_pnl_comparison_v1(
+            render_strategy_lab_pnl_v1(
                 comparison,
-                key=f"td-automanage-pnl-lw:{key[0]}:{key[1]}:{key[2]}:{key[3]}",
+                key=f"td-strategy-lab-lw:{key[0]}:{key[1]}:{key[2]}:{key[3]}",
             )
 
             live = next(
