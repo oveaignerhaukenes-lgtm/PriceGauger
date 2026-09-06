@@ -51,12 +51,16 @@ V2_ANALYSIS_REFRESH_SECONDS = 60
 LIVE_CHART_BASE_REFRESH_SECONDS = 60
 LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
 QUICK_TIMEFRAMES = LIGHTWEIGHT_TIMEFRAMES_V1
-MACD_TIMEFRAMES = tuple(TIMEFRAME_MINUTES)
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
-MACD_TIMEFRAME_STATE_KEY = "tradingdesk_macd_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
 MARKET_STATE_KEY = "tradingdesk-v2-market"
 CONTROLS_WIDTH_STATE_KEY = "tradingdesk-controls-width-pct"
+WINDOW_HOURS_STATE_KEY = "tradingdesk-window-hours"
+OVERLAY_MODE_STATE_KEY = "tradingdesk-overlay-mode"
+OVERLAYS_STATE_KEY = "tradingdesk-overlays"
+INDICATORS_STATE_KEY = "tradingdesk-indicators"
+CHART_HEIGHT_STATE_KEY = "tradingdesk-chart-height"
+PRICE_PANEL_PCT_STATE_KEY = "tradingdesk-price-panel-pct"
 
 
 st.set_page_config(page_title="TradingDesk · PriceGauger", page_icon="📊", layout="wide")
@@ -121,8 +125,6 @@ if st.session_state.get(MARKET_STATE_KEY) not in available_markets:
     )
 if st.session_state.get(TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
     st.session_state[TIMEFRAME_STATE_KEY] = "5m"
-if st.session_state.get(MACD_TIMEFRAME_STATE_KEY) not in TIMEFRAME_MINUTES:
-    st.session_state[MACD_TIMEFRAME_STATE_KEY] = "30m"
 if AUTO_REFRESH_STATE_KEY not in st.session_state:
     st.session_state[AUTO_REFRESH_STATE_KEY] = True
 try:
@@ -133,6 +135,33 @@ if not 20 <= controls_width_pct <= 40:
     controls_width_pct = 30
 st.session_state[CONTROLS_WIDTH_STATE_KEY] = controls_width_pct
 
+if st.session_state.get(WINDOW_HOURS_STATE_KEY) not in {6, 12, 24, 48}:
+    st.session_state[WINDOW_HOURS_STATE_KEY] = 24
+if st.session_state.get(OVERLAY_MODE_STATE_KEY) not in {OVERLAY_NORMALIZED, OVERLAY_ACTUAL}:
+    st.session_state[OVERLAY_MODE_STATE_KEY] = OVERLAY_NORMALIZED
+if OVERLAYS_STATE_KEY not in st.session_state or not isinstance(
+    st.session_state.get(OVERLAYS_STATE_KEY), (list, tuple)
+):
+    st.session_state[OVERLAYS_STATE_KEY] = []
+if INDICATORS_STATE_KEY not in st.session_state or not isinstance(
+    st.session_state.get(INDICATORS_STATE_KEY), (list, tuple)
+):
+    st.session_state[INDICATORS_STATE_KEY] = list(DEFAULT_INDICATORS)
+try:
+    persisted_chart_height = int(st.session_state.get(CHART_HEIGHT_STATE_KEY, 780))
+except (TypeError, ValueError):
+    persisted_chart_height = 780
+if not 360 <= persisted_chart_height <= 1200:
+    persisted_chart_height = 780
+st.session_state[CHART_HEIGHT_STATE_KEY] = persisted_chart_height
+try:
+    persisted_price_panel_pct = int(st.session_state.get(PRICE_PANEL_PCT_STATE_KEY, 50))
+except (TypeError, ValueError):
+    persisted_price_panel_pct = 50
+if not 40 <= persisted_price_panel_pct <= 65:
+    persisted_price_panel_pct = 50
+st.session_state[PRICE_PANEL_PCT_STATE_KEY] = persisted_price_panel_pct
+
 timeframe = str(st.session_state[TIMEFRAME_STATE_KEY])
 
 
@@ -140,10 +169,6 @@ def _persist_market_selection() -> None:
     selected = str(st.session_state.get(MARKET_STATE_KEY, "") or "")
     if selected in available_markets:
         st.query_params["market"] = selected
-
-
-def _timeframe_label(value: str) -> str:
-    return f"{TIMEFRAME_MINUTES[value]} min"
 
 
 def _horizon_label(seconds: int) -> str:
@@ -206,21 +231,48 @@ with controls_column:
             st.warning("Ingen aktiv/subscribed v2-instrumentkilde. Chart og AutoManager er deaktivert for markedet.")
 
     with st.expander("Graf", expanded=True):
-        window_hours = st.selectbox("Vindu", [6, 12, 24, 48], index=2, format_func=lambda value: f"{value}t")
-        overlay_mode = st.radio("Overlay-akse", [OVERLAY_NORMALIZED, OVERLAY_ACTUAL], index=0)
+        window_hours = st.selectbox(
+            "Vindu",
+            [6, 12, 24, 48],
+            key=WINDOW_HOURS_STATE_KEY,
+            format_func=lambda value: f"{value}t",
+        )
+        overlay_mode = st.radio(
+            "Overlay-akse",
+            [OVERLAY_NORMALIZED, OVERLAY_ACTUAL],
+            key=OVERLAY_MODE_STATE_KEY,
+        )
 
         overlay_options = [
             item
             for item in available_markets
             if item != market and baseline_contexts[item].instrument is not None
         ]
-        overlays = st.multiselect("Sammenlign med", overlay_options)
+        safe_overlays = [
+            item
+            for item in st.session_state.get(OVERLAYS_STATE_KEY, [])
+            if item in overlay_options
+        ]
+        if list(st.session_state.get(OVERLAYS_STATE_KEY, [])) != safe_overlays:
+            st.session_state[OVERLAYS_STATE_KEY] = safe_overlays
+        overlays = st.multiselect(
+            "Sammenlign med",
+            overlay_options,
+            key=OVERLAYS_STATE_KEY,
+        )
 
     with st.expander("Indikatorer", expanded=True):
+        safe_indicators = [
+            item
+            for item in st.session_state.get(INDICATORS_STATE_KEY, [])
+            if item in INDICATOR_OPTIONS
+        ]
+        if list(st.session_state.get(INDICATORS_STATE_KEY, [])) != safe_indicators:
+            st.session_state[INDICATORS_STATE_KEY] = safe_indicators
         indicator_names = st.multiselect(
             "Vis indikatorer",
             list(INDICATOR_OPTIONS),
-            default=list(DEFAULT_INDICATORS),
+            key=INDICATORS_STATE_KEY,
             help=(
                 "Bollinger/EMA/SMA/VWAP og Swing high/low ligger på prisgrafen. MACD, RSI, Stochastic og ATR får egne paneler. "
                 "VWAP er volumvektet over det viste chart-vinduet. Swing-sonene er bekreftede lokale pivoter og er kun en teknisk visualisering."
@@ -229,18 +281,18 @@ with controls_column:
 
         chart_height = st.slider(
             "Total grafhøyde",
-            min_value=620,
-            max_value=1100,
-            value=780,
+            min_value=360,
+            max_value=1200,
             step=20,
+            key=CHART_HEIGHT_STATE_KEY,
             help="Squash eller strekk hele chart-stacken uten å endre data eller indikatorberegning.",
         )
         price_panel_pct = st.slider(
             "Hovedgrafens andel",
             min_value=40,
             max_value=65,
-            value=50,
             step=5,
+            key=PRICE_PANEL_PCT_STATE_KEY,
             help="Fordeler mer eller mindre av høyden til candlestick-panelet. Resten deles mellom underpanelene.",
         )
 
@@ -353,21 +405,7 @@ def _render_companion_workspace() -> None:
 
 def _render_live_chart_controls() -> None:
     """Render stable chart controls outside the timed chart fragment."""
-    chart_header, macd_control = st.columns([4.2, 1.2])
-    with chart_header:
-        st.subheader("Live chart")
-    with macd_control:
-        macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
-        with st.popover(f"MACD · {_timeframe_label(macd_timeframe)}", width="stretch"):
-            st.radio(
-                "MACD-timeframe",
-                MACD_TIMEFRAMES,
-                key=MACD_TIMEFRAME_STATE_KEY,
-                format_func=_timeframe_label,
-                help="Velger timeframe for MACD-panelet i chartet.",
-            )
-            st.caption("Kun chartvisning. AutoManager beholder sin eksplisitt valgte strategi og signal-timeframes.")
-
+    st.subheader("Live chart")
     render_lightweight_timeframe_toolbar_v1(state_key=TIMEFRAME_STATE_KEY)
 
 
@@ -449,27 +487,6 @@ def _render_live_chart() -> None:
             technical = clip_indicators(technical, start=primary[0].bar_time, end=primary[-1].bar_time)
             if INDICATOR_VWAP in indicator_names:
                 technical = replace(technical, vwap=calculate_indicators(primary).vwap)
-            macd_timeframe = st.session_state[MACD_TIMEFRAME_STATE_KEY]
-            if INDICATOR_MACD in indicator_names and macd_timeframe != timeframe:
-                macd_warmup_minutes = TIMEFRAME_MINUTES[macd_timeframe] * INDICATOR_WARMUP_PERIODS
-                macd_source = _load_for_timeframe(
-                    market,
-                    selected_timeframe=macd_timeframe,
-                    range_start=resolved_start - timedelta(minutes=macd_warmup_minutes),
-                    range_end=resolved_end,
-                    limit=20000,
-                )
-                macd = clip_indicators(
-                    calculate_indicators(macd_source),
-                    start=primary[0].bar_time,
-                    end=primary[-1].bar_time,
-                )
-                technical = replace(
-                    technical,
-                    macd=macd.macd,
-                    macd_signal=macd.macd_signal,
-                    macd_histogram=macd.macd_histogram,
-                )
         except ValueError as exc:
             st.warning(f"Kunne ikke beregne tekniske indikatorer for {market}: {exc}")
 
@@ -488,7 +505,7 @@ def _render_live_chart() -> None:
         overlay_mode=overlay_mode,
         indicators=technical,
         indicator_names=indicator_names,
-        indicator_timeframes={INDICATOR_MACD: st.session_state[MACD_TIMEFRAME_STATE_KEY]},
+        indicator_timeframes={INDICATOR_MACD: timeframe},
         chart_height=chart_height,
         price_panel_share=price_panel_pct / 100.0,
         trade_markers=_load_trade_markers(),
@@ -498,8 +515,8 @@ def _render_live_chart() -> None:
         key=f"tradingdesk-lightweight-direct:{market}",
     )
     st.caption(
-        "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på prisaksen for skalering. "
-        "Chart-navigation lever kun i nettleseren; Plotly er ikke lenger en del av LIVE-renderpathen."
+        "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
+        "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
     )
 
     if not primary:

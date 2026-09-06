@@ -14,6 +14,7 @@ export default function(component) {
     const { data, parentElement } = component;
     const chartId = String(data.chart_id || '');
     const registry = window.__pricegaugerLightweightCharts;
+    const geometryKey = `pg:tradingdesk:lightweight-geometry:v1:${chartId}`;
     let retryTimer = null;
 
     function cleanNumber(value) {
@@ -73,6 +74,93 @@ export default function(component) {
         entry.formingCandles.clear();
     }
 
+    function panes(entry) {
+        try { return Array.from(entry.chart?.panes?.() || []); } catch (_) { return []; }
+    }
+
+    function paneRatios(entry) {
+        const all = panes(entry);
+        const heights = all.map((pane) => Math.max(0, Number(pane?.getHeight?.() || 0)));
+        const total = heights.reduce((sum, value) => sum + value, 0);
+        if (!total) return [];
+        return heights.map((value) => value / total);
+    }
+
+    function readGeometry() {
+        try {
+            const raw = window.localStorage?.getItem(geometryKey);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function writeGeometry(entry, forcedHeight = null, forcedRatios = null) {
+        const height = forcedHeight == null
+            ? Math.round(Number(entry.parent?.getBoundingClientRect?.().height || entry.root?.clientHeight || 0))
+            : Math.round(Number(forcedHeight));
+        const ratios = Array.isArray(forcedRatios) ? forcedRatios : paneRatios(entry);
+        if (!Number.isFinite(height) || height < 240 || !ratios.length) return;
+        try {
+            window.localStorage?.setItem(geometryKey, JSON.stringify({ height, pane_ratios: ratios }));
+        } catch (_) {}
+    }
+
+    function applyPaneRatios(entry, ratios) {
+        const all = panes(entry);
+        if (!Array.isArray(ratios) || ratios.length !== all.length || !all.length) return;
+        const total = all.reduce((sum, pane) => sum + Math.max(0, Number(pane?.getHeight?.() || 0)), 0);
+        if (!total) return;
+        for (let index = 0; index < all.length; index += 1) {
+            const ratio = Math.max(0.04, Number(ratios[index] || 0));
+            try { all[index]?.setHeight?.(Math.max(52, total * ratio)); } catch (_) {}
+        }
+    }
+
+    function hydrateGeometry(entry) {
+        const saved = readGeometry();
+        if (!saved) return;
+        const height = Math.max(320, Math.min(1400, Number(saved.height || 0)));
+        if (Number.isFinite(height) && height > 0) {
+            entry.parent.style.height = `${height}px`;
+            entry.root.style.height = '100%';
+        }
+        if (!entry.geometryHydrated) {
+            entry.geometryHydrated = true;
+            window.requestAnimationFrame(() => applyPaneRatios(entry, saved.pane_ratios));
+        }
+    }
+
+    function scaleSeriesForPanes(entry) {
+        const result = [entry.candles];
+        const groups = [
+            ['macd', 'macd_signal', 'macd_histogram'],
+            ['rsi'],
+            ['stochastic_k', 'stochastic_d'],
+            ['atr'],
+        ];
+        for (const group of groups) {
+            const candidate = group.map((role) => entry.series?.get?.(role)).find(Boolean);
+            if (candidate) result.push(candidate);
+        }
+        return result;
+    }
+
+    function paneIndexAtY(entry, clientY) {
+        const rootRect = entry.root.getBoundingClientRect();
+        const y = Number(clientY) - rootRect.top;
+        const all = panes(entry);
+        let cursor = 0;
+        for (let index = 0; index < all.length; index += 1) {
+            const height = Math.max(0, Number(all[index]?.getHeight?.() || 0));
+            if (y >= cursor && y <= cursor + height) return index;
+            cursor += height;
+        }
+        return -1;
+    }
+
     function ensureTouchPriceAxisDrag(entry) {
         if (!entry?.root || entry.touchPriceAxisDragBound) return;
         if (!Number(navigator.maxTouchPoints || 0)) {
@@ -100,23 +188,28 @@ export default function(component) {
 
         let drag = null;
         let lastTapAt = 0;
+        let lastTapPane = -1;
 
         function refreshGeometry() {
-            let paneHeight = 0;
-            try { paneHeight = Number(entry.chart?.panes?.()?.[0]?.getHeight?.() || 0); } catch (_) {}
-            if (!Number.isFinite(paneHeight) || paneHeight <= 0) paneHeight = Math.max(80, root.clientHeight * 0.5);
-            layer.style.height = `${paneHeight}px`;
+            const totalPaneHeight = panes(entry).reduce(
+                (sum, pane) => sum + Math.max(0, Number(pane?.getHeight?.() || 0)),
+                0,
+            );
+            layer.style.height = `${Math.max(80, totalPaneHeight)}px`;
         }
 
         layer.addEventListener('pointerdown', (event) => {
-            const priceScale = entry.candles?.priceScale?.();
+            const paneIndex = paneIndexAtY(entry, event.clientY);
+            const series = scaleSeriesForPanes(entry)[paneIndex];
+            const priceScale = series?.priceScale?.();
             const range = priceScale?.getVisibleRange?.();
             if (!range || !Number.isFinite(Number(range.from)) || !Number.isFinite(Number(range.to))) return;
             event.preventDefault();
             event.stopPropagation();
-            const paneHeight = Math.max(80, Number(entry.chart?.panes?.()?.[0]?.getHeight?.() || root.clientHeight || 320));
+            const paneHeight = Math.max(70, Number(panes(entry)[paneIndex]?.getHeight?.() || 120));
             drag = {
                 pointerId: event.pointerId,
+                paneIndex,
                 startY: Number(event.clientY),
                 startFrom: Number(range.from),
                 startTo: Number(range.to),
@@ -150,11 +243,13 @@ export default function(component) {
             event.stopPropagation();
             const now = performance.now();
             const quickTap = !drag.moved && now - drag.startedAt < 260;
-            if (quickTap && now - lastTapAt < 360) {
+            if (quickTap && lastTapPane === drag.paneIndex && now - lastTapAt < 360) {
                 try { drag.priceScale.setAutoScale(true); } catch (_) {}
                 lastTapAt = 0;
+                lastTapPane = -1;
             } else if (quickTap) {
                 lastTapAt = now;
+                lastTapPane = drag.paneIndex;
             }
             try { layer.releasePointerCapture(event.pointerId); } catch (_) {}
             drag = null;
@@ -168,17 +263,18 @@ export default function(component) {
         refreshGeometry();
     }
 
-    function ensureBottomPaneResize(entry) {
-        if (!entry?.root || entry.bottomPaneResizeBound) return;
+    function ensureChartHeightResize(entry) {
+        if (!entry?.root || entry.chartHeightResizeBound) return;
         const root = entry.root;
         const handle = document.createElement('div');
-        handle.className = 'pg-lightweight-bottom-pane-resize';
+        handle.className = 'pg-lightweight-chart-height-resize';
         Object.assign(handle.style, {
             position: 'absolute',
-            left: '0',
-            right: '82px',
-            bottom: '26px',
-            height: '18px',
+            left: '50%',
+            bottom: '0',
+            width: '128px',
+            height: '20px',
+            transform: 'translateX(-50%)',
             zIndex: '10',
             touchAction: 'none',
             cursor: 'ns-resize',
@@ -191,12 +287,12 @@ export default function(component) {
         Object.assign(grip.style, {
             position: 'absolute',
             left: '50%',
-            top: '8px',
-            width: '38px',
-            height: '2px',
+            bottom: '4px',
+            width: '46px',
+            height: '3px',
             transform: 'translateX(-50%)',
             borderRadius: '999px',
-            background: 'rgba(148,163,184,.45)',
+            background: 'rgba(148,163,184,.58)',
             pointerEvents: 'none',
         });
         handle.appendChild(grip);
@@ -204,29 +300,15 @@ export default function(component) {
 
         let drag = null;
 
-        function panes() {
-            try { return Array.from(entry.chart?.panes?.() || []); } catch (_) { return []; }
-        }
-
-        function refreshGeometry() {
-            const all = panes();
-            handle.style.display = all.length > 1 ? 'block' : 'none';
-            let timeHeight = 28;
-            try { timeHeight = Number(entry.chart?.timeScale?.()?.height?.() || 28); } catch (_) {}
-            handle.style.bottom = `${Math.max(0, timeHeight - 9)}px`;
-        }
-
         handle.addEventListener('pointerdown', (event) => {
-            const all = panes();
-            const lastPane = all[all.length - 1];
-            if (!lastPane?.getHeight || !lastPane?.setHeight) return;
             event.preventDefault();
             event.stopPropagation();
+            const currentHeight = Math.max(320, Number(entry.parent?.getBoundingClientRect?.().height || root.clientHeight || 780));
             drag = {
                 pointerId: event.pointerId,
                 startY: Number(event.clientY),
-                startHeight: Number(lastPane.getHeight()),
-                lastPane,
+                startHeight: currentHeight,
+                ratios: paneRatios(entry),
             };
             try { handle.setPointerCapture(event.pointerId); } catch (_) {}
         }, { passive: false });
@@ -236,37 +318,46 @@ export default function(component) {
             event.preventDefault();
             event.stopPropagation();
             const dy = Number(event.clientY) - drag.startY;
-            const maxHeight = Math.max(90, Number(root.clientHeight || 780) - 150);
-            const nextHeight = Math.max(70, Math.min(maxHeight, drag.startHeight + dy));
-            try { drag.lastPane.setHeight(nextHeight); } catch (_) {}
-            entry.refreshTouchPriceAxisGeometry?.();
+            const nextHeight = Math.max(320, Math.min(1400, drag.startHeight + dy));
+            entry.parent.style.height = `${nextHeight}px`;
+            entry.root.style.height = '100%';
+            window.requestAnimationFrame(() => {
+                applyPaneRatios(entry, drag?.ratios || []);
+                entry.refreshTouchPriceAxisGeometry?.();
+            });
         }, { passive: false });
 
         const finishResize = (event) => {
             if (!drag || drag.pointerId !== event.pointerId) return;
             event.preventDefault();
             event.stopPropagation();
+            const finalHeight = Math.max(320, Number(entry.parent?.getBoundingClientRect?.().height || root.clientHeight || drag.startHeight));
+            writeGeometry(entry, finalHeight, drag.ratios);
             try { handle.releasePointerCapture(event.pointerId); } catch (_) {}
             drag = null;
-            refreshGeometry();
+            entry.refreshTouchPriceAxisGeometry?.();
         };
         handle.addEventListener('pointerup', finishResize, { passive: false });
         handle.addEventListener('pointercancel', finishResize, { passive: false });
 
-        entry.bottomPaneResizeBound = true;
-        entry.bottomPaneResizeHandle = handle;
-        entry.refreshBottomPaneResizeGeometry = refreshGeometry;
-        refreshGeometry();
+        // Native pane-separator drags update the relative layout. Persist those ratios
+        // after any ordinary pointer gesture without affecting navigation state.
+        root.addEventListener('pointerup', (event) => {
+            if (!handle.contains(event.target)) writeGeometry(entry);
+        }, { passive: true });
+
+        entry.chartHeightResizeBound = true;
+        entry.chartHeightResizeHandle = handle;
     }
 
     function apply() {
         const entry = registry?.get?.(chartId) || null;
         if (!entry?.candles) return false;
         if (!(entry.formingCandles instanceof Map)) entry.formingCandles = new Map();
+        hydrateGeometry(entry);
         ensureTouchPriceAxisDrag(entry);
-        ensureBottomPaneResize(entry);
+        ensureChartHeightResize(entry);
         entry.refreshTouchPriceAxisGeometry?.();
-        entry.refreshBottomPaneResizeGeometry?.();
 
         if (data.active && data.candle) {
             const incoming = data.candle;

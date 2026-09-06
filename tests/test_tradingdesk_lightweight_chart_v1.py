@@ -156,13 +156,18 @@ def test_native_live_update_updates_forming_candle_and_trade_markers_in_same_reg
     assert "Plotly.relayout" not in source
 
 
-def test_touch_price_axis_drag_uses_native_visible_range_api() -> None:
+def test_touch_price_axis_drag_uses_native_visible_range_api_for_every_pane() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
         encoding="utf-8"
     )
     assert "ensureTouchPriceAxisDrag(entry)" in source
     assert "pg-lightweight-touch-price-axis" in source
-    assert "entry.candles?.priceScale?.()" in source
+    assert "scaleSeriesForPanes(entry)" in source
+    assert "paneIndexAtY(entry, event.clientY)" in source
+    assert "['macd', 'macd_signal', 'macd_histogram']" in source
+    assert "['rsi']" in source
+    assert "['stochastic_k', 'stochastic_d']" in source
+    assert "['atr']" in source
     assert "getVisibleRange?.()" in source
     assert "setAutoScale(false)" in source
     assert "setVisibleRange({ from: center - nextHalf, to: center + nextHalf })" in source
@@ -172,16 +177,20 @@ def test_touch_price_axis_drag_uses_native_visible_range_api() -> None:
     assert "dispatchMouse" not in source
 
 
-def test_bottom_pane_has_explicit_resize_handle_for_last_indicator_pane() -> None:
+def test_bottom_handle_resizes_whole_chart_and_preserves_pane_ratios() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
         encoding="utf-8"
     )
-    assert "ensureBottomPaneResize(entry)" in source
-    assert "pg-lightweight-bottom-pane-resize" in source
-    assert "lastPane.getHeight()" in source
-    assert "drag.lastPane.setHeight(nextHeight)" in source
-    assert "entry.chart?.timeScale?.()?.height?.()" in source
-    assert "height: '18px'" in source
+    assert "ensureChartHeightResize(entry)" in source
+    assert "pg-lightweight-chart-height-resize" in source
+    assert "entry.parent.style.height" in source
+    assert "applyPaneRatios(entry, drag?.ratios || [])" in source
+    assert "paneRatios(entry)" in source
+    assert "pg:tradingdesk:lightweight-geometry:v1:" in source
+    assert "window.localStorage" in source
+    assert "pane_ratios" in source
+    assert "ensureBottomPaneResize" not in source
+    assert "drag.lastPane.setHeight" not in source
 
 
 def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> None:
