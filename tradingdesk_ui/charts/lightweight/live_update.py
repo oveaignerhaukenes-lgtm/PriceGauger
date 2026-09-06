@@ -56,7 +56,7 @@ export default function(component) {
                 price,
                 position: 'atPriceMiddle',
                 shape: direction === 'LONG' ? 'arrowUp' : 'arrowDown',
-                color: direction === 'LONG' ? '#16a34a' : '#dc2626',
+                color: direction === 'LONG' ? '#0ea5e9' : '#f59e0b',
                 size: marker.active ? 1.0 : 0.72,
                 id: `${marker.id || raw}:${index}`,
             }];
@@ -263,6 +263,90 @@ export default function(component) {
         refreshGeometry();
     }
 
+    function ensureTouchTimeAxisScale(entry) {
+        if (!entry?.root || entry.touchTimeAxisScaleBound) return;
+        if (!Number(navigator.maxTouchPoints || 0)) {
+            entry.touchTimeAxisScaleBound = true;
+            return;
+        }
+
+        const root = entry.root;
+        const layer = document.createElement('div');
+        layer.className = 'pg-lightweight-touch-time-axis';
+        Object.assign(layer.style, {
+            position: 'absolute',
+            left: '0',
+            right: '82px',
+            bottom: '0',
+            height: '34px',
+            zIndex: '9',
+            background: 'transparent',
+            touchAction: 'none',
+            cursor: 'ew-resize',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+        });
+        root.appendChild(layer);
+
+        let drag = null;
+        let lastTapAt = 0;
+
+        layer.addEventListener('pointerdown', (event) => {
+            const timeScale = entry.chart?.timeScale?.();
+            const range = timeScale?.getVisibleLogicalRange?.();
+            if (!range || !Number.isFinite(Number(range.from)) || !Number.isFinite(Number(range.to))) return;
+            event.preventDefault();
+            event.stopPropagation();
+            drag = {
+                pointerId: event.pointerId,
+                startX: Number(event.clientX),
+                startFrom: Number(range.from),
+                startTo: Number(range.to),
+                width: Math.max(120, Number(layer.getBoundingClientRect().width || root.clientWidth || 320)),
+                moved: false,
+                startedAt: performance.now(),
+                timeScale,
+            };
+            try { layer.setPointerCapture(event.pointerId); } catch (_) {}
+        }, { passive: false });
+
+        layer.addEventListener('pointermove', (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const dx = Number(event.clientX) - drag.startX;
+            if (Math.abs(dx) > 3) drag.moved = true;
+            const center = (drag.startFrom + drag.startTo) / 2;
+            const halfSpan = Math.max(0.5, (drag.startTo - drag.startFrom) / 2);
+            const factor = Math.exp((dx / drag.width) * 2.4);
+            const nextHalf = halfSpan * Math.max(0.08, Math.min(12, factor));
+            try {
+                drag.timeScale.setVisibleLogicalRange({ from: center - nextHalf, to: center + nextHalf });
+            } catch (_) {}
+        }, { passive: false });
+
+        const finishDrag = (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const now = performance.now();
+            const quickTap = !drag.moved && now - drag.startedAt < 260;
+            if (quickTap && now - lastTapAt < 360) {
+                try { drag.timeScale.fitContent(); } catch (_) {}
+                lastTapAt = 0;
+            } else if (quickTap) {
+                lastTapAt = now;
+            }
+            try { layer.releasePointerCapture(event.pointerId); } catch (_) {}
+            drag = null;
+        };
+        layer.addEventListener('pointerup', finishDrag, { passive: false });
+        layer.addEventListener('pointercancel', finishDrag, { passive: false });
+
+        entry.touchTimeAxisScaleBound = true;
+        entry.touchTimeAxisScaleLayer = layer;
+    }
+
     function ensureChartHeightResize(entry) {
         if (!entry?.root || entry.chartHeightResizeBound) return;
         const root = entry.root;
@@ -271,9 +355,9 @@ export default function(component) {
         Object.assign(handle.style, {
             position: 'absolute',
             left: '50%',
-            bottom: '0',
+            bottom: '34px',
             width: '128px',
-            height: '20px',
+            height: '18px',
             transform: 'translateX(-50%)',
             zIndex: '10',
             touchAction: 'none',
@@ -287,7 +371,7 @@ export default function(component) {
         Object.assign(grip.style, {
             position: 'absolute',
             left: '50%',
-            bottom: '4px',
+            bottom: '3px',
             width: '46px',
             height: '3px',
             transform: 'translateX(-50%)',
@@ -356,6 +440,7 @@ export default function(component) {
         if (!(entry.formingCandles instanceof Map)) entry.formingCandles = new Map();
         hydrateGeometry(entry);
         ensureTouchPriceAxisDrag(entry);
+        ensureTouchTimeAxisScale(entry);
         ensureChartHeightResize(entry);
         entry.refreshTouchPriceAxisGeometry?.();
 

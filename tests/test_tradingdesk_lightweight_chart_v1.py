@@ -177,6 +177,27 @@ def test_touch_price_axis_drag_uses_native_visible_range_api_for_every_pane() ->
     assert "dispatchMouse" not in source
 
 
+def test_touch_time_axis_drag_scales_x_axis_and_double_tap_fits_content() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
+        encoding="utf-8"
+    )
+    assert "ensureTouchTimeAxisScale(entry)" in source
+    assert "pg-lightweight-touch-time-axis" in source
+    assert "getVisibleLogicalRange?.()" in source
+    assert "setVisibleLogicalRange({ from: center - nextHalf, to: center + nextHalf })" in source
+    assert "drag.timeScale.fitContent()" in source
+    assert "cursor: 'ew-resize'" in source
+    assert "height: '34px'" in source
+
+
+def test_trade_markers_use_non_candle_colors_for_long_and_short() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
+        encoding="utf-8"
+    )
+    assert "direction === 'LONG' ? '#0ea5e9' : '#f59e0b'" in source
+    assert "direction === 'LONG' ? '#16a34a' : '#dc2626'" not in source
+
+
 def test_bottom_handle_resizes_whole_chart_and_preserves_pane_ratios() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
         encoding="utf-8"
@@ -189,6 +210,7 @@ def test_bottom_handle_resizes_whole_chart_and_preserves_pane_ratios() -> None:
     assert "pg:tradingdesk:lightweight-geometry:v1:" in source
     assert "window.localStorage" in source
     assert "pane_ratios" in source
+    assert "bottom: '34px'" in source
     assert "ensureBottomPaneResize" not in source
     assert "drag.lastPane.setHeight" not in source
 
