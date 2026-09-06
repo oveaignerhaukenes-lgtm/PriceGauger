@@ -13,7 +13,6 @@ from instrument_registry_v2 import (
     ensure_instrument_v2,
     list_subscribed_sources_v2,
     resolve_instrument_source_v2,
-    set_collection_subscription_v2,
 )
 from saxo_provider import SaxoClient, SaxoInstrument, configured_client, select_contract_for_timestamp
 
@@ -144,7 +143,35 @@ def _candidate_details(client: SaxoClient, candidate: SaxoInstrument) -> dict[st
     return details
 
 
-def _record_rollover_event(
+def _set_collection_subscription_in_transaction_v1(db, *, instrument_id: int, enabled: bool) -> None:
+    if enabled:
+        db.execute(
+            """
+            INSERT INTO pg_v2_collection_subscriptions
+                (instrument_id, enabled, resolution, enabled_at, disabled_at)
+            VALUES (?, TRUE, '1m', CURRENT_TIMESTAMP, NULL)
+            ON CONFLICT (instrument_id) DO UPDATE
+            SET enabled = TRUE,
+                enabled_at = CURRENT_TIMESTAMP,
+                disabled_at = NULL
+            """,
+            (int(instrument_id),),
+        )
+    else:
+        db.execute(
+            """
+            INSERT INTO pg_v2_collection_subscriptions
+                (instrument_id, enabled, resolution, enabled_at, disabled_at)
+            VALUES (?, FALSE, '1m', NULL, CURRENT_TIMESTAMP)
+            ON CONFLICT (instrument_id) DO UPDATE
+            SET enabled = FALSE,
+                disabled_at = CURRENT_TIMESTAMP
+            """,
+            (int(instrument_id),),
+        )
+
+
+def _commit_collection_rollover_v1(
     *,
     source: InstrumentSourceV2,
     new_instrument_id: int,
@@ -155,8 +182,22 @@ def _record_rollover_event(
     reason: str,
     metadata: dict[str, Any],
 ) -> None:
+    """Commit collection identity switch and audit row as one database transaction."""
+
+    if int(source.instrument_id) == int(new_instrument_id):
+        raise ValueError("futures rollover requires a distinct immutable instrument identity")
     payload = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
     with connect() as db:
+        _set_collection_subscription_in_transaction_v1(
+            db,
+            instrument_id=int(source.instrument_id),
+            enabled=False,
+        )
+        _set_collection_subscription_in_transaction_v1(
+            db,
+            instrument_id=int(new_instrument_id),
+            enabled=True,
+        )
         placeholder = "?::jsonb" if db.is_postgres else "?"
         db.execute(
             f"""
@@ -237,13 +278,12 @@ def _apply_rollover(
             metadata=metadata,
         )
 
-    # Collection authority rolls to the new immutable contract identity. Execution
-    # authority does not: any LIVE controller remains bound to its exact old UIC and
-    # must go through the normal close/FLAT/admission lifecycle before a new product
-    # can be traded.
-    set_collection_subscription_v2(instrument_id=int(source.instrument_id), enabled=False)
-    set_collection_subscription_v2(instrument_id=int(new_instrument_id), enabled=True)
-    _record_rollover_event(
+    # The new immutable instrument/source may be prepared before this point, but it
+    # remains collection-inactive. Collection authority changes only in the transaction
+    # below, together with the mandatory audit row. If audit persistence fails, the
+    # DatabaseConnection context rolls the old/new subscription switch back as well.
+    # Execution authority remains untouched throughout.
+    _commit_collection_rollover_v1(
         source=source,
         new_instrument_id=int(new_instrument_id),
         candidate=candidate,
