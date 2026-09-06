@@ -23,8 +23,9 @@ def test_tradingdesk_timeframe_workbar_is_above_live_chart() -> None:
     assert "LIGHTWEIGHT_TIMEFRAMES_V1" in source
     assert "render_lightweight_timeframe_toolbar_v1(state_key=TIMEFRAME_STATE_KEY)" in source
     assert '("1m", "2m", "5m", "10m", "15m", "30m")' in toolbar
-    assert 'key=f"pg-lightweight-timeframe:{value}"' in toolbar
-    assert 'type="primary" if current == value else "secondary"' in toolbar
+    assert "st.segmented_control(" in toolbar
+    assert "wrap=False" in toolbar
+    assert "required=True" in toolbar
 
 
 def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_default() -> None:
