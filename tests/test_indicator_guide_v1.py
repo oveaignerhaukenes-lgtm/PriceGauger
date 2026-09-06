@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from indicator_guide_v1 import guide_for_indicator_v1, quick_indicator_read_v1
 from trading_desk_indicators import (
     INDICATOR_MACD,
@@ -53,6 +51,7 @@ def test_tradingdesk_mounts_indicator_guide_beside_chart_and_ai_is_cached_only()
 def test_indicator_guide_exposes_more_information_without_provider_dependency():
     source = open("indicator_guide_v1.py", encoding="utf-8").read()
     assert 'st.popover("Fortell mer"' in source
-    assert "AI-kontekst" in source
-    assert "openai" not in source.lower()
+    assert 'st.toggle(\n        "AI-vurdering"' in source
+    assert "Technical Interpreter" in source
+    assert "load_latest_indicator_ai_v1" in source
     assert "requests." not in source.lower()
