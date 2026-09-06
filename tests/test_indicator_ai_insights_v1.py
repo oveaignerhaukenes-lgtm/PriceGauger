@@ -54,8 +54,9 @@ def test_indicator_ai_is_worker_owned_and_ui_reader_stays_provider_free():
 
 
 def test_indicator_ai_opt_in_is_safe_workspace_preference_only():
-    source = open("tradingdesk_workspace_state_v2.py", encoding="utf-8").read()
-    assert '"indicator_ai_enabled": INDICATOR_AI_SESSION_KEY' in source
-    assert 'INDICATOR_AI_SESSION_KEY = "tradingdesk-indicator-ai-enabled"' in source
-    assert '"indicator_ai_enabled"' in source
-    assert "execution" not in source.lower().split("_SAFE_SESSION_KEYS", 1)[1].split("}", 1)[0]
+    import tradingdesk_workspace_state_v2 as workspace
+
+    assert workspace._SAFE_SESSION_KEYS["indicator_ai_enabled"] == workspace.INDICATOR_AI_SESSION_KEY
+    assert workspace.INDICATOR_AI_SESSION_KEY == "tradingdesk-indicator-ai-enabled"
+    for forbidden in ("live_open_armed", "entry_mode", "approval_request_id", "strategy_activation"):
+        assert forbidden not in workspace._SAFE_SESSION_KEYS
