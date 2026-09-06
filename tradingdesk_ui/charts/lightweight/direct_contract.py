@@ -9,6 +9,7 @@ from trading_desk import ChartBar, utc
 from trading_desk_indicators import INDICATOR_SWING_BANDS, TechnicalIndicators
 from trading_desk_swing_bands import derive_swing_bands
 from tradingdesk_ui.charts.lightweight.contract import build_lightweight_live_payload_v1
+from tradingdesk_ui.charts.lightweight.rollover_markers import load_rollover_marker_events_v1
 
 
 def _rollover_chart_markers(
@@ -61,7 +62,7 @@ def build_lightweight_direct_live_payload_v1(
     chart_height: int,
     price_panel_share: float,
     trade_markers: Sequence[AutoTraderTradeMarkerV1] = (),
-    rollover_events: Sequence[Mapping[str, Any]] = (),
+    rollover_events: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Extend the stable LWC contract with direct-render-only structural primitives."""
 
@@ -91,7 +92,16 @@ def build_lightweight_direct_live_payload_v1(
                 }
             )
     payload["swing_bands"] = bands
-    rollover_markers = _rollover_chart_markers(primary, rollover_events)
+
+    resolved_rollovers: Sequence[Mapping[str, Any]] = rollover_events or ()
+    if rollover_events is None:
+        try:
+            resolved_rollovers = load_rollover_marker_events_v1(market=market)
+        except Exception:
+            # Presentation must stay available while a deployment/schema migration is
+            # in flight. Missing marker history never changes market data or execution.
+            resolved_rollovers = ()
+    rollover_markers = _rollover_chart_markers(primary, resolved_rollovers)
     payload["markers"] = [*list(payload.get("markers") or []), *rollover_markers]
     payload["signature"] = (
         f"{payload.get('signature', '')}|direct-v1|swing:{len(bands)}|rollover:{len(rollover_markers)}"
