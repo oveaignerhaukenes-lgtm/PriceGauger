@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-"""LIVE OPEN facade with execution/accounting decoupling.
+"""LIVE OPEN facade with execution/accounting decoupling and provenance guards.
 
 The hardened submit/reconcile implementation remains in
-``autotrader_live_open_legacy_v2`` during the bounded Simple Core migration.  This
-facade changes only the FLAT-authority contract: broker-confirmed FLAT after a PG
-close may re-enter before realized-P/L accounting catches up. Ambiguous SUBMITTING or
-UNCERTAIN closes still block.
+``autotrader_live_open_legacy_v2`` during the bounded Simple Core migration. This
+facade changes the FLAT-authority contract and installs the execution-safety guard
+that prevents stale broker working orders and unexplained late fills from silently
+becoming fresh AutoManager authority.
 """
 
 import autotrader_live_open_legacy_v2 as _legacy
+from autotrader_execution_guard_v1 import install_execution_safety_guard_v1
 from autotrader_live_open_legacy_v2 import *  # noqa: F401,F403
 from autotrader_strategy_switch_provenance_v2 import has_unconsumed_settled_flat_handoff_v2
 from autotrader_trade_markers_v1 import ensure_autotrader_trade_marker_schema_v1
@@ -82,15 +83,15 @@ def _execution_close_provenance_v1(pilot_key: str) -> tuple[bool, bool]:
     return bool(handoff), False
 
 
-# Patch only the provenance helper used by the preserved hardened loop. Everything
-# after it still verifies exact Saxo FLAT, working orders, current authority, sizing,
-# final precheck and durable-attempt-before-POST exactly as before.
+# Keep the preserved executor, but install explicit safety boundaries around its
+# broker working-order, submit and adoption edges before any runtime thread starts.
+install_execution_safety_guard_v1()
 _legacy._settled_close_provenance = _execution_close_provenance_v1
 _settled_close_provenance = _execution_close_provenance_v1
 
 
 def run_live_open_forever_v2(*, interval_seconds: int = 2) -> None:
-    """Install the observational marker projection before entering the hardened loop."""
+    """Install observational marker projection before entering the guarded loop."""
     ensure_autotrader_trade_marker_schema_v1()
     _legacy.run_live_open_forever_v2(interval_seconds=interval_seconds)
 
