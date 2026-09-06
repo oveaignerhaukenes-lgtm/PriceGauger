@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+import json
 import logging
 import time
 from typing import Any, Iterable
@@ -45,6 +46,15 @@ def _utc(value: object) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _row_value(row: Any, key: str, index: int) -> Any:
+    if isinstance(row, dict):
+        return row[key]
+    try:
+        return row[key]
+    except (TypeError, IndexError):
+        return row[index]
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,11 +170,7 @@ def _contract_details(client: SaxoClient, *, uic: int, asset_type: str) -> Futur
     )
 
 
-def _candidate_chain(
-    client: SaxoClient,
-    *,
-    source: InstrumentSourceV2,
-) -> tuple[FuturesContractCandidateV1, ...]:
+def _candidate_chain(client: SaxoClient, *, source: InstrumentSourceV2) -> tuple[FuturesContractCandidateV1, ...]:
     asset_type = str(source.asset_type or "").strip()
     current_uic = int(source.provider_instrument_id)
     result: list[FuturesContractCandidateV1] = []
@@ -179,9 +185,6 @@ def _candidate_chain(
     if len(result) > 1:
         return tuple(result)
 
-    # PrimaryListing is Saxo's normal forward link for expiring instruments. If a
-    # legacy/expired product no longer exposes it, use an account-visible exact
-    # AssetType search as a bounded recovery path and only accept later expiries.
     current_expiry = result[0].expiry if result else None
     try:
         discovered = client.search_instruments(source.market_name, asset_types=asset_type)
@@ -201,7 +204,13 @@ def _candidate_chain(
         seen.add(candidate.uic)
         if len(result) >= CANDIDATE_CHAIN_DEPTH:
             break
-    result.sort(key=lambda item: (item.expiry or datetime.max.replace(tzinfo=timezone.utc), item.uic))
+    if result:
+        current = result[0]
+        tail = sorted(
+            result[1:],
+            key=lambda item: (item.expiry or datetime.max.replace(tzinfo=timezone.utc), item.uic),
+        )
+        result = [current, *tail]
     return tuple(result[:CANDIDATE_CHAIN_DEPTH])
 
 
@@ -243,32 +252,32 @@ def select_futures_rollover_candidate_v1(
     if current.expiry is None:
         return current, "NO_EXPIRY_METADATA"
 
-    eligible = [
+    later = [
         item
-        for item in rows
+        for item in rows[1:]
         if item.expiry is not None
         and item.expiry > now
+        and item.expiry > current.expiry
         and item.is_tradable is not False
     ]
-    eligible.sort(key=lambda item: (item.expiry, item.uic))
-    later = [item for item in eligible if item.uic != current.uic and item.expiry > current.expiry]
+    later.sort(key=lambda item: (item.expiry, item.uic))
     if not later:
         return current, "NO_LATER_ELIGIBLE_CONTRACT"
 
     days_left = (current.expiry - now).total_seconds() / 86400.0
     if days_left <= FORCE_ROLL_DAYS:
-        volume_candidates = [item for item in later if item.volume_score is not None and item.volume_score > 0]
-        if volume_candidates:
-            return max(volume_candidates, key=lambda item: float(item.volume_score or 0.0)), "FORCED_NEAR_EXPIRY_VOLUME"
+        liquid = [item for item in later if item.volume_score is not None and item.volume_score > 0]
+        if liquid:
+            return max(liquid, key=lambda item: float(item.volume_score or 0.0)), "FORCED_NEAR_EXPIRY_VOLUME"
         return later[0], "FORCED_NEAR_EXPIRY_FRONT"
 
     if days_left <= LIQUIDITY_ROLL_WINDOW_DAYS:
         current_volume = float(current.volume_score or 0.0)
-        volume_candidates = [item for item in later if item.volume_score is not None and item.volume_score > 0]
-        if volume_candidates:
-            liquid = max(volume_candidates, key=lambda item: float(item.volume_score or 0.0))
-            if current_volume <= 0.0 or float(liquid.volume_score or 0.0) >= current_volume * LIQUIDITY_RATIO:
-                return liquid, "LIQUIDITY_MIGRATION"
+        liquid = [item for item in later if item.volume_score is not None and item.volume_score > 0]
+        if liquid:
+            selected = max(liquid, key=lambda item: float(item.volume_score or 0.0))
+            if current_volume <= 0.0 or float(selected.volume_score or 0.0) >= current_volume * LIQUIDITY_RATIO:
+                return selected, "LIQUIDITY_MIGRATION"
 
     return current, "CURRENT_CONTRACT_RETAINS_LIQUIDITY"
 
@@ -290,7 +299,6 @@ def _live_controller_exists(*, uic: int, asset_type: str) -> bool:
             ).fetchone()
         return row is not None
     except Exception as exc:
-        # Execution uncertainty must block an automatic contract switch.
         raise RuntimeError("could not verify active LIVE controller state") from exc
 
 
@@ -311,11 +319,11 @@ def _event_id(
     effective_at: datetime,
     block_reason: str | None,
 ) -> str:
-    suffix = effective_at.date().isoformat() if status != "ROLLED" else effective_at.isoformat()
+    suffix = f"{old_uic}->{new_uic}" if status == "ROLLED" else effective_at.date().isoformat()
     return str(
         uuid5(
             NAMESPACE_URL,
-            f"pg-futures-rollover-v1|{status}|{market_id}|{old_uic}|{new_uic}|{suffix}|{block_reason or ''}",
+            f"pg-futures-rollover-v1|{status}|{market_id}|{suffix}|{block_reason or ''}",
         )
     )
 
@@ -394,7 +402,7 @@ def _switch_collection_source(
 
     with connect() as db:
         market = db.execute(
-            "SELECT market_id, category FROM pg_v2_markets WHERE market_id = ? AND active = TRUE",
+            "SELECT market_id FROM pg_v2_markets WHERE market_id = ? AND active = TRUE",
             (int(source.market_id),),
         ).fetchone()
         if market is None:
@@ -412,16 +420,17 @@ def _switch_collection_source(
             (str(int(selected.uic)),),
         ).fetchone()
         if existing is not None:
-            new_instrument_id = int(existing["instrument_id"] if isinstance(existing, dict) else existing[0])
-            existing_market_id = int(existing["market_id"] if isinstance(existing, dict) else existing[1])
-            if existing_market_id != int(source.market_id):
+            new_instrument_id = int(_row_value(existing, "instrument_id", 0))
+            if int(_row_value(existing, "market_id", 1)) != int(source.market_id):
                 raise ValueError("next futures UIC is already mapped to a different canonical market")
         else:
             instrument = db.execute(
                 """
-                SELECT instrument_id FROM pg_v2_instruments
+                SELECT instrument_id
+                FROM pg_v2_instruments
                 WHERE market_id = ? AND instrument_type = ? AND display_name = ? AND active = TRUE
-                ORDER BY instrument_id DESC LIMIT 1
+                ORDER BY instrument_id DESC
+                LIMIT 1
                 """,
                 (int(source.market_id), selected.asset_type, display_name),
             ).fetchone()
@@ -435,15 +444,15 @@ def _switch_collection_source(
                 )
                 instrument = db.execute(
                     """
-                    SELECT instrument_id FROM pg_v2_instruments
+                    SELECT instrument_id
+                    FROM pg_v2_instruments
                     WHERE market_id = ? AND instrument_type = ? AND display_name = ? AND active = TRUE
-                    ORDER BY instrument_id DESC LIMIT 1
+                    ORDER BY instrument_id DESC
+                    LIMIT 1
                     """,
                     (int(source.market_id), selected.asset_type, display_name),
                 ).fetchone()
-            new_instrument_id = int(instrument["instrument_id"] if isinstance(instrument, dict) else instrument[0])
-            import json
-            metadata_json = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+            new_instrument_id = int(_row_value(instrument, "instrument_id", 0))
             json_placeholder = "?::jsonb" if db.is_postgres else "?"
             db.execute(
                 f"""
@@ -458,7 +467,7 @@ def _switch_collection_source(
                     selected.asset_type,
                     selected.symbol or None,
                     1.0 if source.price_multiplier is None else float(source.price_multiplier),
-                    metadata_json,
+                    json.dumps(metadata, sort_keys=True, separators=(",", ":")),
                 ),
             )
 
@@ -493,53 +502,10 @@ def _switch_collection_source(
                 (new_instrument_id,),
             )
 
-    new_source = resolve_instrument_source_v2(
+    return resolve_instrument_source_v2(
         provider="saxo",
         provider_instrument_id=str(int(selected.uic)),
         require_subscription=True,
-    )
-    _persist_event(
-        source=source,
-        current=_contract_details(configured_client() or _NullClient(), uic=int(source.provider_instrument_id), asset_type=str(source.asset_type)) if False else FuturesContractCandidateV1(
-            uic=int(source.provider_instrument_id),
-            asset_type=str(source.asset_type),
-            symbol=str(source.symbol or ""),
-            description=str((source.metadata or {}).get("description") or source.display_name or ""),
-            expiry=_utc((source.metadata or {}).get("expiry")),
-            primary_listing=None,
-            is_tradable=None,
-            volume_score=None,
-        ),
-        selected=selected,
-        status="ROLLED",
-        selection_method=selection_method,
-        effective_at=now,
-        new_instrument_id=new_source.instrument_id,
-    )
-    return new_source
-
-
-class _NullClient:
-    pass
-
-
-def _persist_roll_event_exact(
-    *,
-    source: InstrumentSourceV2,
-    current: FuturesContractCandidateV1,
-    selected: FuturesContractCandidateV1,
-    selection_method: str,
-    now: datetime,
-    new_source: InstrumentSourceV2,
-) -> None:
-    _persist_event(
-        source=source,
-        current=current,
-        selected=selected,
-        status="ROLLED",
-        selection_method=selection_method,
-        effective_at=now,
-        new_instrument_id=new_source.instrument_id,
     )
 
 
@@ -599,17 +565,6 @@ def roll_subscribed_futures_once_v1(
     monotonic_now: float | None = None,
     db_path: str = "pricegauger.db",
 ) -> FuturesRolloverSummaryV1:
-    """Roll monitored expiring Saxo futures to the liquid/front successor safely.
-
-    Collection identity may move forward only when the old exact UIC has no open Saxo
-    position and no enabled LIVE_MANAGE controller. Execution authority is never
-    migrated by this function. Contract candidates are linked through Saxo's
-    PrimaryListing metadata (documented for expiring instruments as the next expiring
-    instance), with a bounded exact-AssetType search fallback for already-expired
-    legacy sources. Within the final 21 days, recent Saxo chart volume can trigger a
-    liquidity-led roll; within two days of expiry the successor is forced even if
-    volume is unavailable.
-    """
     if not using_postgres():
         return FuturesRolloverSummaryV1(0, 0, 0, 0, 0)
     current_time = now or datetime.now(timezone.utc)
@@ -617,11 +572,11 @@ def roll_subscribed_futures_once_v1(
         raise ValueError("now must be timezone-aware")
     current_time = current_time.astimezone(timezone.utc)
     mono = time.monotonic() if monotonic_now is None else float(monotonic_now)
+
     sources = tuple(
         source
         for source in list_subscribed_sources_v2(provider="saxo")
-        if str(source.asset_type or "") in ROLLABLE_ASSET_TYPES
-        and _due(source.instrument_id, mono=mono)
+        if str(source.asset_type or "") in ROLLABLE_ASSET_TYPES and _due(source.instrument_id, mono=mono)
     )
     if not sources:
         return FuturesRolloverSummaryV1(0, 0, 0, 0, 0)
@@ -682,24 +637,14 @@ def roll_subscribed_futures_once_v1(
                 now=current_time,
                 selection_method=method,
             )
-            # Replace the provisional event written by the switch with exact old
-            # contract metadata. Event IDs differ, so first remove the provisional
-            # row for this exact old/new/time pair if one exists.
-            with connect() as db:
-                db.execute(
-                    """
-                    DELETE FROM pg_v2_futures_rollover_events
-                    WHERE status='ROLLED' AND market_id=? AND old_uic=? AND new_uic=? AND effective_at=?
-                    """,
-                    (source.market_id, current.uic, selected.uic, current_time),
-                )
-            _persist_roll_event_exact(
+            _persist_event(
                 source=source,
                 current=current,
                 selected=selected,
+                status="ROLLED",
                 selection_method=method,
-                now=current_time,
-                new_source=new_source,
+                effective_at=current_time,
+                new_instrument_id=new_source.instrument_id,
             )
             _seed_rollover_history_best_effort(
                 client=client,
@@ -767,27 +712,26 @@ def load_futures_rollover_events_v1(
         ).fetchall()
     result: list[FuturesRolloverEventV1] = []
     for row in rows:
-        get = (lambda key, idx: row[key] if isinstance(row, dict) else row[idx])
-        effective = _utc(get("effective_at", 4))
+        effective = _utc(_row_value(row, "effective_at", 4))
         if effective is None:
             continue
         result.append(
             FuturesRolloverEventV1(
-                event_id=str(get("event_id", 0)),
-                market_id=int(get("market_id", 1)),
-                market_name=str(get("market_name", 2)),
-                status=str(get("status", 3)),
+                event_id=str(_row_value(row, "event_id", 0)),
+                market_id=int(_row_value(row, "market_id", 1)),
+                market_name=str(_row_value(row, "market_name", 2)),
+                status=str(_row_value(row, "status", 3)),
                 effective_at=effective,
-                old_instrument_id=int(get("old_instrument_id", 5)),
-                new_instrument_id=None if get("new_instrument_id", 6) is None else int(get("new_instrument_id", 6)),
-                old_uic=int(get("old_uic", 7)),
-                new_uic=None if get("new_uic", 8) is None else int(get("new_uic", 8)),
-                old_symbol=str(get("old_symbol", 9) or ""),
-                new_symbol=None if get("new_symbol", 10) is None else str(get("new_symbol", 10)),
-                old_expiry=_utc(get("old_expiry", 11)),
-                new_expiry=_utc(get("new_expiry", 12)),
-                selection_method=str(get("selection_method", 13)),
-                block_reason=None if get("block_reason", 14) is None else str(get("block_reason", 14)),
+                old_instrument_id=int(_row_value(row, "old_instrument_id", 5)),
+                new_instrument_id=(None if _row_value(row, "new_instrument_id", 6) is None else int(_row_value(row, "new_instrument_id", 6))),
+                old_uic=int(_row_value(row, "old_uic", 7)),
+                new_uic=(None if _row_value(row, "new_uic", 8) is None else int(_row_value(row, "new_uic", 8))),
+                old_symbol=str(_row_value(row, "old_symbol", 9) or ""),
+                new_symbol=(None if _row_value(row, "new_symbol", 10) is None else str(_row_value(row, "new_symbol", 10))),
+                old_expiry=_utc(_row_value(row, "old_expiry", 11)),
+                new_expiry=_utc(_row_value(row, "new_expiry", 12)),
+                selection_method=str(_row_value(row, "selection_method", 13)),
+                block_reason=(None if _row_value(row, "block_reason", 14) is None else str(_row_value(row, "block_reason", 14))),
             )
         )
     return tuple(result)
