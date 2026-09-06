@@ -156,18 +156,32 @@ def test_native_live_update_updates_forming_candle_and_trade_markers_in_same_reg
     assert "Plotly.relayout" not in source
 
 
-def test_mobile_price_axis_drag_reuses_native_axis_mouse_contract() -> None:
+def test_touch_price_axis_drag_uses_native_visible_range_api() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
         encoding="utf-8"
     )
-    assert "ensureMobilePriceAxisDrag(entry)" in source
-    assert "pg-lightweight-mobile-price-axis" in source
+    assert "ensureTouchPriceAxisDrag(entry)" in source
+    assert "pg-lightweight-touch-price-axis" in source
+    assert "entry.candles?.priceScale?.()" in source
+    assert "getVisibleRange?.()" in source
+    assert "setAutoScale(false)" in source
+    assert "setVisibleRange({ from: center - nextHalf, to: center + nextHalf })" in source
+    assert "width: '82px'" in source
     assert "touchAction: 'none'" in source
-    assert "width: '76px'" in source
-    assert "layer.setPointerCapture(event.pointerId)" in source
-    assert "dispatchMouse(target, 'mousedown', event, 1)" in source
-    assert "dispatchMouse(drag.target, 'mousemove', event, 1)" in source
-    assert "dispatchMouse(drag.target, 'mouseup', event, 0)" in source
+    assert "new MouseEvent" not in source
+    assert "dispatchMouse" not in source
+
+
+def test_bottom_pane_has_explicit_resize_handle_for_last_indicator_pane() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
+        encoding="utf-8"
+    )
+    assert "ensureBottomPaneResize(entry)" in source
+    assert "pg-lightweight-bottom-pane-resize" in source
+    assert "lastPane.getHeight()" in source
+    assert "drag.lastPane.setHeight(nextHeight)" in source
+    assert "entry.chart?.timeScale?.()?.height?.()" in source
+    assert "height: '18px'" in source
 
 
 def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> None:
@@ -186,13 +200,12 @@ def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> Non
 def test_lightweight_timeframe_toolbar_exposes_intraday_workline() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "toolbar.py").read_text(encoding="utf-8")
     assert '("1m", "2m", "5m", "10m", "15m", "30m")' in source
-    assert "st.columns(len(LIGHTWEIGHT_TIMEFRAMES_V1)" in source
-    assert 'type="primary" if current == value else "secondary"' in source
-    assert "flex-wrap: nowrap !important" in source
-    assert "overflow-x: auto !important" in source
-    assert "min-width: 2.45rem !important" in source
-    assert "min-height: 1.78rem !important" in source
-    assert 'with st.container(key=_TOOLBAR_KEY):' in source
+    assert "st.segmented_control(" in source
+    assert 'selection_mode="single"' in source
+    assert "required=True" in source
+    assert "wrap=False" in source
+    assert 'label_visibility="collapsed"' in source
+    assert "st.columns(" not in source
 
 
 def test_lightweight_boundary_contains_no_execution_authority() -> None:
