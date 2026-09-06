@@ -73,10 +73,92 @@ export default function(component) {
         entry.formingCandles.clear();
     }
 
+    function ensureMobilePriceAxisDrag(entry) {
+        if (!entry?.root || entry.mobilePriceAxisDragBound) return;
+        const root = entry.root;
+        if (!Number(navigator.maxTouchPoints || 0)) {
+            entry.mobilePriceAxisDragBound = true;
+            return;
+        }
+
+        const layer = document.createElement('div');
+        layer.className = 'pg-lightweight-mobile-price-axis';
+        Object.assign(layer.style, {
+            position: 'absolute',
+            right: '0',
+            top: '0',
+            bottom: '30px',
+            width: '76px',
+            zIndex: '7',
+            background: 'transparent',
+            touchAction: 'none',
+            cursor: 'ns-resize',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+        });
+        root.appendChild(layer);
+
+        let drag = null;
+
+        function underlyingTarget(clientX, clientY) {
+            layer.style.pointerEvents = 'none';
+            const target = document.elementFromPoint(clientX, clientY);
+            layer.style.pointerEvents = 'auto';
+            return target && root.contains(target) ? target : null;
+        }
+
+        function dispatchMouse(target, type, event, buttons) {
+            if (!target?.dispatchEvent) return;
+            target.dispatchEvent(new MouseEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: Number(event.clientX),
+                clientY: Number(event.clientY),
+                screenX: Number(event.screenX || 0),
+                screenY: Number(event.screenY || 0),
+                button: 0,
+                buttons,
+            }));
+        }
+
+        layer.addEventListener('pointerdown', (event) => {
+            const target = underlyingTarget(event.clientX, event.clientY);
+            if (!target) return;
+            event.preventDefault();
+            event.stopPropagation();
+            drag = { pointerId: event.pointerId, target };
+            try { layer.setPointerCapture(event.pointerId); } catch (_) {}
+            dispatchMouse(target, 'mousedown', event, 1);
+        }, { passive: false });
+
+        layer.addEventListener('pointermove', (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            dispatchMouse(drag.target, 'mousemove', event, 1);
+        }, { passive: false });
+
+        const finishDrag = (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            dispatchMouse(drag.target, 'mouseup', event, 0);
+            try { layer.releasePointerCapture(event.pointerId); } catch (_) {}
+            drag = null;
+        };
+        layer.addEventListener('pointerup', finishDrag, { passive: false });
+        layer.addEventListener('pointercancel', finishDrag, { passive: false });
+
+        entry.mobilePriceAxisDragBound = true;
+        entry.mobilePriceAxisDragLayer = layer;
+    }
+
     function apply() {
         const entry = registry?.get?.(chartId) || null;
         if (!entry?.candles) return false;
         if (!(entry.formingCandles instanceof Map)) entry.formingCandles = new Map();
+        ensureMobilePriceAxisDrag(entry);
 
         if (data.active && data.candle) {
             const incoming = data.candle;
@@ -181,7 +263,7 @@ def render_lightweight_live_update_v1(
     candle: FormingCandle1m | None,
     trade_markers: Sequence[AutoTraderTradeMarkerV1] = (),
 ) -> None:
-    """Update the direct Lightweight LIVE candle/markers without Streamlit navigation state."""
+    """Update direct Lightweight LIVE candle/markers and mobile price-axis interaction."""
 
     minutes = int(timeframe_minutes)
     _live_update_component(

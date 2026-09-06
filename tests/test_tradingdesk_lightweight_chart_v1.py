@@ -156,6 +156,20 @@ def test_native_live_update_updates_forming_candle_and_trade_markers_in_same_reg
     assert "Plotly.relayout" not in source
 
 
+def test_mobile_price_axis_drag_reuses_native_axis_mouse_contract() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
+        encoding="utf-8"
+    )
+    assert "ensureMobilePriceAxisDrag(entry)" in source
+    assert "pg-lightweight-mobile-price-axis" in source
+    assert "touchAction: 'none'" in source
+    assert "width: '76px'" in source
+    assert "layer.setPointerCapture(event.pointerId)" in source
+    assert "dispatchMouse(target, 'mousedown', event, 1)" in source
+    assert "dispatchMouse(drag.target, 'mousemove', event, 1)" in source
+    assert "dispatchMouse(drag.target, 'mouseup', event, 0)" in source
+
+
 def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> None:
     page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
     live_chart = page.split("def _render_live_chart() -> None:", 1)[1].split(
@@ -174,6 +188,11 @@ def test_lightweight_timeframe_toolbar_exposes_intraday_workline() -> None:
     assert '("1m", "2m", "5m", "10m", "15m", "30m")' in source
     assert "st.columns(len(LIGHTWEIGHT_TIMEFRAMES_V1)" in source
     assert 'type="primary" if current == value else "secondary"' in source
+    assert "flex-wrap: nowrap !important" in source
+    assert "overflow-x: auto !important" in source
+    assert "min-width: 2.45rem !important" in source
+    assert "min-height: 1.78rem !important" in source
+    assert 'with st.container(key=_TOOLBAR_KEY):' in source
 
 
 def test_lightweight_boundary_contains_no_execution_authority() -> None:
