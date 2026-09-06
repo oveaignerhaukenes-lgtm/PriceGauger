@@ -55,6 +55,25 @@ def test_resample_five_minutes_preserves_ohlc_and_sums_true_volume() -> None:
     assert result[0].volume == 150
 
 
+def test_resample_two_minutes_supports_lightweight_toolbar() -> None:
+    result = resample_bars(
+        [
+            _bar("2026-08-09T10:00:00Z", open_price=100, high=102, low=99, close=101, volume=10),
+            _bar("2026-08-09T10:01:00Z", open_price=101, high=104, low=100, close=103, volume=20),
+            _bar("2026-08-09T10:02:00Z", open_price=103, high=105, low=102, close=104, volume=30),
+        ],
+        timeframe="2m",
+    )
+
+    assert [item.bar_time for item in result] == [
+        "2026-08-09T10:00:00+00:00",
+        "2026-08-09T10:02:00+00:00",
+    ]
+    assert (result[0].open, result[0].high, result[0].low, result[0].close) == (100, 104, 99, 103)
+    assert result[0].volume == 30
+    assert result[1].volume is None
+
+
 @pytest.mark.parametrize(
     ("timeframe", "expected_stamps"),
     [
@@ -79,7 +98,7 @@ def test_resample_supported_higher_timeframes(timeframe: str, expected_stamps: t
 
 
 def test_quick_timeframes_are_supported_by_canonical_resampler() -> None:
-    assert {"1m", "5m", "10m", "15m", "30m"}.issubset(TIMEFRAME_MINUTES)
+    assert {"1m", "2m", "5m", "10m", "15m", "30m"}.issubset(TIMEFRAME_MINUTES)
 
 
 def test_missing_minutes_are_not_fabricated_and_make_volume_unknown() -> None:
