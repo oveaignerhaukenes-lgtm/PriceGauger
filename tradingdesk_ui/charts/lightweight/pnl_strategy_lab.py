@@ -127,7 +127,7 @@ export default function(component) {{
         parentElement.appendChild(shell);
 
         const heading = document.createElement('div');
-        heading.textContent = mode === 'baseline' ? 'Benchmark · LIVE og kontroller' : 'Advanced · adaptive modeller og Spring';
+        heading.textContent = mode === 'baseline' ? 'Benchmark · LIVE og kontroller' : 'Advanced · adaptive modeller';
         Object.assign(heading.style, {{
             color: colors.text, font: '700 14px/1.3 system-ui,-apple-system,sans-serif',
             padding: '2px 0 6px 0',
@@ -160,9 +160,10 @@ export default function(component) {{
 
         const legend = document.createElement('div');
         Object.assign(legend.style, {{
-            display: 'flex', gap: '12px', alignItems: 'center', overflowX: 'auto',
-            whiteSpace: 'nowrap', padding: '7px 0 10px 0', color: colors.text,
-            font: '500 11px/1.3 system-ui,-apple-system,sans-serif', scrollbarWidth: 'thin',
+            display: 'flex', flexWrap: 'wrap', columnGap: '12px', rowGap: '6px',
+            alignItems: 'center', overflowX: 'visible', whiteSpace: 'normal', width: '100%',
+            boxSizing: 'border-box', padding: '7px 0 10px 0', color: colors.text,
+            font: '500 11px/1.3 system-ui,-apple-system,sans-serif',
         }});
         shell.appendChild(legend);
 
@@ -198,6 +199,8 @@ export default function(component) {{
         const labels = new Map();
         const visible = new Map();
         const allTimes = [];
+        let springPaneLabel = null;
+        let springPaneLabelFrame = 0;
 
         function lineStyle(name) {{
             if (name === 'dash') return LWC.LineStyle.Dashed;
@@ -212,7 +215,25 @@ export default function(component) {{
             }}
         }}
 
-        function addLegend(api, label, color, defaultVisible = true) {{
+        function makeLegendGroup(label) {{
+            const group = document.createElement('div');
+            Object.assign(group.style, {{
+                display: 'flex', flexWrap: 'wrap', columnGap: '12px', rowGap: '5px',
+                alignItems: 'center', flex: '1 1 100%', minWidth: '0',
+                borderTop: `1px solid ${{colors.border}}`, paddingTop: '6px',
+            }});
+            const title = document.createElement('span');
+            title.textContent = label;
+            Object.assign(title.style, {{
+                flex: '0 0 auto', color: colors.text,
+                font: '700 11px/1.3 system-ui,-apple-system,sans-serif',
+            }});
+            group.appendChild(title);
+            legend.appendChild(group);
+            return group;
+        }}
+
+        function addLegend(api, label, color, defaultVisible = true, container = legend) {{
             visible.set(api, defaultVisible);
             const item = document.createElement('button');
             item.type = 'button';
@@ -232,7 +253,55 @@ export default function(component) {{
                 try {{ api.applyOptions({{ visible: next }}); }} catch (_) {{}}
                 item.style.opacity = next ? '1' : '.45';
             }});
-            legend.appendChild(item);
+            container.appendChild(item);
+        }}
+
+        function addLegendNote(container, label, color, glyph = '◆') {{
+            const item = document.createElement('span');
+            Object.assign(item.style, {{
+                display: 'inline-flex', gap: '5px', alignItems: 'center', flex: '0 0 auto',
+                color: colors.muted, padding: '1px 0',
+            }});
+            const marker = document.createElement('span');
+            marker.textContent = glyph;
+            marker.style.color = color;
+            const text = document.createElement('span');
+            text.textContent = label;
+            item.append(marker, text);
+            container.appendChild(item);
+        }}
+
+        function ensureSpringPaneLabel() {{
+            if (springPaneLabel || mode !== 'advanced') return;
+            springPaneLabel = document.createElement('div');
+            springPaneLabel.textContent = 'Spring · blind observasjon';
+            Object.assign(springPaneLabel.style, {{
+                position: 'absolute', left: '7px', zIndex: '7', pointerEvents: 'none',
+                padding: '2px 6px', borderRadius: '5px', border: `1px solid ${{colors.border}}`,
+                background: colors.card, color: colors.text,
+                font: '700 10px/1.3 system-ui,-apple-system,sans-serif', opacity: '.92',
+            }});
+            root.appendChild(springPaneLabel);
+        }}
+
+        function positionSpringPaneLabel() {{
+            springPaneLabelFrame = 0;
+            if (!springPaneLabel) return;
+            const currentPanes = chart.panes();
+            const firstHeight = Number(currentPanes[0]?.getHeight?.());
+            const secondHeight = Number(currentPanes[1]?.getHeight?.());
+            if (Number.isFinite(firstHeight) && firstHeight > 0 && Number.isFinite(secondHeight) && secondHeight > 0) {{
+                springPaneLabel.style.top = `${{Math.max(6, firstHeight + secondHeight + 8)}}px`;
+                springPaneLabel.style.bottom = 'auto';
+            }} else {{
+                springPaneLabel.style.top = 'auto';
+                springPaneLabel.style.bottom = '8px';
+            }}
+        }}
+
+        function scheduleSpringPaneLabel() {{
+            if (!springPaneLabel || springPaneLabelFrame) return;
+            springPaneLabelFrame = window.requestAnimationFrame(positionSpringPaneLabel);
         }}
 
         const marketData = Array.from(payload.market?.data || []);
@@ -285,16 +354,22 @@ export default function(component) {{
 
             const displacementData = Array.from(payload.spring?.displacement || []);
             if (displacementData.length) {{
+                const springLegend = makeLegendGroup('Spring · blind observasjon');
+                ensureSpringPaneLabel();
+
                 const displacement = chart.addSeries(LWC.LineSeries, {{
                     title: '', color: '#94a3b8', lineWidth: 2,
                     priceLineVisible: false, lastValueVisible: false,
                 }}, 2);
                 displacement.setData(displacementData);
                 labels.set(displacement, 'Spring · displacement');
-                addLegend(displacement, 'Spring · displacement', '#94a3b8');
+                addLegend(displacement, 'displacement', '#94a3b8', true, springLegend);
                 rememberTimes(displacementData);
-                if (LWC.createSeriesMarkers) {{
-                    try {{ LWC.createSeriesMarkers(displacement, Array.from(payload.spring?.turns || []), {{ autoScale: false }}); }} catch (_) {{}}
+
+                const turns = Array.from(payload.spring?.turns || []);
+                if (LWC.createSeriesMarkers && turns.length) {{
+                    try {{ LWC.createSeriesMarkers(displacement, turns, {{ autoScale: false }}); }} catch (_) {{}}
+                    addLegendNote(springLegend, 'turning points', colors.muted, '◆');
                 }}
 
                 const shock = chart.addSeries(LWC.LineSeries, {{
@@ -303,7 +378,7 @@ export default function(component) {{
                 }}, 2);
                 shock.setData(Array.from(payload.spring?.shock || []));
                 labels.set(shock, 'Spring · shock z');
-                addLegend(shock, 'Spring · shock z', '#64748b');
+                addLegend(shock, 'shock z', '#64748b', true, springLegend);
                 rememberTimes(payload.spring?.shock);
 
                 const energy = chart.addSeries(LWC.LineSeries, {{
@@ -313,7 +388,7 @@ export default function(component) {{
                 }}, 2);
                 energy.setData(Array.from(payload.spring?.energy || []));
                 labels.set(energy, 'Spring · energy proxy');
-                addLegend(energy, 'Spring · energy proxy', '#f59e0b', true);
+                addLegend(energy, 'energy proxy', '#f59e0b', true, springLegend);
                 rememberTimes(payload.spring?.energy);
             }}
         }}
@@ -329,6 +404,11 @@ export default function(component) {{
                 panes[1]?.setStretchFactor?.(.52);
                 panes[2]?.setStretchFactor?.(.33);
             }}
+        }}
+        scheduleSpringPaneLabel();
+        if (springPaneLabel) {{
+            try {{ new ResizeObserver(scheduleSpringPaneLabel).observe(root); }} catch (_) {{}}
+            root.addEventListener('pointerup', scheduleSpringPaneLabel, {{ passive: true }});
         }}
 
         const maxTime = allTimes.filter(Number.isFinite).reduce((max, value) => Math.max(max, value), Number(payload.as_of || 0));
@@ -369,6 +449,7 @@ export default function(component) {{
         root.addEventListener('pointerleave', () => {{ inspector.style.opacity = '0'; }}, {{ passive: true }});
 
         chart.timeScale().fitContent();
+        scheduleSpringPaneLabel();
     }}
 
     loadLibrary().then(build).catch((error) => {{
@@ -390,12 +471,12 @@ def render_strategy_lab_pnl_v1(comparison, *, key: str) -> None:
     _strategy_lab_component(
         key=f"{key}:baseline",
         data={"payload": payload, "mode": "baseline"},
-        height=640,
+        height=700,
     )
     _strategy_lab_component(
         key=f"{key}:advanced",
         data={"payload": payload, "mode": "advanced"},
-        height=700,
+        height=770,
     )
 
 
