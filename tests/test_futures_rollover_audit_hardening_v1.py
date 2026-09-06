@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-import futures_rollover_schema_v1 as schema_module
 import futures_rollover_v1 as rollover_module
 import runtime_subscription_bridge_v2 as runtime_module
 from instrument_registry_v2 import InstrumentSourceV2
@@ -141,7 +140,11 @@ def test_audit_schema_is_prepared_before_runtime_resolver(monkeypatch) -> None:
         "ensure_futures_rollover_audit_ready_v1",
         lambda: calls.append("audit") or 0,
     )
-    monkeypatch.setattr(runtime_module, "resolve_saxo_futures_rollovers_once_v1", lambda: calls.append("roll") or type("S", (), {"rolled": 0, "failed": 0})())
+    monkeypatch.setattr(
+        runtime_module,
+        "resolve_saxo_futures_rollovers_once_v1",
+        lambda: calls.append("roll") or type("S", (), {"rolled": 0, "failed": 0})(),
+    )
     monkeypatch.setattr(runtime_module, "_seed_discovered_history_best_effort", lambda: calls.append("seed"))
     monkeypatch.setattr(runtime_module, "list_subscribed_sources_v2", lambda provider=None: ())
 
@@ -149,14 +152,23 @@ def test_audit_schema_is_prepared_before_runtime_resolver(monkeypatch) -> None:
     assert calls == ["discover", "audit", "roll", "seed"]
 
 
-def test_audit_preparation_failure_blocks_rollover(monkeypatch) -> None:
+def test_audit_preparation_failure_skips_rollover_but_keeps_runtime_feeds(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(runtime_module, "_discover_open_positions_best_effort", lambda: calls.append("discover"))
     monkeypatch.setattr(
         runtime_module,
         "ensure_futures_rollover_audit_ready_v1",
         lambda: (_ for _ in ()).throw(RuntimeError("schema down")),
     )
-    with pytest.raises(RuntimeError, match="audit preparation failed"):
-        runtime_module._prepare_futures_rollover_audit_best_effort()
+    monkeypatch.setattr(runtime_module, "_resolve_futures_rollovers_best_effort", lambda: calls.append("roll"))
+    monkeypatch.setattr(runtime_module, "_seed_discovered_history_best_effort", lambda: calls.append("seed"))
+    monkeypatch.setattr(runtime_module, "list_subscribed_sources_v2", lambda provider=None: ())
+
+    result = runtime_module.load_runtime_instruments_v2({})
+
+    assert calls == ["discover", "seed"]
+    assert result.instruments == {}
+    assert result.registry_markets == ()
 
 
 def test_schema_recovery_contract_is_idempotent_and_uses_source_creation_time() -> None:
