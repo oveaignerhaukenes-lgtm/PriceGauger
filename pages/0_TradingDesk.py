@@ -21,7 +21,6 @@ from trading_desk_chart import (
     build_trading_desk_figure,
     trading_desk_uirevision,
 )
-from trading_desk_legend_hover_v1 import render_trading_desk_legend_hover_v1
 from trading_desk_live_overlay_v2 import render_live_candle_overlay_v2
 from trading_desk_indicators import (
     DEFAULT_INDICATORS,
@@ -39,6 +38,7 @@ from tradingdesk_automanage_panel_v2 import (
     render_tradingdesk_automanage_panel_v2,
     render_tradingdesk_automanage_pnl_chart_v2,
 )
+from tradingdesk_ui.charts.lightweight.bridge import render_lightweight_plotly_bridge_v1
 from v2_forecast_visualization import (
     V2_FORECAST_CSS,
     render_v2_forecast_chart,
@@ -378,7 +378,10 @@ def _render_live_chart_controls() -> None:
                 help="Velger timeframe for MACD-panelet i chartet.",
             )
             st.caption("Kun chartvisning. AutoManager beholder sin eksplisitt valgte strategi og signal-timeframes.")
-    render_trading_desk_legend_hover_v1(uirevision=_live_chart_uirevision())
+    # Lightweight Charts owns LIVE navigation natively. Do not mount the old
+    # Plotly gesture/legend component in parallel; competing capture listeners are
+    # exactly what made pinch and price-axis scaling janky.
+    render_lightweight_plotly_bridge_v1()
 
 
 def _live_chart_uirevision() -> str:
@@ -529,9 +532,8 @@ def _render_live_chart() -> None:
         key=f"tradingdesk-live-chart:{market}",
     )
     st.caption(
-        "Legend: hold musen over en serie for å fremheve den; scroll i legend-feltet for resten. "
-        "Navigasjon: dra i selve plottet for å flytte visningen. Dra langs tidsaksen for bare tid, "
-        "og langs prisaksen til høyre for bare prisnivå. Dobbeltklikk nullstiller visningen."
+        "Lightweight Charts: dra for å panorere, pinch/hjul for å zoome og dra direkte på prisaksen for å skalere. "
+        "Dobbeltklikk på en akse nullstiller den. Plotly-read-modellen ligger midlertidig under som fallback mens migreringen valideres."
     )
 
     if not primary:
