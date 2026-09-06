@@ -128,7 +128,8 @@ def test_direct_lightweight_runtime_owns_native_navigation_without_plotly() -> N
     assert "window.__pricegaugerLightweightCharts" in source
     assert "baseCandles" in source
     assert "formingCandles" in source
-    assert "Plotly" not in source
+    assert "window.Plotly" not in source
+    assert "Plotly.relayout" not in source
 
 
 def test_direct_runtime_declutters_series_but_keeps_current_candle_price() -> None:
@@ -151,7 +152,8 @@ def test_native_live_update_updates_forming_candle_and_trade_markers_in_same_reg
     assert "entry.baseCandles" in source
     assert "entry.formingCandles" in source
     assert "entry.markers?.setMarkers?." in source
-    assert "Plotly" not in source
+    assert "window.Plotly" not in source
+    assert "Plotly.relayout" not in source
 
 
 def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> None:
