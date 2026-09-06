@@ -95,15 +95,16 @@ def test_strategy_chart_is_discovered_by_same_interaction_component() -> None:
     assert "renderInspectorsAtX" in source
 
 
-def test_legacy_interaction_component_is_not_mounted_on_lightweight_live_chart() -> None:
+def test_legacy_interaction_component_is_rollback_only_after_direct_lightweight_cutover() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
     controls = source.split("def _render_live_chart_controls() -> None:", 1)[1].split(
-        "def _live_chart_uirevision()", 1
+        "def _recent_forming_candle", 1
     )[0]
     live_chart = source.split("def _render_live_chart() -> None:", 1)[1].split(
-        "def _render_automanager_workspace()", 1
+        "def _render_lightweight_live_update()", 1
     )[0]
 
     assert "render_trading_desk_legend_hover_v1" not in controls
     assert "render_trading_desk_legend_hover_v1" not in live_chart
-    assert "render_lightweight_plotly_bridge_v1()" in controls
+    assert "render_lightweight_plotly_bridge_v1" not in source
+    assert "render_lightweight_direct_live_v1(" in live_chart

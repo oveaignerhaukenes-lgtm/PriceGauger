@@ -13,35 +13,29 @@ from saxo_chart_live import (
     FormingCandleStore,
     forming_candle_event_age_seconds,
 )
-from time_display_v2 import localize_plotly_figure_v2, oslo_label
+from time_display_v2 import oslo_label
 from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars
-from trading_desk_chart import (
-    OVERLAY_ACTUAL,
-    OVERLAY_NORMALIZED,
-    build_trading_desk_figure,
-    trading_desk_uirevision,
-)
-from trading_desk_live_overlay_v2 import render_live_candle_overlay_v2
+from trading_desk_chart import OVERLAY_ACTUAL, OVERLAY_NORMALIZED
 from trading_desk_indicators import (
     DEFAULT_INDICATORS,
     INDICATOR_MACD,
     INDICATOR_OPTIONS,
-    INDICATOR_SWING_BANDS,
     INDICATOR_VWAP,
     INDICATOR_WARMUP_PERIODS,
     calculate_indicators,
     clip_indicators,
 )
-from trading_desk_swing_bands import add_swing_bands_to_figure
 from trading_desk_v2_context import TradingDeskV2Context, load_trading_desk_contexts_v2
 from tradingdesk_automanage_panel_v2 import (
     render_tradingdesk_automanage_panel_v2,
     render_tradingdesk_automanage_pnl_chart_v2,
 )
-from tradingdesk_ui.charts.lightweight.bridge import render_lightweight_plotly_bridge_v1
-from tradingdesk_ui.charts.lightweight.presentation_cleanup import (
-    render_lightweight_presentation_cleanup_v1,
+from tradingdesk_ui.charts.lightweight.adapters import load_lightweight_trade_markers_v1
+from tradingdesk_ui.charts.lightweight.direct_contract import (
+    build_lightweight_direct_live_payload_v1,
 )
+from tradingdesk_ui.charts.lightweight.direct_runtime import render_lightweight_direct_live_v1
+from tradingdesk_ui.charts.lightweight.live_update import render_lightweight_live_update_v1
 from tradingdesk_ui.charts.lightweight.toolbar import (
     LIGHTWEIGHT_TIMEFRAMES_V1,
     render_lightweight_timeframe_toolbar_v1,
@@ -305,6 +299,13 @@ def _load_active_context() -> TradingDeskV2Context | None:
     return contexts.get(market)
 
 
+def _load_trade_markers() -> tuple:
+    try:
+        return tuple(load_lightweight_trade_markers_v1(market))
+    except Exception:
+        return ()
+
+
 def _render_v2_analysis(*, include_companion: bool = True) -> None:
     context = _load_active_context()
     if context is None:
@@ -368,24 +369,6 @@ def _render_live_chart_controls() -> None:
             st.caption("Kun chartvisning. AutoManager beholder sin eksplisitt valgte strategi og signal-timeframes.")
 
     render_lightweight_timeframe_toolbar_v1(state_key=TIMEFRAME_STATE_KEY)
-
-    # Lightweight Charts owns LIVE navigation natively. Do not mount the old
-    # Plotly gesture/legend component in parallel; competing capture listeners are
-    # exactly what made pinch and price-axis scaling janky.
-    render_lightweight_plotly_bridge_v1()
-    render_lightweight_presentation_cleanup_v1()
-
-
-def _live_chart_uirevision() -> str:
-    return trading_desk_uirevision(
-        market=market,
-        timeframe=timeframe,
-        window_hours=int(window_hours),
-        indicator_names=indicator_names,
-        indicator_timeframes={INDICATOR_MACD: st.session_state[MACD_TIMEFRAME_STATE_KEY]},
-        chart_height=chart_height,
-        price_panel_share=price_panel_pct / 100.0,
-    )
 
 
 def _recent_forming_candle(context: TradingDeskV2Context | None):
@@ -496,10 +479,10 @@ def _render_live_chart() -> None:
 
     st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
     st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
-    fig = build_trading_desk_figure(
+
+    payload = build_lightweight_direct_live_payload_v1(
         market=market,
         timeframe=timeframe,
-        window_hours=int(window_hours),
         primary=primary,
         overlays=loaded_overlays,
         overlay_mode=overlay_mode,
@@ -508,24 +491,15 @@ def _render_live_chart() -> None:
         indicator_timeframes={INDICATOR_MACD: st.session_state[MACD_TIMEFRAME_STATE_KEY]},
         chart_height=chart_height,
         price_panel_share=price_panel_pct / 100.0,
+        trade_markers=_load_trade_markers(),
     )
-    if primary and INDICATOR_SWING_BANDS in indicator_names:
-        add_swing_bands_to_figure(fig, primary)
-    localize_plotly_figure_v2(fig)
-
-    st.plotly_chart(
-        fig,
-        width="stretch",
-        config={
-            "scrollZoom": True,
-            "displaylogo": False,
-            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-        },
-        key=f"tradingdesk-live-chart:{market}",
+    render_lightweight_direct_live_v1(
+        payload,
+        key=f"tradingdesk-lightweight-direct:{market}",
     )
     st.caption(
-        "Lightweight Charts: dra for å panorere, pinch/hjul for å zoome og dra direkte på prisaksen for å skalere. "
-        "Dobbeltklikk på en akse nullstiller den. Plotly-read-modellen ligger midlertidig under som fallback mens migreringen valideres."
+        "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på prisaksen for skalering. "
+        "Chart-navigation lever kun i nettleseren; Plotly er ikke lenger en del av LIVE-renderpathen."
     )
 
     if not primary:
@@ -539,19 +513,20 @@ def _render_live_chart() -> None:
             )
 
 
-def _render_live_candle_overlay() -> None:
+def _render_lightweight_live_update() -> None:
     context = _load_active_context()
     forming = _recent_forming_candle(context)
-    render_live_candle_overlay_v2(
-        uirevision=_live_chart_uirevision(),
+    render_lightweight_live_update_v1(
+        chart_id=f"TradingDeskLightweight:{market}",
         timeframe_minutes=TIMEFRAME_MINUTES[timeframe],
         candle=forming,
+        trade_markers=_load_trade_markers(),
     )
     if forming is not None:
         age = forming_candle_event_age_seconds(forming)
         st.caption(
             f"● Forming candle · Saxo chart-stream · UI-only · oppdatert for {age:.1f} sek siden. "
-            "Sekundbevegelsen tegnes i nettleseren og inngår ikke i canonical historikk, indikatorer eller AutoManager-signaler."
+            "Sekundbevegelsen oppdaterer Lightweight-serien direkte og inngår ikke i canonical historikk, indikatorer eller AutoManager-signaler."
         )
 
 
@@ -598,13 +573,13 @@ with chart_column:
             _render_live_chart()
         overlay_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
         if overlay_fragment is not None:
-            overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_candle_overlay)()
+            overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_lightweight_live_update)()
         else:
-            _render_live_candle_overlay()
+            _render_lightweight_live_update()
     else:
         _render_v2_analysis()
         _render_live_chart_controls()
         _render_live_chart()
-        _render_live_candle_overlay()
+        _render_lightweight_live_update()
 
     _render_automanager_workspace()

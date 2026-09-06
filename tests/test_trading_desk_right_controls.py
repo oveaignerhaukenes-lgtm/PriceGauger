@@ -39,7 +39,7 @@ def test_right_control_market_section_omits_duplicate_runtime_identity_labels() 
     assert "Ingen aktiv/subscribed v2-instrumentkilde" in market_controls
 
 
-def test_tradingdesk_plotly_modebar_stays_in_header_space_not_over_data() -> None:
+def test_tradingdesk_plotly_modebar_stays_in_header_space_for_non_live_plotly_charts() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert 'top: .35rem !important;' in source
@@ -54,7 +54,7 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
     assert "if auto_refresh:" in source
     assert 'analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis_snapshot)()' in source
     assert 'chart_fragment(run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s")(_render_live_chart)()' in source
-    assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_candle_overlay)()' in source
+    assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_lightweight_live_update)()' in source
     assert "else:\n        _render_v2_analysis()\n        _render_live_chart_controls()\n        _render_live_chart()" in source
     assert "render_companion_panel_v2(view)" in source
     assert "_render_automanager_workspace()" in source
@@ -79,22 +79,27 @@ def test_timed_fragments_do_not_recreate_interactive_controls() -> None:
     assert "_render_v2_analysis(include_companion=False)" in source
     assert "_render_companion_workspace()\n\n        _render_live_chart_controls()" in source
     live_chart_body = source.split("def _render_live_chart() -> None:", 1)[1].split(
-        "def _render_automanager_workspace()", 1
+        "def _render_lightweight_live_update()", 1
     )[0]
     assert "st.popover(" not in live_chart_body
-    assert 'width="stretch"' in live_chart_body
+    assert "st.button(" not in live_chart_body
+    assert "render_lightweight_direct_live_v1(" in live_chart_body
     assert "value=st.session_state[MODE_KEY]" not in companion_source
 
 
-def test_second_updates_use_browser_overlay_without_server_side_range_reapply() -> None:
+def test_second_updates_use_native_lightweight_series_without_server_side_range_reapply() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
+    updater = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert "render_live_candle_overlay_v2(" in source
+    assert "render_lightweight_live_update_v1(" in source
+    assert "render_live_candle_overlay_v2(" not in source
     assert "live_chart_overlay_key_v2" not in source
     assert "parse_live_chart_view_v2" not in source
     assert "navigation_key =" not in source
     assert "saved_view =" not in source
-    assert "fig.update_xaxes(range=list(saved_view.x_range)" not in source
-    assert "fig.update_yaxes(range=list(saved_view.y_range)" not in source
+    assert "entry.candles.update(merged)" in updater
+    assert "Plotly.relayout" not in updater
     assert source.count('run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s"') == 1
     assert source.count('run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s"') == 1
