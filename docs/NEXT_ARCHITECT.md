@@ -1,60 +1,45 @@
 # PriceGauger — Next Architect
 
-Updated: 2026-09-04
+Updated: 2026-09-07
 
-The authoritative handoff for Arkitekt 9 is now:
+The authoritative handoff for Arkitekt 10 is now:
 
-**[`docs/ARCHITECT_HANDOFF_2026-09-04_ARKITEKT9.md`](ARCHITECT_HANDOFF_2026-09-04_ARKITEKT9.md)**
+**[`docs/ARCHITECT_HANDOFF_2026-09-07_ARKITEKT10.md`](ARCHITECT_HANDOFF_2026-09-07_ARKITEKT10.md)**
 
-Read that document in full before changing AutoManager, strategy runtime, Saxo execution, Strategy Series/Snapshot Spine, or futures identity/lifecycle behavior.
+Read that document in full before changing AutoManager, LIVE OPEN/CLOSE, Saxo working-order handling, Strategy Series/Snapshot Spine, TradingDesk Lightweight charts, Spring evaluation, or futures rollover behavior.
 
 ## Starting point
 
 Repository: `oveaignerhaukenes-lgtm/PriceGauger`
 
-Runtime `main` immediately before the documentation handoff branch:
+Runtime `main` immediately before this documentation handoff branch:
 
-`f28d70dc1ae9d5e284e2cf4334a2f34adb1829c8`
+`07a464cc0fd57cfdb086270e8d8d83240d61a567`
 
-That runtime baseline contains PR #297 (**hybrid re-entry fix + pure 5m MACD LIVE**) on top of PR #298 (**linked chart cursor/refined gestures**). The handoff documentation merge will move `main` again without changing runtime behavior.
+That runtime baseline is PR #322 (**stale working-order / late-fill execution guard**) on top of the futures rollover hardening and the completed Lightweight TradingDesk/Strategy Lab migrations.
 
-Always refresh from current `main` before branching.
+Final #322 CI: **1215 tests passed**.
+
+Always refresh from current `main` before branching; the documentation merge itself will move `main` without changing runtime behavior.
 
 ## Immediate orientation
 
-The control plane is now **AutoManager Simple Core**: durable BUY/SELL user targets, a product-level Manage position toggle, and one hot-switch strategy dropdown. Strategy code emits targets/requests only; Saxo order authority remains in the hardened execution lifecycle.
+The highest-priority new execution fact is the September 7 market-reopen incident: an unexpected SHORT appeared broker-side while the active MACD strategy could not yet evaluate fresh bars. Production history showed persisted Friday SHORT transition authority, exposing a stale working-order/late-fill provenance weakness. PR #322 now adds market-open precheck, PG-owned working-order cleanup, unknown-order pause behavior, late-fill quarantine and persisted execution anomalies.
 
-The strategy laboratory is persisted through **Snapshot Spine + Strategy Series**. TradingDesk P/L/model views read stored series rather than replaying historical strategy logic on render. Pure MACD controls are deliberately maintained as benchmarks against hybrids, Strong Cocktail and the AI baseline.
+Do not restore unconditional AutoManager adoption of any exact Saxo position. Exposure state and execution provenance are now separate safety concerns.
 
-Important recent strategy state:
+TradingDesk LIVE and Strategy Lab/P&L charts now use TradingView Lightweight Charts as the canonical chart engine. Mobile X/Y scaling, pane and total-height resizing, persistence and compact timeframe controls have been physically tested by the user and work well.
 
-- pure 1m, 2m, 5m and 15m MACD flip are LIVE-selectable controls;
-- 10m and 20m remain shadow controls;
-- pure 5m uses the exact same persisted strategy identity in simulation and LIVE;
-- 1m-exit/2m-entry and 1m-exit/5m-entry hybrids are LIVE-selectable;
-- PR #297 fixed hybrid FLAT re-entry so a 1m recovery can re-enter when the slower closed MACD regime is already aligned, without requiring a second slow cross;
-- Strong Cocktail is LIVE-selectable and retains the asymmetric fast-exit/stronger-re-entry philosophy;
-- GPT-5 mini AI baseline is LIVE-selectable but has no sizing/order authority.
+Futures data rollover is implemented through immutable contract identities and audited collection switching. Brent rolled `43660942 -> 44297299`; Silver rolled `45184335 -> 46652614`. Rollover has no execution authority and must never silently mutate a LIVE controller UIC.
 
-## Critical lifecycle update
+## Important open work
 
-Do not restore the old rule that realized P/L settlement must finish before opposite re-entry.
+1. Verify #322 production guard state, Saxo working orders, exact position and `pg_v2_autotrader_execution_anomalies` before adding new execution UI.
+2. PR #321 (**explicit Spring pane + wrapped legend**) is still open on an old base and is not in `main`; rebase/recreate it as presentation-only before merging.
+3. Build the user-approved AutoTrader monitor: bottom-right `Armed LIVE` / green `AutoManage OFF`, position/P&L/provenance/strategy diagnostics, plus deterministic Pause/Start/Stop/Close semantics.
+4. Add small red BUY / blue SELL quote buttons in the LIVE chart, showing current bid/ask so spread is visible, but route them through the existing `request_manual_target_v2()` lifecycle — never direct browser Saxo POST.
+5. Add a generic Saxo futures discovery fallback for Natural Gas UIC `50419383`, which is stale but cannot yet be safely resolved through PrimaryListing.
+6. Continue Spring observation and baseline comparison without inventing damping/absorption semantics before they are explicitly defined and versioned.
+7. Diagnose the existing `sp500 CFD: invalid 5m ATR` as a source/canonical-bar data-quality issue; do not weaken the ATR validity gate.
 
-Current lifecycle after PR #294 is:
-
-`target -> CLOSE -> PG close accepted/reconciled -> exact Saxo FLAT -> OPEN opposite`
-
-Realized P/L settlement may catch up as a separate accounting/audit path. `SUBMITTING` / uncertain close remains blocking.
-
-## Immediate next work
-
-1. Refresh production truth: active strategy, exact Saxo position, execution requests and Railway logs.
-2. Observe the next natural close/re-entry or reversal end-to-end; recent user testing specifically exposed strategies that closed but failed to open again.
-3. Compare **pure 5m MACD** against the corrected **1m-exit / 5m-entry hybrid** as an explicit control experiment.
-4. Verify corrected hybrid re-entry in a natural episode where the slower regime remains aligned through a fast 1m exit/recovery.
-5. Continue Strong Cocktail vs simple controls across independent regimes before assuming the complex model wins.
-6. Diagnose `sp500 CFD: invalid 5m ATR` as a source/canonical-bar data-quality problem; do not weaken the ATR validity gate.
-7. Continue gradual native incremental Strategy Series production where useful; never return replay-on-render to TradingDesk.
-8. Keep futures ContractLifecycle/Rollover as an explicit future capability before autonomous expiring-futures management.
-
-Full current invariants, recent PR rationale, Railway identities, strategy matrix, UI architecture, known issues and recommended working sequence are in the Arkitekt 9 handoff.
+Full invariants, exact incident timeline, #322 safety model, chart state, futures rollover semantics, Spring boundary, Railway identities and recommended work sequence are in the Arkitekt 10 handoff.
