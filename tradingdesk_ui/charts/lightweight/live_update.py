@@ -73,23 +73,23 @@ export default function(component) {
         entry.formingCandles.clear();
     }
 
-    function ensureMobilePriceAxisDrag(entry) {
-        if (!entry?.root || entry.mobilePriceAxisDragBound) return;
-        const root = entry.root;
+    function ensureTouchPriceAxisDrag(entry) {
+        if (!entry?.root || entry.touchPriceAxisDragBound) return;
         if (!Number(navigator.maxTouchPoints || 0)) {
-            entry.mobilePriceAxisDragBound = true;
+            entry.touchPriceAxisDragBound = true;
             return;
         }
 
+        const root = entry.root;
         const layer = document.createElement('div');
-        layer.className = 'pg-lightweight-mobile-price-axis';
+        layer.className = 'pg-lightweight-touch-price-axis';
         Object.assign(layer.style, {
             position: 'absolute',
             right: '0',
             top: '0',
-            bottom: '30px',
-            width: '76px',
-            zIndex: '7',
+            width: '82px',
+            height: '0px',
+            zIndex: '9',
             background: 'transparent',
             touchAction: 'none',
             cursor: 'ns-resize',
@@ -99,66 +99,174 @@ export default function(component) {
         root.appendChild(layer);
 
         let drag = null;
+        let lastTapAt = 0;
 
-        function underlyingTarget(clientX, clientY) {
-            layer.style.pointerEvents = 'none';
-            const target = document.elementFromPoint(clientX, clientY);
-            layer.style.pointerEvents = 'auto';
-            return target && root.contains(target) ? target : null;
-        }
-
-        function dispatchMouse(target, type, event, buttons) {
-            if (!target?.dispatchEvent) return;
-            target.dispatchEvent(new MouseEvent(type, {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                clientX: Number(event.clientX),
-                clientY: Number(event.clientY),
-                screenX: Number(event.screenX || 0),
-                screenY: Number(event.screenY || 0),
-                button: 0,
-                buttons,
-            }));
+        function refreshGeometry() {
+            let paneHeight = 0;
+            try { paneHeight = Number(entry.chart?.panes?.()?.[0]?.getHeight?.() || 0); } catch (_) {}
+            if (!Number.isFinite(paneHeight) || paneHeight <= 0) paneHeight = Math.max(80, root.clientHeight * 0.5);
+            layer.style.height = `${paneHeight}px`;
         }
 
         layer.addEventListener('pointerdown', (event) => {
-            const target = underlyingTarget(event.clientX, event.clientY);
-            if (!target) return;
+            const priceScale = entry.candles?.priceScale?.();
+            const range = priceScale?.getVisibleRange?.();
+            if (!range || !Number.isFinite(Number(range.from)) || !Number.isFinite(Number(range.to))) return;
             event.preventDefault();
             event.stopPropagation();
-            drag = { pointerId: event.pointerId, target };
+            const paneHeight = Math.max(80, Number(entry.chart?.panes?.()?.[0]?.getHeight?.() || root.clientHeight || 320));
+            drag = {
+                pointerId: event.pointerId,
+                startY: Number(event.clientY),
+                startFrom: Number(range.from),
+                startTo: Number(range.to),
+                paneHeight,
+                moved: false,
+                startedAt: performance.now(),
+                priceScale,
+            };
+            try { priceScale.setAutoScale(false); } catch (_) {}
             try { layer.setPointerCapture(event.pointerId); } catch (_) {}
-            dispatchMouse(target, 'mousedown', event, 1);
         }, { passive: false });
 
         layer.addEventListener('pointermove', (event) => {
             if (!drag || drag.pointerId !== event.pointerId) return;
             event.preventDefault();
             event.stopPropagation();
-            dispatchMouse(drag.target, 'mousemove', event, 1);
+            const dy = Number(event.clientY) - drag.startY;
+            if (Math.abs(dy) > 3) drag.moved = true;
+            const center = (drag.startFrom + drag.startTo) / 2;
+            const halfSpan = Math.max(1e-9, (drag.startTo - drag.startFrom) / 2);
+            const factor = Math.exp((dy / drag.paneHeight) * 2.2);
+            const nextHalf = halfSpan * Math.max(0.08, Math.min(12, factor));
+            try {
+                drag.priceScale.setVisibleRange({ from: center - nextHalf, to: center + nextHalf });
+            } catch (_) {}
         }, { passive: false });
 
         const finishDrag = (event) => {
             if (!drag || drag.pointerId !== event.pointerId) return;
             event.preventDefault();
             event.stopPropagation();
-            dispatchMouse(drag.target, 'mouseup', event, 0);
+            const now = performance.now();
+            const quickTap = !drag.moved && now - drag.startedAt < 260;
+            if (quickTap && now - lastTapAt < 360) {
+                try { drag.priceScale.setAutoScale(true); } catch (_) {}
+                lastTapAt = 0;
+            } else if (quickTap) {
+                lastTapAt = now;
+            }
             try { layer.releasePointerCapture(event.pointerId); } catch (_) {}
             drag = null;
         };
         layer.addEventListener('pointerup', finishDrag, { passive: false });
         layer.addEventListener('pointercancel', finishDrag, { passive: false });
 
-        entry.mobilePriceAxisDragBound = true;
-        entry.mobilePriceAxisDragLayer = layer;
+        entry.touchPriceAxisDragBound = true;
+        entry.touchPriceAxisDragLayer = layer;
+        entry.refreshTouchPriceAxisGeometry = refreshGeometry;
+        refreshGeometry();
+    }
+
+    function ensureBottomPaneResize(entry) {
+        if (!entry?.root || entry.bottomPaneResizeBound) return;
+        const root = entry.root;
+        const handle = document.createElement('div');
+        handle.className = 'pg-lightweight-bottom-pane-resize';
+        Object.assign(handle.style, {
+            position: 'absolute',
+            left: '0',
+            right: '82px',
+            bottom: '26px',
+            height: '18px',
+            zIndex: '10',
+            touchAction: 'none',
+            cursor: 'ns-resize',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            background: 'transparent',
+        });
+
+        const grip = document.createElement('div');
+        Object.assign(grip.style, {
+            position: 'absolute',
+            left: '50%',
+            top: '8px',
+            width: '38px',
+            height: '2px',
+            transform: 'translateX(-50%)',
+            borderRadius: '999px',
+            background: 'rgba(148,163,184,.45)',
+            pointerEvents: 'none',
+        });
+        handle.appendChild(grip);
+        root.appendChild(handle);
+
+        let drag = null;
+
+        function panes() {
+            try { return Array.from(entry.chart?.panes?.() || []); } catch (_) { return []; }
+        }
+
+        function refreshGeometry() {
+            const all = panes();
+            handle.style.display = all.length > 1 ? 'block' : 'none';
+            let timeHeight = 28;
+            try { timeHeight = Number(entry.chart?.timeScale?.()?.height?.() || 28); } catch (_) {}
+            handle.style.bottom = `${Math.max(0, timeHeight - 9)}px`;
+        }
+
+        handle.addEventListener('pointerdown', (event) => {
+            const all = panes();
+            const lastPane = all[all.length - 1];
+            if (!lastPane?.getHeight || !lastPane?.setHeight) return;
+            event.preventDefault();
+            event.stopPropagation();
+            drag = {
+                pointerId: event.pointerId,
+                startY: Number(event.clientY),
+                startHeight: Number(lastPane.getHeight()),
+                lastPane,
+            };
+            try { handle.setPointerCapture(event.pointerId); } catch (_) {}
+        }, { passive: false });
+
+        handle.addEventListener('pointermove', (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const dy = Number(event.clientY) - drag.startY;
+            const maxHeight = Math.max(90, Number(root.clientHeight || 780) - 150);
+            const nextHeight = Math.max(70, Math.min(maxHeight, drag.startHeight + dy));
+            try { drag.lastPane.setHeight(nextHeight); } catch (_) {}
+            entry.refreshTouchPriceAxisGeometry?.();
+        }, { passive: false });
+
+        const finishResize = (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            try { handle.releasePointerCapture(event.pointerId); } catch (_) {}
+            drag = null;
+            refreshGeometry();
+        };
+        handle.addEventListener('pointerup', finishResize, { passive: false });
+        handle.addEventListener('pointercancel', finishResize, { passive: false });
+
+        entry.bottomPaneResizeBound = true;
+        entry.bottomPaneResizeHandle = handle;
+        entry.refreshBottomPaneResizeGeometry = refreshGeometry;
+        refreshGeometry();
     }
 
     function apply() {
         const entry = registry?.get?.(chartId) || null;
         if (!entry?.candles) return false;
         if (!(entry.formingCandles instanceof Map)) entry.formingCandles = new Map();
-        ensureMobilePriceAxisDrag(entry);
+        ensureTouchPriceAxisDrag(entry);
+        ensureBottomPaneResize(entry);
+        entry.refreshTouchPriceAxisGeometry?.();
+        entry.refreshBottomPaneResizeGeometry?.();
 
         if (data.active && data.candle) {
             const incoming = data.candle;
@@ -263,7 +371,7 @@ def render_lightweight_live_update_v1(
     candle: FormingCandle1m | None,
     trade_markers: Sequence[AutoTraderTradeMarkerV1] = (),
 ) -> None:
-    """Update direct Lightweight LIVE candle/markers and mobile price-axis interaction."""
+    """Update direct Lightweight LIVE state plus touch-only chart interaction helpers."""
 
     minutes = int(timeframe_minutes)
     _live_update_component(
