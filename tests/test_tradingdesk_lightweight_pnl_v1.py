@@ -41,7 +41,7 @@ def test_lightweight_pnl_legend_is_below_chart_and_modebar_is_gone() -> None:
     assert "displayModeBar" not in source
     assert "modebar" not in source.lower()
     assert "legend.appendChild(item)" in source
-    assert "api.applyOptions({ visible: next })" in source
+    assert "api.applyOptions({{ visible: next }})" in source
 
 
 def test_lightweight_pnl_preserves_live_model_and_spring_read_models() -> None:
