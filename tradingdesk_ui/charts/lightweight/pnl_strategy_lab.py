@@ -8,6 +8,10 @@ from autotrader_macd_timeframe_controls_v1 import MACD_CONTROL_STRATEGY_KEYS_V1
 from autotrader_strong_cocktail_shadow_v2 import MACD_1M_CONTROL_STRATEGY_KEY
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from tradingdesk_ui.charts.lightweight.pnl_comparison import build_lightweight_pnl_payload_v1
+from tradingdesk_ui.charts.lightweight.pnl_provenance import (
+    build_live_pnl_provenance_events_v1,
+    build_live_pnl_strategy_epochs_v1,
+)
 
 
 _LIGHTWEIGHT_CHARTS_URL = (
@@ -58,7 +62,7 @@ def build_strategy_lab_payload_v1(comparison) -> dict[str, Any]:
             advanced_models.append(model)
 
     return {
-        "version": 1,
+        "version": 2,
         "chart_id": str(base.get("chart_id") or "StrategyLab"),
         "as_of": int(base.get("as_of") or 0),
         "currency": str(base.get("currency") or ""),
@@ -68,6 +72,8 @@ def build_strategy_lab_payload_v1(comparison) -> dict[str, Any]:
             "data": _market_reference(comparison),
         },
         "live": base.get("live") or {},
+        "live_epochs": build_live_pnl_strategy_epochs_v1(comparison),
+        "live_events": build_live_pnl_provenance_events_v1(comparison),
         "baseline_models": baseline_models,
         "advanced_models": advanced_models,
         "spring": base.get("spring") or {},
@@ -134,6 +140,17 @@ export default function(component) {{
         }});
         shell.appendChild(heading);
 
+        if (mode === 'baseline') {{
+            const provenanceLegend = document.createElement('div');
+            provenanceLegend.textContent = '● strategibytte · ■ MANUAL / SAXO = eksplisitt broker-provenance';
+            Object.assign(provenanceLegend.style, {{
+                color: colors.muted,
+                font: '500 10px/1.3 system-ui,-apple-system,sans-serif',
+                padding: '0 0 5px 0',
+            }});
+            shell.appendChild(provenanceLegend);
+        }}
+
         const toolbar = document.createElement('div');
         Object.assign(toolbar.style, {{
             display: 'flex', gap: '5px', alignItems: 'center', overflowX: 'auto',
@@ -198,6 +215,8 @@ export default function(component) {{
         const labels = new Map();
         const visible = new Map();
         const allTimes = [];
+        let live = null;
+        const liveEpochs = Array.from(payload.live_epochs || []).sort((a, b) => Number(a.start) - Number(b.start));
 
         function lineStyle(name) {{
             if (name === 'dash') return LWC.LineStyle.Dashed;
@@ -210,6 +229,19 @@ export default function(component) {{
                 const stamp = Number(point.time);
                 if (Number.isFinite(stamp)) allTimes.push(stamp);
             }}
+        }}
+
+        function activeStrategyAt(stamp) {{
+            const time = Number(stamp);
+            if (!Number.isFinite(time)) return '';
+            let active = '';
+            for (const epoch of liveEpochs) {{
+                const start = Number(epoch.start);
+                const end = epoch.end == null ? null : Number(epoch.end);
+                if (time >= start && (end == null || time < end)) active = String(epoch.label || '');
+                if (start > time) break;
+            }}
+            return active;
         }}
 
         function addLegend(api, label, color, defaultVisible = true) {{
@@ -249,7 +281,7 @@ export default function(component) {{
 
         if (mode === 'baseline') {{
             const liveData = Array.from(payload.live?.data || []);
-            const live = chart.addSeries(LWC.LineSeries, {{
+            live = chart.addSeries(LWC.LineSeries, {{
                 title: '', color: String(payload.live?.color || '#dc2626'), lineWidth: 2,
                 lineType: LWC.LineType?.WithSteps ?? 1,
                 priceLineVisible: false, lastValueVisible: false,
@@ -258,6 +290,36 @@ export default function(component) {{
             labels.set(live, String(payload.live?.label || 'LIVE'));
             addLegend(live, String(payload.live?.label || 'LIVE'), String(payload.live?.color || '#dc2626'));
             rememberTimes(liveData);
+
+            const liveEvents = Array.from(payload.live_events || []);
+            if (liveEvents.length) {{
+                const carrierByTime = new Map();
+                for (const item of liveEvents) {{
+                    const time = Number(item.time);
+                    const value = Number(item.value);
+                    if (Number.isFinite(time) && Number.isFinite(value)) carrierByTime.set(time, {{ time, value }});
+                }}
+                const carrierData = Array.from(carrierByTime.values()).sort((a, b) => a.time - b.time);
+                if (carrierData.length) {{
+                    const carrier = chart.addSeries(LWC.LineSeries, {{
+                        title: '', color: 'rgba(0,0,0,0)', lineWidth: 1,
+                        priceLineVisible: false, lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    }}, 1);
+                    carrier.setData(carrierData);
+                    rememberTimes(carrierData);
+                    if (LWC.createSeriesMarkers) {{
+                        const markers = liveEvents.map((item) => ({{
+                            time: Number(item.time),
+                            position: String(item.position || 'belowBar'),
+                            shape: String(item.shape || 'circle'),
+                            color: String(item.color || '#2563eb'),
+                            text: String(item.label || ''),
+                        }})).sort((a, b) => a.time - b.time);
+                        try {{ LWC.createSeriesMarkers(carrier, markers, {{ autoScale: false }}); }} catch (_) {{}}
+                    }}
+                }}
+            }}
 
             for (const model of Array.from(payload.baseline_models || [])) {{
                 const api = chart.addSeries(LWC.LineSeries, {{
@@ -356,6 +418,10 @@ export default function(component) {{
         chart.subscribeCrosshairMove((param) => {{
             if (!param?.time || !param.seriesData) {{ inspector.style.opacity = '0'; return; }}
             const parts = [];
+            if (mode === 'baseline') {{
+                const strategy = activeStrategyAt(param.time);
+                if (strategy) parts.push(`Aktiv strategi: ${{strategy}}`);
+            }}
             for (const [api, value] of param.seriesData.entries()) {{
                 const numeric = Number(value?.value ?? value?.close);
                 if (!Number.isFinite(numeric)) continue;
