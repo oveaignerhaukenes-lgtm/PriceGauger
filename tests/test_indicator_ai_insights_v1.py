@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import indicator_ai_insights_v1 as insights
+from trading_desk import ChartBar
 
 
 def test_indicator_ai_returns_before_any_work_without_api_key(monkeypatch):
@@ -39,6 +41,57 @@ def test_indicator_ai_schema_requires_exact_selected_indicators():
 
 def test_indicator_ai_identity_is_order_independent():
     assert insights._indicator_set_key(["MACD", "RSI"]) == insights._indicator_set_key(["RSI", "MACD"])
+
+
+def _bar(stamp: datetime, value: float) -> ChartBar:
+    return ChartBar(
+        market="Gold",
+        bar_time=stamp.isoformat(),
+        open=value,
+        high=value,
+        low=value,
+        close=value,
+        volume=None,
+    )
+
+
+def test_indicator_ai_uses_only_complete_resampled_buckets():
+    start = datetime(2026, 9, 7, 0, 0, tzinfo=timezone.utc)
+    raw = [_bar(start + timedelta(minutes=index), 100.0 + index) for index in range(7)]
+
+    bars = insights._closed_resampled_bars(raw, timeframe="5m")
+
+    assert len(bars) == 1
+    assert bars[0].bar_time == start.isoformat()
+    assert bars[0].close == 104.0
+
+
+def test_indicator_ai_payload_normalizes_chartbar_string_timestamp():
+    stamp = datetime(2026, 9, 7, 0, 0, tzinfo=timezone.utc)
+    workspace = SimpleNamespace(
+        technical_state=SimpleNamespace(
+            trend_state="UP",
+            momentum_state="RISING",
+            volatility_state="NORMAL",
+            structure_state="BULLISH",
+            score=0.4,
+            confidence=0.7,
+        )
+    )
+    technical = SimpleNamespace()
+    monkey_close = _bar(stamp, 100.0)
+
+    # No indicators means the payload path can be tested without constructing a full TechnicalIndicators object.
+    payload = insights._source_payload(
+        market="Gold",
+        timeframe="5m",
+        bars=(monkey_close,),
+        technical=technical,
+        workspace=workspace,
+        indicator_names=(),
+    )
+
+    assert payload["source_bar_time"] == stamp.isoformat()
 
 
 def test_indicator_ai_is_worker_owned_and_ui_reader_stays_provider_free():
