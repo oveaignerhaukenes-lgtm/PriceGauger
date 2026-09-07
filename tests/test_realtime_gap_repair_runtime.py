@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
 import realtime_gap_repair as gap_repair
 from realtime_gap_repair import GapRepairingSaxoRealtimeService
 from realtime_market_data import RealtimeQuote
 from saxo_provider import SaxoError, SaxoInstrument
-from saxo_streaming import SaxoStreamMessage
+from saxo_streaming import SaxoStreamMessage, SaxoStreamReset
 
 
 def _instrument(asset: str, uic: int) -> SaxoInstrument:
@@ -78,6 +80,7 @@ def test_heartbeat_message_drives_stale_repair_cadence(tmp_path):
     service = _service(tmp_path)
     calls: list[bool] = []
     service._start_stale_repair_if_due = lambda: calls.append(True) or True  # type: ignore[method-assign]
+    service._raise_if_stale_open_subscription = lambda: None  # type: ignore[method-assign]
 
     service.handle_message(
         SaxoStreamMessage(
@@ -138,3 +141,59 @@ def test_product_auth_failure_backs_off_stale_repair_instead_of_retrying_every_m
 
     assert calls == ["Gold"]
     assert service._stale_auth_retry_after["Gold"] > 0
+
+
+def _mark_market_stale(service: GapRepairingSaxoRealtimeService, *, now: datetime, closed: bool = False) -> None:
+    service.reference_to_market["PG01"] = "Gold"
+    service.snapshots["PG01"] = {"MarketState": "Closed" if closed else "Open"}
+    service._status(
+        "Gold",
+        "SUBSCRIBED",
+        reference_id="PG01",
+        last_quote_at=(now - timedelta(minutes=10)).isoformat(),
+    )
+    service._save_chart_status(
+        market="Gold",
+        reference_id="PGC01",
+        state="SUBSCRIBED",
+        last_event_at=(now - timedelta(minutes=10)).isoformat(),
+    )
+    service._stream_subscribed_at_mono = 0.0
+
+
+def test_open_market_with_stale_quote_and_chart_requires_reconnect(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    now = datetime(2026, 9, 7, 19, 10, tzinfo=timezone.utc)
+    _mark_market_stale(service, now=now)
+    monkeypatch.setattr(gap_repair.time, "monotonic", lambda: 1000.0)
+
+    assert service._stale_open_markets_requiring_reconnect(now=now) == ("Gold",)
+
+
+def test_closed_market_does_not_trigger_stale_stream_reconnect(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    now = datetime(2026, 9, 7, 19, 10, tzinfo=timezone.utc)
+    _mark_market_stale(service, now=now, closed=True)
+    monkeypatch.setattr(gap_repair.time, "monotonic", lambda: 1000.0)
+
+    assert service._stale_open_markets_requiring_reconnect(now=now) == ()
+
+
+def test_heartbeat_for_stale_open_market_forces_controlled_stream_reset(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+    monkeypatch.setattr(service, "_start_stale_repair_if_due", lambda: False)
+    monkeypatch.setattr(
+        service,
+        "_stale_open_markets_requiring_reconnect",
+        lambda *, now: ("Gold",),
+    )
+
+    with pytest.raises(SaxoStreamReset, match="stale open market subscriptions: Gold"):
+        service.handle_message(
+            SaxoStreamMessage(
+                message_id=1,
+                reference_id="_heartbeat",
+                payload_format=0,
+                payload={"Heartbeats": []},
+            )
+        )
