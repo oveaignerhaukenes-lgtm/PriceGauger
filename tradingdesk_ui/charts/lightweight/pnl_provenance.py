@@ -31,6 +31,23 @@ def _live_value_at(comparison, observed_at: datetime) -> float:
     return value
 
 
+def build_live_pnl_strategy_epochs_v1(comparison) -> list[dict[str, Any]]:
+    """Expose immutable LIVE strategy activation windows for chart attribution."""
+    rows: list[dict[str, Any]] = []
+    for epoch in comparison.live_epochs:
+        rows.append(
+            {
+                "start": _epoch(epoch.started_at),
+                "end": None if epoch.ended_at is None else _epoch(epoch.ended_at),
+                "label": _strategy_label(epoch.strategy_key),
+                "strategy_key": str(epoch.strategy_key),
+                "pilot_key": str(epoch.pilot_key),
+            }
+        )
+    rows.sort(key=lambda item: (int(item["start"]), str(item["pilot_key"])))
+    return rows
+
+
 def _manual_saxo_events(comparison) -> tuple[dict[str, Any], ...]:
     """Read only proven foreign/manual broker events already persisted by the execution guard.
 
@@ -121,4 +138,5 @@ def build_live_pnl_provenance_events_v1(comparison) -> list[dict[str, Any]]:
 __all__ = [
     "MANUAL_SAXO_ANOMALY_KINDS_V1",
     "build_live_pnl_provenance_events_v1",
+    "build_live_pnl_strategy_epochs_v1",
 ]
