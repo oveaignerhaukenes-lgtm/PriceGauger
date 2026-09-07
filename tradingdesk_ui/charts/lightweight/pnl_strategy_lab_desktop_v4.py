@@ -74,20 +74,21 @@ _STRATEGY_LAB_DESKTOP_JS = _replace_required(
     label="desktop LIVE baseline data",
 )
 
+# Desktop annotations keep the original persisted labels. Lightweight's own marker text
+# is blanked only on desktop so the same event is not printed across the plot. Mobile
+# receives the exact original liveEvents array and therefore keeps its current markers.
+_STRATEGY_LAB_DESKTOP_JS = _replace_required(
+    _STRATEGY_LAB_DESKTOP_JS,
+    """            const liveEvents = Array.from(payload.live_events || []);\n            if (liveEvents.length) {""",
+    """            const rawLiveEvents = Array.from(payload.live_events || []);\n            desktopLiveEvents = rawLiveEvents;\n            const liveEvents = desktopLayout\n                ? rawLiveEvents.map((item) => ({ ...item, label: '' }))\n                : rawLiveEvents;\n            if (liveEvents.length) {""",
+    label="desktop marker event view",
+)
+
 _STRATEGY_LAB_DESKTOP_JS = _replace_required(
     _STRATEGY_LAB_DESKTOP_JS,
     """                    carrier.setData(carrierData);\n                    comparableSeries.push({ api: carrier, data: carrierData, baselineData: liveData });""",
-    """                    carrier.setData(carrierData);\n                    desktopEventCarrier = carrier;\n                    desktopLiveEvents = liveEvents;\n                    comparableSeries.push({ api: carrier, data: carrierData, baselineData: liveData });""",
+    """                    carrier.setData(carrierData);\n                    desktopEventCarrier = carrier;\n                    comparableSeries.push({ api: carrier, data: carrierData, baselineData: liveData });""",
     label="desktop event carrier registration",
-)
-
-# Mobile retains the current in-chart marker labels. Desktop keeps only the marker shape
-# at the event point; the readable text lives in the stacked annotation lane above.
-_STRATEGY_LAB_DESKTOP_JS = _replace_required(
-    _STRATEGY_LAB_DESKTOP_JS,
-    """                                text: String(item.label || ''),""",
-    """                                text: desktopLayout ? '' : String(item.label || ''),""",
-    label="desktop marker text suppression",
 )
 
 # Relative is the useful default for regime comparison on desktop. Mobile stays on Total
