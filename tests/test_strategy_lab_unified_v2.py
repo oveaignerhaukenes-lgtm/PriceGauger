@@ -78,7 +78,8 @@ def test_strategy_lab_desktop_uses_stacked_event_annotations() -> None:
     assert "desktopEventCarrier.priceToCoordinate" in rendered
     assert "chart.timeScale().timeToCoordinate" in rendered
     assert "borderLeft: `1px solid ${color}`" in rendered
-    assert "text: desktopLayout ? '' : String(item.label || '')" in rendered
+    assert "desktopLiveEvents = rawLiveEvents" in rendered
+    assert "rawLiveEvents.map((item) => ({ ...item, label: '' }))" in rendered
     assert "scheduleDesktopEventAnnotations()" in rendered
 
 
