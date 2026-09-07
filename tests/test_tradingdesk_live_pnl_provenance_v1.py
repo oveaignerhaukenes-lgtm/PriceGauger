@@ -71,7 +71,8 @@ def test_manual_saxo_marker_requires_persisted_foreign_order_provenance(monkeypa
 
     class Db:
         def execute(self, sql, _parameters):
-            assert "kind = 'UNKNOWN_WORKING_ORDER'" in sql
+            assert "UNKNOWN_WORKING_ORDER" in sql
+            assert "UNEXPECTED_POSITION_ORIGIN" in sql
             return SimpleNamespace(
                 fetchall=lambda: [
                     {
@@ -79,6 +80,7 @@ def test_manual_saxo_marker_requires_persisted_foreign_order_provenance(monkeypa
                         "first_seen_at": manual_at,
                         "external_reference": "manual-ref",
                         "order_id": "saxo-order-1",
+                        "net_position_id": None,
                         "details": "Foreign/manual working order left untouched",
                     }
                 ]
@@ -97,10 +99,49 @@ def test_manual_saxo_marker_requires_persisted_foreign_order_provenance(monkeypa
 
     assert len(manual) == 1
     assert manual[0]["label"] == "MANUAL / SAXO"
+    assert manual[0]["source_kind"] == "UNKNOWN_WORKING_ORDER"
     assert manual[0]["time"] == int(manual_at.timestamp())
     assert manual[0]["value"] == 1.25
     assert "manual-ref" in manual[0]["detail"]
     assert "saxo-order-1" in manual[0]["detail"]
+
+
+def test_unexpected_position_origin_is_marked_manual_saxo(monkeypatch) -> None:
+    manual_at = START + timedelta(hours=2, minutes=15)
+
+    class Db:
+        def execute(self, _sql, _parameters):
+            return SimpleNamespace(
+                fetchall=lambda: [
+                    {
+                        "kind": "UNEXPECTED_POSITION_ORIGIN",
+                        "first_seen_at": manual_at,
+                        "external_reference": None,
+                        "order_id": None,
+                        "net_position_id": "4912__CfdOnIndex",
+                        "details": "Unmanaged Saxo position has no current PG OPEN provenance",
+                    }
+                ]
+            )
+
+    class Ctx:
+        def __enter__(self):
+            return Db()
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(provenance, "connect", lambda: Ctx())
+    manual = [
+        item
+        for item in provenance.build_live_pnl_provenance_events_v1(_comparison())
+        if item["kind"] == "MANUAL_SAXO"
+    ]
+
+    assert len(manual) == 1
+    assert manual[0]["source_kind"] == "UNEXPECTED_POSITION_ORIGIN"
+    assert manual[0]["label"] == "MANUAL / SAXO"
+    assert "4912__CfdOnIndex" in manual[0]["detail"]
 
 
 def test_strategy_lab_renders_live_provenance_on_baseline_chart() -> None:
