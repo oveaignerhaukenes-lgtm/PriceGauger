@@ -161,24 +161,27 @@ def _mark_market_stale(service: GapRepairingSaxoRealtimeService, *, now: datetim
     service._stream_subscribed_at_mono = 0.0
 
 
-def test_open_market_with_stale_quote_and_chart_requires_reconnect(tmp_path):
+def test_open_market_with_stale_quote_and_chart_requires_reconnect(tmp_path, monkeypatch):
     service = _service(tmp_path)
     now = datetime(2026, 9, 7, 19, 10, tzinfo=timezone.utc)
     _mark_market_stale(service, now=now)
+    monkeypatch.setattr(gap_repair.time, "monotonic", lambda: 1000.0)
 
     assert service._stale_open_markets_requiring_reconnect(now=now) == ("Gold",)
 
 
-def test_closed_market_does_not_trigger_stale_stream_reconnect(tmp_path):
+def test_closed_market_does_not_trigger_stale_stream_reconnect(tmp_path, monkeypatch):
     service = _service(tmp_path)
     now = datetime(2026, 9, 7, 19, 10, tzinfo=timezone.utc)
     _mark_market_stale(service, now=now, closed=True)
+    monkeypatch.setattr(gap_repair.time, "monotonic", lambda: 1000.0)
 
     assert service._stale_open_markets_requiring_reconnect(now=now) == ()
 
 
 def test_heartbeat_for_stale_open_market_forces_controlled_stream_reset(tmp_path, monkeypatch):
     service = _service(tmp_path)
+    monkeypatch.setattr(service, "_start_stale_repair_if_due", lambda: False)
     monkeypatch.setattr(
         service,
         "_stale_open_markets_requiring_reconnect",
