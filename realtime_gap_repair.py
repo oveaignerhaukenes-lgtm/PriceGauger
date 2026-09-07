@@ -22,6 +22,7 @@ from saxo_streaming import (
     BACKFILL_TIMEOUT_SECONDS,
     SaxoRealtimeService,
     SaxoStreamMessage,
+    SaxoStreamReset,
     _backfill_client,
     _find_value,
     _should_log_count,
@@ -38,6 +39,8 @@ STALE_QUOTE_AFTER_SECONDS = 90.0
 STALE_REPAIR_LOOKBACK_HOURS = 1
 STALE_REPAIR_PAGE_SIZE = 120
 STALE_AUTH_RETRY_SECONDS = 30 * 60.0
+STALE_STREAM_RECONNECT_AFTER_SECONDS = 5 * 60.0
+STALE_STREAM_RECONNECT_GRACE_SECONDS = 5 * 60.0
 _PRICE_UPDATE_FIELDS = frozenset(
     {"Bid", "BidPrice", "Ask", "AskPrice", "LastTraded", "LastTradedPrice", "Price", "Mid"}
 )
@@ -203,6 +206,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         self._chart_reference_to_market: dict[str, str] = {}
         self._chart_delays: dict[str, float | None] = {}
         self._chart_actual_refresh: dict[str, int | None] = {}
+        self._stream_subscribed_at_mono = time.monotonic()
 
     def _save_chart_status(
         self,
@@ -242,6 +246,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
 
     def subscribe_all(self, context_id: str) -> None:
         super().subscribe_all(context_id)
+        self._stream_subscribed_at_mono = time.monotonic()
 
         # A reconnect while the market is closed can return an OldIndicative quote
         # whose provider timestamp is the real closing timestamp. Purge any realtime-
@@ -362,6 +367,60 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
             return True
         return (now - observed).total_seconds() >= STALE_QUOTE_AFTER_SECONDS
 
+    @staticmethod
+    def _age_seconds(value: str | None, *, now: datetime) -> float:
+        if not value:
+            return float("inf")
+        try:
+            observed = utc(value)
+        except (TypeError, ValueError):
+            return float("inf")
+        return max(0.0, (now - observed).total_seconds())
+
+    def _price_snapshot_for_market(self, market: str) -> dict[str, Any]:
+        for reference_id, mapped_market in self.reference_to_market.items():
+            if mapped_market == market:
+                snapshot = self.snapshots.get(reference_id, {})
+                return snapshot if isinstance(snapshot, dict) else {}
+        return {}
+
+    def _stale_open_markets_requiring_reconnect(self, *, now: datetime) -> tuple[str, ...]:
+        if time.monotonic() - self._stream_subscribed_at_mono < STALE_STREAM_RECONNECT_GRACE_SECONDS:
+            return ()
+        stale: list[str] = []
+        for market in self.instruments:
+            snapshot = self._price_snapshot_for_market(market)
+            if _snapshot_is_closed_or_old_indicative(snapshot):
+                continue
+            quote_status = self._status_cache.get(market)
+            chart_status = self._forming_store.load_status(market=market)
+            quote_age = self._age_seconds(
+                None if quote_status is None else quote_status.last_quote_at,
+                now=now,
+            )
+            chart_age = self._age_seconds(
+                None if chart_status is None else chart_status.last_event_at,
+                now=now,
+            )
+            if (
+                quote_age >= STALE_STREAM_RECONNECT_AFTER_SECONDS
+                and chart_age >= STALE_STREAM_RECONNECT_AFTER_SECONDS
+            ):
+                stale.append(market)
+        return tuple(stale)
+
+    def _raise_if_stale_open_subscription(self) -> None:
+        now = datetime.now(timezone.utc)
+        stale = self._stale_open_markets_requiring_reconnect(now=now)
+        if not stale:
+            return
+        LOGGER.warning(
+            "Saxo stream heartbeat alive but market subscriptions stale; forcing reconnect markets=%s threshold_seconds=%.0f",
+            ",".join(stale),
+            STALE_STREAM_RECONNECT_AFTER_SECONDS,
+        )
+        raise SaxoStreamReset(f"stale open market subscriptions: {','.join(stale)}")
+
     def _stale_repair_auth_blocked(self, market: str, *, now_mono: float) -> bool:
         retry_after = self._stale_auth_retry_after.get(market)
         if retry_after is None:
@@ -460,6 +519,8 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         if ref.startswith("_"):
             super().handle_message(message, received_at=received_at)
             self._start_stale_repair_if_due()
+            if ref == "_HEARTBEAT":
+                self._raise_if_stale_open_subscription()
             return
 
         chart_market = self._chart_reference_to_market.get(ref)
