@@ -4,8 +4,8 @@ from dataclasses import dataclass
 import logging
 from typing import Mapping
 
+from futures_rollover_discovery_v2 import resolve_saxo_futures_rollovers_with_discovery_v2
 from futures_rollover_schema_v1 import ensure_futures_rollover_audit_ready_v1
-from futures_rollover_v1 import resolve_saxo_futures_rollovers_once_v1
 from instrument_registry_v2 import InstrumentSourceV2, list_subscribed_sources_v2
 from saxo_discovered_history_seed_v2 import seed_discovered_saxo_history_once_v2
 from saxo_open_position_discovery_v2 import discover_open_saxo_positions_once_v2
@@ -86,7 +86,7 @@ def _prepare_futures_rollover_audit_best_effort() -> bool:
 def _resolve_futures_rollovers_best_effort() -> None:
     """Move collection subscriptions to current futures contracts, never execution authority."""
     try:
-        summary = resolve_saxo_futures_rollovers_once_v1()
+        summary = resolve_saxo_futures_rollovers_with_discovery_v2()
     except Exception as exc:
         LOGGER.warning("Saxo futures rollover cycle failed: %s", exc, exc_info=True)
         return
