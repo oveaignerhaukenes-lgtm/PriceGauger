@@ -39,6 +39,24 @@ _STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
     """        shell.appendChild(root);\n        root.addEventListener('touchmove', (event) => {\n            if (event.touches?.length >= 2) event.preventDefault();\n        }, { passive: false });\n\n        const inspector = document.createElement('div');""",
 )
 
+# Lightweight Charts clamps visible time ranges to the available data domain. Strategy
+# Lab can legitimately have only a few hours of real Strategy Series history, which made
+# 12h/1d/3d controls appear stuck at ~4h. Add an invisible whitespace-only time carrier
+# extending three days back. It changes no price/P&L data or scale, but gives the time
+# axis room for zooming/panning beyond the current strategy-history horizon.
+_STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
+    """        const labels = new Map();\n        const visible = new Map();""",
+    """        const navigationEnd = Number(payload.as_of || Math.floor(Date.now() / 1000));\n        const navigationStart = navigationEnd - (3 * 86400);\n        const navigationCarrier = chart.addSeries(LWC.LineSeries, {\n            title: '', visible: false, priceLineVisible: false, lastValueVisible: false,\n            crosshairMarkerVisible: false,\n        }, 0);\n        navigationCarrier.setData([{ time: navigationStart }, { time: navigationEnd }]);\n\n        const labels = new Map();\n        const visible = new Map();""",
+)
+
+# Keep the familiar ~4h initial view while making the larger range buttons and pinch
+# zoom-out genuinely effective. "Alt" still calls fitContent(), which now exposes the
+# full three-day navigation domain without fabricating pre-history for any strategy.
+_STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
+    """        chart.timeScale().fitContent();""",
+    """        try {\n            chart.timeScale().setVisibleRange({ from: navigationEnd - (4 * 3600), to: navigationEnd });\n        } catch (_) {\n            chart.timeScale().fitContent();\n        }""",
+)
+
 
 _strategy_lab_unified_component = st.components.v2.component(
     "pricegauger_lightweight_strategy_lab_unified_v2",
