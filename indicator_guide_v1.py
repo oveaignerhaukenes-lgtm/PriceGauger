@@ -190,22 +190,57 @@ def render_indicator_guide_v1(
     if not selected:
         return
     st.markdown("**Indikatorleser**")
+    ai_key = "tradingdesk-indicator-ai-enabled"
+    if ai_key not in st.session_state:
+        st.session_state[ai_key] = False
+    ai_enabled = st.toggle(
+        "AI-vurdering",
+        key=ai_key,
+        help="Av som standard. Når den er på, materialiserer workeren én kort persistert vurdering per valgt indikator og ny closed bar.",
+    )
+
+    ai_snapshot = None
+    if ai_enabled:
+        try:
+            from indicator_ai_insights_v1 import load_latest_indicator_ai_v1
+
+            market = str(st.session_state.get("tradingdesk-v2-market", "") or "")
+            timeframe = str(st.session_state.get("tradingdesk_timeframe", "5m") or "5m")
+            ai_snapshot = load_latest_indicator_ai_v1(
+                market=market,
+                timeframe=timeframe,
+                indicator_names=selected,
+            )
+        except Exception:
+            ai_snapshot = None
+
     if ai_summary:
-        st.caption(f"AI-kontekst · {ai_summary}")
+        st.caption(f"Technical Interpreter · {ai_summary}")
+    if ai_enabled and ai_snapshot is not None:
+        st.caption(f"AI oppdatert fra bar {ai_snapshot.source_bar_time} · {ai_snapshot.model}")
+    elif ai_enabled:
+        st.caption("AI · venter på første worker-materialiserte vurdering.")
+
     regime = (
         f"Trend: {trend_state} · momentum: {momentum_state} · "
         f"volatilitet: {volatility_state} · struktur: {structure_state}"
     )
     for name in selected:
         guide = guide_for_indicator_v1(name)
+        ai_note = None if ai_snapshot is None else ai_snapshot.assessments.get(name)
         with st.container(border=True):
             st.markdown(f"**{name}**")
             st.caption(quick_indicator_read_v1(name, technical, latest_close=latest_close))
+            if ai_enabled:
+                st.caption(f"AI · {ai_note}" if ai_note else "AI · venter på ny vurdering …")
             with st.popover("Fortell mer", use_container_width=True):
                 st.markdown(f"**Hva den måler**  \n{guide.short}")
                 st.write(guide.details)
                 st.markdown(f"**I regime**  \n{regime}")
                 st.write(guide.regime_note)
+                if ai_note:
+                    st.markdown("**AI-vurdering nå**")
+                    st.write(ai_note)
                 if ai_summary:
                     st.markdown("**Cached Technical Interpreter**")
                     st.write(ai_summary)
