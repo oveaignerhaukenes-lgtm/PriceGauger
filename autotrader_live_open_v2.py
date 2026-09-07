@@ -9,6 +9,9 @@ that prevents stale broker working orders and unexplained late fills from silent
 becoming fresh AutoManager authority.
 """
 
+from typing import Mapping
+
+import autotrader_execution_guard_v1 as _guard
 import autotrader_live_open_legacy_v2 as _legacy
 from autotrader_execution_guard_v1 import install_execution_safety_guard_v1
 from autotrader_live_open_legacy_v2 import *  # noqa: F401,F403
@@ -83,8 +86,44 @@ def _execution_close_provenance_v1(pilot_key: str) -> tuple[bool, bool]:
     return bool(handoff), False
 
 
+def _saxo_quote_error_code_v1(value: object) -> str:
+    """Normalize Saxo's explicit no-error sentinels without weakening market-open checks."""
+    text = str(value or "").strip()
+    if text.lower() in {"", "none", "null"}:
+        return ""
+    return text
+
+
+def _require_market_open_for_open_v1(client, *, account_id: str, uic: int, asset_type: str) -> None:
+    """#322 market-open guard with Saxo's string ``None`` quote sentinel normalized."""
+    _, id_to_key = _guard._accounts(client)
+    account_key = id_to_key.get(account_id)
+    if not account_key:
+        raise ValueError("MARKET_OPEN_PRECHECK_ACCOUNT_UNRESOLVED")
+    payload = client._get(
+        "trade/v1/infoprices",
+        params={
+            "AccountKey": account_key,
+            "Uic": int(uic),
+            "AssetType": asset_type,
+            "FieldGroups": "InstrumentPriceDetails,Quote",
+        },
+    )
+    details = payload.get("InstrumentPriceDetails") if isinstance(payload.get("InstrumentPriceDetails"), Mapping) else {}
+    quote = payload.get("Quote") if isinstance(payload.get("Quote"), Mapping) else {}
+    if details.get("IsMarketOpen") is not True:
+        raise ValueError("SAXO_MARKET_NOT_EXPLICITLY_OPEN")
+    error_code = _saxo_quote_error_code_v1(quote.get("ErrorCode"))
+    if error_code:
+        raise ValueError(f"SAXO_MARKET_QUOTE_ERROR:{error_code}")
+
+
 # Keep the preserved executor, but install explicit safety boundaries around its
 # broker working-order, submit and adoption edges before any runtime thread starts.
+# Saxo currently returns Quote.ErrorCode="None" for a valid quote. The original
+# #322 guard treated that non-empty string as an error; replace only that validation
+# function while preserving the explicit IsMarketOpen=True requirement.
+_guard.require_market_open_for_open_v1 = _require_market_open_for_open_v1
 install_execution_safety_guard_v1()
 _legacy._settled_close_provenance = _execution_close_provenance_v1
 _settled_close_provenance = _execution_close_provenance_v1
