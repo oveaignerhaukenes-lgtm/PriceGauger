@@ -33,8 +33,11 @@ def test_strategy_lab_navigation_can_expand_beyond_short_real_history() -> None:
     assert "const navigationStart = navigationEnd - (3 * 86400);" in rendered
     assert "const navigationCarrier = chart.addSeries" in rendered
     assert "navigationCarrier.setData([{ time: navigationStart }, { time: navigationEnd }]);" in rendered
-    assert "color: 'rgba(0,0,0,0)'" in rendered
-    assert "visible: false" not in rendered
+    nav_start = rendered.index("const navigationCarrier = chart.addSeries")
+    nav_end = rendered.index("navigationCarrier.setData", nav_start)
+    navigation_block = rendered[nav_start:nav_end]
+    assert "color: 'rgba(0,0,0,0)'" in navigation_block
+    assert "visible: false" not in navigation_block
     assert "navigationEnd - (4 * 3600)" in rendered
     assert "['12t', 12 * 3600]" in rendered
     assert "['1d', 86400]" in rendered
