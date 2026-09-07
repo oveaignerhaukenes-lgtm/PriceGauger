@@ -48,20 +48,27 @@ export default function(component) {
   const {data, parentElement} = component;
   const rows = Array.from(data.rows || []);
   const storageKey = 'pricegauger:watchlist-drawer:v2';
+  const collapsedWidth = 14;
+  const minExpandedWidth = 110;
+  const defaultExpandedWidth = 280;
+  const maxWidth = 420;
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch (_) {}
-  let width = Math.max(44, Math.min(420, Number(saved.width || 46)));
+  let width = Math.max(minExpandedWidth, Math.min(maxWidth, Number(saved.width || defaultExpandedWidth)));
+  if (!Number.isFinite(width) || width < minExpandedWidth) width = defaultExpandedWidth;
+  let collapsed = saved.collapsed === true || (!Object.prototype.hasOwnProperty.call(saved, 'collapsed') && Number(saved.width || 46) <= 60);
 
   parentElement.replaceChildren();
   parentElement.style.height = '0px';
   parentElement.style.overflow = 'visible';
 
   const drawer = document.createElement('aside');
+  drawer.setAttribute('aria-label', 'Watchlist');
   Object.assign(drawer.style, {
-    position: 'fixed', right: '0', top: '5.2rem', bottom: '1rem', width: `${width}px`, zIndex: '9999',
+    position: 'fixed', right: '0', top: '5.2rem', bottom: '1rem', zIndex: '9999',
     background: 'rgba(15,23,42,.96)', color: '#f8fafc', border: '1px solid rgba(148,163,184,.28)',
     borderRight: '0', borderRadius: '12px 0 0 12px', boxShadow: '0 14px 36px rgba(15,23,42,.25)',
-    overflow: 'hidden', transition: 'box-shadow 120ms ease', font: '500 12px/1.25 system-ui,-apple-system,sans-serif'
+    overflow: 'hidden', transition: 'width 110ms ease, box-shadow 120ms ease', font: '500 12px/1.25 system-ui,-apple-system,sans-serif'
   });
   parentElement.appendChild(drawer);
 
@@ -72,9 +79,36 @@ export default function(component) {
   });
   drawer.appendChild(handle);
 
+  const rail = document.createElement('button');
+  rail.type = 'button';
+  rail.title = 'Watchlist · W';
+  rail.setAttribute('aria-label', 'Åpne watchlist');
+  rail.textContent = '‹';
+  Object.assign(rail.style, {
+    position:'absolute', inset:'0', width:`${collapsedWidth}px`, border:'0', padding:'0', margin:'0',
+    display:'none', alignItems:'center', justifyContent:'center', cursor:'pointer', zIndex:'5',
+    color:'#7dd3fc', background:'linear-gradient(90deg,rgba(56,189,248,.22),rgba(15,23,42,.98))',
+    font:'700 14px/1 system-ui,-apple-system,sans-serif'
+  });
+  drawer.appendChild(rail);
+
   const header = document.createElement('div');
-  Object.assign(header.style, {height:'42px', display:'flex', alignItems:'center', gap:'8px', padding:'0 10px 0 14px', borderBottom:'1px solid rgba(148,163,184,.18)'});
-  header.innerHTML = '<strong style="font-size:12px;white-space:nowrap">Watchlist</strong><span style="opacity:.58;font-size:10px;white-space:nowrap">dra kanten</span>';
+  Object.assign(header.style, {height:'42px', display:'flex', alignItems:'center', gap:'8px', padding:'0 8px 0 14px', borderBottom:'1px solid rgba(148,163,184,.18)'});
+  const title = document.createElement('strong');
+  Object.assign(title.style, {fontSize:'12px', whiteSpace:'nowrap'});
+  title.textContent = 'Watchlist';
+  header.appendChild(title);
+  const hint = document.createElement('span');
+  Object.assign(hint.style, {opacity:'.58', fontSize:'10px', whiteSpace:'nowrap', marginRight:'auto'});
+  hint.textContent = 'dra kanten · W';
+  header.appendChild(hint);
+  const collapseButton = document.createElement('button');
+  collapseButton.type = 'button';
+  collapseButton.title = 'Skjul watchlist · W';
+  collapseButton.setAttribute('aria-label', 'Skjul watchlist');
+  collapseButton.textContent = '›';
+  Object.assign(collapseButton.style, {border:'0', background:'transparent', color:'#cbd5e1', cursor:'pointer', font:'700 18px/1 system-ui', padding:'4px'});
+  header.appendChild(collapseButton);
   drawer.appendChild(header);
 
   const body = document.createElement('div');
@@ -107,42 +141,88 @@ export default function(component) {
     body.appendChild(item);
   });
 
-  function applyWidth(next) {
-    width = Math.max(44, Math.min(420, next));
-    drawer.style.width = `${width}px`;
-    header.style.opacity = width < 105 ? '0' : '1';
-    body.querySelectorAll('.pg-watchlist-spark').forEach((el)=>{ el.style.display = width >= 245 ? 'block' : 'none'; });
-    body.querySelectorAll('div').forEach(()=>{});
+  function persist() {
+    try { localStorage.setItem(storageKey, JSON.stringify({width, collapsed})); } catch (_) {}
   }
-  applyWidth(width);
+
+  function applyState() {
+    drawer.style.width = `${collapsed ? collapsedWidth : width}px`;
+    drawer.style.borderRadius = collapsed ? '7px 0 0 7px' : '12px 0 0 12px';
+    drawer.style.boxShadow = collapsed ? '0 8px 18px rgba(15,23,42,.16)' : '0 14px 36px rgba(15,23,42,.25)';
+    rail.style.display = collapsed ? 'flex' : 'none';
+    handle.style.display = collapsed ? 'none' : 'block';
+    header.style.display = collapsed ? 'none' : 'flex';
+    body.style.display = collapsed ? 'none' : 'block';
+    body.querySelectorAll('.pg-watchlist-spark').forEach((el)=>{ el.style.display = width >= 245 ? 'block' : 'none'; });
+    drawer.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+  }
+
+  function setCollapsed(next) {
+    collapsed = Boolean(next);
+    applyState();
+    persist();
+  }
+
+  function applyWidth(next) {
+    width = Math.max(minExpandedWidth, Math.min(maxWidth, Number(next)));
+    if (!collapsed) applyState();
+  }
+  applyState();
+
+  rail.addEventListener('click', () => setCollapsed(false));
+  collapseButton.addEventListener('click', () => setCollapsed(true));
 
   let dragging = false;
   handle.addEventListener('pointerdown', (event) => { dragging = true; handle.setPointerCapture(event.pointerId); event.preventDefault(); });
   handle.addEventListener('pointermove', (event) => { if (!dragging) return; applyWidth(window.innerWidth - event.clientX); });
-  handle.addEventListener('pointerup', (event) => { dragging = false; try { localStorage.setItem(storageKey, JSON.stringify({width})); } catch (_) {} handle.releasePointerCapture?.(event.pointerId); });
-  handle.addEventListener('pointercancel', () => { dragging = false; });
+  handle.addEventListener('pointerup', (event) => { dragging = false; persist(); handle.releasePointerCapture?.(event.pointerId); });
+  handle.addEventListener('pointercancel', () => { dragging = false; persist(); });
+
+  const onKeydown = (event) => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (String(event.key || '').toLowerCase() !== 'w') return;
+    const target = event.target;
+    const tag = String(target?.tagName || '').toLowerCase();
+    if (target?.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    event.preventDefault();
+    setCollapsed(!collapsed);
+  };
+  let keyTarget = window;
+  try { if (window.parent && window.parent !== window) keyTarget = window.parent; } catch (_) {}
+  try {
+    if (keyTarget.__pricegaugerWatchlistKeyHandlerV2) keyTarget.removeEventListener('keydown', keyTarget.__pricegaugerWatchlistKeyHandlerV2);
+    keyTarget.__pricegaugerWatchlistKeyHandlerV2 = onKeydown;
+    keyTarget.addEventListener('keydown', onKeydown);
+  } catch (_) {
+    window.addEventListener('keydown', onKeydown);
+  }
 }
 """
     component = st.components.v2.component("pricegauger_market_watchlist_v2", js=js, isolate_styles=False)
     component(key="pricegauger-market-watchlist-v2", data=payload, height=0)
 
 
-def render_market_watchlist_v2() -> None:
+def render_market_watchlist_v2(*, show_settings: bool = True) -> None:
     """Read-only progressive watchlist drawer; it never changes collection or execution authority."""
     markets = _safe_markets()
     if not markets:
         return
     previous = st.session_state.get(_WATCHLIST_KEY)
     default = [item for item in (previous or markets[:6]) if item in markets]
-    with st.expander("Watchlist", expanded=False):
-        selected = st.multiselect(
-            "Markeder i watchlist",
-            options=list(markets),
-            default=default,
-            key=_WATCHLIST_KEY,
-            help="Kun presentasjon. Datainnsamling/subscription endres ikke.",
-        )
-        st.caption("Skuffen til høyre viser først pris og relativ endring. Dra den bredere for mikro-graf.")
+    if show_settings:
+        with st.expander("Watchlist", expanded=False):
+            selected = st.multiselect(
+                "Markeder i watchlist",
+                options=list(markets),
+                default=default,
+                key=_WATCHLIST_KEY,
+                help="Kun presentasjon. Datainnsamling/subscription endres ikke.",
+            )
+            st.caption("Skuffen ligger som en tynn søyle helt til høyre når den er skjult. Klikk søylen eller trykk W for å åpne/lukke; dra venstrekanten for bredde.")
+    else:
+        selected = default
+        if _WATCHLIST_KEY not in st.session_state:
+            st.session_state[_WATCHLIST_KEY] = list(default)
     if not selected:
         return
     store = RealtimeMarketDataStore()
