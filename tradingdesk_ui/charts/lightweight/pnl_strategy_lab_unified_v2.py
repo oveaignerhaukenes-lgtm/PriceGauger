@@ -15,16 +15,16 @@ from tradingdesk_ui.charts.lightweight.pnl_strategy_lab import (
 _STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_JS
 
 _STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
-    """            live = chart.addSeries(LWC.LineSeries, {{\n                title: '', color: String(payload.live?.color || '#dc2626'), lineWidth: 2,\n                lineType: LWC.LineType?.WithSteps ?? 1,\n                priceLineVisible: false, lastValueVisible: false,\n            }}, 1);""",
-    """            live = chart.addSeries(LWC.LineSeries, {{\n                title: '', color: String(payload.live?.color || '#dc2626'), lineWidth: 2,\n                lineType: LWC.LineType?.WithSteps ?? 1,\n                priceLineVisible: false, lastValueVisible: false,\n            }}, 0);""",
+    """            live = chart.addSeries(LWC.LineSeries, {\n                title: '', color: String(payload.live?.color || '#dc2626'), lineWidth: 2,\n                lineType: LWC.LineType?.WithSteps ?? 1,\n                priceLineVisible: false, lastValueVisible: false,\n            }, 1);""",
+    """            live = chart.addSeries(LWC.LineSeries, {\n                title: '', color: String(payload.live?.color || '#dc2626'), lineWidth: 2,\n                lineType: LWC.LineType?.WithSteps ?? 1,\n                priceLineVisible: false, lastValueVisible: false,\n            }, 0);""",
 )
 _STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
-    """                    const carrier = chart.addSeries(LWC.LineSeries, {{\n                        title: '', color: 'rgba(0,0,0,0)', lineWidth: 1,\n                        priceLineVisible: false, lastValueVisible: false,\n                        crosshairMarkerVisible: false,\n                    }}, 1);""",
-    """                    const carrier = chart.addSeries(LWC.LineSeries, {{\n                        title: '', color: 'rgba(0,0,0,0)', lineWidth: 1,\n                        priceLineVisible: false, lastValueVisible: false,\n                        crosshairMarkerVisible: false,\n                    }}, 0);""",
+    """                    const carrier = chart.addSeries(LWC.LineSeries, {\n                        title: '', color: 'rgba(0,0,0,0)', lineWidth: 1,\n                        priceLineVisible: false, lastValueVisible: false,\n                        crosshairMarkerVisible: false,\n                    }, 1);""",
+    """                    const carrier = chart.addSeries(LWC.LineSeries, {\n                        title: '', color: 'rgba(0,0,0,0)', lineWidth: 1,\n                        priceLineVisible: false, lastValueVisible: false,\n                        crosshairMarkerVisible: false,\n                    }, 0);""",
 )
 _STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
-    """                const api = chart.addSeries(LWC.LineSeries, {{\n                    title: '', color: String(model.color || '#2563eb'), lineWidth: 2,\n                    lineStyle: lineStyle(String(model.dash || 'dash')),\n                    priceLineVisible: false, lastValueVisible: false,\n                }}, 2);""",
-    """                const api = chart.addSeries(LWC.LineSeries, {{\n                    title: '', color: String(model.color || '#2563eb'), lineWidth: 2,\n                    lineStyle: lineStyle(String(model.dash || 'dash')),\n                    priceLineVisible: false, lastValueVisible: false,\n                }}, 0);""",
+    """                const api = chart.addSeries(LWC.LineSeries, {\n                    title: '', color: String(model.color || '#2563eb'), lineWidth: 2,\n                    lineStyle: lineStyle(String(model.dash || 'dash')),\n                    priceLineVisible: false, lastValueVisible: false,\n                }, 2);""",
+    """                const api = chart.addSeries(LWC.LineSeries, {\n                    title: '', color: String(model.color || '#2563eb'), lineWidth: 2,\n                    lineStyle: lineStyle(String(model.dash || 'dash')),\n                    priceLineVisible: false, lastValueVisible: false,\n                }, 0);""",
 )
 
 # On mobile the browser/Streamlit host can consume a two-finger gesture before
@@ -36,7 +36,7 @@ _STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
 )
 _STRATEGY_LAB_UNIFIED_JS = _STRATEGY_LAB_UNIFIED_JS.replace(
     """        shell.appendChild(root);\n\n        const inspector = document.createElement('div');""",
-    """        shell.appendChild(root);\n        root.addEventListener('touchmove', (event) => {{\n            if (event.touches?.length >= 2) event.preventDefault();\n        }}, {{ passive: false }});\n\n        const inspector = document.createElement('div');""",
+    """        shell.appendChild(root);\n        root.addEventListener('touchmove', (event) => {\n            if (event.touches?.length >= 2) event.preventDefault();\n        }, { passive: false });\n\n        const inspector = document.createElement('div');""",
 )
 
 
