@@ -29,6 +29,23 @@ def test_strategy_lab_mobile_pinch_is_reserved_for_native_chart_scaling() -> Non
     assert "pinch: true" in rendered
 
 
+def test_strategy_lab_navigation_can_expand_beyond_short_real_history() -> None:
+    rendered = _STRATEGY_LAB_UNIFIED_JS
+
+    # The whitespace-only carrier extends the chart's time domain without creating
+    # synthetic strategy values. The initial viewport remains four hours while the
+    # existing 12h/1d/3d/Alt controls can genuinely zoom farther out.
+    assert "const navigationStart = navigationEnd - (3 * 86400);" in rendered
+    assert "const navigationCarrier = chart.addSeries" in rendered
+    assert "navigationCarrier.setData([{ time: navigationStart }, { time: navigationEnd }]);" in rendered
+    assert "visible: false" in rendered
+    assert "navigationEnd - (4 * 3600)" in rendered
+    assert "['12t', 12 * 3600]" in rendered
+    assert "['1d', 86400]" in rendered
+    assert "['3d', 3 * 86400]" in rendered
+    assert "chart.timeScale().fitContent()" in rendered
+
+
 def test_tradingdesk_mounts_unified_strategy_lab_without_execution_changes() -> None:
     source = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
 
