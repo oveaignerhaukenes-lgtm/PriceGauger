@@ -14,7 +14,9 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     _render_automanager_activity_log_v2,
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
-from tradingdesk_ui.charts.lightweight.pnl_strategy_lab import render_strategy_lab_pnl_v1
+from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_unified_v2 import (
+    render_strategy_lab_pnl_v2 as render_strategy_lab_pnl_v1,
+)
 from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_sync_v1
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
 
