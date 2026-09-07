@@ -7,7 +7,12 @@ from database import connect
 from tradingdesk_ui.charts.lightweight.pnl_comparison import _strategy_label
 
 
-MANUAL_SAXO_ANOMALY_KINDS_V1 = frozenset({"UNKNOWN_WORKING_ORDER"})
+MANUAL_SAXO_ANOMALY_KINDS_V1 = frozenset(
+    {
+        "UNKNOWN_WORKING_ORDER",
+        "UNEXPECTED_POSITION_ORIGIN",
+    }
+)
 
 
 def _utc(value: Any) -> datetime:
@@ -60,10 +65,10 @@ def _manual_saxo_events(comparison) -> tuple[dict[str, Any], ...]:
         with connect() as db:
             rows = db.execute(
                 """
-                SELECT kind, first_seen_at, external_reference, order_id, details
+                SELECT kind, first_seen_at, external_reference, order_id, net_position_id, details
                 FROM pg_v2_autotrader_execution_anomalies
                 WHERE account_id = ? AND uic = ? AND asset_type = ?
-                  AND kind = 'UNKNOWN_WORKING_ORDER'
+                  AND kind IN ('UNKNOWN_WORKING_ORDER', 'UNEXPECTED_POSITION_ORIGIN')
                   AND first_seen_at >= ? AND first_seen_at <= ?
                 ORDER BY first_seen_at ASC, anomaly_key ASC
                 """,
@@ -85,21 +90,32 @@ def _manual_saxo_events(comparison) -> tuple[dict[str, Any], ...]:
             "first_seen_at": row[1],
             "external_reference": row[2],
             "order_id": row[3],
-            "details": row[4],
+            "net_position_id": row[4],
+            "details": row[5],
         }
+        kind = str(values.get("kind") or "")
+        if kind not in MANUAL_SAXO_ANOMALY_KINDS_V1:
+            continue
         observed_at = _utc(values["first_seen_at"])
         detail_parts = [
             str(values.get("external_reference") or "").strip(),
             str(values.get("order_id") or "").strip(),
+            str(values.get("net_position_id") or "").strip(),
         ]
         detail = " · ".join(item for item in detail_parts if item)
+        fallback = (
+            "Saxo position without PG OPEN provenance"
+            if kind == "UNEXPECTED_POSITION_ORIGIN"
+            else "Foreign/manual Saxo working order"
+        )
         events.append(
             {
                 "kind": "MANUAL_SAXO",
+                "source_kind": kind,
                 "time": _epoch(observed_at),
                 "value": _live_value_at(comparison, observed_at),
                 "label": "MANUAL / SAXO",
-                "detail": detail or "Foreign/manual Saxo working order",
+                "detail": detail or fallback,
                 "position": "aboveBar",
                 "shape": "square",
                 "color": "#f59e0b",
