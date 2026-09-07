@@ -7,6 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
+from autotrader_strategy_activation_schema_v1 import ensure_strategy_activation_cohort_schema_v1
 from autotrader_strategy_enrollment_v2 import StrategyEnrollmentV2
 from database import connect
 
@@ -36,6 +37,7 @@ def ensure_strategy_switch_provenance_schema_v2() -> None:
         if _SCHEMA_READY:
             return
         ensure_autotrader_schema_v2()
+        ensure_strategy_activation_cohort_schema_v1()
         with connect() as db:
             db.execute(
                 """
