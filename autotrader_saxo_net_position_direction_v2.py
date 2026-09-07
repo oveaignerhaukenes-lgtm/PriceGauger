@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from threading import Lock
+import time
 from typing import Any
 
 
 _EPSILON = 1e-12
+_WARNING_DEDUPE_SECONDS = 60.0
+_WARNING_STATE_LIMIT = 256
+_warning_lock = Lock()
+_warning_last_seen: dict[tuple[object, ...], float] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +29,38 @@ def _number(value: Any, *, field: str) -> float:
     if result < -_EPSILON:
         raise RuntimeError(f"Saxo net position has negative {field}: {result}")
     return max(0.0, result)
+
+
+def _warn_once_per_state_v2(
+    log: logging.Logger,
+    *,
+    key: tuple[object, ...],
+    message: str,
+    args: tuple[object, ...],
+    now: float | None = None,
+) -> bool:
+    """Emit an unchanged broker-state warning at most once per dedupe window.
+
+    Net-position parsing runs from several fast loops. The broker can legitimately keep
+    intraday opposing gross legs for minutes or hours, so logging the same resolved
+    state every cycle hides new execution failures. A changed fingerprint logs
+    immediately; an unchanged fingerprint is repeated after the window as a reminder.
+    This helper changes observability only and never affects exposure resolution.
+    """
+    observed_at = time.monotonic() if now is None else float(now)
+    with _warning_lock:
+        last = _warning_last_seen.get(key)
+        should_log = last is None or observed_at - last >= _WARNING_DEDUPE_SECONDS
+        if should_log:
+            _warning_last_seen[key] = observed_at
+        if len(_warning_last_seen) > _WARNING_STATE_LIMIT:
+            cutoff = observed_at - (_WARNING_DEDUPE_SECONDS * 2.0)
+            stale = [item for item, stamp in _warning_last_seen.items() if stamp < cutoff]
+            for item in stale:
+                _warning_last_seen.pop(item, None)
+    if should_log:
+        log.warning(message, *args)
+    return should_log
 
 
 def resolve_net_position_exposure_v2(
@@ -81,29 +119,60 @@ def resolve_net_position_exposure_v2(
         direction = "Buy" if net > 0 else "Sell"
         amount = abs(net)
         if amount_long > _EPSILON and amount_short > _EPSILON:
-            log.warning(
-                "Saxo net position contains mixed long/short exposure id=%s uic=%s "
-                "Amount=%s AmountLong=%s AmountShort=%s resolved=%s amount=%s",
-                net_position_id,
-                base.get("Uic"),
-                raw_amount,
-                amount_long,
-                amount_short,
-                direction,
-                amount,
+            _warn_once_per_state_v2(
+                log,
+                key=(
+                    "mixed",
+                    str(net_position_id),
+                    str(base.get("Uic")),
+                    raw_amount,
+                    amount_long,
+                    amount_short,
+                    direction,
+                    amount,
+                ),
+                message=(
+                    "Saxo net position contains mixed long/short exposure id=%s uic=%s "
+                    "Amount=%s AmountLong=%s AmountShort=%s resolved=%s amount=%s"
+                ),
+                args=(
+                    net_position_id,
+                    base.get("Uic"),
+                    raw_amount,
+                    amount_long,
+                    amount_short,
+                    direction,
+                    amount,
+                ),
             )
         if opening and opening != direction:
-            log.warning(
-                "Saxo net-position direction disagreement id=%s uic=%s OpeningDirection=%s "
-                "Amount=%s AmountLong=%s AmountShort=%s resolved=%s amount=%s",
-                net_position_id,
-                base.get("Uic"),
-                opening,
-                raw_amount,
-                amount_long,
-                amount_short,
-                direction,
-                amount,
+            _warn_once_per_state_v2(
+                log,
+                key=(
+                    "direction-disagreement",
+                    str(net_position_id),
+                    str(base.get("Uic")),
+                    opening,
+                    raw_amount,
+                    amount_long,
+                    amount_short,
+                    direction,
+                    amount,
+                ),
+                message=(
+                    "Saxo net-position direction disagreement id=%s uic=%s OpeningDirection=%s "
+                    "Amount=%s AmountLong=%s AmountShort=%s resolved=%s amount=%s"
+                ),
+                args=(
+                    net_position_id,
+                    base.get("Uic"),
+                    opening,
+                    raw_amount,
+                    amount_long,
+                    amount_short,
+                    direction,
+                    amount,
+                ),
             )
         signed_net = net
         if abs(raw_amount - signed_net) > max(_EPSILON, amount * 1e-9):
