@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from autotrader_entry_policy_v2 import load_pilot_margin_config_v2
 from autotrader_mtf_live_runtime_v2 import ensure_mtf_live_schema_v2
@@ -210,6 +210,32 @@ def _target_equity_state_exists_v2(target_pilot_key: str) -> bool:
     return row is not None
 
 
+def _pilot_history_exists_v2(pilot_key: str) -> bool:
+    return load_strategy_enrollment_v2(str(pilot_key)) is not None or _target_equity_state_exists_v2(str(pilot_key))
+
+
+def _target_activation_pilot_key_v2(*, canonical_pilot_key: str, event_id: str) -> str:
+    """Use canonical first cohort; later visits get a fresh immutable activation cohort.
+
+    A prior strategy cohort carries historical settled P/L. Reactivating that same
+    pilot would make current execution sizing depend on capital frozen when the
+    strategy was last active. A fresh cohort instead starts from the source
+    controller's current settled equity while preserving every older cohort intact.
+    """
+    canonical = str(canonical_pilot_key)
+    if not _pilot_history_exists_v2(canonical):
+        return canonical
+    activation = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"pricegauger|strategy-activation|{canonical}|{str(event_id)}",
+        )
+    )
+    if _pilot_history_exists_v2(activation):
+        raise RuntimeError("strategy activation cohort identity collision")
+    return activation
+
+
 def switch_live_strategy_v2(
     *,
     pilot_key: str,
@@ -224,10 +250,16 @@ def switch_live_strategy_v2(
     preserved. AUTO itself means OPEN/re-entry authority remains armed across the
     handoff; it does not require a second manual arming step.
 
-    Settled pilot capital remains authoritative for sizing. If an open position is
-    handed over, its eventual authoritative Saxo close is booked normally; the exact
-    switch mark is persisted separately so strategy-performance attribution can split
-    the move at the handoff without contaminating the settled capital ledger.
+    The first activation of a strategy uses its canonical pilot key. If that strategy
+    has been active before, a fresh activation cohort is created instead of mutating
+    or resuming the historical pilot. The new cohort is seeded from the source
+    controller's current settled equity. This keeps execution capital continuous while
+    preserving prior strategy history and preventing old runtime intent from reviving.
+
+    If an open position is handed over, its eventual authoritative Saxo close is booked
+    normally; the exact switch mark is persisted separately so strategy-performance
+    attribution can split the move at the handoff without contaminating the settled
+    capital ledger.
     """
     ensure_autotrader_schema_v2()
     ensure_mtf_live_schema_v2()
@@ -265,16 +297,14 @@ def switch_live_strategy_v2(
     observed = _observed_product_state_v2(enrollment)
     observed_direction = _direction_v2(observed)
 
-    target_pilot_key = enrollment.product.pilot_key(target.key)
-    target_existing = load_strategy_enrollment_v2(target_pilot_key)
-    if target_existing is not None or _target_equity_state_exists_v2(target_pilot_key):
-        raise ValueError(
-            "target strategy pilot already has history; resuming a prior strategy cohort is not enabled yet"
-        )
-
     source_equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
     source_margin = load_pilot_margin_config_v2(enrollment.pilot_key)
     event_id = str(uuid4())
+    canonical_target_pilot_key = enrollment.product.pilot_key(target.key)
+    target_pilot_key = _target_activation_pilot_key_v2(
+        canonical_pilot_key=canonical_target_pilot_key,
+        event_id=event_id,
+    )
     anchor = "" if observed is None else observed.net_position_id
     flat_handoff = observed is None
     provenance_kind = "CONFIRMED_FLAT_STRATEGY_HANDOFF" if flat_handoff else "OPEN_POSITION_STRATEGY_HANDOFF"
@@ -345,9 +375,8 @@ def switch_live_strategy_v2(
                 ),
             )
 
-        # These state tables are guaranteed by the schemas initialized above. The
-        # fast/flip tables are intentionally not touched here: a brand-new target has
-        # no row there, and its own runtime creates/bootstraps its table before use.
+        # A fresh target cohort has no prior runtime state. Keep deletes defensive so
+        # a deterministic identity collision can never revive stale strategy intent.
         db.execute(
             "DELETE FROM pg_v2_autotrader_strategy_runtime_state WHERE pilot_key = ?",
             (target_pilot_key,),
