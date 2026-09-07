@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import autotrader_saxo_net_position_direction_v2 as net_direction
 
 
@@ -68,6 +70,6 @@ def test_warning_dedupe_does_not_change_exposure_resolution() -> None:
     assert first == second
     assert first is not None
     assert first.direction == "Buy"
-    assert first.amount == 0.04
+    assert first.amount == pytest.approx(0.04)
     # Two warning categories (mixed basis + stale OpeningDirection), each emitted once.
     assert len(log.calls) == 2
