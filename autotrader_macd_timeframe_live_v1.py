@@ -35,6 +35,14 @@ LIVE_MACD_CONTROL_STRATEGIES_V1 = {
     for minutes in LIVE_MACD_CONTROL_TIMEFRAMES_V1
 }
 
+# MACD is bar-count based, not wall-clock based. A short wall-clock window forces
+# an unnecessary multi-hour warmup after weekends/holidays because the market was
+# closed even though trustworthy exact-instrument bars exist before the gap.
+# Keep enough exact-instrument history to seed EMA/MACD, while `_timeframe_clock_v1`
+# still refuses to synthesize a transition across a non-contiguous final bar pair.
+MACD_WARMUP_LOOKBACK_V1 = timedelta(days=14)
+MACD_WARMUP_MAX_BARS_V1 = 20_000
+
 
 def _utc(value: Any) -> datetime:
     parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -107,12 +115,11 @@ def run_macd_timeframe_live_once_v1(
     ensure_fast_live_schema_v2()
 
     end = _utc(now or datetime.now(timezone.utc))
-    history_minutes = max(900, minutes * 60)
     bars = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
         instrument_id=int(enrollment.instrument_id),
-        start=end - timedelta(minutes=history_minutes),
+        start=end - MACD_WARMUP_LOOKBACK_V1,
         end=end,
-        limit=3_000,
+        limit=MACD_WARMUP_MAX_BARS_V1,
     )
     if not bars:
         raise ValueError(f"MACD {minutes}m LIVE has no exact canonical 1m history")
@@ -269,6 +276,8 @@ def run_macd_timeframe_live_once_v1(
 __all__ = [
     "LIVE_MACD_CONTROL_STRATEGIES_V1",
     "LIVE_MACD_CONTROL_TIMEFRAMES_V1",
+    "MACD_WARMUP_LOOKBACK_V1",
+    "MACD_WARMUP_MAX_BARS_V1",
     "live_macd_control_timeframe_v1",
     "run_macd_timeframe_live_once_v1",
 ]
