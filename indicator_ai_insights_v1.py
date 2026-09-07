@@ -14,7 +14,7 @@ from indicator_guide_v1 import quick_indicator_read_v1
 from openai_market_provider import OPENAI_RESPONSES_URL, _response_output_text
 from realtime_market_data import RealtimeMarketDataStore
 from recipe_registry_v2 import TA_ONLY_V1
-from trading_desk import TIMEFRAME_MINUTES, resample_bars
+from trading_desk import TIMEFRAME_MINUTES, canonical_chart_bars, resample_bars, utc
 from trading_desk_indicators import INDICATOR_OPTIONS, calculate_indicators
 from ui_workspace_state_v2 import load_ui_workspace_state_v2
 from workspace_loader_v2 import load_workspace_v2
@@ -234,12 +234,29 @@ def _request_assessments(
     return assessments
 
 
+def _closed_resampled_bars(raw_bars, *, timeframe: str):
+    """Return only fully covered closed buckets for explanatory AI materialization."""
+    minutes = int(TIMEFRAME_MINUTES[timeframe])
+    source = canonical_chart_bars(raw_bars)
+    if not source:
+        return ()
+    observed = {utc(item.bar_time) for item in source}
+    complete = []
+    for item in resample_bars(source, timeframe=timeframe):
+        bucket = utc(item.bar_time)
+        expected = {bucket + timedelta(minutes=offset) for offset in range(minutes)}
+        if expected.issubset(observed):
+            complete.append(item)
+    return tuple(complete)
+
+
 def _source_payload(*, market: str, timeframe: str, bars, technical, workspace, indicator_names: Sequence[str]) -> dict[str, Any]:
     latest_close = float(bars[-1].close)
+    source_bar_time = utc(bars[-1].bar_time).isoformat()
     return {
         "market": str(market),
         "timeframe": str(timeframe),
-        "source_bar_time": bars[-1].bar_time.isoformat(),
+        "source_bar_time": source_bar_time,
         "latest_close": latest_close,
         "regime": {
             "trend": workspace.technical_state.trend_state,
@@ -297,11 +314,11 @@ def refresh_indicator_ai_once_v1(
     end = datetime.now(timezone.utc)
     start = end - timedelta(hours=max(24, int(minutes * 180 / 60) + 6))
     raw = RealtimeMarketDataStore(db_path).load_range(market=market, start=start, end=end, limit=20000)
-    bars = tuple(resample_bars(raw, timeframe=timeframe))
+    bars = _closed_resampled_bars(raw, timeframe=timeframe)
     if len(bars) < 30:
         return 0
     technical = calculate_indicators(bars)
-    source_bar_time = bars[-1].bar_time.isoformat()
+    source_bar_time = utc(bars[-1].bar_time).isoformat()
     set_key = _indicator_set_key(indicator_names)
 
     _ensure_schema()
