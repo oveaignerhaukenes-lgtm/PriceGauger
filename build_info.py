@@ -75,12 +75,17 @@ def get_build_info() -> BuildInfo:
     return BuildInfo(commit=commit[:7], branch=branch, commit_time=commit_time)
 
 
-def _render_page_migration_marker() -> None:
+def _calling_page_name() -> str | None:
     frame = inspect.currentframe()
     caller = frame.f_back.f_back if frame is not None and frame.f_back is not None else None
     if caller is None:
+        return None
+    return Path(caller.f_code.co_filename).name
+
+
+def _render_page_migration_marker(page: str | None) -> None:
+    if page is None:
         return
-    page = Path(caller.f_code.co_filename).name
     marker = _MIGRATION_BY_PAGE.get(page)
     if marker is None:
         return
@@ -88,10 +93,24 @@ def _render_page_migration_marker() -> None:
     render_migration_badge(authority, detail=detail)
 
 
+def _render_page_chrome(page: str | None) -> None:
+    """Mount page-scoped shared chrome without coupling it to trading authority."""
+    if page != "0_TradingDesk.py":
+        return
+    try:
+        from market_watchlist_v2 import render_market_watchlist_v2
+
+        render_market_watchlist_v2(show_settings=False)
+    except Exception:
+        # The read-only watchlist must never prevent TradingDesk from loading.
+        pass
+
+
 def render_build_badge() -> None:
     build = get_build_info()
     label = f"Build {build.commit} · {build.branch} · {build.commit_time}"
     compact = f"{build.commit} · {build.branch}"
+    page = _calling_page_name()
 
     st.markdown(
         f"""
@@ -199,7 +218,8 @@ def render_build_badge() -> None:
         unsafe_allow_html=True,
     )
 
-    _render_page_migration_marker()
+    _render_page_migration_marker(page)
+    _render_page_chrome(page)
 
     try:
         with st.sidebar:
