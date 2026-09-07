@@ -2,35 +2,31 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_unified_v2 import _STRATEGY_LAB_UNIFIED_JS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_strategy_lab_baseline_restores_shared_relative_return_pane() -> None:
-    source = (
-        ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "pnl_strategy_lab_unified_v2.py"
-    ).read_text(encoding="utf-8")
+    rendered = _STRATEGY_LAB_UNIFIED_JS
 
-    # The adapter must move LIVE, its provenance carrier, and baseline controls to
-    # pane 0, where the market reference already lives. Assert executable rewrite
-    # targets instead of prose/comment wording.
-    assert "live = chart.addSeries" in source
-    assert "const carrier = chart.addSeries" in source
-    assert "for (const model of Array.from(payload.baseline_models || []))" in source
-    assert source.count("}}, 0);") >= 3
-    assert "build_strategy_lab_payload_v1" in source
+    # Inspect the actual JS handed to the Streamlit component. Market, LIVE, the
+    # provenance carrier and baseline controls must all render on pane 0.
+    assert "for (const model of Array.from(payload.baseline_models || []))" in rendered
+    assert "live = chart.addSeries" in rendered
+    assert "const carrier = chart.addSeries" in rendered
+    assert rendered.count("}}, 0);") >= 4
 
 
 def test_strategy_lab_mobile_pinch_is_reserved_for_native_chart_scaling() -> None:
-    source = (
-        ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "pnl_strategy_lab_unified_v2.py"
-    ).read_text(encoding="utf-8")
+    rendered = _STRATEGY_LAB_UNIFIED_JS
 
-    assert "touchAction: 'pan-y'" in source
-    assert "event.touches?.length >= 2" in source
-    assert "event.preventDefault()" in source
-    assert "passive: false" in source
-    assert "handleScale.pinch" in source
+    assert "touchAction: 'pan-y'" in rendered
+    assert "event.touches?.length >= 2" in rendered
+    assert "event.preventDefault()" in rendered
+    assert "passive: false" in rendered
+    assert "pinch: true" in rendered
 
 
 def test_tradingdesk_mounts_unified_strategy_lab_without_execution_changes() -> None:
