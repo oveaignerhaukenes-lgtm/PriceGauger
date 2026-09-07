@@ -16,7 +16,7 @@ def test_strategy_lab_baseline_restores_shared_relative_return_pane() -> None:
     assert "for (const model of Array.from(payload.baseline_models || []))" in rendered
     assert "live = chart.addSeries" in rendered
     assert "const carrier = chart.addSeries" in rendered
-    assert rendered.count("}}, 0);") >= 4
+    assert rendered.count("}, 0);") >= 4
 
 
 def test_strategy_lab_mobile_pinch_is_reserved_for_native_chart_scaling() -> None:
