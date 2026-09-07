@@ -34,3 +34,24 @@ def test_watchlist_source_contains_progressive_disclosure_contract():
     assert "width >= 245" in source
     assert "cursor:'ew-resize'" in source
     assert "Kun presentasjon" in source
+
+
+def test_watchlist_source_contains_true_collapsed_rail_and_safe_w_hotkey():
+    source = __import__("inspect").getsource(__import__("market_watchlist_v2"))
+    assert "const collapsedWidth = 14" in source
+    assert "position: 'fixed', right: '0'" in source
+    assert "saved.collapsed === true" in source
+    assert "String(event.key || '').toLowerCase() !== 'w'" in source
+    assert "target?.isContentEditable" in source
+    assert "tag === 'input'" in source
+    assert "tag === 'textarea'" in source
+    assert "tag === 'select'" in source
+
+
+def test_tradingdesk_shared_chrome_mounts_watchlist_without_settings():
+    import inspect
+    import build_info
+
+    source = inspect.getsource(build_info)
+    assert 'page != "0_TradingDesk.py"' in source
+    assert "render_market_watchlist_v2(show_settings=False)" in source
