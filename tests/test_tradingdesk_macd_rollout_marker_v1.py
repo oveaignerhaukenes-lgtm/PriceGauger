@@ -21,9 +21,10 @@ def _bar(at, close: float) -> ChartBar:
 
 
 def test_direct_chart_marks_intrabar_macd_rollout_boundary() -> None:
+    marker_bar_at = MACD_INTRABAR_ROLLOUT_AT_V1 + timedelta(minutes=1)
     primary = (
         _bar(MACD_INTRABAR_ROLLOUT_AT_V1 - timedelta(minutes=1), 100.0),
-        _bar(MACD_INTRABAR_ROLLOUT_AT_V1 + timedelta(minutes=1), 101.0),
+        _bar(marker_bar_at, 101.0),
     )
     payload = build_lightweight_direct_live_payload_v1(
         market="US Tech 100 NAS · Saxo 4912",
@@ -42,7 +43,7 @@ def test_direct_chart_marks_intrabar_macd_rollout_boundary() -> None:
     assert len(rollout) == 1
     assert rollout[0]["position"] == "aboveBar"
     assert rollout[0]["shape"] == "square"
-    assert rollout[0]["time"] == int(primary[1].bar_time.replace("Z", "+00:00") and (MACD_INTRABAR_ROLLOUT_AT_V1 + timedelta(minutes=1)).timestamp())
+    assert rollout[0]["time"] == int(marker_bar_at.timestamp())
     assert "macd-rollout:1" in payload["signature"]
 
 
