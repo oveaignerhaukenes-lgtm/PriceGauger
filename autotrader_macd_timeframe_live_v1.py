@@ -21,6 +21,7 @@ from autotrader_fast_live_runtime_v2 import (
     load_fast_live_state_v2,
 )
 from autotrader_macd_binary_execution_v1 import ensure_binary_macd_max_sizing_v1
+from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 from autotrader_macd_intrabar_clock_v1 import (
     LIVE_INTRABAR_MACD_TIMEFRAMES_V1,
     ensure_macd_intrabar_probe_schema_v1,
@@ -36,12 +37,13 @@ from saxo_provider import configured_client
 
 
 MACD_1M_CONTROL_STRATEGY_KEY_V1 = "macd-1m-flip-control-shadow-v1"
-LIVE_MACD_CONTROL_TIMEFRAMES_V1 = (1, 2, 5, 15)
+LIVE_MACD_CONTROL_TIMEFRAMES_V1 = (1, 2, 5, 15, 30)
 LIVE_MACD_CONTROL_STRATEGIES_V1 = {
     MACD_1M_CONTROL_STRATEGY_KEY_V1: 1,
     macd_control_strategy_key_v1(2): 2,
     macd_control_strategy_key_v1(5): 5,
     macd_control_strategy_key_v1(15): 15,
+    MACD_FLIP_STRATEGY_V2: 30,
 }
 
 # MACD is bar-count based, not wall-clock based. A short wall-clock window forces
@@ -115,7 +117,7 @@ def run_macd_timeframe_live_once_v1(
 ) -> FastLiveCycleV2:
     """Run one deliberately binary MACD LONG/SHORT benchmark.
 
-    1m/2m/5m/15m all use one persisted intrabar execution clock built from exact
+    1m/2m/5m/15m/30m all use one persisted intrabar execution clock built from exact
     canonical history plus Saxo's fresh forming 1m chart data. The live clock is
     level-triggered: positive MACD spread requires LONG and negative spread requires
     SHORT on every compatible sample, so a missed event cannot strand the controller.

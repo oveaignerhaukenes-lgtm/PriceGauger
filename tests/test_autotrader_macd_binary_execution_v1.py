@@ -15,8 +15,10 @@ def test_simple_binary_macd_strategy_set_is_exact() -> None:
         "macd-2m-flip-control-shadow-v1",
         "macd-5m-flip-control-shadow-v1",
         "macd-15m-flip-control-shadow-v1",
+        "macd-30m-long-short-v1",
     }
     assert is_simple_binary_macd_strategy_v1("macd-5m-flip-control-shadow-v1")
+    assert is_simple_binary_macd_strategy_v1("macd-30m-long-short-v1")
     assert not is_simple_binary_macd_strategy_v1("strong-cocktail-shadow-v1")
 
 
