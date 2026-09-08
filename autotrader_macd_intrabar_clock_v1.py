@@ -12,7 +12,9 @@ from saxo_chart_live import FormingCandleStore, forming_candle_event_age_seconds
 from trading_desk import ChartBar
 
 
-LIVE_INTRABAR_MACD_TIMEFRAMES_V1 = (2, 5)
+# All simple LIVE MACD flip controls share one execution clock. Technical Core still
+# consumes only canonical closed history; the forming Saxo candle is execution-only.
+LIVE_INTRABAR_MACD_TIMEFRAMES_V1 = (1, 2, 5, 15)
 LIVE_INTRABAR_MAX_EVENT_AGE_SECONDS_V1 = 8.0
 LIVE_INTRABAR_MAX_PROBE_GAP_SECONDS_V1 = 10 * 60.0
 
@@ -98,7 +100,51 @@ def _save_probe_v1(
 def _bucket_start_v1(value: datetime, *, timeframe_minutes: int) -> datetime:
     stamp = _utc(value).replace(second=0, microsecond=0)
     minutes = int(timeframe_minutes)
-    return stamp.replace(minute=stamp.minute - (stamp.minute % minutes))
+    epoch_minutes = int(stamp.timestamp() // 60)
+    bucket_epoch_minutes = epoch_minutes - (epoch_minutes % minutes)
+    return datetime.fromtimestamp(bucket_epoch_minutes * 60, tz=timezone.utc)
+
+
+def _forming_timeframe_bar_v1(
+    *,
+    enrollment: StrategyEnrollmentV2,
+    bars: tuple[CanonicalMarketBarV2, ...],
+    candle,
+    timeframe_minutes: int,
+) -> ChartBar:
+    """Aggregate the entire currently forming timeframe bucket consistently.
+
+    Earlier implementation used only the latest forming 1m candle as the 2m/5m bar.
+    That made the live MACD input differ from the eventual closed timeframe candle.
+    Here closed canonical 1m samples already inside the current bucket are combined
+    with Saxo's current forming 1m candle, so the sampled bar converges to the exact
+    same OHLC that the canonical resampler will see at close.
+    """
+    minutes = int(timeframe_minutes)
+    source_bar_time = _utc(candle.bar_time).replace(second=0, microsecond=0)
+    bucket_start = _bucket_start_v1(source_bar_time, timeframe_minutes=minutes)
+    partial = tuple(
+        item
+        for item in bars
+        if bucket_start <= _utc(item.bar_time).replace(second=0, microsecond=0) < source_bar_time
+    )
+
+    opens = [float(item.open) for item in partial] + [float(candle.open)]
+    highs = [float(item.high) for item in partial] + [float(candle.high)]
+    lows = [float(item.low) for item in partial] + [float(candle.low)]
+    volumes = [float(item.volume) for item in partial if item.volume is not None]
+    if candle.volume is not None:
+        volumes.append(float(candle.volume))
+
+    return ChartBar(
+        market=enrollment.market_name,
+        bar_time=bucket_start.isoformat(),
+        open=opens[0],
+        high=max(highs),
+        low=min(lows),
+        close=float(candle.close),
+        volume=(sum(volumes) if volumes else None),
+    )
 
 
 def live_macd_intrabar_clock_v1(
@@ -109,7 +155,7 @@ def live_macd_intrabar_clock_v1(
     db_path: str,
     now: datetime,
 ) -> Macd1mClockV2:
-    """Build an execution-only 2m/5m MACD clock from exact history + forming Saxo data.
+    """Build a restart-safe LIVE MACD clock from exact history + forming Saxo data.
 
     The forming candle remains outside canonical Technical Core history. Consecutive
     live MACD samples are persisted by pilot, so browser refreshes cannot reset the
@@ -144,16 +190,13 @@ def live_macd_intrabar_clock_v1(
     if not closed:
         raise ValueError(f"MACD {minutes}m LIVE lacks closed MACD warmup")
 
-    source_bar_time = _utc(candle.bar_time)
+    source_bar_time = _utc(candle.bar_time).replace(second=0, microsecond=0)
     bucket_start = _bucket_start_v1(source_bar_time, timeframe_minutes=minutes)
-    current_bar = ChartBar(
-        market=enrollment.market_name,
-        bar_time=bucket_start.isoformat(),
-        open=float(candle.open),
-        high=float(candle.high),
-        low=float(candle.low),
-        close=float(candle.close),
-        volume=candle.volume,
+    current_bar = _forming_timeframe_bar_v1(
+        enrollment=enrollment,
+        bars=bars,
+        candle=candle,
+        timeframe_minutes=minutes,
     )
     materialized = tuple(item for item in closed if _utc(item.bar_time) < bucket_start) + (current_bar,)
     observations = macd_observations_v2(materialized, timeframe_minutes=minutes)
