@@ -20,6 +20,11 @@ from autotrader_fast_live_runtime_v2 import (
     ensure_fast_live_schema_v2,
     load_fast_live_state_v2,
 )
+from autotrader_macd_intrabar_clock_v1 import (
+    LIVE_INTRABAR_MACD_TIMEFRAMES_V1,
+    ensure_macd_intrabar_probe_schema_v1,
+    live_macd_intrabar_clock_v1,
+)
 from autotrader_macd_timeframe_controls_v1 import macd_control_strategy_key_v1
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
@@ -38,8 +43,8 @@ LIVE_MACD_CONTROL_STRATEGIES_V1 = {
 # MACD is bar-count based, not wall-clock based. A short wall-clock window forces
 # an unnecessary multi-hour warmup after weekends/holidays because the market was
 # closed even though trustworthy exact-instrument bars exist before the gap.
-# Keep enough exact-instrument history to seed EMA/MACD, while `_timeframe_clock_v1`
-# still refuses to synthesize a transition across a non-contiguous final bar pair.
+# Keep enough exact-instrument history to seed EMA/MACD. 2m/5m then append only the
+# fresh Saxo forming candle in the separate execution clock; 15m remains closed-bar.
 MACD_WARMUP_LOOKBACK_V1 = timedelta(days=14)
 MACD_WARMUP_MAX_BARS_V1 = 20_000
 
@@ -103,7 +108,11 @@ def run_macd_timeframe_live_once_v1(
     now: datetime | None = None,
     observations: tuple[PositionObservationV2, ...] | None = None,
 ) -> FastLiveCycleV2:
-    """Run one closed-timeframe MACD LONG/SHORT flip through normal AutoManager execution.
+    """Run one MACD LONG/SHORT flip through normal AutoManager execution.
+
+    2m and 5m use a persisted intrabar execution clock built from exact canonical
+    history plus Saxo's fresh forming 1m candle. The cross therefore does not wait
+    for the 2m/5m bar to close. 15m intentionally remains closed-bar for now.
 
     The signal engine only persists desired exposure and execution requests. Saxo order
     authority, sizing, product admission and CLOSE -> FLAT -> OPEN remain in the shared
@@ -113,6 +122,7 @@ def run_macd_timeframe_live_once_v1(
         raise ValueError("MACD timeframe runtime only executes active LIVE_MANAGE enrollments")
     minutes = live_macd_control_timeframe_v1(enrollment.strategy_key)
     ensure_fast_live_schema_v2()
+    ensure_macd_intrabar_probe_schema_v1()
 
     end = _utc(now or datetime.now(timezone.utc))
     bars = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
@@ -123,7 +133,16 @@ def run_macd_timeframe_live_once_v1(
     )
     if not bars:
         raise ValueError(f"MACD {minutes}m LIVE has no exact canonical 1m history")
-    clock = _timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes)
+    if minutes in LIVE_INTRABAR_MACD_TIMEFRAMES_V1:
+        clock = live_macd_intrabar_clock_v1(
+            enrollment,
+            tuple(bars),
+            timeframe_minutes=minutes,
+            db_path=db_path,
+            now=end,
+        )
+    else:
+        clock = _timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes)
 
     if observations is None:
         client = configured_client()
@@ -153,7 +172,7 @@ def run_macd_timeframe_live_once_v1(
             False,
             False,
             True,
-            "BOOTSTRAP_NO_REPLAY",
+            "BOOTSTRAP_LIVE_PROBE" if minutes in LIVE_INTRABAR_MACD_TIMEFRAMES_V1 else "BOOTSTRAP_NO_REPLAY",
         )
 
     if state.pending_target_direction is not None:
@@ -203,10 +222,18 @@ def run_macd_timeframe_live_once_v1(
                 intent_current_signal=state.intent_current_signal,
             )
             _persist_state_v2(state)
-            reason = f"DATA_GAP_{minutes}M_HOLD"
+            reason = (
+                f"LIVE_PROBE_{minutes}M_PRIMED"
+                if minutes in LIVE_INTRABAR_MACD_TIMEFRAMES_V1
+                else f"DATA_GAP_{minutes}M_HOLD"
+            )
         elif clock.cross_direction is not None and clock.cross_direction != state.desired_direction:
             target = clock.cross_direction
-            signal = f"CROSS_{minutes}M_{'UP' if target == DIRECTION_LONG else 'DOWN'}"
+            signal = (
+                f"LIVE_CROSS_{minutes}M_{'UP' if target == DIRECTION_LONG else 'DOWN'}"
+                if minutes in LIVE_INTRABAR_MACD_TIMEFRAMES_V1
+                else f"CROSS_{minutes}M_{'UP' if target == DIRECTION_LONG else 'DOWN'}"
+            )
             state = _new_intent_state_v2(
                 state,
                 target=target,
