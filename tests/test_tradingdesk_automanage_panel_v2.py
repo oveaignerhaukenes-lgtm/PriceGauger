@@ -19,12 +19,27 @@ def test_simple_automanage_panel_is_generic_product_strategy_control_not_order_s
     assert "enroll_strategy_position_v2" in source
     assert "request_manual_target_v2" in source
     assert 'st.toggle("Manage position"' in source
+    assert '"AutoTrade"' in source
     assert 'f"BUY @' in source
     assert 'f"SELL @' in source
     assert "session.post" not in source
     assert "_post_once" not in source
     assert "trade/v2/orders" not in source
     assert "4912" not in source
+
+
+def test_manage_position_and_autotrade_are_distinct_product_authorities():
+    simple = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
+    control = Path("autotrader_manage_control_v1.py").read_text(encoding="utf-8")
+    assert "position_management_enabled_v1" in simple
+    assert "set_position_management_enabled_v1" in simple
+    assert "set_auto_manage_enabled_v1" in simple
+    assert "disabled=not selected_manage" in simple
+    assert "position_management_enabled BOOLEAN NOT NULL DEFAULT TRUE" in control
+    assert 'raise ValueError("AutoTrade requires Manage position to be ON")' in control
+    assert "AUTOTRADE_OFF" in control
+    assert "POSITION_MANAGEMENT_OFF" in control
+    assert "signal NOT LIKE 'USER_TARGET_%'" in control
 
 
 def test_automanage_interactive_controls_remain_streamlit_fragment_scoped():
