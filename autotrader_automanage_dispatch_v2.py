@@ -11,7 +11,7 @@ from autotrader_fast_live_runtime_v2 import (
     _exact_product_observation,
     run_fast_live_strategy_once_v2,
 )
-from autotrader_manage_control_v1 import auto_manage_enabled_v1
+from autotrader_manage_control_v1 import auto_manage_enabled_v1, position_management_enabled_v1
 from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
 from autotrader_manual_target_v2 import manual_target_pending_v2, run_manual_target_once_v2
@@ -89,14 +89,14 @@ def _log_fast_cycle_if_changed_v2(cycle: FastLiveCycleV2) -> None:
 
 
 def _adopt_observed_basis_if_needed_v1(enrollment, observations) -> None:
-    """AutoManager ON means the exact currently observed Saxo basis is managed."""
+    """Manage position ON means the exact currently observed Saxo basis is managed."""
     observation = _exact_product_observation(enrollment, observations)
     if observation is not None and not is_position_managed_v1(observation):
         adopt_user_confirmed_position_v2(enrollment, observation)
 
 
 def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tuple[int, int]:
-    """Dispatch active LIVE pilots with manual targets above optional strategy authority."""
+    """Dispatch position management, manual targets, then optional AutoTrade authority."""
     if not using_postgres():
         return (0, 0)
     enrollments = tuple(
@@ -115,8 +115,8 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
     failed = 0
     for enrollment in enrollments:
         try:
-            # Explicit BUY/SELL remains available even when automatic strategy
-            # management is OFF. While a user target is pending no strategy may race it.
+            # Explicit BUY/SELL remains available independent of AutoTrade. While a
+            # user target is pending no strategy may race it.
             if manual_target_pending_v2(enrollment.pilot_key):
                 cycle = run_manual_target_once_v2(enrollment, observations=observations)
                 if cycle is not None:
@@ -124,13 +124,15 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 evaluated += 1
                 continue
 
+            # Position ownership is a separate control from strategy signal authority.
+            # This keeps an adopted/manual position under the hardened management layer
+            # even when AutoTrade is paused.
+            if position_management_enabled_v1(enrollment):
+                _adopt_observed_basis_if_needed_v1(enrollment, observations)
+
             if not auto_manage_enabled_v1(enrollment):
                 evaluated += 1
                 continue
-
-            # No separate "take over this basis" user ceremony: management ON owns
-            # the exact observed basis automatically before a strategy can request CLOSE.
-            _adopt_observed_basis_if_needed_v1(enrollment, observations)
 
             if enrollment.strategy_key == AI_BASELINE_STRATEGY_V2:
                 cycle = run_ai_live_strategy_once_v1(
