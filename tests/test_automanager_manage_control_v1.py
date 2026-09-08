@@ -6,10 +6,13 @@ from pathlib import Path
 def test_manage_control_is_product_level_and_pauses_only_unstarted_strategy_requests() -> None:
     source = Path("autotrader_manage_control_v1.py").read_text(encoding="utf-8")
     assert "PRIMARY KEY(account_id, uic, asset_type)" in source
+    assert "position_management_enabled BOOLEAN NOT NULL DEFAULT TRUE" in source
     assert "return True" in source  # migration default: existing active controller remains ON
     assert "status IN ('PENDING','APPROVED')" in source
-    assert "AUTOMANAGER_OFF" in source
-    assert "SUBMITTING" not in source.split("AUTOMANAGER_OFF", 1)[0].split("UPDATE pg_v2_autotrader_execution_requests", 1)[-1]
+    assert "AUTOTRADE_OFF" in source
+    assert "POSITION_MANAGEMENT_OFF" in source
+    assert "signal NOT LIKE 'USER_TARGET_%'" in source
+    assert "SUBMITTING" not in source.split("AUTOTRADE_OFF", 1)[0].split("UPDATE pg_v2_autotrader_execution_requests", 1)[-1]
     assert "pg_v2_autotrader_fast_live_state" in source
 
 

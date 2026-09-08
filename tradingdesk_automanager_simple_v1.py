@@ -10,8 +10,13 @@ from autotrader_entry_sizing_policy_v2 import (
 )
 from autotrader_live_close_v1 import LiveCloseConfigV1, save_live_close_config_v1
 from autotrader_live_open_v2 import LiveOpenConfigV2, save_live_open_config_v2
-from autotrader_manage_control_v1 import auto_manage_enabled_v1, set_auto_manage_enabled_v1
-from autotrader_managed_positions_v1 import is_position_managed_v1
+from autotrader_manage_control_v1 import (
+    auto_manage_enabled_v1,
+    position_management_enabled_v1,
+    set_auto_manage_enabled_v1,
+    set_position_management_enabled_v1,
+)
+from autotrader_managed_positions_v1 import is_position_managed_v1, stop_managing_position_v1
 from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
 from autotrader_manual_target_v2 import (
     TARGET_PENDING,
@@ -194,7 +199,7 @@ def _bootstrap_candidate_v1(
 def render_tradingdesk_automanager_simple_v1(
     context: TradingDeskV2Context,
 ) -> tuple[PositionObservationV2, ...] | None:
-    """Simple control plane: BUY, SELL, Manage position, strategy."""
+    """Simple control plane: BUY, SELL, Manage position, AutoTrade, strategy."""
     client = configured_client()
     if client is None or client.base_url.rstrip("/").lower() != LIVE_BASE_URL.lower():
         st.info("Saxo LIVE er ikke tilgjengelig.")
@@ -207,7 +212,7 @@ def render_tradingdesk_automanager_simple_v1(
         st.warning(f"AutoManager kunne ikke lese LIVE-state: {exc}")
         return None
 
-    st.markdown("**Posisjon og AutoManager**")
+    st.markdown("**Posisjon og AutoTrade**")
 
     if enrollment is None:
         bootstrap = _bootstrap_candidate_v1(context, observations)
@@ -217,11 +222,11 @@ def render_tradingdesk_automanager_simple_v1(
             format_func=lambda item: item.label,
             key=f"td-simple-bootstrap-strategy:{context.market_id}",
         )
-        st.caption("AutoManager er OFF · ingen aktiv LIVE-controller på dette produktet.")
+        st.caption("Ingen aktiv LIVE-controller på dette produktet.")
         if bootstrap is None:
-            st.info("Første bootstrap trenger foreløpig en eksisterende Saxo-posisjon. Etter bootstrap kan BUY/SELL brukes direkte fra PriceGauger også når AutoManager er OFF.")
+            st.info("Første bootstrap trenger foreløpig en eksisterende Saxo-posisjon. Etter bootstrap kan BUY/SELL brukes direkte fra PriceGauger.")
             return observations
-        start = st.button("Manage position · ON", type="primary", key=f"td-simple-bootstrap:{context.market_id}", width="stretch")
+        start = st.button("Start · Manage + AutoTrade", type="primary", key=f"td-simple-bootstrap:{context.market_id}", width="stretch")
         if start:
             try:
                 _, currency = _account_info(client, bootstrap.account_id)
@@ -234,18 +239,20 @@ def render_tradingdesk_automanager_simple_v1(
                     entry_mode=ENTRY_MODE_AUTO,
                 )
                 _ensure_execution_ready_v1(enrollment)
-                set_auto_manage_enabled_v1(enrollment, True)
+                set_position_management_enabled_v1(enrollment, True)
                 if not is_position_managed_v1(bootstrap):
                     adopt_user_confirmed_position_v2(enrollment, bootstrap)
+                set_auto_manage_enabled_v1(enrollment, True)
             except Exception as exc:
-                st.error(f"AutoManager kunne ikke startes: {exc}")
+                st.error(f"LIVE-controller kunne ikke startes: {exc}")
             else:
                 st.rerun()
         return observations
 
     observation = _exact_observation_v1(enrollment, observations)
     observed_direction = _direction_v1(observation)
-    manage_enabled = auto_manage_enabled_v1(enrollment)
+    auto_trade_enabled = auto_manage_enabled_v1(enrollment)
+    position_manage_enabled = position_management_enabled_v1(enrollment)
 
     try:
         account_key, _ = _account_info(client, enrollment.account_id)
@@ -257,7 +264,7 @@ def render_tradingdesk_automanager_simple_v1(
 
     target_state = load_manual_target_state_v2(enrollment.pilot_key)
     if target_state is not None and target_state.status == TARGET_PENDING:
-        st.info(f"Brukermål pågår: {target_state.target_direction} · AutoManager fullfører CLOSE → FLAT → OPEN.")
+        st.info(f"Brukermål pågår: {target_state.target_direction} · execution fullfører CLOSE → FLAT → OPEN.")
 
     buy_col, sell_col = st.columns(2, gap="small")
     buy_label = "BUY" if quote is None else f"BUY @ {quote.ask:,.2f}".replace(",", " ")
@@ -288,19 +295,30 @@ def render_tradingdesk_automanager_simple_v1(
             st.error(f"{target}-målet kunne ikke settes: {exc}")
         else:
             if result.already_observed:
-                st.success(f"Saxo er allerede {target}; AutoManager-basen er synkronisert.")
+                st.success(f"Saxo er allerede {target}; execution-basen er synkronisert.")
             elif result.request_created:
                 st.success(f"Mål satt: {target}. Execution-motoren har overtatt overgangen.")
             else:
                 st.success(f"Mål satt: {target}. Execution fortsetter på neste syklus.")
             st.rerun()
 
-    manage_col, strategy_col, settings_col = st.columns([1.25, 2.2, 0.45], gap="small")
-    toggle_key = f"td-simple-manage:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
-    if toggle_key not in st.session_state:
-        st.session_state[toggle_key] = manage_enabled
+    manage_col, auto_col, strategy_col, settings_col = st.columns([1.2, 1.0, 2.0, 0.45], gap="small")
+    manage_key = f"td-simple-manage:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
+    autotrade_key = f"td-simple-autotrade:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
+    if manage_key not in st.session_state:
+        st.session_state[manage_key] = position_manage_enabled
+    if autotrade_key not in st.session_state:
+        st.session_state[autotrade_key] = auto_trade_enabled
+
     with manage_col:
-        selected_manage = st.toggle("Manage position", key=toggle_key)
+        selected_manage = st.toggle("Manage position", key=manage_key)
+    with auto_col:
+        selected_autotrade = st.toggle(
+            "AutoTrade",
+            key=autotrade_key,
+            disabled=not selected_manage,
+            help="Valgt strategi bestemmer ønsket LONG/SHORT/FLAT-state og reconcilerer mot Saxo.",
+        )
     with strategy_col:
         current_index = next(
             (index for index, item in enumerate(AUTOTRADER_STRATEGIES_V2) if item.key == enrollment.strategy_key),
@@ -319,16 +337,34 @@ def render_tradingdesk_automanager_simple_v1(
             st.markdown("**Valgfritt**")
             _render_optional_settings_v1(enrollment, client)
 
-    if selected_manage != manage_enabled:
+    if selected_manage != position_manage_enabled:
         try:
             if selected_manage:
+                set_position_management_enabled_v1(enrollment, True)
                 enrollment = _ensure_execution_ready_v1(enrollment)
                 if observation is not None and not is_position_managed_v1(observation):
                     adopt_user_confirmed_position_v2(enrollment, observation)
-            set_auto_manage_enabled_v1(enrollment, selected_manage)
+            else:
+                set_position_management_enabled_v1(enrollment, False)
+                if observation is not None:
+                    stop_managing_position_v1(observation.account_id, observation.net_position_id)
+                st.session_state[autotrade_key] = False
         except Exception as exc:
-            st.session_state[toggle_key] = manage_enabled
+            st.session_state[manage_key] = position_manage_enabled
             st.error(f"Manage position kunne ikke endres: {exc}")
+        else:
+            st.rerun()
+
+    if selected_autotrade != auto_trade_enabled and selected_manage:
+        try:
+            if selected_autotrade:
+                enrollment = _ensure_execution_ready_v1(enrollment)
+                if observation is not None and not is_position_managed_v1(observation):
+                    adopt_user_confirmed_position_v2(enrollment, observation)
+            set_auto_manage_enabled_v1(enrollment, selected_autotrade)
+        except Exception as exc:
+            st.session_state[autotrade_key] = auto_trade_enabled
+            st.error(f"AutoTrade kunne ikke endres: {exc}")
         else:
             st.rerun()
 
@@ -346,16 +382,18 @@ def render_tradingdesk_automanager_simple_v1(
         else:
             st.rerun()
 
-    # Auto-adoption is a runtime detail, not another user permission.
-    if manage_enabled and observation is not None and not is_position_managed_v1(observation):
+    if position_manage_enabled and observation is not None and not is_position_managed_v1(observation):
         try:
             adopt_user_confirmed_position_v2(enrollment, observation)
         except Exception as exc:
-            st.caption(f"AutoManager-basis venter: {exc}")
+            st.caption(f"Position-basis venter: {exc}")
 
     spec = strategy_spec_v2(enrollment.strategy_key)
-    status = "ON" if manage_enabled else "OFF"
-    st.caption(f"Nå {observed_direction} · AutoManager {status} · {spec.label}")
+    manage_status = "ON" if position_manage_enabled else "OFF"
+    auto_status = "ON" if auto_trade_enabled else "OFF"
+    st.caption(
+        f"Nå {observed_direction} · Manage {manage_status} · AutoTrade {auto_status} · {spec.label}"
+    )
     return observations
 
 
