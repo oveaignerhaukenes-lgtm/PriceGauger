@@ -114,11 +114,9 @@ def _forming_timeframe_bar_v1(
 ) -> ChartBar:
     """Aggregate the entire currently forming timeframe bucket consistently.
 
-    Earlier implementation used only the latest forming 1m candle as the 2m/5m bar.
-    That made the live MACD input differ from the eventual closed timeframe candle.
-    Here closed canonical 1m samples already inside the current bucket are combined
-    with Saxo's current forming 1m candle, so the sampled bar converges to the exact
-    same OHLC that the canonical resampler will see at close.
+    Closed canonical 1m samples already inside the current bucket are combined with
+    Saxo's current forming 1m candle, so the sampled bar converges to the same OHLC
+    that the canonical resampler will see at close.
     """
     minutes = int(timeframe_minutes)
     source_bar_time = _utc(candle.bar_time).replace(second=0, microsecond=0)
@@ -155,11 +153,12 @@ def live_macd_intrabar_clock_v1(
     db_path: str,
     now: datetime,
 ) -> Macd1mClockV2:
-    """Build a restart-safe LIVE MACD clock from exact history + forming Saxo data.
+    """Build a restart-safe LIVE MACD state clock from exact history + forming Saxo data.
 
-    The forming candle remains outside canonical Technical Core history. Consecutive
-    live MACD samples are persisted by pilot, so browser refreshes cannot reset the
-    cross detector and short process restarts retain the previous side of the cross.
+    The execution contract is level-triggered: once the live probe is compatible,
+    positive MACD spread means LONG target and negative spread means SHORT target on
+    every sample. A transient missed cross therefore cannot leave the controller on
+    the wrong side indefinitely. Technical Core remains closed-history only.
     """
     minutes = int(timeframe_minutes)
     if minutes not in LIVE_INTRABAR_MACD_TIMEFRAMES_V1:
@@ -209,7 +208,7 @@ def live_macd_intrabar_clock_v1(
     previous_macd = float(current.macd)
     previous_signal = float(current.signal)
     previous_spread = float(current.spread)
-    cross = None
+    target_direction = None
     data_gap = True
     if prior is not None:
         prior_sampled_at = _utc(prior["sampled_at"])
@@ -226,10 +225,10 @@ def live_macd_intrabar_clock_v1(
             previous_macd = float(prior["macd"])
             previous_signal = float(prior["signal"])
             previous_spread = float(prior["spread"])
-            if previous_spread <= 0.0 < current.spread:
-                cross = DIRECTION_LONG
-            elif previous_spread >= 0.0 > current.spread:
-                cross = DIRECTION_SHORT
+            if float(current.spread) > 0.0:
+                target_direction = DIRECTION_LONG
+            elif float(current.spread) < 0.0:
+                target_direction = DIRECTION_SHORT
 
     _save_probe_v1(
         enrollment=enrollment,
@@ -247,7 +246,7 @@ def live_macd_intrabar_clock_v1(
         current_macd=float(current.macd),
         current_signal=float(current.signal),
         current_spread=float(current.spread),
-        cross_direction=cross,
+        cross_direction=target_direction,
         data_gap=data_gap,
     )
 

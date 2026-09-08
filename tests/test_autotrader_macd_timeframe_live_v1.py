@@ -60,8 +60,12 @@ def test_all_simple_controls_use_persisted_forming_candle_clock() -> None:
     assert "FormingCandleStore" in intrabar
     assert "realtime_forming_candles_1m" not in runtime
     assert "pg_v2_autotrader_macd_live_probe_state" in intrabar
-    assert "previous_spread <= 0.0 < current.spread" in intrabar
-    assert "previous_spread >= 0.0 > current.spread" in intrabar
+    assert "float(current.spread) > 0.0" in intrabar
+    assert "target_direction = DIRECTION_LONG" in intrabar
+    assert "float(current.spread) < 0.0" in intrabar
+    assert "target_direction = DIRECTION_SHORT" in intrabar
+    assert "previous_spread <= 0.0 < current.spread" not in intrabar
+    assert "previous_spread >= 0.0 > current.spread" not in intrabar
 
 
 def test_forming_timeframe_bar_aggregates_entire_partial_bucket() -> None:
