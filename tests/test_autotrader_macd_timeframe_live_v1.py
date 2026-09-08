@@ -14,13 +14,14 @@ from autotrader_strategy_catalog_v2 import (
     MACD_2M_FLIP_STRATEGY_V2,
     MACD_5M_FLIP_STRATEGY_V2,
     MACD_15M_FLIP_STRATEGY_V2,
+    MACD_FLIP_STRATEGY_V2,
     strategy_spec_v2,
 )
 
 
 def test_all_simple_live_macd_controls_share_intrabar_clock() -> None:
-    assert LIVE_MACD_CONTROL_TIMEFRAMES_V1 == (1, 2, 5, 15)
-    assert LIVE_INTRABAR_MACD_TIMEFRAMES_V1 == (1, 2, 5, 15)
+    assert LIVE_MACD_CONTROL_TIMEFRAMES_V1 == (1, 2, 5, 15, 30)
+    assert LIVE_INTRABAR_MACD_TIMEFRAMES_V1 == (1, 2, 5, 15, 30)
     assert MACD_2M_FLIP_STRATEGY_V2 == macd_control_strategy_key_v1(2)
     assert MACD_5M_FLIP_STRATEGY_V2 == macd_control_strategy_key_v1(5)
     assert MACD_15M_FLIP_STRATEGY_V2 == macd_control_strategy_key_v1(15)
@@ -28,25 +29,30 @@ def test_all_simple_live_macd_controls_share_intrabar_clock() -> None:
     assert LIVE_MACD_CONTROL_STRATEGIES_V1[MACD_2M_FLIP_STRATEGY_V2] == 2
     assert LIVE_MACD_CONTROL_STRATEGIES_V1[MACD_5M_FLIP_STRATEGY_V2] == 5
     assert LIVE_MACD_CONTROL_STRATEGIES_V1[MACD_15M_FLIP_STRATEGY_V2] == 15
+    assert LIVE_MACD_CONTROL_STRATEGIES_V1[MACD_FLIP_STRATEGY_V2] == 30
     assert live_macd_control_timeframe_v1(MACD_1M_FLIP_STRATEGY_V2) == 1
     assert live_macd_control_timeframe_v1(MACD_2M_FLIP_STRATEGY_V2) == 2
     assert live_macd_control_timeframe_v1(MACD_5M_FLIP_STRATEGY_V2) == 5
     assert live_macd_control_timeframe_v1(MACD_15M_FLIP_STRATEGY_V2) == 15
+    assert live_macd_control_timeframe_v1(MACD_FLIP_STRATEGY_V2) == 30
 
 
-def test_catalog_exposes_all_four_as_symmetric_long_short_live_choices() -> None:
+def test_catalog_exposes_all_five_as_symmetric_long_short_live_choices() -> None:
     one = strategy_spec_v2(MACD_1M_FLIP_STRATEGY_V2)
     two = strategy_spec_v2(MACD_2M_FLIP_STRATEGY_V2)
     five = strategy_spec_v2(MACD_5M_FLIP_STRATEGY_V2)
     fifteen = strategy_spec_v2(MACD_15M_FLIP_STRATEGY_V2)
+    thirty = strategy_spec_v2(MACD_FLIP_STRATEGY_V2)
     assert one.label == "1m MACD flip · long/short"
     assert two.label == "2m MACD flip · long/short"
     assert five.label == "5m MACD flip · long/short"
     assert fifteen.label == "15m MACD flip · long/short"
+    assert thirty.label == "30m MACD flip · long/short"
     assert one.can_long and one.can_short
     assert two.can_long and two.can_short
     assert five.can_long and five.can_short
     assert fifteen.can_long and fifteen.can_short
+    assert thirty.can_long and thirty.can_short
 
 
 def test_all_simple_controls_use_persisted_forming_candle_clock() -> None:
@@ -55,6 +61,7 @@ def test_all_simple_controls_use_persisted_forming_candle_clock() -> None:
     dispatch = Path("autotrader_automanage_dispatch_v2.py").read_text(encoding="utf-8")
     assert "live_macd_intrabar_clock_v1(" in runtime
     assert "MACD_1M_FLIP_STRATEGY_V2" in dispatch
+    assert "MACD_FLIP_STRATEGY_V2" in dispatch
     assert "TIMEFRAME_MACD_LIVE_STRATEGIES" in dispatch
     assert "FAST_LIVE_STRATEGIES = {STRONG_COCKTAIL_STRATEGY_V2}" in dispatch
     assert "FormingCandleStore" in intrabar
