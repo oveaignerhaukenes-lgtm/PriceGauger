@@ -14,7 +14,7 @@ from trading_desk import ChartBar
 
 # All simple LIVE MACD flip controls share one execution clock. Technical Core still
 # consumes only canonical closed history; the forming Saxo candle is execution-only.
-LIVE_INTRABAR_MACD_TIMEFRAMES_V1 = (1, 2, 5, 15)
+LIVE_INTRABAR_MACD_TIMEFRAMES_V1 = (1, 2, 5, 15, 30)
 LIVE_INTRABAR_MAX_EVENT_AGE_SECONDS_V1 = 8.0
 LIVE_INTRABAR_MAX_PROBE_GAP_SECONDS_V1 = 10 * 60.0
 
