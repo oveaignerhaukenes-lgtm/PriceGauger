@@ -24,6 +24,7 @@ from autotrader_live_close_v1 import (
     code_gate_enabled_v1,
     load_live_close_config_v1,
 )
+from autotrader_macd_binary_execution_v1 import is_simple_binary_macd_strategy_v1
 from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_manual_entry_adoption_v2 import run_manual_entry_adoption_cycle_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
@@ -146,12 +147,16 @@ def _matching_current_position(
     return matches[0] if matches else None
 
 
+def _direction_v2(current: PositionObservationV2) -> str:
+    return "LONG" if current.direction.strip().lower() == "buy" else "SHORT"
+
+
 def _basis_is_unchanged(request: dict[str, Any], current: PositionObservationV2) -> bool:
     expected_position_id = request.get("observed_net_position_id")
     if expected_position_id and str(expected_position_id) != current.net_position_id:
         return False
     expected_direction = str(request.get("observed_direction") or "").upper()
-    current_direction = "LONG" if current.direction.strip().lower() == "buy" else "SHORT"
+    current_direction = _direction_v2(current)
     if expected_direction and expected_direction != current_direction:
         return False
     expected_amount = request.get("observed_amount")
@@ -163,6 +168,25 @@ def _basis_is_unchanged(request: dict[str, Any], current: PositionObservationV2)
     return True
 
 
+def _binary_macd_rebase_is_safe(request: dict[str, Any], current: PositionObservationV2) -> bool:
+    """Allow a binary MACD reversal to close the latest full net amount.
+
+    The old stale-basis guard was appropriate for one-shot event execution but can
+    strand a state-driven benchmark when the same exact managed Saxo net position
+    changes amount/average basis before the CLOSE worker acts. For the deliberately
+    binary simple MACD controls, rebasing is allowed only while exact product identity,
+    net-position identity and the side being exited are unchanged. A side change still
+    blocks the old request so a stale reversal can never fight the current broker state.
+    """
+    if not is_simple_binary_macd_strategy_v1(str(request.get("strategy_key") or "")):
+        return False
+    expected_position_id = str(request.get("observed_net_position_id") or "")
+    if expected_position_id and expected_position_id != str(current.net_position_id):
+        return False
+    expected_direction = str(request.get("observed_direction") or "").upper()
+    return bool(expected_direction and expected_direction == _direction_v2(current))
+
+
 def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
     if not using_postgres():
         return StrategyCloseCycleV2(False, 0, 0, 0, 0, 0)
@@ -171,8 +195,6 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
     config = load_live_close_config_v1()
     armed = bool(config.armed and code_gate_enabled_v1())
     if not armed:
-        # Keep requests pending while the independent system-wide execution kill
-        # switch is off. Enrollment alone must never bypass this gate.
         return StrategyCloseCycleV2(False, len(_pending_close_requests()), 0, 0, 0, 0)
 
     client = _require_live_client()
@@ -180,7 +202,6 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
         LOGGER.error("strategy LIVE close blocked: Saxo PositionNettingMode must be Intraday")
         return StrategyCloseCycleV2(True, len(_pending_close_requests()), 0, 0, 1, 0)
 
-    # Reuse the proven close reconciliation before considering another POST.
     _reconcile_accepted_attempts(client)
     reconciled = _sync_close_attempt_statuses()
     pending = _pending_close_requests()
@@ -211,9 +232,6 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
 
             current = _matching_current_position(request, observations)
             if current is None:
-                # Desired CLOSE state already exists, but because no PriceGauger
-                # close was submitted there is deliberately no authoritative P/L
-                # booking for this request.
                 _update_request(request_id, status=REQUEST_RECONCILED, block_reason="ALREADY_FLAT_NO_ORDER")
                 reconciled += 1
                 continue
@@ -222,13 +240,19 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
                 blocked += 1
                 continue
             if not _basis_is_unchanged(request, current):
-                _update_request(request_id, status=REQUEST_BLOCKED, block_reason="STALE_POSITION_BASIS")
-                blocked += 1
-                continue
+                if _binary_macd_rebase_is_safe(request, current):
+                    LOGGER.info(
+                        "binary MACD close rebased request=%s side=%s old_amount=%s current_amount=%s",
+                        request_id,
+                        _direction_v2(current),
+                        request.get("observed_amount"),
+                        current.amount,
+                    )
+                else:
+                    _update_request(request_id, status=REQUEST_BLOCKED, block_reason="STALE_POSITION_BASIS")
+                    blocked += 1
+                    continue
             if not current.can_be_closed or not current.is_market_open or current.non_tradable_reason not in {"", "None", "NONE", None}:
-                # Market/tradability can recover. Do not permanently consume the
-                # request; leave it pending rather than turning a temporary closure
-                # into a new signal requirement.
                 continue
 
             account_key = _account_key_for_account_id(client, current.account_id)
@@ -254,8 +278,6 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
                 external_reference=external_reference,
                 precheck_result=str(precheck.get("PreCheckResult") or ""),
             ):
-                # Existing attempt means execution has already crossed the durable
-                # idempotency boundary. Never issue another POST.
                 _sync_close_attempt_statuses()
                 continue
 

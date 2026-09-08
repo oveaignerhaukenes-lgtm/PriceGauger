@@ -20,6 +20,7 @@ from autotrader_fast_live_runtime_v2 import (
     ensure_fast_live_schema_v2,
     load_fast_live_state_v2,
 )
+from autotrader_macd_binary_execution_v1 import ensure_binary_macd_max_sizing_v1
 from autotrader_macd_intrabar_clock_v1 import (
     LIVE_INTRABAR_MACD_TIMEFRAMES_V1,
     ensure_macd_intrabar_probe_schema_v1,
@@ -112,22 +113,27 @@ def run_macd_timeframe_live_once_v1(
     now: datetime | None = None,
     observations: tuple[PositionObservationV2, ...] | None = None,
 ) -> FastLiveCycleV2:
-    """Run one simple MACD LONG/SHORT flip through normal AutoManager execution.
+    """Run one deliberately binary MACD LONG/SHORT benchmark.
 
     1m/2m/5m/15m all use one persisted intrabar execution clock built from exact
-    canonical history plus Saxo's fresh forming 1m chart data. A cross therefore
-    acts when the sampled MACD spread changes sign rather than at an arbitrary bar
-    close. Browser refreshes cannot reset the detector because the probe is durable.
+    canonical history plus Saxo's fresh forming 1m chart data. The live clock is
+    level-triggered: positive MACD spread requires LONG and negative spread requires
+    SHORT on every compatible sample, so a missed event cannot strand the controller.
 
-    The signal engine only persists desired exposure and execution requests. Saxo order
-    authority, sizing, product admission and CLOSE -> FLAT -> OPEN remain in the shared
-    hardened execution lifecycle.
+    These simple benchmark controls also force the existing entry sizing policy to
+    MAX_WITHIN_PILOT for both directions. The signal engine still has no direct Saxo
+    order authority: product admission, precheck, Margin Envelope and the hardened
+    CLOSE -> broker-confirmed FLAT -> OPEN execution lifecycle remain authoritative.
     """
     if enrollment.execution_mode != EXECUTION_MODE_LIVE or not enrollment.enabled:
         raise ValueError("MACD timeframe runtime only executes active LIVE_MANAGE enrollments")
     minutes = live_macd_control_timeframe_v1(enrollment.strategy_key)
     ensure_fast_live_schema_v2()
     ensure_macd_intrabar_probe_schema_v1()
+
+    client = configured_client()
+    if client is not None:
+        ensure_binary_macd_max_sizing_v1(enrollment, client)
 
     end = _utc(now or datetime.now(timezone.utc))
     bars = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
@@ -149,7 +155,6 @@ def run_macd_timeframe_live_once_v1(
     )
 
     if observations is None:
-        client = configured_client()
         if client is None:
             raise RuntimeError("Saxo client is not configured")
         observations = _position_observations_v2(client)
