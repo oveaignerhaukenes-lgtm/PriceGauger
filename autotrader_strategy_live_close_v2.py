@@ -171,20 +171,55 @@ def _basis_is_unchanged(request: dict[str, Any], current: PositionObservationV2)
 def _binary_macd_rebase_is_safe(request: dict[str, Any], current: PositionObservationV2) -> bool:
     """Allow a binary MACD reversal to close the latest full net amount.
 
-    The old stale-basis guard was appropriate for one-shot event execution but can
-    strand a state-driven benchmark when the same exact managed Saxo net position
-    changes amount/average basis before the CLOSE worker acts. For the deliberately
-    binary simple MACD controls, rebasing is allowed only while exact product identity,
-    net-position identity and the side being exited are unchanged. A side change still
-    blocks the old request so a stale reversal can never fight the current broker state.
+    The state-driven benchmark may see the same exact Saxo net position change amount
+    or average basis before the CLOSE bridge acts. Those mutable basis fields must not
+    strand the reversal. Product identity, net-position identity and exit side remain
+    immutable authority boundaries.
     """
     if not is_simple_binary_macd_strategy_v1(str(request.get("strategy_key") or "")):
         return False
     expected_position_id = str(request.get("observed_net_position_id") or "")
-    if expected_position_id and expected_position_id != str(current.net_position_id):
+    if not expected_position_id or expected_position_id != str(current.net_position_id):
         return False
     expected_direction = str(request.get("observed_direction") or "").upper()
     return bool(expected_direction and expected_direction == _direction_v2(current))
+
+
+def _binary_macd_managed_identity_is_authorized(
+    request: dict[str, Any],
+    current: PositionObservationV2,
+) -> bool:
+    """Accept stale amount/price basis only for an already-managed exact net identity.
+
+    `is_position_managed_v1` deliberately compares amount and average price exactly.
+    That is the right generic safety rule, but it runs before binary-MACD rebasing and
+    therefore used to block the very same-broker-position resize/reprice case that the
+    benchmark must reconcile. This narrower check keeps account/UIC/AssetType,
+    net-position id, managed flag and exit direction authoritative while allowing only
+    amount/average basis to drift.
+    """
+    if not _binary_macd_rebase_is_safe(request, current):
+        return False
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT direction
+            FROM pg_v2_autotrader_managed_positions
+            WHERE account_id = ? AND net_position_id = ?
+              AND uic = ? AND asset_type = ? AND managed = TRUE
+            LIMIT 1
+            """,
+            (
+                current.account_id,
+                current.net_position_id,
+                int(current.uic),
+                current.asset_type,
+            ),
+        ).fetchone()
+    if row is None:
+        return False
+    stored_direction = str(_record_dict(row).get("direction") or "").strip().lower()
+    return stored_direction == current.direction.strip().lower()
 
 
 def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
@@ -235,12 +270,16 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
                 _update_request(request_id, status=REQUEST_RECONCILED, block_reason="ALREADY_FLAT_NO_ORDER")
                 reconciled += 1
                 continue
-            if not is_position_managed_v1(current):
+
+            exact_managed = is_position_managed_v1(current)
+            binary_managed_identity = _binary_macd_managed_identity_is_authorized(request, current)
+            if not exact_managed and not binary_managed_identity:
                 _update_request(request_id, status=REQUEST_BLOCKED, block_reason="POSITION_NOT_EXACTLY_MANAGED")
                 blocked += 1
                 continue
+
             if not _basis_is_unchanged(request, current):
-                if _binary_macd_rebase_is_safe(request, current):
+                if binary_managed_identity:
                     LOGGER.info(
                         "binary MACD close rebased request=%s side=%s old_amount=%s current_amount=%s",
                         request_id,
