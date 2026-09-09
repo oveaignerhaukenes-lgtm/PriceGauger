@@ -36,7 +36,7 @@ def render_tradingdesk_automanage_panel_v2(
     @st.fragment
     def _automanager_fragment_v2():
         observations = render_tradingdesk_automanager_simple_v1(context)
-        render_tradingdesk_pilot_status_panel_v1(context)
+        render_tradingdesk_pilot_status_panel_v1(context, observations=observations)
         return observations
 
     return _automanager_fragment_v2()
