@@ -6,11 +6,11 @@ from hypervigilant_macd_v1 import bucket_start_v1, materialize_hypervigilant_mac
 
 
 def _points(count: int = 160) -> tuple[tuple[str, float], ...]:
-    start = datetime(2026, 9, 9, 6, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 9, 8, 0, 0, tzinfo=timezone.utc)
     result = []
     for index in range(count):
         # Enough shape to warm EMA while avoiding a perfectly flat zero-spread series.
-        price = 29500.0 + (index * 0.35) + ((index % 11) - 5) * 0.8
+        price = 29500.0 + (index * 0.035) + ((index % 11) - 5) * 0.8
         result.append(((start + timedelta(minutes=index)).isoformat(), price))
     return tuple(result)
 
@@ -25,7 +25,7 @@ def test_bucket_start_is_epoch_aligned() -> None:
 
 def test_forming_price_replaces_provisional_period_without_adding_a_macd_period() -> None:
     points = _points()
-    forming_time = datetime(2026, 9, 9, 8, 40, tzinfo=timezone.utc)
+    forming_time = datetime(2026, 9, 8, 2, 40, tzinfo=timezone.utc)
     low = materialize_hypervigilant_macd_v1(
         points,
         market="US Tech",
@@ -47,8 +47,8 @@ def test_forming_price_replaces_provisional_period_without_adding_a_macd_period(
 
 
 def test_same_materializer_supports_slow_hypervigilant_timeframes() -> None:
-    points = _points(300)
-    forming_time = datetime(2026, 9, 9, 11, 1, tzinfo=timezone.utc)
+    points = _points(1200)
+    forming_time = datetime(2026, 9, 8, 20, 1, tzinfo=timezone.utc)
     for minutes in (1, 2, 5, 15, 30):
         observations = materialize_hypervigilant_macd_v1(
             points,
