@@ -18,6 +18,7 @@ from autotrader_fast_live_runtime_v2 import (
     _persist_intent_and_request_v2,
     _persist_state_v2,
     ensure_fast_live_schema_v2,
+    fast_request_action_v2,
     load_fast_live_state_v2,
 )
 from autotrader_macd_binary_execution_v1 import ensure_binary_macd_max_sizing_v1
@@ -33,6 +34,7 @@ from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, StrategyEnrollmentV2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2, CanonicalMarketBarV2
+from database import connect
 from saxo_provider import configured_client
 
 
@@ -53,6 +55,12 @@ LIVE_MACD_CONTROL_STRATEGIES_V1 = {
 # fresh Saxo forming bucket in the separate execution clock.
 MACD_WARMUP_LOOKBACK_V1 = timedelta(days=14)
 MACD_WARMUP_MAX_BARS_V1 = 20_000
+
+# A still-active binary MACD target must not be stranded forever by a request that
+# failed before an accepted/uncertain Saxo submit. Re-arming BLOCKED/REJECTED means
+# "run the normal hardened lifecycle again", not "blindly retry an order". We never
+# revive SUPERSEDED, SUBMITTING, ORDER_ACCEPTED or UNCERTAIN requests.
+_RETRYABLE_TERMINAL_REQUEST_STATUSES_V1 = ("BLOCKED", "REJECTED")
 
 
 def _utc(value: Any) -> datetime:
@@ -106,6 +114,116 @@ def _timeframe_clock_v1(
         cross_direction=cross,
         data_gap=bool(data_gap),
     )
+
+
+def _matching_intent_request_exists_v1(
+    enrollment: StrategyEnrollmentV2,
+    state: FastLiveStateV2,
+    *,
+    observed_direction: str,
+) -> bool:
+    if state.intent_signal_at is None:
+        return False
+    desired = state.pending_target_direction or state.desired_direction
+    action = fast_request_action_v2(observed_direction, desired)
+    if action is None:
+        return False
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_execution_requests
+            WHERE pilot_key = ? AND strategy_key = ? AND action = ?
+              AND desired_direction = ? AND signal_at = ?
+            LIMIT 1
+            """,
+            (
+                enrollment.pilot_key,
+                enrollment.strategy_key,
+                action,
+                desired,
+                state.intent_signal_at,
+            ),
+        ).fetchone()
+    return row is not None
+
+
+def _rearm_retryable_terminal_request_v1(
+    enrollment: StrategyEnrollmentV2,
+    state: FastLiveStateV2,
+    *,
+    observed_direction: str,
+) -> bool:
+    """Re-arm only a known terminal request while the exact MACD target is still live.
+
+    This deliberately leaves uncertain/accepted/in-flight requests untouched. The
+    request re-enters PENDING and therefore must pass enrollment, exact-product,
+    managed-position, market-open and Saxo precheck gates again before any POST.
+    """
+    if state.intent_signal_at is None:
+        return False
+    desired = state.pending_target_direction or state.desired_direction
+    action = fast_request_action_v2(observed_direction, desired)
+    if action is None:
+        return False
+    with connect() as db:
+        cursor = db.execute(
+            """
+            UPDATE pg_v2_autotrader_execution_requests
+            SET status = 'PENDING', block_reason = NULL, order_id = NULL, updated_at = now()
+            WHERE request_id = (
+                SELECT request_id
+                FROM pg_v2_autotrader_execution_requests
+                WHERE pilot_key = ? AND strategy_key = ? AND action = ?
+                  AND desired_direction = ? AND signal_at = ?
+                  AND status IN ('BLOCKED', 'REJECTED')
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+            )
+            """,
+            (
+                enrollment.pilot_key,
+                enrollment.strategy_key,
+                action,
+                desired,
+                state.intent_signal_at,
+            ),
+        )
+        changed = int(cursor.rowcount or 0) > 0
+    return changed
+
+
+def _persist_binary_macd_intent_v1(
+    *,
+    enrollment: StrategyEnrollmentV2,
+    state: FastLiveStateV2,
+    observed: PositionObservationV2 | None,
+    observed_direction: str,
+    budget_amount: float,
+    budget_currency: str,
+    supersede_prior: bool,
+) -> bool:
+    """Persist one binary target and report only a real new/re-armed request."""
+    existed_before = _matching_intent_request_exists_v1(
+        enrollment,
+        state,
+        observed_direction=observed_direction,
+    )
+    nominal_created = _persist_intent_and_request_v2(
+        enrollment=enrollment,
+        state=state,
+        observed=observed,
+        observed_direction=observed_direction,
+        budget_amount=budget_amount,
+        budget_currency=budget_currency,
+        supersede_prior=supersede_prior,
+    )
+    rearmed = _rearm_retryable_terminal_request_v1(
+        enrollment,
+        state,
+        observed_direction=observed_direction,
+    )
+    return bool(rearmed or (nominal_created and not existed_before))
 
 
 def run_macd_timeframe_live_once_v1(
@@ -245,7 +363,7 @@ def run_macd_timeframe_live_once_v1(
                 signal=signal,
             )
             equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
-            request_created = _persist_intent_and_request_v2(
+            request_created = _persist_binary_macd_intent_v1(
                 enrollment=enrollment,
                 state=state,
                 observed=observed,
@@ -275,7 +393,7 @@ def run_macd_timeframe_live_once_v1(
 
     if state.pending_target_direction is not None and observed_direction != state.pending_target_direction:
         equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
-        continued = _persist_intent_and_request_v2(
+        continued = _persist_binary_macd_intent_v1(
             enrollment=enrollment,
             state=state,
             observed=observed,
@@ -285,7 +403,9 @@ def run_macd_timeframe_live_once_v1(
             supersede_prior=False,
         )
         request_created = request_created or continued
-        if not new_action:
+        if continued:
+            reason = "PENDING_TRANSITION_RETRY_READY"
+        elif not new_action:
             reason = "PENDING_TRANSITION_CONTINUED"
 
     _persist_state_v2(state)
