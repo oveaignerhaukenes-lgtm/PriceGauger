@@ -219,10 +219,10 @@ export default function(component) {
             const price = cleanNumber(marker.execution_price);
             if (time == null || price == null) return [];
             const direction = String(marker.direction || '').toUpperCase();
+            if (direction !== 'LONG' && direction !== 'SHORT') return [];
             return [{
                 time,
-                price,
-                position: 'atPriceMiddle',
+                position: direction === 'LONG' ? 'belowBar' : 'aboveBar',
                 shape: direction === 'LONG' ? 'arrowUp' : 'arrowDown',
                 color: direction === 'LONG' ? '#16a34a' : '#dc2626',
                 size: marker.active ? 1.0 : 0.72,
@@ -493,8 +493,6 @@ export default function(component) {
         scan(LWC);
         observer = new MutationObserver(() => scan(LWC));
         observer.observe(document.body, { childList: true, subtree: true });
-        // The 250 ms poll only mirrors the UI-only forming candle/marker read-model.
-        // Native chart navigation itself never crosses this timer or Streamlit.
         const timer = window.setInterval(() => scan(LWC), 250);
         parentElement.style.display = 'none';
         parentElement.dataset.pgLightweightBridgeTimer = String(timer);
@@ -519,18 +517,8 @@ _bridge_component = st.components.v2.component(
 )
 
 
-def render_lightweight_plotly_bridge_v1() -> None:
-    """Transitional adapter: render the existing LIVE Plotly read-model with LWC.
-
-    The hidden Plotly figure remains the temporary server-side serialization source while
-    native browser interaction/rendering is evaluated. No trading authority is introduced.
-    """
-
-    _bridge_component(
-        key="pg-tradingdesk-lightweight-plotly-bridge-v1",
-        data={},
-        height=0,
-    )
+def mount_tradingdesk_lightweight_bridge_v1() -> None:
+    _bridge_component(key="pricegauger-tradingdesk-lightweight-plotly-bridge-v1")
 
 
-__all__ = ["render_lightweight_plotly_bridge_v1"]
+__all__ = ["mount_tradingdesk_lightweight_bridge_v1"]
