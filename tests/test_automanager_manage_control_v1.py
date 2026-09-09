@@ -23,3 +23,13 @@ def test_manual_buy_sell_uses_normal_execution_requests_not_direct_saxo_post() -
     assert "adopt_user_confirmed_position_v2" in source
     assert "trade/v2/orders" not in source
     assert "_post_once" not in source
+
+
+def test_terminal_manual_target_cannot_reserve_strategy_authority_forever() -> None:
+    source = Path("autotrader_manual_target_v2.py").read_text(encoding="utf-8")
+    assert 'TERMINAL_REQUEST_STATUSES = {"BLOCKED", "REJECTED", "SUPERSEDED"}' in source
+    assert "_latest_manual_target_request_status_v2" in source
+    assert "_retire_terminal_manual_target_v2" in source
+    assert "TARGET_SUPERSEDED" in source
+    assert "SUBMITTING" not in source.split("TERMINAL_REQUEST_STATUSES", 1)[0]
+    assert "UNCERTAIN" not in source.split("TERMINAL_REQUEST_STATUSES", 1)[0]

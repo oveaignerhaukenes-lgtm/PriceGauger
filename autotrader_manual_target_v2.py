@@ -36,6 +36,7 @@ TARGET_PENDING = "PENDING"
 TARGET_COMPLETE = "COMPLETE"
 TARGET_SUPERSEDED = "SUPERSEDED"
 TARGETS = {DIRECTION_LONG, DIRECTION_SHORT}
+TERMINAL_REQUEST_STATUSES = {"BLOCKED", "REJECTED", "SUPERSEDED"}
 _SCHEMA_LOCK = Lock()
 _SCHEMA_READY = False
 
@@ -129,11 +130,6 @@ def load_manual_target_state_v2(pilot_key: str) -> ManualTargetStateV2 | None:
     )
 
 
-def manual_target_pending_v2(pilot_key: str) -> bool:
-    state = load_manual_target_state_v2(pilot_key)
-    return bool(state is not None and state.status == TARGET_PENDING)
-
-
 def _save_target_state_v2(state: ManualTargetStateV2) -> None:
     with connect() as db:
         db.execute(
@@ -183,6 +179,61 @@ def _reset_strategy_runtime_after_user_target_v2(pilot_key: str) -> None:
             "pg_v2_autotrader_mtf_flip_live_state",
         ):
             db.execute(f"DELETE FROM {table} WHERE pilot_key = ?", (str(pilot_key),))
+
+
+def _latest_manual_target_request_status_v2(state: ManualTargetStateV2) -> str | None:
+    """Return the latest execution-request status produced by this exact user intent."""
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT r.status
+            FROM pg_v2_autotrader_strategy_evaluations AS e
+            JOIN pg_v2_autotrader_execution_requests AS r
+              ON r.evaluation_id = e.evaluation_id
+            WHERE e.pilot_key = ? AND e.intent_id = ?
+            ORDER BY r.created_at DESC
+            LIMIT 1
+            """,
+            (state.pilot_key, state.intent_event_id),
+        ).fetchone()
+    if row is None:
+        return None
+    value = row.get("status") if isinstance(row, dict) else row[0]
+    return None if value is None else str(value).upper()
+
+
+def _retire_terminal_manual_target_v2(state: ManualTargetStateV2) -> ManualTargetStateV2:
+    """Do not let a terminal execution request reserve strategy authority forever.
+
+    `_persist_intent_and_request_v2` is deliberately idempotent for one intent. Once
+    the exact request has reached BLOCKED/REJECTED/SUPERSEDED it cannot be revived by
+    blindly replaying the same user event. Retire the target instead; accepted,
+    submitting and uncertain broker work remains authoritative and is never touched.
+    """
+    if state.status != TARGET_PENDING:
+        return state
+    request_status = _latest_manual_target_request_status_v2(state)
+    if request_status not in TERMINAL_REQUEST_STATUSES:
+        return state
+    retired = ManualTargetStateV2(
+        state.pilot_key,
+        state.strategy_key,
+        state.target_direction,
+        state.intent_event_id,
+        state.requested_at,
+        TARGET_SUPERSEDED,
+    )
+    _save_target_state_v2(retired)
+    _reset_strategy_runtime_after_user_target_v2(state.pilot_key)
+    return retired
+
+
+def manual_target_pending_v2(pilot_key: str) -> bool:
+    state = load_manual_target_state_v2(pilot_key)
+    if state is None:
+        return False
+    state = _retire_terminal_manual_target_v2(state)
+    return state.status == TARGET_PENDING
 
 
 def load_manual_target_quote_v2(
@@ -297,7 +348,10 @@ def run_manual_target_once_v2(
 ) -> FastLiveCycleV2 | None:
     """Continue one user target across CLOSE -> FLAT -> OPEN until observed."""
     state = load_manual_target_state_v2(enrollment.pilot_key)
-    if state is None or state.status != TARGET_PENDING:
+    if state is None:
+        return None
+    state = _retire_terminal_manual_target_v2(state)
+    if state.status != TARGET_PENDING:
         return None
     if state.strategy_key != enrollment.strategy_key or not enrollment.enabled:
         _save_target_state_v2(
@@ -363,6 +417,7 @@ __all__ = [
     "ManualTargetStateV2",
     "TARGET_COMPLETE",
     "TARGET_PENDING",
+    "TERMINAL_REQUEST_STATUSES",
     "load_manual_target_quote_v2",
     "load_manual_target_state_v2",
     "manual_target_pending_v2",
