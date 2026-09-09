@@ -94,6 +94,22 @@ def test_intrabar_clock_is_fail_closed_on_stale_delayed_or_wrong_product_data() 
     assert "LIVE_INTRABAR_MAX_PROBE_GAP_SECONDS_V1" in intrabar
 
 
+def test_binary_macd_retries_only_known_terminal_requests_through_normal_lifecycle() -> None:
+    runtime = Path("autotrader_macd_timeframe_live_v1.py").read_text(encoding="utf-8")
+    assert "_rearm_retryable_terminal_request_v1" in runtime
+    assert "status IN ('BLOCKED', 'REJECTED')" in runtime
+    assert "SET status = 'PENDING'" in runtime
+    assert "PENDING_TRANSITION_RETRY_READY" in runtime
+    assert "SUPERSEDED, SUBMITTING, ORDER_ACCEPTED or UNCERTAIN" in runtime
+    assert "trade/v2/orders" not in runtime
+
+
+def test_binary_macd_request_created_flag_is_not_true_for_idempotent_conflict() -> None:
+    runtime = Path("autotrader_macd_timeframe_live_v1.py").read_text(encoding="utf-8")
+    assert "existed_before = _matching_intent_request_exists_v1" in runtime
+    assert "nominal_created and not existed_before" in runtime
+
+
 def test_dispatch_uses_shared_request_lifecycle_and_runtime_has_no_order_authority() -> None:
     dispatch = Path("autotrader_automanage_dispatch_v2.py").read_text(encoding="utf-8")
     runtime = Path("autotrader_macd_timeframe_live_v1.py").read_text(encoding="utf-8")
