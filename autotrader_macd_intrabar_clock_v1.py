@@ -4,16 +4,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 from autotrader_fast_live_runtime_v2 import DIRECTION_LONG, DIRECTION_SHORT, Macd1mClockV2
-from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
 from autotrader_strategy_enrollment_v2 import StrategyEnrollmentV2
 from canonical_market_bars_v2 import CanonicalMarketBarV2
 from database import connect
+from hypervigilant_macd_v1 import materialize_hypervigilant_macd_v1
 from saxo_chart_live import FormingCandleStore, forming_candle_event_age_seconds
-from trading_desk import ChartBar
 
 
 # All simple LIVE MACD flip controls share one execution clock. Technical Core still
-# consumes only canonical closed history; the forming Saxo candle is execution-only.
+# consumes only canonical closed history; the fresh Saxo forming close is execution-only.
 LIVE_INTRABAR_MACD_TIMEFRAMES_V1 = (1, 2, 5, 15, 30)
 LIVE_INTRABAR_MAX_EVENT_AGE_SECONDS_V1 = 8.0
 LIVE_INTRABAR_MAX_PROBE_GAP_SECONDS_V1 = 10 * 60.0
@@ -97,54 +96,6 @@ def _save_probe_v1(
         )
 
 
-def _bucket_start_v1(value: datetime, *, timeframe_minutes: int) -> datetime:
-    stamp = _utc(value).replace(second=0, microsecond=0)
-    minutes = int(timeframe_minutes)
-    epoch_minutes = int(stamp.timestamp() // 60)
-    bucket_epoch_minutes = epoch_minutes - (epoch_minutes % minutes)
-    return datetime.fromtimestamp(bucket_epoch_minutes * 60, tz=timezone.utc)
-
-
-def _forming_timeframe_bar_v1(
-    *,
-    enrollment: StrategyEnrollmentV2,
-    bars: tuple[CanonicalMarketBarV2, ...],
-    candle,
-    timeframe_minutes: int,
-) -> ChartBar:
-    """Aggregate the entire currently forming timeframe bucket consistently.
-
-    Closed canonical 1m samples already inside the current bucket are combined with
-    Saxo's current forming 1m candle, so the sampled bar converges to the same OHLC
-    that the canonical resampler will see at close.
-    """
-    minutes = int(timeframe_minutes)
-    source_bar_time = _utc(candle.bar_time).replace(second=0, microsecond=0)
-    bucket_start = _bucket_start_v1(source_bar_time, timeframe_minutes=minutes)
-    partial = tuple(
-        item
-        for item in bars
-        if bucket_start <= _utc(item.bar_time).replace(second=0, microsecond=0) < source_bar_time
-    )
-
-    opens = [float(item.open) for item in partial] + [float(candle.open)]
-    highs = [float(item.high) for item in partial] + [float(candle.high)]
-    lows = [float(item.low) for item in partial] + [float(candle.low)]
-    volumes = [float(item.volume) for item in partial if item.volume is not None]
-    if candle.volume is not None:
-        volumes.append(float(candle.volume))
-
-    return ChartBar(
-        market=enrollment.market_name,
-        bar_time=bucket_start.isoformat(),
-        open=opens[0],
-        high=max(highs),
-        low=min(lows),
-        close=float(candle.close),
-        volume=(sum(volumes) if volumes else None),
-    )
-
-
 def live_macd_intrabar_clock_v1(
     enrollment: StrategyEnrollmentV2,
     bars: tuple[CanonicalMarketBarV2, ...],
@@ -153,12 +104,12 @@ def live_macd_intrabar_clock_v1(
     db_path: str,
     now: datetime,
 ) -> Macd1mClockV2:
-    """Build a restart-safe LIVE MACD state clock from exact history + forming Saxo data.
+    """Build a restart-safe hyper-vigilant MACD state clock.
 
-    The execution contract is level-triggered: once the live probe is compatible,
-    positive MACD spread means LONG target and negative spread means SHORT target on
-    every sample. A transient missed cross therefore cannot leave the controller on
-    the wrong side indefinitely. Technical Core remains closed-history only.
+    Completed MACD periods come from exact canonical 1m history. The currently
+    forming timeframe period is represented by the latest fresh Saxo forming close.
+    Positive spread requires LONG and negative spread requires SHORT on every sample;
+    no candle-close confirmation or whipsaw suppression exists in this benchmark.
     """
     minutes = int(timeframe_minutes)
     if minutes not in LIVE_INTRABAR_MACD_TIMEFRAMES_V1:
@@ -181,28 +132,18 @@ def live_macd_intrabar_clock_v1(
     if int(candle.uic) != int(enrollment.uic) or str(candle.asset_type) != str(enrollment.asset_type):
         raise ValueError(f"MACD {minutes}m LIVE forming candle product mismatch")
 
-    closed = closed_bars_v2(
+    observations = materialize_hypervigilant_macd_v1(
         tuple(item.point for item in bars),
         market=enrollment.market_name,
         timeframe_minutes=minutes,
+        forming_bar_time=candle.bar_time,
+        forming_close=float(candle.close),
     )
-    if not closed:
-        raise ValueError(f"MACD {minutes}m LIVE lacks closed MACD warmup")
-
-    source_bar_time = _utc(candle.bar_time).replace(second=0, microsecond=0)
-    bucket_start = _bucket_start_v1(source_bar_time, timeframe_minutes=minutes)
-    current_bar = _forming_timeframe_bar_v1(
-        enrollment=enrollment,
-        bars=bars,
-        candle=candle,
-        timeframe_minutes=minutes,
-    )
-    materialized = tuple(item for item in closed if _utc(item.bar_time) < bucket_start) + (current_bar,)
-    observations = macd_observations_v2(materialized, timeframe_minutes=minutes)
     if not observations:
         raise ValueError(f"MACD {minutes}m LIVE needs enough history for MACD 12/26/9")
     current = observations[-1]
     sampled_at = _utc(candle.updated_at)
+    source_bar_time = _utc(candle.bar_time).replace(second=0, microsecond=0)
 
     prior = _load_probe_v1(str(enrollment.pilot_key))
     previous_macd = float(current.macd)
