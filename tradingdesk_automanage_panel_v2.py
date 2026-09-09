@@ -46,8 +46,8 @@ def render_tradingdesk_automanage_panel_v2(
         observations = render_tradingdesk_automanager_simple_v1(context)
         # The zero-height component lives in this isolated control fragment but mounts
         # its visual BUY/SELL shortcuts onto the already-rendered canonical chart root.
-        # Clicks still route through request_manual_target_v2 and the durable execution
-        # lifecycle; there is no browser-to-Saxo execution path.
+        # Clicks still reuse the existing durable manual-target execution lifecycle;
+        # there is no browser-to-Saxo execution path.
         render_tradingdesk_chart_trade_controls_v1(context, observations=observations)
         render_tradingdesk_pilot_status_panel_v1(context, observations=observations)
         return observations
