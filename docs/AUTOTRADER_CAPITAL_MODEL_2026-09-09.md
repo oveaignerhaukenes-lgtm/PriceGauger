@@ -2,8 +2,10 @@
 
 ## Current benchmark contract
 
-- Each AutoTrader pilot owns an isolated capital ledger.
-- Pilot equity is `seed capital + settled realized net P/L`.
+- Each AutoTrader product capital lineage starts with one isolated original seed.
+- Active cohort equity is `cohort seed capital + settled realized net P/L`.
+- Strategy hot-switches create immutable activation cohorts and seed the new cohort from the source cohort's current settled equity; this preserves compounding without reviving old strategy runtime state.
+- Capital-risk reporting walks the strategy-switch lineage back to the original cohort, so the original seed remains the economic loss boundary even after strategy switches.
 - Unrelated Saxo deposits, cash, and other pilots do not enlarge this budget.
 - Simple LIVE MACD uses `MAX_WITHIN_PILOT`: largest legal entry supported by the current pilot equity, explicit product admission, Saxo precheck, and the pilot Margin Envelope.
 - Reversal remains `CLOSE -> broker-confirmed FLAT -> OPEN opposite`.
@@ -13,10 +15,10 @@
 
 TradingDesk should expose a compact pilot panel with:
 
-- seed;
-- current pilot equity;
-- settled realized net P/L and return vs seed;
-- reconciled closed-trade count, wins/losses/breakeven, and win rate;
+- original seed for the continuous capital lineage;
+- current active-cohort equity;
+- total settled capital gain/loss relative to the original seed;
+- reconciled closed-trade count, wins/losses/breakeven, and win rate across the lineage;
 - current Saxo direction/amount;
 - latest OPEN amount, pilot budget, precheck initial margin, and utilization of pilot budget;
 - future harvest threshold.
@@ -27,8 +29,8 @@ Only durable PG/Saxo reconciliation data is used. The status panel has no execut
 
 The intended capital policy is:
 
-1. do not harvest while pilot equity is below `2 x seed`;
-2. after the pilot has doubled, harvest 20% of positive realized profit according to an explicitly versioned rule;
+1. do not harvest while capital-lineage equity is below `2 x original seed`;
+2. after the lineage has doubled, harvest 20% of positive realized profit according to an explicitly versioned rule;
 3. harvested capital leaves AutoTrader-controlled equity and is moved to an isolated reserve account;
 4. the reserve should first accumulate at least the original seed, so a failed pilot can be restarted without new outside capital;
 5. reserve capital may continue to grow independently after the initial seed has been recovered.
