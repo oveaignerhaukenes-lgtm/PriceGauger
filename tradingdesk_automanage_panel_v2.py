@@ -14,8 +14,8 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     _render_automanager_activity_log_v2,
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
-from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_desktop_v4 import (
-    render_strategy_lab_pnl_v4 as render_strategy_lab_pnl_v1,
+from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_simple_v5 import (
+    render_strategy_lab_pnl_v5 as render_strategy_lab_pnl_v1,
 )
 from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_sync_v1
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
@@ -44,7 +44,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(
     *,
     observations: tuple | None = None,
 ) -> None:
-    """Render persisted benchmark/advanced strategy history with Lightweight charts."""
+    """Render persisted benchmark strategy history with a normalized percentage chart."""
 
     @st.fragment
     def _pnl_fragment_v2() -> None:
