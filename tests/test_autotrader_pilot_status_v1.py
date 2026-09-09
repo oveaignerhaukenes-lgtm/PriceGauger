@@ -33,23 +33,28 @@ def test_pilot_status_compounds_seed_plus_realized_pnl() -> None:
     assert status.capital_utilization_pct == 99.0
 
 
-def test_harvest_threshold_is_double_seed_not_double_current_equity() -> None:
-    snapshot = pilot_equity_snapshot_v2(
-        pilot_key="pilot-test",
+def test_harvest_threshold_is_double_original_seed_across_activation_cohorts() -> None:
+    current_cohort = pilot_equity_snapshot_v2(
+        pilot_key="pilot-activation-2",
         seed_capital=750.0,
-        realized_net_pnl_entries=(1000.0,),
+        realized_net_pnl_entries=(250.0,),
         currency="NOK",
     )
     status = pilot_status_from_snapshot_v1(
-        snapshot,
-        closed_trades=1,
-        wins=1,
-        losses=0,
+        current_cohort,
+        original_seed_capital=500.0,
+        cohort_count=2,
+        closed_trades=9,
+        wins=6,
+        losses=3,
         breakeven=0,
     )
 
-    assert status.equity == 1750.0
-    assert status.harvest_threshold == 1500.0
+    assert status.equity == 1000.0
+    assert status.seed_capital == 500.0
+    assert status.realized_net_pnl == 500.0
+    assert status.harvest_threshold == 1000.0
+    assert status.cohort_count == 2
 
 
 def test_unresolved_trade_set_has_no_win_rate_or_utilization() -> None:
