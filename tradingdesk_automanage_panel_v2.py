@@ -14,6 +14,7 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     _render_automanager_activity_log_v2,
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
+from tradingdesk_pilot_status_panel_v1 import render_tradingdesk_pilot_status_panel_v1
 from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_simple_v5 import (
     render_strategy_lab_pnl_v5 as render_strategy_lab_pnl_v1,
 )
@@ -34,7 +35,9 @@ def render_tradingdesk_automanage_panel_v2(
 
     @st.fragment
     def _automanager_fragment_v2():
-        return render_tradingdesk_automanager_simple_v1(context)
+        observations = render_tradingdesk_automanager_simple_v1(context)
+        render_tradingdesk_pilot_status_panel_v1(context)
+        return observations
 
     return _automanager_fragment_v2()
 
