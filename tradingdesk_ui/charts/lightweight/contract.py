@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
+from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
+from hypervigilant_macd_v1 import materialize_hypervigilant_macd_v1
+from instrument_registry_v2 import list_subscribed_sources_v2
+from saxo_chart_live import FormingCandleStore, forming_candle_event_age_seconds
 from trading_desk import ChartBar, TIMEFRAME_MINUTES, utc
 from trading_desk_chart import OVERLAY_NORMALIZED
 from trading_desk_indicators import (
@@ -20,6 +25,11 @@ from trading_desk_indicators import (
     IndicatorPoint,
     TechnicalIndicators,
 )
+
+
+_HV_MACD_LOOKBACK = timedelta(days=14)
+_HV_MACD_MAX_BARS = 20_000
+_HV_MACD_MAX_EVENT_AGE_SECONDS = 8.0
 
 
 def _epoch_seconds(value: object) -> int:
@@ -132,6 +142,68 @@ def _series(role: str, label: str, pane: str, data: list[dict[str, Any]], **extr
     return {"role": role, "label": label, "pane": pane, "data": data, **extra}
 
 
+def _hypervigilant_macd_points_v1(
+    *,
+    market: str,
+    timeframe: str,
+) -> tuple[tuple[IndicatorPoint, ...], tuple[IndicatorPoint, ...], tuple[IndicatorPoint, ...]] | None:
+    """Load the same exact-instrument provisional MACD series used by simple LIVE execution.
+
+    This is presentation-only and fails open to the ordinary chart indicators if exact
+    Saxo identity/history/forming data are unavailable. It never creates execution authority.
+    """
+    try:
+        minutes = int(TIMEFRAME_MINUTES[str(timeframe)])
+        sources = tuple(
+            item for item in list_subscribed_sources_v2(provider="saxo")
+            if str(item.market_name) == str(market)
+        )
+        if len(sources) != 1:
+            return None
+        source = sources[0]
+        forming_store = FormingCandleStore()
+        candle = forming_store.load(market=market)
+        status = forming_store.load_status(market=market)
+        if candle is None or status is None:
+            return None
+        if str(status.state).upper() != "STREAMING":
+            return None
+        if status.delayed_by_minutes is None or float(status.delayed_by_minutes) > 0.0:
+            return None
+        age = forming_candle_event_age_seconds(candle)
+        if age is None or age > _HV_MACD_MAX_EVENT_AGE_SECONDS:
+            return None
+        if str(source.provider_instrument_id) != str(candle.uic):
+            return None
+        if source.asset_type is not None and str(source.asset_type) != str(candle.asset_type):
+            return None
+
+        end = datetime.now(timezone.utc)
+        bars = CanonicalMarketBarStoreV2().load_instrument_range(
+            instrument_id=int(source.instrument_id),
+            start=end - _HV_MACD_LOOKBACK,
+            end=end,
+            limit=_HV_MACD_MAX_BARS,
+        )
+        if not bars:
+            return None
+        observations = materialize_hypervigilant_macd_v1(
+            tuple(item.point for item in bars),
+            market=str(market),
+            timeframe_minutes=minutes,
+            forming_bar_time=candle.bar_time,
+            forming_close=float(candle.close),
+        )
+        if not observations:
+            return None
+        macd = tuple(IndicatorPoint(bar_time=item.bar_time, value=float(item.macd)) for item in observations)
+        signal = tuple(IndicatorPoint(bar_time=item.bar_time, value=float(item.signal)) for item in observations)
+        histogram = tuple(IndicatorPoint(bar_time=item.bar_time, value=float(item.spread)) for item in observations)
+        return macd, signal, histogram
+    except Exception:
+        return None
+
+
 def build_lightweight_live_payload_v1(
     *,
     market: str,
@@ -190,14 +262,25 @@ def build_lightweight_live_payload_v1(
             lines.append(_series("sma50", "SMA 50", "price", _line(indicators.sma50)))
         if INDICATOR_MACD in selected:
             macd_tf = str(indicator_timeframes.get(INDICATOR_MACD, timeframe))
+            shared = _hypervigilant_macd_points_v1(market=market, timeframe=macd_tf)
+            if shared is None:
+                macd_points, signal_points, histogram_points = (
+                    indicators.macd,
+                    indicators.macd_signal,
+                    indicators.macd_histogram,
+                )
+                macd_label = f"MACD (12,26) · {macd_tf}"
+            else:
+                macd_points, signal_points, histogram_points = shared
+                macd_label = f"MACD HV (12,26) · {macd_tf}"
             lines.extend(
                 [
-                    _series("macd", f"MACD (12,26) · {macd_tf}", "macd", _line(indicators.macd)),
-                    _series("macd_signal", f"Signal (9) · {macd_tf}", "macd", _line(indicators.macd_signal)),
+                    _series("macd", macd_label, "macd", _line(macd_points)),
+                    _series("macd_signal", f"Signal (9) · {macd_tf}", "macd", _line(signal_points)),
                 ]
             )
             histograms.append(
-                _series("macd_histogram", f"MACD histogram · {macd_tf}", "macd", _line(indicators.macd_histogram))
+                _series("macd_histogram", f"MACD histogram · {macd_tf}", "macd", _line(histogram_points))
             )
         if INDICATOR_RSI in selected:
             lines.append(_series("rsi", "RSI (14)", "rsi", _line(indicators.rsi)))
