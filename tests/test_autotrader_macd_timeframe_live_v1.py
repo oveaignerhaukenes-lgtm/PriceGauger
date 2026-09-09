@@ -75,14 +75,17 @@ def test_all_simple_controls_use_persisted_forming_candle_clock() -> None:
     assert "previous_spread >= 0.0 > current.spread" not in intrabar
 
 
-def test_forming_timeframe_bar_aggregates_entire_partial_bucket() -> None:
+def test_intrabar_clock_uses_shared_provisional_close_macd_materializer() -> None:
     intrabar = Path("autotrader_macd_intrabar_clock_v1.py").read_text(encoding="utf-8")
-    assert "bucket_start <= _utc(item.bar_time)" in intrabar
-    assert "< source_bar_time" in intrabar
-    assert "open=opens[0]" in intrabar
-    assert "high=max(highs)" in intrabar
-    assert "low=min(lows)" in intrabar
-    assert "close=float(candle.close)" in intrabar
+    shared = Path("hypervigilant_macd_v1.py").read_text(encoding="utf-8")
+    assert "materialize_hypervigilant_macd_v1(" in intrabar
+    assert "tuple(item.point for item in bars)" in intrabar
+    assert "forming_bar_time=candle.bar_time" in intrabar
+    assert "forming_close=float(candle.close)" in intrabar
+    assert "completed_before_current" in shared
+    assert "current = ChartBar(" in shared
+    assert "close=price" in shared
+    assert "completed_before_current + (current,)" in shared
 
 
 def test_intrabar_clock_is_fail_closed_on_stale_delayed_or_wrong_product_data() -> None:
