@@ -130,6 +130,25 @@ class _ActivityDb:
             and "e.signal_at" not in sql
         ):
             return _Rows(((NOW, "FLAT"),))
+        if (
+            "FROM pg_v2_autotrader_strategy_evaluations e" in sql
+            and "r.request_id" in sql
+        ):
+            return _Rows(
+                (
+                    (
+                        NOW - timedelta(hours=3),
+                        "CROSS_DOWN",
+                        "CLOSE",
+                        "FLAT",
+                        "LONG",
+                        "request-debug-1234",
+                        "RECONCILED",
+                        None,
+                        "saxo-order-7",
+                    ),
+                )
+            )
         if "FROM pg_v2_autotrader_strategy_evaluations e" in sql:
             return _Rows(
                 (
@@ -165,8 +184,23 @@ def test_old_close_is_kept_in_history_but_not_claimed_as_current_flat_cause(
     log = activity_v2.load_automanager_activity_log_v2(_enrollment())
 
     assert log.lifecycle_status == "FLAT · pilot aktiv"
-    assert any(event.title == "Bearish kryss → CLOSE" for event in log.events)
+    strategy_event = next(event for event in log.events if event.engine == "AutoManager" and "CLOSE" in event.title)
+    assert strategy_event.title == "Strategi FLAT → CLOSE LONG"
+    assert "observed=LONG" in strategy_event.detail
+    assert "target=FLAT" in strategy_event.detail
+    assert "action=CLOSE" in strategy_event.detail
+    assert "status=RECONCILED" in strategy_event.detail
+    assert "stage=broker reconcile" in strategy_event.detail
+    assert "request=request-" in strategy_event.detail
+    assert "order=saxo-order-7" in strategy_event.detail
     assert any(event.realized_net_pnl == 85.95 for event in log.events)
+
+
+def test_debug_stage_distinguishes_internal_pg_block_from_saxo_submit() -> None:
+    assert activity_v2._execution_stage("BLOCKED", "POSITION_NOT_EXACTLY_MANAGED") == "PG safety"
+    assert activity_v2._execution_stage("BLOCKED", "SomeSaxoPrecheckCode") == "gate/precheck"
+    assert activity_v2._execution_stage("ORDER_ACCEPTED", None) == "Saxo submit"
+    assert activity_v2._execution_stage("PENDING", None) == "PG queue"
 
 
 def test_fresh_live_authority_override_reports_auto_basis_registration(monkeypatch) -> None:
