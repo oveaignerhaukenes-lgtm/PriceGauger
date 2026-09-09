@@ -14,12 +14,20 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     _render_automanager_activity_log_v2,
 )
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
+from tradingdesk_chart_runtime_continuity_v1 import install_chart_runtime_continuity_v1
+from tradingdesk_chart_trade_controls_v1 import render_tradingdesk_chart_trade_controls_v1
 from tradingdesk_pilot_status_panel_v1 import render_tradingdesk_pilot_status_panel_v1
 from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_simple_v5 import (
     render_strategy_lab_pnl_v5 as render_strategy_lab_pnl_v1,
 )
 from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_sync_v1
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
+
+
+# This module is imported before the TradingDesk page imports the direct chart renderer.
+# Install the presentation-only continuity wrapper once so scheduled fragment refreshes
+# reuse the existing Lightweight Charts instance rather than destroying/recreating it.
+install_chart_runtime_continuity_v1()
 
 
 def render_tradingdesk_automanage_panel_v2(
@@ -36,6 +44,11 @@ def render_tradingdesk_automanage_panel_v2(
     @st.fragment
     def _automanager_fragment_v2():
         observations = render_tradingdesk_automanager_simple_v1(context)
+        # The zero-height component lives in this isolated control fragment but mounts
+        # its visual BUY/SELL shortcuts onto the already-rendered canonical chart root.
+        # Clicks still reuse the existing durable manual-target execution lifecycle;
+        # there is no browser-to-Saxo execution path.
+        render_tradingdesk_chart_trade_controls_v1(context, observations=observations)
         render_tradingdesk_pilot_status_panel_v1(context, observations=observations)
         return observations
 
