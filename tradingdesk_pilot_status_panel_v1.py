@@ -5,7 +5,7 @@ import streamlit as st
 from autotrader_pilot_status_v1 import load_pilot_status_v1
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_automanager_simple_v1 import _active_live_for_context_v1, _direction_v1, _exact_observation_v1
-from autotrader_risk_control_v2 import _position_observations_v2
+from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from saxo_provider import configured_client
 
 
@@ -13,7 +13,11 @@ def _fmt_money_v1(value: float, currency: str) -> str:
     return f"{value:,.2f} {currency}".replace(",", " ")
 
 
-def render_tradingdesk_pilot_status_panel_v1(context: TradingDeskV2Context) -> None:
+def render_tradingdesk_pilot_status_panel_v1(
+    context: TradingDeskV2Context,
+    *,
+    observations: tuple[PositionObservationV2, ...] | None = None,
+) -> None:
     """Show audited pilot capital/trade status without acquiring execution authority."""
     client = configured_client()
     if client is None:
@@ -23,8 +27,8 @@ def render_tradingdesk_pilot_status_panel_v1(context: TradingDeskV2Context) -> N
         if enrollment is None:
             return
         status = load_pilot_status_v1(enrollment.pilot_key)
-        observations = _position_observations_v2(client)
-        observation = _exact_observation_v1(enrollment, observations)
+        current_observations = observations if observations is not None else _position_observations_v2(client)
+        observation = _exact_observation_v1(enrollment, current_observations)
         direction = _direction_v1(observation)
     except Exception as exc:
         st.caption(f"Pilotstatus venter: {exc}")
@@ -43,9 +47,10 @@ def render_tradingdesk_pilot_status_panel_v1(context: TradingDeskV2Context) -> N
 
         win_rate = "–" if status.win_rate_pct is None else f"{status.win_rate_pct:.1f}%"
         current_amount = 0.0 if observation is None else abs(float(observation.amount))
+        cohort_note = "" if status.cohort_count <= 1 else f" · Cohorts {status.cohort_count}"
         st.caption(
             f"Trades {status.closed_trades} · W {status.wins} / L {status.losses} / BE {status.breakeven} · "
-            f"Win rate {win_rate} · Nå {direction} {current_amount:g}"
+            f"Win rate {win_rate} · Nå {direction} {current_amount:g}{cohort_note}"
         )
 
         if status.last_open_amount is not None:
