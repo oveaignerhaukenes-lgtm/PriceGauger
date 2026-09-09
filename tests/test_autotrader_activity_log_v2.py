@@ -132,7 +132,7 @@ class _ActivityDb:
             return _Rows(((NOW, "FLAT"),))
         if (
             "FROM pg_v2_autotrader_strategy_evaluations e" in sql
-            and "r.request_id" in sql
+            and "e.observed_direction, r.request_id" in sql
         ):
             return _Rows(
                 (
