@@ -133,7 +133,7 @@ def set_auto_manage_enabled_v1(
                 UPDATE pg_v2_autotrader_execution_requests
                 SET status='SUPERSEDED', block_reason='AUTOTRADE_OFF', updated_at=now()
                 WHERE pilot_key = ? AND status IN ('PENDING','APPROVED')
-                  AND signal NOT LIKE 'USER_TARGET_%'
+                  AND signal NOT LIKE 'USER_TARGET_%%'
                 """,
                 (enrollment.pilot_key,),
             )
@@ -176,7 +176,7 @@ def set_position_management_enabled_v1(
                 UPDATE pg_v2_autotrader_execution_requests
                 SET status='SUPERSEDED', block_reason='POSITION_MANAGEMENT_OFF', updated_at=now()
                 WHERE pilot_key = ? AND status IN ('PENDING','APPROVED')
-                  AND signal NOT LIKE 'USER_TARGET_%'
+                  AND signal NOT LIKE 'USER_TARGET_%%'
                 """,
                 (enrollment.pilot_key,),
             )
