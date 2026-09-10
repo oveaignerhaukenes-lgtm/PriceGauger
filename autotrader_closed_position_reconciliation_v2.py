@@ -19,6 +19,21 @@ ELIGIBLE_ATTEMPT_STATUSES = ("ORDER_ACCEPTED", "RECONCILED")
 SOURCE_KIND = "SAXO_CLOSED_POSITION"
 RISK_REENTRY_BLOCK_REASON = "RISK_CLOSE_REQUIRES_FRESH_SIGNAL"
 
+# Accounting is deliberately low priority relative to live CLOSE/OPEN execution.
+# One historical close may use several Saxo GETs, so never drain a backlog in a
+# tight loop. Missing provenance is retried with increasing delay instead.
+MAX_RECONCILIATION_CANDIDATES_PER_CYCLE = 1
+MIN_RECONCILIATION_INTERVAL_SECONDS = 15
+RECONCILIATION_RETRY_DELAYS_SECONDS = (30, 120, 600, 1800, 3600)
+ACCOUNT_CONTEXT_CACHE_SECONDS = 300
+
+# These caches are process-local on purpose. They do not carry execution authority;
+# a restart may retry historical accounting work, but the one-candidate budget and
+# minimum cadence prevent a restart from becoming a Saxo request storm.
+_RECONCILIATION_RETRY_STATE: dict[str, tuple[int, float]] = {}
+_ORDER_FILL_POSITION_ID_CACHE: dict[tuple[str, str], frozenset[str]] = {}
+_ACCOUNT_CONTEXT_CACHE: tuple[float, dict[str, dict[str, str]]] | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class ClosedPositionRealizationV2:
@@ -177,7 +192,7 @@ def match_close_realizations_v2(
             return position_matches
 
     # Never infer a close from time, price or direction. If neither exact provenance
-    # path proves the whole amount, keep the pilot FLAT and wait.
+    # path proves the whole amount, accounting waits without affecting live execution.
     return ()
 
 
@@ -274,6 +289,18 @@ def _account_contexts_v2(client) -> dict[str, dict[str, str]]:
     return result
 
 
+def _cached_account_contexts_v2(client) -> dict[str, dict[str, str]]:
+    global _ACCOUNT_CONTEXT_CACHE
+    now = time.monotonic()
+    if _ACCOUNT_CONTEXT_CACHE is not None:
+        expires_at, cached = _ACCOUNT_CONTEXT_CACHE
+        if now < expires_at:
+            return cached
+    resolved = _account_contexts_v2(client)
+    _ACCOUNT_CONTEXT_CACHE = (now + ACCOUNT_CONTEXT_CACHE_SECONDS, resolved)
+    return resolved
+
+
 def _candidate_attempts_v2() -> tuple[dict[str, Any], ...]:
     with connect() as db:
         rows = db.execute(
@@ -291,6 +318,43 @@ def _candidate_attempts_v2() -> tuple[dict[str, Any], ...]:
             ELIGIBLE_ATTEMPT_STATUSES,
         ).fetchall()
     return tuple(dict(row) for row in rows)
+
+
+def _due_attempts_v2(
+    attempts: tuple[dict[str, Any], ...],
+    *,
+    now_monotonic: float | None = None,
+) -> tuple[dict[str, Any], ...]:
+    now = time.monotonic() if now_monotonic is None else float(now_monotonic)
+    due: list[dict[str, Any]] = []
+    for attempt in attempts:
+        event_id = str(attempt["event_id"])
+        state = _RECONCILIATION_RETRY_STATE.get(event_id)
+        if state is not None and now < state[1]:
+            continue
+        due.append(attempt)
+        if len(due) >= MAX_RECONCILIATION_CANDIDATES_PER_CYCLE:
+            break
+    return tuple(due)
+
+
+def _schedule_reconciliation_retry_v2(
+    event_id: str,
+    *,
+    now_monotonic: float | None = None,
+) -> int:
+    key = str(event_id)
+    now = time.monotonic() if now_monotonic is None else float(now_monotonic)
+    prior_failures = _RECONCILIATION_RETRY_STATE.get(key, (0, 0.0))[0]
+    failures = prior_failures + 1
+    delay_index = min(failures - 1, len(RECONCILIATION_RETRY_DELAYS_SECONDS) - 1)
+    delay = int(RECONCILIATION_RETRY_DELAYS_SECONDS[delay_index])
+    _RECONCILIATION_RETRY_STATE[key] = (failures, now + delay)
+    return delay
+
+
+def _clear_reconciliation_retry_v2(event_id: str) -> None:
+    _RECONCILIATION_RETRY_STATE.pop(str(event_id), None)
 
 
 def invalidate_stale_reentry_after_risk_close_v2(
@@ -407,26 +471,27 @@ def _record_reconciliation_v2(
 
 
 def reconcile_closed_position_equity_once_v2(client=None) -> int:
-    """Book exact realized net P/L after a guarded LIVE close settles.
+    """Book exact realized net P/L as low-priority background accounting.
 
     A close affects strategy equity only when Saxo proves the exact PG close through
     either its Client ExternalReference or, when that field is missing from the
     closed-position feed, the PositionId(s) of the exact persisted Saxo OrderId from
-    OrderActivities. Both paths still require exact account/product and full amount.
+    OrderActivities. Missing/late provenance backs off; it never weakens matching and
+    never sits on the critical CLOSE -> confirmed FLAT -> OPEN reversal path.
     """
     ensure_autotrader_schema_v2()
-    attempts = _candidate_attempts_v2()
+    attempts = _due_attempts_v2(_candidate_attempts_v2())
     if not attempts:
         return 0
     client = client or configured_client()
     if client is None:
         raise RuntimeError("Saxo client is not configured")
-    account_contexts = _account_contexts_v2(client)
+    account_contexts = _cached_account_contexts_v2(client)
     closed_by_account: dict[str, tuple[ClosedPositionRealizationV2, ...]] = {}
-    order_position_ids: dict[tuple[str, str], frozenset[str]] = {}
     booked = 0
 
     for attempt in attempts:
+        event_id = str(attempt["event_id"])
         enrollment = find_strategy_enrollment_for_close_v2(
             account_id=str(attempt["account_id"]),
             net_position_id=str(attempt["net_position_id"]),
@@ -434,11 +499,22 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
             asset_type=str(attempt["asset_type"]),
         )
         if enrollment is None:
+            delay = _schedule_reconciliation_retry_v2(event_id)
+            LOGGER.info(
+                "P/L reconciliation deferred event=%s reason=enrollment_unavailable retry_in=%ss",
+                event_id,
+                delay,
+            )
             continue
         account_id = str(attempt["account_id"])
         account = account_contexts.get(account_id)
         if account is None:
-            LOGGER.warning("P/L reconciliation blocked: exact Saxo account context unavailable account=%s", account_id)
+            delay = _schedule_reconciliation_retry_v2(event_id)
+            LOGGER.warning(
+                "P/L reconciliation deferred event=%s reason=account_context_unavailable retry_in=%ss",
+                event_id,
+                delay,
+            )
             continue
         if account_id not in closed_by_account:
             payload = client._get(
@@ -466,26 +542,29 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
         if not matches and attempt.get("order_id"):
             order_id = str(attempt["order_id"])
             cache_key = (account_id, order_id)
-            if cache_key not in order_position_ids:
+            fill_position_ids = _ORDER_FILL_POSITION_ID_CACHE.get(cache_key)
+            if fill_position_ids is None:
                 try:
-                    order_position_ids[cache_key] = _order_fill_position_ids_v2(
+                    fill_position_ids = _order_fill_position_ids_v2(
                         client,
                         account_key=account["account_key"],
                         client_key=account["client_key"],
                         order_id=order_id,
                     )
                 except Exception as exc:
-                    # Primary ExternalReference matching remains available. Audit
-                    # fallback failure must not weaken provenance or crash every
-                    # other account's reconciliation cycle.
+                    delay = _schedule_reconciliation_retry_v2(event_id)
                     LOGGER.warning(
-                        "P/L reconciliation exact order provenance unavailable event=%s order_id=%s: %s",
-                        attempt["event_id"],
+                        "P/L reconciliation order provenance deferred event=%s order_id=%s retry_in=%ss: %s",
+                        event_id,
                         order_id,
+                        delay,
                         exc,
                     )
-                    order_position_ids[cache_key] = frozenset()
-            fill_position_ids = order_position_ids[cache_key]
+                    continue
+                if fill_position_ids:
+                    # Historical fill PositionIds are immutable. Cache only positive
+                    # results; an empty result may simply mean Saxo has not settled yet.
+                    _ORDER_FILL_POSITION_ID_CACHE[cache_key] = fill_position_ids
             if fill_position_ids:
                 matches = match_close_realizations_v2(
                     **match_args,
@@ -494,19 +573,27 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
                 used_order_fallback = bool(matches)
 
         if not matches:
+            delay = _schedule_reconciliation_retry_v2(event_id)
+            LOGGER.info(
+                "P/L reconciliation waiting event=%s retry_in=%ss",
+                event_id,
+                delay,
+            )
             continue
         account_currency = account["currency"]
         equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
         if equity.currency.upper() != account_currency.upper():
+            delay = _schedule_reconciliation_retry_v2(event_id)
             LOGGER.error(
-                "P/L reconciliation blocked: pilot currency=%s account currency=%s pilot=%s",
+                "P/L reconciliation deferred: pilot currency=%s account currency=%s pilot=%s retry_in=%ss",
                 equity.currency,
                 account_currency,
                 enrollment.pilot_key,
+                delay,
             )
             continue
         net_pnl = realized_net_pnl_v2(matches)
-        source_reference = f"close-attempt:{attempt['event_id']}"
+        source_reference = f"close-attempt:{event_id}"
         record_realized_net_pnl_v2(
             pilot_key=enrollment.pilot_key,
             source_reference=source_reference,
@@ -515,27 +602,28 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
             source_kind=SOURCE_KIND,
         )
 
-        # OPEN already blocks while this close lacks an equity reconciliation row.
-        # Invalidate stale risk-stop intent before inserting that row, so there is
-        # no interval where a reconciled risk close can release an old OPEN request.
+        # This bookkeeping is not a reversal gate. Risk-origin exits still need a
+        # freshness boundary for stale-intent invalidation when their P/L settles;
+        # strategy-origin reversals continue independently via execution provenance.
         risk_invalidated = invalidate_stale_reentry_after_risk_close_v2(
-            close_event_id=str(attempt["event_id"]),
+            close_event_id=event_id,
             pilot_key=enrollment.pilot_key,
             flat_since=risk_flat_since_v2(matches),
         )
         _record_reconciliation_v2(
-            close_event_id=str(attempt["event_id"]),
+            close_event_id=event_id,
             pilot_key=enrollment.pilot_key,
             external_reference=str(attempt["external_reference"]),
             closed_items=matches,
             realized_net_pnl=net_pnl,
             currency=account_currency,
         )
+        _clear_reconciliation_retry_v2(event_id)
         booked += 1
         LOGGER.info(
             "AutoTrader realized P/L booked pilot=%s event=%s net_pnl=%+.4f %s rows=%d risk_reentry_invalidated=%s provenance=%s",
             enrollment.pilot_key,
-            attempt["event_id"],
+            event_id,
             net_pnl,
             account_currency,
             len(matches),
@@ -546,7 +634,9 @@ def reconcile_closed_position_equity_once_v2(client=None) -> int:
 
 
 def run_closed_position_equity_reconciliation_forever_v2(*, interval_seconds: int = 5) -> None:
-    interval = max(2, int(interval_seconds))
+    # Historical accounting never needs a sub-second/live-execution cadence. Even if
+    # an old deployment variable still says 5s, enforce a calm minimum here.
+    interval = max(MIN_RECONCILIATION_INTERVAL_SECONDS, int(interval_seconds))
     while True:
         try:
             reconcile_closed_position_equity_once_v2()
