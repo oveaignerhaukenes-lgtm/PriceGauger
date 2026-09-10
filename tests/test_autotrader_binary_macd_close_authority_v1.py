@@ -10,7 +10,8 @@ def test_binary_macd_close_can_rebase_after_exact_basis_drifts() -> None:
     assert "def _binary_macd_managed_identity_is_authorized" in source
     assert "net_position_id = ?" in source
     assert "uic = ? AND asset_type = ? AND managed = TRUE" in source
-    assert "stored_direction == current.direction.strip().lower()" in source
+    assert "current.direction.strip().lower()" in source
+    assert '_record_dict(row).get("direction")' in source
 
     strict = source.index("exact_managed = is_position_managed_v1(current)")
     binary = source.index("binary_managed_identity = _binary_macd_managed_identity_is_authorized", strict)
