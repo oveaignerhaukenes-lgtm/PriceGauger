@@ -238,7 +238,7 @@ def _close_payload(
         raise RuntimeError("position amount must be positive")
     return {
         "AccountKey": account_key,
-        "Amount": float(observation.amount),
+        "Amount": round(float(observation.amount), 12),
         "AssetType": observation.asset_type,
         "BuySell": side,
         "ExternalReference": external_reference[:50],
