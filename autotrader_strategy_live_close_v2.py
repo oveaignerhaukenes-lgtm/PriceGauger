@@ -27,6 +27,7 @@ from autotrader_live_close_v1 import (
 from autotrader_macd_binary_execution_v1 import is_simple_binary_macd_strategy_v1
 from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_manual_entry_adoption_v2 import run_manual_entry_adoption_cycle_v2
+from autotrader_precheck_diagnostics_v1 import precheck_failure_diagnostics_v1
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_strategy_enrollment_v2
@@ -265,11 +266,22 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
             payload = _close_payload(account_key=account_key, observation=current, external_reference=external_reference)
             precheck = _post_once(client, "trade/v2/orders/precheck", payload)
             if not _precheck_is_clear(precheck):
-                reason = str(precheck.get("PreCheckResult") or "PRECHECK_BLOCKED")
-                if precheck.get("PreTradeDisclaimers"):
-                    reason += ":DISCLAIMERS"
-                _update_request(request_id, status=REQUEST_BLOCKED, block_reason=reason)
-                LOGGER.warning("strategy CLOSE blocked request=%s reason=%s", request_id, reason)
+                diagnostic = precheck_failure_diagnostics_v1(precheck)
+                _update_request(request_id, status=REQUEST_BLOCKED, block_reason=diagnostic.block_reason)
+                LOGGER.warning(
+                    "strategy CLOSE precheck blocked request=%s result=%s error_code=%s error_message=%s disclaimers=%s response_keys=%s side=%s amount=%s uic=%s asset_type=%s position_id=%s",
+                    request_id,
+                    diagnostic.result,
+                    diagnostic.error_code or "none",
+                    diagnostic.error_message or "none",
+                    diagnostic.has_disclaimers,
+                    ",".join(diagnostic.response_keys),
+                    payload.get("BuySell"),
+                    payload.get("Amount"),
+                    payload.get("Uic"),
+                    payload.get("AssetType"),
+                    payload.get("PositionId") or "none",
+                )
                 blocked += 1
                 continue
 
