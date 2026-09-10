@@ -11,7 +11,24 @@ def test_strategy_close_reuses_hardened_live_close_boundaries():
     assert "_precheck_is_clear" in source
     assert "_record_attempt_before_submit" in source
     assert "_post_once(client, \"trade/v2/orders\", payload)" in source
-    assert "blind retry blocked" in source
+    assert "strategy CLOSE submitting" in source
+    assert "strategy CLOSE accepted" in source
+
+
+def test_pending_close_cannot_be_silent_when_execution_gate_is_closed():
+    source = Path("autotrader_strategy_live_close_v2.py").read_text(encoding="utf-8")
+    assert "_log_pending_close_health" in source
+    assert "config_armed=%s code_gate=%s effective_armed=%s" in source
+    assert "oldest_age_seconds=%s" in source
+    assert "age >= 10.0" in source
+    assert "strategy CLOSE waiting" in source
+    for reason in (
+        "LIVE_ENROLLMENT_MISMATCH",
+        "POSITION_NOT_EXACTLY_MANAGED",
+        "STALE_POSITION_BASIS",
+        "ALREADY_FLAT_NO_ORDER",
+    ):
+        assert reason in source
 
 
 def test_strategy_runtime_persists_requests_before_execution_and_worker_runs_both_layers():
