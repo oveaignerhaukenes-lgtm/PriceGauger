@@ -19,8 +19,8 @@ def test_chart_controls_render_inside_existing_lightweight_chart_root() -> None:
     assert "window.__pricegaugerLightweightCharts" in source
     assert "entry?.root" in source
     assert "position: 'absolute'" in source
-    assert "left: '8px'" in source
-    assert "top: '8px'" in source
+    assert "left: '6px'" in source
+    assert "top: '6px'" in source
     assert "BUY" in source and "SELL" in source
 
 
