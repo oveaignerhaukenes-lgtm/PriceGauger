@@ -4,11 +4,6 @@ from dataclasses import dataclass
 
 from autotrader_macd_dry_run_v2 import STRATEGY_KEY as MACD_LONG_FLAT_STRATEGY_V2
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
-from autotrader_macd_models_live_v1 import (
-    MACD2_10_STRATEGY_V1,
-    MACD2_S_STRATEGY_V1,
-    MACD_A_STRATEGY_V1,
-)
 
 
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
@@ -24,6 +19,9 @@ MACD_1M_FLIP_STRATEGY_V2 = "macd-1m-flip-control-shadow-v1"
 MACD_2M_FLIP_STRATEGY_V2 = "macd-2m-flip-control-shadow-v1"
 MACD_5M_FLIP_STRATEGY_V2 = "macd-5m-flip-control-shadow-v1"
 MACD_15M_FLIP_STRATEGY_V2 = "macd-15m-flip-control-shadow-v1"
+MACD2_10_STRATEGY_V1 = "macd2-10-v1"
+MACD2_S_STRATEGY_V1 = "macd2-s-v1"
+MACD_A_STRATEGY_V1 = "macd-a-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-2m-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-5m-v1"
 AI_BASELINE_STRATEGY_V2 = "gpt-5-mini-ai-baseline-v1"
@@ -212,9 +210,6 @@ AI_BASELINE_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
-# Explicit execution-capable catalog. A strategy only gains LIVE eligibility by being
-# listed here; signal runtimes still only emit execution requests into the hardened
-# AutoManager lifecycle and never POST Saxo orders directly.
 AUTOTRADER_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
@@ -235,9 +230,6 @@ AUTOTRADER_STRATEGIES_V2 = (
     AI_BASELINE_SPEC_V2,
 )
 
-# These three policies have the established deterministic closed-30m paper replay.
-# MTF and intrabar require their own replay clocks and must not be mislabeled as
-# closed-30m curves merely because they can run LIVE.
 PAPER_30M_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
