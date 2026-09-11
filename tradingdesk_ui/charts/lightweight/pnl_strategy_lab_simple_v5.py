@@ -24,6 +24,15 @@ _STRATEGY_LAB_SIMPLE_JS = _replace_required(
     label="always-relative state",
 )
 
+# Persist view state in the browser so component redraws caused by fresh P/L data do not
+# throw the user back to the default 4h viewport or re-enable hidden comparison series.
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """        const colors = theme();\n        parentElement.replaceChildren();""",
+    """        const colors = theme();\n        const stateKey = `pg-strategy-lab-v5:${mode}:${String(payload.chart_id || 'default')}`;\n        window.__pricegaugerStrategyLabViewV5 = window.__pricegaugerStrategyLabViewV5 || {};\n        const savedView = window.__pricegaugerStrategyLabViewV5[stateKey] || { range: null, visibleByLabel: {} };\n        if (!savedView.visibleByLabel) savedView.visibleByLabel = {};\n        window.__pricegaugerStrategyLabViewV5[stateKey] = savedView;\n        function rememberView(range) {\n            const from = Number(range?.from);\n            const to = Number(range?.to);\n            if (Number.isFinite(from) && Number.isFinite(to) && from < to) {\n                savedView.range = { from, to };\n            }\n        }\n        parentElement.replaceChildren();""",
+    label="persisted browser view state",
+)
+
 # Remove the Total/Relative mode buttons. The existing rebase machinery remains the
 # single source of presentation truth and follows pan/zoom/range changes.
 _start = """        if (mode === 'baseline') {\n            const totalButton = document.createElement('button');\n            const relativeButton = document.createElement('button');"""
@@ -32,7 +41,37 @@ if _start not in _STRATEGY_LAB_SIMPLE_JS or _end not in _STRATEGY_LAB_SIMPLE_JS:
     raise RuntimeError("Strategy Lab v5 renderer anchor missing: comparison controls")
 _prefix, _tail = _STRATEGY_LAB_SIMPLE_JS.split(_start, 1)
 _controls, _suffix = _tail.split(_end, 1)
-_STRATEGY_LAB_SIMPLE_JS = _prefix + """        chart.timeScale().subscribeVisibleTimeRangeChange((range) => {\n            applyComparisonView(range);\n        });\n\n        requestAnimationFrame(() => applyComparisonView());\n\n""" + _end + _suffix
+_STRATEGY_LAB_SIMPLE_JS = _prefix + """        chart.timeScale().subscribeVisibleTimeRangeChange((range) => {\n            rememberView(range);\n            applyComparisonView(range);\n        });\n\n        requestAnimationFrame(() => applyComparisonView());\n\n""" + _end + _suffix
+
+# Restore the most recent zoom/pan window after a component redraw. Only use the default
+# four-hour viewport on the first mount for this chart identity.
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """        try {\n            chart.timeScale().setVisibleRange({ from: navigationEnd - (4 * 3600), to: navigationEnd });\n        } catch (_) {\n            chart.timeScale().fitContent();\n        }""",
+    """        try {\n            const restored = savedView?.range;\n            const from = Number(restored?.from);\n            const to = Number(restored?.to);\n            if (Number.isFinite(from) && Number.isFinite(to) && from < to) {\n                chart.timeScale().setVisibleRange({ from, to });\n            } else {\n                chart.timeScale().setVisibleRange({ from: navigationEnd - (4 * 3600), to: navigationEnd });\n            }\n        } catch (_) {\n            chart.timeScale().fitContent();\n        }""",
+    label="restore viewport",
+)
+
+# Persist per-series visibility as well. A fresh payload should update data, not reset the
+# user's comparison choices.
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """        function addLegend(api, label, color, defaultVisible = true) {\n            visible.set(api, defaultVisible);""",
+    """        function addLegend(api, label, color, defaultVisible = true) {\n            const rememberedVisible = savedView.visibleByLabel[label];\n            const initialVisible = typeof rememberedVisible === 'boolean' ? rememberedVisible : defaultVisible;\n            visible.set(api, initialVisible);\n            try { api.applyOptions({ visible: initialVisible }); } catch (_) {}""",
+    label="restore legend visibility",
+)
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """                font: 'inherit', cursor: 'pointer', opacity: defaultVisible ? '1' : '.45',""",
+    """                font: 'inherit', cursor: 'pointer', opacity: initialVisible ? '1' : '.45',""",
+    label="restored legend opacity",
+)
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """                visible.set(api, next);\n                try { api.applyOptions({ visible: next }); } catch (_) {}\n                item.style.opacity = next ? '1' : '.45';""",
+    """                visible.set(api, next);\n                savedView.visibleByLabel[label] = next;\n                try { api.applyOptions({ visible: next }); } catch (_) {}\n                item.style.opacity = next ? '1' : '.45';""",
+    label="persist legend visibility",
+)
 
 # Legend belongs below the plot and must be fully visible: wrap over as many lines as
 # necessary instead of creating a private horizontal scroller.

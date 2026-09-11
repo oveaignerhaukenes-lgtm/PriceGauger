@@ -127,6 +127,7 @@ def _replay_figure(frame) -> go.Figure:
         legend={"orientation": "h", "y": 1.02, "x": 0},
         yaxis_title="Signalavkastning %",
         xaxis_title=None,
+        uirevision="hybrid-lab-replay-v1",
     )
     return figure
 
@@ -145,6 +146,7 @@ def _score_figure(frame, *, threshold: float) -> go.Figure:
         yaxis={"range": [-1.05, 1.05], "title": "score"},
         xaxis_title=None,
         showlegend=False,
+        uirevision="hybrid-lab-score-v1",
     )
     return figure
 
@@ -266,7 +268,12 @@ def render_tradingdesk_hybrid_lab_v1(context: TradingDeskV2Context) -> None:
             st.caption("Ingen datapunkter i valgt testvindu.")
             return
 
-        st.plotly_chart(_replay_figure(visible), width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(
+            _replay_figure(visible),
+            width="stretch",
+            config={"displayModeBar": False},
+            key=f"hybrid-replay-chart-{instrument_id}",
+        )
         hybrid_return = _visible_return_pct(visible["HYBRID"])
         st.caption(
             f"HYBRID {hybrid_return:+.2f}% i vist vindu · {summary.switches['HYBRID']} skift i hele replayet. "
@@ -277,6 +284,7 @@ def render_tradingdesk_hybrid_lab_v1(context: TradingDeskV2Context) -> None:
                 _score_figure(visible, threshold=config.threshold),
                 width="stretch",
                 config={"displayModeBar": False},
+                key=f"hybrid-score-chart-{instrument_id}",
             )
             st.caption("+1 = full LONG-støtte, −1 = full SHORT-støtte. Innen uenighetsbåndet beholdes forrige retning.")
 
