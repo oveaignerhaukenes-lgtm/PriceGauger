@@ -131,13 +131,14 @@ def _replay_figure(frame) -> go.Figure:
     return figure
 
 
-def _score_figure(frame) -> go.Figure:
+def _score_figure(frame, *, threshold: float) -> go.Figure:
     figure = go.Figure()
     figure.add_trace(
         go.Scatter(x=frame.index, y=frame["HYBRID_SCORE"], mode="lines", name="HYBRID score")
     )
-    figure.add_hline(y=0.10, line_width=1, line_dash="dot")
-    figure.add_hline(y=-0.10, line_width=1, line_dash="dot")
+    band = max(0.0, min(1.0, float(threshold)))
+    figure.add_hline(y=band, line_width=1, line_dash="dot")
+    figure.add_hline(y=-band, line_width=1, line_dash="dot")
     figure.update_layout(
         height=190,
         margin={"l": 8, "r": 8, "t": 20, "b": 8},
@@ -146,6 +147,16 @@ def _score_figure(frame) -> go.Figure:
         showlegend=False,
     )
     return figure
+
+
+def _visible_return_pct(series) -> float:
+    if len(series) < 2:
+        return 0.0
+    start_equity = 1.0 + (float(series.iloc[0]) / 100.0)
+    end_equity = 1.0 + (float(series.iloc[-1]) / 100.0)
+    if start_equity <= 0.0:
+        return 0.0
+    return ((end_equity / start_equity) - 1.0) * 100.0
 
 
 def render_tradingdesk_hybrid_lab_v1(context: TradingDeskV2Context) -> None:
@@ -256,13 +267,17 @@ def render_tradingdesk_hybrid_lab_v1(context: TradingDeskV2Context) -> None:
             return
 
         st.plotly_chart(_replay_figure(visible), width="stretch", config={"displayModeBar": False})
-        hybrid_return = float(visible["HYBRID"].iloc[-1] - visible["HYBRID"].iloc[0])
+        hybrid_return = _visible_return_pct(visible["HYBRID"])
         st.caption(
             f"HYBRID {hybrid_return:+.2f}% i vist vindu · {summary.switches['HYBRID']} skift i hele replayet. "
             "Dette er normalisert signalreplay før gearing, ikke Saxo-konto-P/L."
         )
         with st.expander("Hybrid-score", expanded=False):
-            st.plotly_chart(_score_figure(visible), width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(
+                _score_figure(visible, threshold=config.threshold),
+                width="stretch",
+                config={"displayModeBar": False},
+            )
             st.caption("+1 = full LONG-støtte, −1 = full SHORT-støtte. Innen uenighetsbåndet beholdes forrige retning.")
 
 
