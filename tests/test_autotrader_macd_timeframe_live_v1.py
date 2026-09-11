@@ -43,11 +43,11 @@ def test_catalog_exposes_all_five_as_symmetric_long_short_live_choices() -> None
     five = strategy_spec_v2(MACD_5M_FLIP_STRATEGY_V2)
     fifteen = strategy_spec_v2(MACD_15M_FLIP_STRATEGY_V2)
     thirty = strategy_spec_v2(MACD_FLIP_STRATEGY_V2)
-    assert one.label == "1m MACD flip · long/short"
-    assert two.label == "2m MACD flip · long/short"
-    assert five.label == "5m MACD flip · long/short"
-    assert fifteen.label == "15m MACD flip · long/short"
-    assert thirty.label == "30m MACD flip · long/short"
+    assert one.label == "MACD1"
+    assert two.label == "MACD2"
+    assert five.label == "MACD5"
+    assert fifteen.label == "MACD15"
+    assert thirty.label == "MACD30"
     assert one.can_long and one.can_short
     assert two.can_long and two.can_short
     assert five.can_long and five.can_short

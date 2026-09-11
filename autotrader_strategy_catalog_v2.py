@@ -19,6 +19,9 @@ MACD_1M_FLIP_STRATEGY_V2 = "macd-1m-flip-control-shadow-v1"
 MACD_2M_FLIP_STRATEGY_V2 = "macd-2m-flip-control-shadow-v1"
 MACD_5M_FLIP_STRATEGY_V2 = "macd-5m-flip-control-shadow-v1"
 MACD_15M_FLIP_STRATEGY_V2 = "macd-15m-flip-control-shadow-v1"
+MACD2_10_STRATEGY_V1 = "macd2-10-v1"
+MACD2_S_STRATEGY_V1 = "macd2-s-v1"
+MACD_A_STRATEGY_V1 = "macd-a-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-2m-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-5m-v1"
 AI_BASELINE_STRATEGY_V2 = "gpt-5-mini-ai-baseline-v1"
@@ -52,8 +55,8 @@ class AutoManagerStrategyTemplateV2:
 
 MACD_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_FLIP_STRATEGY_V2,
-    label="30m MACD flip · long/short",
-    description="LONG on bullish cross; SHORT on bearish cross.",
+    label="MACD30",
+    description="30m MACD 12/26/9: LONG on bullish cross; SHORT on bearish cross.",
     can_long=True,
     can_short=True,
 )
@@ -120,32 +123,56 @@ STRONG_COCKTAIL_SPEC_V2 = AutoTraderStrategySpecV2(
 
 MACD_1M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_1M_FLIP_STRATEGY_V2,
-    label="1m MACD flip · long/short",
-    description="Simple 1m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    label="MACD1",
+    description="1m MACD 12/26/9 binary LONG/SHORT control.",
     can_long=True,
     can_short=True,
 )
 
 MACD_2M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_2M_FLIP_STRATEGY_V2,
-    label="2m MACD flip · long/short",
-    description="Simple closed 2m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    label="MACD2",
+    description="2m MACD 12/26/9 binary LONG/SHORT control.",
     can_long=True,
     can_short=True,
 )
 
 MACD_5M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_5M_FLIP_STRATEGY_V2,
-    label="5m MACD flip · long/short",
-    description="Simple closed 5m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    label="MACD5",
+    description="5m MACD 12/26/9 binary LONG/SHORT control.",
     can_long=True,
     can_short=True,
 )
 
 MACD_15M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_15M_FLIP_STRATEGY_V2,
-    label="15m MACD flip · long/short",
-    description="Simple closed 15m MACD 12/26/9 control: LONG on bullish cross; SHORT on bearish cross.",
+    label="MACD15",
+    description="15m MACD 12/26/9 binary LONG/SHORT control.",
+    can_long=True,
+    can_short=True,
+)
+
+MACD2_10_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD2_10_STRATEGY_V1,
+    label="MACD2-10",
+    description="2m MACD owns direction; closed 10m MACD only filters an opposing regime.",
+    can_long=True,
+    can_short=True,
+)
+
+MACD2_S_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD2_S_STRATEGY_V1,
+    label="MACD2-S",
+    description="2m MACD owns direction; 1m stochastic adjusts timing by at most 20% and never reverses the signal.",
+    can_long=True,
+    can_short=True,
+)
+
+MACD_A_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MACD_A_STRATEGY_V1,
+    label="MACD-A",
+    description="Adaptive 1m/2m/5m MACD selected from recent fast-signal follow-through versus noise.",
     can_long=True,
     can_short=True,
 )
@@ -183,9 +210,6 @@ AI_BASELINE_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
-# Explicit execution-capable catalog. A strategy only gains LIVE eligibility by being
-# listed here; signal runtimes still only emit execution requests into the hardened
-# AutoManager lifecycle and never POST Saxo orders directly.
 AUTOTRADER_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
@@ -198,14 +222,14 @@ AUTOTRADER_STRATEGIES_V2 = (
     MACD_2M_FLIP_SPEC_V2,
     MACD_5M_FLIP_SPEC_V2,
     MACD_15M_FLIP_SPEC_V2,
+    MACD2_10_SPEC_V2,
+    MACD2_S_SPEC_V2,
+    MACD_A_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
     AI_BASELINE_SPEC_V2,
 )
 
-# These three policies have the established deterministic closed-30m paper replay.
-# MTF and intrabar require their own replay clocks and must not be mislabeled as
-# closed-30m curves merely because they can run LIVE.
 PAPER_30M_STRATEGIES_V2 = (
     MACD_LONG_FLAT_SPEC_V2,
     MACD_SHORT_FLAT_SPEC_V2,
@@ -341,6 +365,12 @@ __all__ = [
     "MACD_5M_FLIP_STRATEGY_V2",
     "MACD_15M_FLIP_SPEC_V2",
     "MACD_15M_FLIP_STRATEGY_V2",
+    "MACD2_10_SPEC_V2",
+    "MACD2_10_STRATEGY_V1",
+    "MACD2_S_SPEC_V2",
+    "MACD2_S_STRATEGY_V1",
+    "MACD_A_SPEC_V2",
+    "MACD_A_STRATEGY_V1",
     "MACD_FLIP_SPEC_V2",
     "MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2",
     "MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2",

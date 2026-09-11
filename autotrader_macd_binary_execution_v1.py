@@ -18,6 +18,9 @@ SIMPLE_BINARY_MACD_STRATEGIES_V1 = frozenset(
         "macd-5m-flip-control-shadow-v1",
         "macd-15m-flip-control-shadow-v1",
         "macd-30m-long-short-v1",
+        "macd2-10-v1",
+        "macd2-s-v1",
+        "macd-a-v1",
     }
 )
 

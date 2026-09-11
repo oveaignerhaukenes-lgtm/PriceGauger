@@ -16,6 +16,7 @@ from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
 from autotrader_manual_target_v2 import manual_target_pending_v2, run_manual_target_once_v2
 from autotrader_macd_hybrid_v1 import run_macd_hybrid_live_once_v1
+from autotrader_macd_models_live_v1 import MACD_MODEL_LIVE_STRATEGIES_V1, run_macd_model_live_once_v1
 from autotrader_macd_timeframe_live_v1 import run_macd_timeframe_live_once_v1
 from autotrader_mtf_flip_live_runtime_v2 import run_mtf_flip_live_strategy_once_v2
 from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
@@ -138,6 +139,13 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
 
             if enrollment.strategy_key == AI_BASELINE_STRATEGY_V2:
                 cycle = run_ai_live_strategy_once_v1(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+                _log_fast_cycle_if_changed_v2(cycle)
+            elif enrollment.strategy_key in MACD_MODEL_LIVE_STRATEGIES_V1:
+                cycle = run_macd_model_live_once_v1(
                     enrollment,
                     db_path=db_path,
                     observations=observations,
