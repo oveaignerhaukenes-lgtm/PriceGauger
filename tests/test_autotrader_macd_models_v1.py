@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from autotrader_macd_binary_execution_v1 import SIMPLE_BINARY_MACD_STRATEGIES_V1
+from autotrader_macd_models_live_v1 import (
+    MACD2_10_STRATEGY_V1,
+    MACD2_S_STRATEGY_V1,
+    MACD_A_STRATEGY_V1,
+    MACD_MODEL_LIVE_STRATEGIES_V1,
+)
 from autotrader_macd_models_v1 import (
     LONG,
     SHORT,
@@ -12,6 +21,7 @@ from autotrader_macd_models_v1 import (
     stochastic_direction_score_v1,
     weighted_model_target_v1,
 )
+from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2, strategy_spec_v2
 
 
 def test_macd2_10_uses_10m_only_as_regime_filter() -> None:
@@ -67,3 +77,27 @@ def test_weighted_models_hold_current_inside_disagreement_band() -> None:
 def test_weighted_models_require_a_positive_weight() -> None:
     with pytest.raises(ValueError):
         weighted_model_target_v1({"a": 1.0}, {"a": 0.0}, current=LONG)
+
+
+def test_new_models_are_compact_live_catalog_choices() -> None:
+    keys = {item.key for item in AUTOTRADER_STRATEGIES_V2}
+    assert MACD_MODEL_LIVE_STRATEGIES_V1 == {
+        MACD2_10_STRATEGY_V1,
+        MACD2_S_STRATEGY_V1,
+        MACD_A_STRATEGY_V1,
+    }
+    assert MACD_MODEL_LIVE_STRATEGIES_V1 <= keys
+    assert strategy_spec_v2(MACD2_10_STRATEGY_V1).label == "MACD2-10"
+    assert strategy_spec_v2(MACD2_S_STRATEGY_V1).label == "MACD2-S"
+    assert strategy_spec_v2(MACD_A_STRATEGY_V1).label == "MACD-A"
+
+
+def test_new_models_keep_existing_hardened_execution_path() -> None:
+    runtime = Path("autotrader_macd_models_live_v1.py").read_text(encoding="utf-8")
+    dispatch = Path("autotrader_automanage_dispatch_v2.py").read_text(encoding="utf-8")
+    assert MACD_MODEL_LIVE_STRATEGIES_V1 <= SIMPLE_BINARY_MACD_STRATEGIES_V1
+    assert "_persist_binary_macd_intent_v1" in runtime
+    assert "MACD_MODEL_LIVE_STRATEGIES_V1" in dispatch
+    assert "run_macd_model_live_once_v1" in dispatch
+    assert "trade/v2/orders" not in runtime
+    assert "place_order(" not in runtime
