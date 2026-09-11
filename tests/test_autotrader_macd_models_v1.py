@@ -33,11 +33,16 @@ def test_macd2_10_uses_10m_only_as_regime_filter() -> None:
 
 def test_stochastic_is_a_modifier_not_a_direction_controller() -> None:
     aligned = macd2_stochastic_score_v1(spread_2m=1.0, stochastic_score=1.0)
-    opposed = macd2_stochastic_score_v1(spread_2m=1.0, stochastic_score=-1.0)
+    opposed_cross = macd2_stochastic_score_v1(spread_2m=1.0, stochastic_score=-1.0)
+    opposed_direction = macd2_stochastic_score_v1(spread_2m=1.0, stochastic_score=-0.6)
     assert aligned == pytest.approx(1.0)
-    assert opposed == pytest.approx(0.6)
+    assert opposed_cross == pytest.approx(0.6)
+    assert opposed_direction == pytest.approx(0.68)
     assert macd2_stochastic_target_v1(spread_2m=1.0, stochastic_score=1.0, current=SHORT) == LONG
+    # A fresh opposite stochastic K/D cross can defer the flip once.
     assert macd2_stochastic_target_v1(spread_2m=1.0, stochastic_score=-1.0, current=SHORT) == SHORT
+    # Persistent opposite direction cannot become a standing veto over MACD2.
+    assert macd2_stochastic_target_v1(spread_2m=1.0, stochastic_score=-0.6, current=SHORT) == LONG
 
 
 def test_stochastic_direction_prefers_kd_cross_then_direction() -> None:
