@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Mapping, Sequence
 
 import pandas as pd
@@ -20,6 +19,7 @@ from canonical_market_bars_v2 import CanonicalMarketBarV2
 
 
 MODEL_NAMES_V1 = (MODEL_MACD2, MODEL_MACD2_10, MODEL_MACD2_S, MODEL_MACD_A)
+BENCHMARK_NAMES_V1 = ("MACD1", MODEL_MACD2, "MACD5", MODEL_MACD2_10, MODEL_MACD2_S, MODEL_MACD_A, "HYBRID")
 DEFAULT_WEIGHTS_V1 = {
     MODEL_MACD2: 50.0,
     MODEL_MACD2_10: 20.0,
@@ -141,7 +141,8 @@ def replay_hybrid_models_v1(
 
     The result is normalized signal return before leverage. Model votes are combined
     first and only then translated into one hybrid target, matching the intended live
-    hybrid architecture rather than averaging independent P/L curves.
+    hybrid architecture rather than averaging independent P/L curves. MACD1 and
+    MACD5 are emitted as benchmark curves but are not part of the weighted hybrid.
     """
     if len(bars) < 80:
         raise ValueError("Hybrid Lab needs at least 80 canonical 1m bars")
@@ -163,7 +164,9 @@ def replay_hybrid_models_v1(
     spread10 = _timeframe_spread(frame, 10)
     stoch = _stochastic_score(frame)
 
+    macd1 = spread1.map(_sign)
     macd2 = spread2.map(_sign)
+    macd5 = spread5.map(_sign)
     macd2_10 = pd.Series(0.0, index=frame.index, dtype="float64")
     for index in range(len(frame)):
         fast = _sign(spread2.iloc[index])
@@ -212,7 +215,9 @@ def replay_hybrid_models_v1(
     hybrid_score = sum(model_scores[name] * normalized_weights[name] for name in MODEL_NAMES_V1)
 
     targets = {
+        "MACD1": _target_series(macd1, threshold=0.0),
         MODEL_MACD2: _target_series(macd2, threshold=0.0),
+        "MACD5": _target_series(macd5, threshold=0.0),
         MODEL_MACD2_10: _target_series(macd2_10, threshold=0.0),
         MODEL_MACD2_S: _target_series(macd2_s, threshold=0.65),
         MODEL_MACD_A: _target_series(adaptive, threshold=0.0),
@@ -227,12 +232,14 @@ def replay_hybrid_models_v1(
         result[name] = curve
         switches[name] = count
         final[name] = float(curve.iloc[-1])
+        result[f"TARGET_{name}"] = target
     result["HYBRID_SCORE"] = hybrid_score
     result["PRICE"] = frame["close"]
     return result, HybridReplaySummaryV1(rows=len(result), switches=switches, final_return_pct=final)
 
 
 __all__ = [
+    "BENCHMARK_NAMES_V1",
     "DEFAULT_WEIGHTS_V1",
     "HybridReplaySummaryV1",
     "MODEL_NAMES_V1",
