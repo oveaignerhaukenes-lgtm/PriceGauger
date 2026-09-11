@@ -5,7 +5,10 @@ from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 import streamlit as st
 
-from autotrader_macd_supervisor_replay_v1 import replay_macd_supervisor_v1
+from autotrader_macd_supervisor_replay_v1 import (
+    replay_macd_supervisor_v1,
+    summarize_macd_supervisor_frame_v1,
+)
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from trading_desk_v2_context import TradingDeskV2Context
 
@@ -105,7 +108,7 @@ def render_tradingdesk_macd_supervisor_lab_v1(context: TradingDeskV2Context) -> 
                 end=end,
                 limit=12000,
             )
-            replay, switches, summary = replay_macd_supervisor_v1(
+            replay, switches, _ = replay_macd_supervisor_v1(
                 bars,
                 cost_bps_per_leg=cost_bps,
             )
@@ -119,23 +122,18 @@ def render_tradingdesk_macd_supervisor_lab_v1(context: TradingDeskV2Context) -> 
         if visible.empty:
             st.caption("Ingen datapunkter i valgt testvindu.")
             return
-
-        # Recalculate visible-window summary approximately from the visible replay so
-        # the card does not present warmup-period performance as current-window performance.
-        start_curve = float(visible["RETURN_PCT"].iloc[0])
-        end_curve = float(visible["RETURN_PCT"].iloc[-1])
-        visible_return = end_curve - start_curve
+        summary = summarize_macd_supervisor_frame_v1(visible, cost_bps_per_leg=cost_bps)
 
         metric_cols = st.columns(6)
         metric_cols[0].metric("Treff", f"{summary.win_rate_pct:.1f}%")
-        metric_cols[1].metric("Fortjeneste", _metric_value(visible_return))
+        metric_cols[1].metric("Fortjeneste", _metric_value(summary.return_pct))
         metric_cols[2].metric("Capture-area", f"{summary.capture_area_pct:.1f}%")
         metric_cols[3].metric("Tid i pluss", f"{summary.profitable_time_pct:.1f}%")
         metric_cols[4].metric("Max DD", f"{summary.max_drawdown_pct:.1f}%")
         metric_cols[5].metric("Skift", str(len(visible_switches)))
 
         if summary.capture_area_pct >= 50.0:
-            st.success("Capture-area er over 50 %-kravet i replayet.")
+            st.success("Capture-area er over 50 %-kravet i valgt vindu.")
         else:
             st.warning("Capture-area er under 50 %-kravet. Modellen er fortsatt observasjon/test.")
 
