@@ -23,11 +23,6 @@ from autotrader_fast_live_runtime_v2 import (
 )
 from autotrader_macd_binary_execution_v1 import ensure_binary_macd_max_sizing_v1
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
-from autotrader_macd_intrabar_clock_v1 import (
-    LIVE_INTRABAR_MACD_TIMEFRAMES_V1,
-    ensure_macd_intrabar_probe_schema_v1,
-    live_macd_intrabar_clock_v1,
-)
 from autotrader_macd_timeframe_controls_v1 import macd_control_strategy_key_v1
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
@@ -48,18 +43,8 @@ LIVE_MACD_CONTROL_STRATEGIES_V1 = {
     MACD_FLIP_STRATEGY_V2: 30,
 }
 
-# MACD is bar-count based, not wall-clock based. A short wall-clock window forces
-# an unnecessary multi-hour warmup after weekends/holidays because the market was
-# closed even though trustworthy exact-instrument bars exist before the gap.
-# Exact closed history seeds EMA/MACD; all simple LIVE flip controls then append the
-# fresh Saxo forming bucket in the separate execution clock.
 MACD_WARMUP_LOOKBACK_V1 = timedelta(days=14)
 MACD_WARMUP_MAX_BARS_V1 = 20_000
-
-# A still-active binary MACD target must not be stranded forever by a request that
-# failed before an accepted/uncertain Saxo submit. Re-arming BLOCKED/REJECTED means
-# "run the normal hardened lifecycle again", not "blindly retry an order". We never
-# revive SUPERSEDED, SUBMITTING, ORDER_ACCEPTED or UNCERTAIN requests.
 _RETRYABLE_TERMINAL_REQUEST_STATUSES_V1 = ("BLOCKED", "REJECTED")
 
 
@@ -82,7 +67,12 @@ def _timeframe_clock_v1(
     *,
     timeframe_minutes: int,
 ) -> Macd1mClockV2:
-    """Closed-bar fallback retained for tests/diagnostics, not simple LIVE controls."""
+    """Build the execution clock strictly from completed timeframe bars.
+
+    A simple MACD-N control must make at most one new decision per completed N-minute
+    candle. Forming candles are intentionally excluded because their MACD spread can
+    cross back and forth before close and cause false live reversals.
+    """
     minutes = int(timeframe_minutes)
     if not bars:
         raise ValueError("MACD timeframe LIVE has no canonical history")
@@ -154,12 +144,7 @@ def _rearm_retryable_terminal_request_v1(
     *,
     observed_direction: str,
 ) -> bool:
-    """Re-arm only a known terminal request while the exact MACD target is still live.
-
-    This deliberately leaves uncertain/accepted/in-flight requests untouched. The
-    request re-enters PENDING and therefore must pass enrollment, exact-product,
-    managed-position, market-open and Saxo precheck gates again before any POST.
-    """
+    """Re-arm only a known terminal request through the normal hardened lifecycle."""
     if state.intent_signal_at is None:
         return False
     desired = state.pending_target_direction or state.desired_direction
@@ -203,7 +188,6 @@ def _persist_binary_macd_intent_v1(
     budget_currency: str,
     supersede_prior: bool,
 ) -> bool:
-    """Persist one binary target and report only a real new/re-armed request."""
     existed_before = _matching_intent_request_exists_v1(
         enrollment,
         state,
@@ -226,6 +210,23 @@ def _persist_binary_macd_intent_v1(
     return bool(rearmed or (nominal_created and not existed_before))
 
 
+def _advance_action_state_v1(state: FastLiveStateV2, *, action_at: datetime) -> FastLiveStateV2:
+    return FastLiveStateV2(
+        pilot_key=state.pilot_key,
+        strategy_key=state.strategy_key,
+        desired_direction=state.desired_direction,
+        last_action_at=action_at,
+        pending_target_direction=state.pending_target_direction,
+        intent_event_id=state.intent_event_id,
+        intent_signal_at=state.intent_signal_at,
+        intent_signal=state.intent_signal,
+        intent_previous_macd=state.intent_previous_macd,
+        intent_previous_signal=state.intent_previous_signal,
+        intent_current_macd=state.intent_current_macd,
+        intent_current_signal=state.intent_current_signal,
+    )
+
+
 def run_macd_timeframe_live_once_v1(
     enrollment: StrategyEnrollmentV2,
     *,
@@ -233,23 +234,17 @@ def run_macd_timeframe_live_once_v1(
     now: datetime | None = None,
     observations: tuple[PositionObservationV2, ...] | None = None,
 ) -> FastLiveCycleV2:
-    """Run one deliberately binary MACD LONG/SHORT benchmark.
+    """Run one binary MACD LONG/SHORT control from completed timeframe bars only.
 
-    1m/2m/5m/15m/30m all use one persisted intrabar execution clock built from exact
-    canonical history plus Saxo's fresh forming 1m chart data. The live clock is
-    level-triggered: positive MACD spread requires LONG and negative spread requires
-    SHORT on every compatible sample, so a missed event cannot strand the controller.
-
-    These simple benchmark controls also force the existing entry sizing policy to
-    MAX_WITHIN_PILOT for both directions. The signal engine still has no direct Saxo
-    order authority: product admission, precheck, Margin Envelope and the hardened
-    CLOSE -> broker-confirmed FLAT -> OPEN execution lifecycle remain authoritative.
+    MACD1/2/5/15/30 each receive at most one new signal opportunity per completed
+    timeframe candle. This prevents provisional intrabar crosses from causing repeated
+    broker reversals. Execution safety remains delegated to the existing durable
+    CLOSE -> confirmed FLAT -> OPEN lifecycle.
     """
     if enrollment.execution_mode != EXECUTION_MODE_LIVE or not enrollment.enabled:
         raise ValueError("MACD timeframe runtime only executes active LIVE_MANAGE enrollments")
     minutes = live_macd_control_timeframe_v1(enrollment.strategy_key)
     ensure_fast_live_schema_v2()
-    ensure_macd_intrabar_probe_schema_v1()
 
     client = configured_client()
     if client is not None:
@@ -264,15 +259,7 @@ def run_macd_timeframe_live_once_v1(
     )
     if not bars:
         raise ValueError(f"MACD {minutes}m LIVE has no exact canonical 1m history")
-    if minutes not in LIVE_INTRABAR_MACD_TIMEFRAMES_V1:
-        raise ValueError(f"MACD {minutes}m LIVE lacks intrabar clock support")
-    clock = live_macd_intrabar_clock_v1(
-        enrollment,
-        tuple(bars),
-        timeframe_minutes=minutes,
-        db_path=db_path,
-        now=end,
-    )
+    clock = _timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes)
 
     if observations is None:
         if client is None:
@@ -319,42 +306,16 @@ def run_macd_timeframe_live_once_v1(
     if new_action:
         fresh = timedelta(0) <= (end - clock.action_at) <= FRESH_MAX_AGE
         if not fresh:
-            state = FastLiveStateV2(
-                pilot_key=state.pilot_key,
-                strategy_key=state.strategy_key,
-                desired_direction=state.desired_direction,
-                last_action_at=clock.action_at,
-                pending_target_direction=state.pending_target_direction,
-                intent_event_id=state.intent_event_id,
-                intent_signal_at=state.intent_signal_at,
-                intent_signal=state.intent_signal,
-                intent_previous_macd=state.intent_previous_macd,
-                intent_previous_signal=state.intent_previous_signal,
-                intent_current_macd=state.intent_current_macd,
-                intent_current_signal=state.intent_current_signal,
-            )
+            state = _advance_action_state_v1(state, action_at=clock.action_at)
             _persist_state_v2(state)
             reason = f"STALE_{minutes}M_ACTION_SKIPPED"
         elif clock.data_gap:
-            state = FastLiveStateV2(
-                pilot_key=state.pilot_key,
-                strategy_key=state.strategy_key,
-                desired_direction=state.desired_direction,
-                last_action_at=clock.action_at,
-                pending_target_direction=state.pending_target_direction,
-                intent_event_id=state.intent_event_id,
-                intent_signal_at=state.intent_signal_at,
-                intent_signal=state.intent_signal,
-                intent_previous_macd=state.intent_previous_macd,
-                intent_previous_signal=state.intent_previous_signal,
-                intent_current_macd=state.intent_current_macd,
-                intent_current_signal=state.intent_current_signal,
-            )
+            state = _advance_action_state_v1(state, action_at=clock.action_at)
             _persist_state_v2(state)
-            reason = f"LIVE_PROBE_{minutes}M_PRIMED"
+            reason = f"CLOSED_{minutes}M_PRIMED"
         elif clock.cross_direction is not None and clock.cross_direction != state.desired_direction:
             target = clock.cross_direction
-            signal = f"LIVE_CROSS_{minutes}M_{'UP' if target == DIRECTION_LONG else 'DOWN'}"
+            signal = f"CLOSED_CROSS_{minutes}M_{'UP' if target == DIRECTION_LONG else 'DOWN'}"
             state = _new_intent_state_v2(
                 state,
                 target=target,
@@ -374,20 +335,7 @@ def run_macd_timeframe_live_once_v1(
             )
             reason = f"TARGET_{target}"
         else:
-            state = FastLiveStateV2(
-                pilot_key=state.pilot_key,
-                strategy_key=state.strategy_key,
-                desired_direction=state.desired_direction,
-                last_action_at=clock.action_at,
-                pending_target_direction=state.pending_target_direction,
-                intent_event_id=state.intent_event_id,
-                intent_signal_at=state.intent_signal_at,
-                intent_signal=state.intent_signal,
-                intent_previous_macd=state.intent_previous_macd,
-                intent_previous_signal=state.intent_previous_signal,
-                intent_current_macd=state.intent_current_macd,
-                intent_current_signal=state.intent_current_signal,
-            )
+            state = _advance_action_state_v1(state, action_at=clock.action_at)
             _persist_state_v2(state)
             reason = "TARGET_UNCHANGED"
 
