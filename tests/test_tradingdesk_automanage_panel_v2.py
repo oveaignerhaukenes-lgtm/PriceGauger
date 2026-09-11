@@ -39,7 +39,7 @@ def test_manage_position_and_autotrade_are_distinct_product_authorities():
     assert 'raise ValueError("AutoTrade requires Manage position to be ON")' in control
     assert "AUTOTRADE_OFF" in control
     assert "POSITION_MANAGEMENT_OFF" in control
-    assert "signal NOT LIKE 'USER_TARGET_%'" in control
+    assert "signal NOT LIKE 'USER_TARGET_%%'" in control
 
 
 def test_automanage_interactive_controls_remain_streamlit_fragment_scoped():
