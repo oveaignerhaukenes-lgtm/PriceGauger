@@ -108,15 +108,22 @@ def macd2_stochastic_target_v1(
     stochastic_score: float,
     current: str,
     stochastic_weight: float = 0.20,
-    execute_threshold: float = 0.70,
+    execute_threshold: float = 0.65,
 ) -> str:
-    """Execute 2m direction unless stochastic strongly argues for a short delay."""
+    """Use stochastic for a brief timing nudge, never as a standing veto.
+
+    With the 20% cap, only a fresh fully-opposite K/D cross can defer the MACD2 flip.
+    Persistent opposite K/D direction scores +/-0.6 and therefore cannot keep blocking
+    the primary MACD signal on subsequent samples.
+    """
     score = macd2_stochastic_score_v1(
         spread_2m=spread_2m,
         stochastic_score=stochastic_score,
         stochastic_weight=stochastic_weight,
     )
-    threshold = max(0.0, min(1.0, float(execute_threshold)))
+    # A caller cannot raise this into a de-facto stochastic veto. MACD remains >=80%
+    # of the decision and persistent opposite stochastic direction must still execute.
+    threshold = max(0.0, min(0.65, float(execute_threshold)))
     if score >= threshold:
         return LONG
     if score <= -threshold:
