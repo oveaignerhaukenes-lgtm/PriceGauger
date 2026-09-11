@@ -51,5 +51,5 @@ def test_binary_contract_keeps_broker_flat_confirmation_as_execution_safety() ->
     runtime = Path("autotrader_macd_timeframe_live_v1.py").read_text(encoding="utf-8")
     model_runtime = Path("autotrader_macd_models_live_v1.py").read_text(encoding="utf-8")
     assert "CLOSE -> confirmed FLAT -> OPEN" in runtime
-    assert "MAX_WITHIN_PILOT" in runtime
+    assert "ensure_binary_macd_max_sizing_v1(enrollment, client)" in runtime
     assert "trade/v2/orders" not in model_runtime
