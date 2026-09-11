@@ -16,6 +16,7 @@ from tradingdesk_automanage_panel_legacy_v2 import (
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
 from tradingdesk_chart_runtime_continuity_v1 import install_chart_runtime_continuity_v1
 from tradingdesk_chart_trade_controls_v1 import render_tradingdesk_chart_trade_controls_v1
+from tradingdesk_hybrid_lab_v1 import render_tradingdesk_hybrid_lab_v1
 from tradingdesk_pilot_status_panel_v1 import render_tradingdesk_pilot_status_panel_v1
 from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_simple_v5 import (
     render_strategy_lab_pnl_v5 as render_strategy_lab_pnl_v1,
@@ -118,6 +119,8 @@ def render_tradingdesk_automanage_pnl_chart_v2(
                     "Denne pilotens P/L-logg er historisk; AutoManager er ikke aktivert "
                     "av denne visningen."
                 )
+
+        render_tradingdesk_hybrid_lab_v1(context)
 
     return _pnl_fragment_v2()
 
