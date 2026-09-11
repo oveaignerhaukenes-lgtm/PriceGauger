@@ -61,20 +61,29 @@ def _figure(frame, rule_switches, ai_switches, visible_models) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=frame.index, y=frame["PRICE"], mode="lines", name="Price", line={"width": 1.5}))
     groups = []
-    if RULE_NAME in visible_models:
-        groups.append(("Rule", rule_switches, 10))
+    # Draw AI first and the deterministic rule markers last. Before this change the AI
+    # variant usually copied the rule decision and its larger marker sat directly on top
+    # of the smaller rule marker, making the rule engine appear to have no simulated trades.
     if AI_NAME in visible_models:
-        groups.append(("AI", ai_switches, 14))
-    for label, events, size in groups:
-        for direction, sign, symbol in (("LONG", 1, "triangle-up"), ("SHORT", -1, "triangle-down")):
+        groups.append(("AI", ai_switches, 14, False))
+    if RULE_NAME in visible_models:
+        groups.append(("Rule", rule_switches, 10, True))
+    for label, events, size, open_marker in groups:
+        for direction, sign, base_symbol in (("LONG", 1, "triangle-up"), ("SHORT", -1, "triangle-down")):
             selected = [item for item in events if int(item.target if hasattr(item, "target") else item["target"]) == sign]
             if selected:
+                symbol = f"{base_symbol}-open" if open_marker else base_symbol
                 fig.add_trace(go.Scatter(
                     x=[item.at if hasattr(item, "at") else item["at"] for item in selected],
                     y=[item.price if hasattr(item, "price") else item["price"] for item in selected],
-                    mode="markers", name=f"{label} {direction}", marker={"symbol": symbol, "size": size},
+                    mode="markers", name=f"{label} {direction}", marker={"symbol": symbol, "size": size, "line": {"width": 2 if open_marker else 1}},
                 ))
-    fig.update_layout(height=320, margin={"l":8,"r":8,"t":26,"b":8}, legend={"orientation":"h","y":1.02,"x":0})
+    fig.update_layout(
+        height=320,
+        margin={"l":8,"r":8,"t":26,"b":8},
+        legend={"orientation":"h","y":1.02,"x":0},
+        uirevision="macd-supervisor-lab-v1",
+    )
     return fig
 
 
@@ -139,8 +148,13 @@ def render_tradingdesk_macd_supervisor_lab_v1(context: TradingDeskV2Context) -> 
             covered = sum(1 for item in rule_switches if _stamp(item.at) in reflected_stamps)
             st.caption(f"AI-refleksjon finnes for {covered}/{len(rule_switches)} skift i valgt vindu. Resten følger regelmotoren inntil minnet er fylt.")
 
-        st.plotly_chart(_figure(rule_frame, rule_switches, ai_events, visible_models), width="stretch", config={"displayModeBar":False})
-        st.caption("Små piler viser regelmotoren; større piler viser AI-varianten.")
+        st.plotly_chart(
+            _figure(rule_frame, rule_switches, ai_events, visible_models),
+            width="stretch",
+            config={"displayModeBar":False},
+            key=f"macd-supervisor-chart-{instrument_id}",
+        )
+        st.caption("Åpne små piler = regelmotoren; større fylte piler = AI-varianten. Når de er enige vises begge.")
 
         with st.expander("Beslutninger · traverser skiftene", expanded=True):
             if not rule_switches:
