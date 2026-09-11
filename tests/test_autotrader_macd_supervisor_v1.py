@@ -34,6 +34,13 @@ def test_isolated_one_minute_cross_does_not_reverse_strong_context():
     assert decision.target == 1
 
 
+def test_ambiguous_score_holds_existing_position_instead_of_churning():
+    values = {1: -0.02, 2: 0.01, 5: -0.01, 10: 0.01, 15: -0.01, 30: 0.01}
+    decision = evaluate_macd_supervisor_v1(_states(values), current_target=-1)
+    assert decision.target == -1
+    assert "SHORT" in decision.explanation
+
+
 def test_requires_all_timeframes():
     states = _states({1: 1, 2: 1, 5: 1, 10: 1, 15: 1, 30: 1})
     states.pop(10)
