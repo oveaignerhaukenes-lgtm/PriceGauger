@@ -7,7 +7,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from autotrader_macd_supervisor_memory_v1 import persist_supervisor_replay_memory_v1
-from autotrader_macd_supervisor_reflection_v1 import load_supervisor_reflections_v1
+from autotrader_macd_supervisor_reflection_v1 import (
+    load_supervisor_reflections_v1,
+    reflect_pending_supervisor_memories_v1,
+)
 from autotrader_macd_supervisor_replay_v1 import replay_macd_supervisor_v1, summarize_macd_supervisor_frame_v1
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from trading_desk_v2_context import TradingDeskV2Context
@@ -108,6 +111,9 @@ def render_tradingdesk_macd_supervisor_lab_v1(context: TradingDeskV2Context) -> 
             bars = CanonicalMarketBarStoreV2().load_instrument_range(instrument_id=int(instrument_id), start=start, end=end, limit=12000)
             replay, switches, _ = replay_macd_supervisor_v1(bars, cost_bps_per_leg=cost_bps)
             persist_supervisor_replay_memory_v1(instrument_id=int(instrument_id), replay=replay, switches=switches)
+            if AI_NAME in visible_models and st.button("Reflekter nye skift", key=f"macd-supervisor-reflect-{instrument_id}"):
+                saved = reflect_pending_supervisor_memories_v1(limit=4)
+                st.toast(f"AI-refleksjon lagret for {saved} episoder")
             reflections = load_supervisor_reflections_v1(instrument_id=int(instrument_id))
         except Exception as exc:
             st.caption(f"Supervisor-lab venter på data/minne: {exc}")
