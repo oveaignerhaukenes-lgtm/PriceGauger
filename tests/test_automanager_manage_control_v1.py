@@ -11,7 +11,8 @@ def test_manage_control_is_product_level_and_pauses_only_unstarted_strategy_requ
     assert "status IN ('PENDING','APPROVED')" in source
     assert "AUTOTRADE_OFF" in source
     assert "POSITION_MANAGEMENT_OFF" in source
-    assert "signal NOT LIKE 'USER_TARGET_%'" in source
+    assert "signal NOT LIKE 'USER_TARGET_%%'" in source
+    assert "signal NOT LIKE 'USER_TARGET_%'" not in source
     assert "SUBMITTING" not in source.split("AUTOTRADE_OFF", 1)[0].split("UPDATE pg_v2_autotrader_execution_requests", 1)[-1]
     assert "pg_v2_autotrader_fast_live_state" in source
 
