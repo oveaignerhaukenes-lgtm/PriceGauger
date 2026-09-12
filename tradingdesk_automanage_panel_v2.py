@@ -19,6 +19,7 @@ from tradingdesk_chart_trade_controls_v1 import render_tradingdesk_chart_trade_c
 from tradingdesk_hybrid_lab_v1 import render_tradingdesk_hybrid_lab_v1
 from tradingdesk_macd_supervisor_lab_v1 import render_tradingdesk_macd_supervisor_lab_v1
 from tradingdesk_pilot_status_panel_v1 import render_tradingdesk_pilot_status_panel_v1
+from tradingdesk_storage_audit_v1 import render_tradingdesk_storage_audit_v1
 from tradingdesk_strategy_scoreboard_v1 import render_tradingdesk_strategy_scoreboard_v1
 from tradingdesk_three_trader_lab_v1 import render_tradingdesk_three_trader_lab_v1
 from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_simple_v5 import (
@@ -127,6 +128,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(
         render_tradingdesk_macd_supervisor_lab_v1(context)
         render_tradingdesk_strategy_scoreboard_v1(context)
         render_tradingdesk_hybrid_lab_v1(context)
+        render_tradingdesk_storage_audit_v1()
 
     return _pnl_fragment_v2()
 
