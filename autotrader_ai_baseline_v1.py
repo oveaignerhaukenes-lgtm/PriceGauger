@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 import logging
+import os
 import time
 from typing import Any, Mapping
 
@@ -31,6 +32,7 @@ STRATEGY_KEY = "gpt-5-mini-ai-baseline-v1"
 PROMPT_VERSION = "AI-BASELINE-2026-09-03-v1"
 DECISION_INTERVAL_MINUTES = 5
 MAX_DECISION_AGE = timedelta(minutes=12)
+AI_BASELINE_STORAGE_ENV = "PRICEGAUGER_AI_BASELINE_STORAGE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,16 @@ def _utc(value: Any) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def ai_baseline_storage_enabled_v1() -> bool:
+    """Return whether the experimental AI baseline may create new persisted samples.
+
+    Storage is intentionally opt-in. Historical rows remain readable for comparison,
+    while the worker stops spending API/database capacity on a weak baseline unless
+    PRICEGAUGER_AI_BASELINE_STORAGE is explicitly enabled.
+    """
+    return os.getenv(AI_BASELINE_STORAGE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _decision_schema() -> dict[str, Any]:
@@ -265,11 +277,14 @@ def _call_model(*, context: Mapping[str, Any], api_key: str, model: str, timeout
 
 
 def run_ai_baseline_shadow_once_v1(*, db_path: str = "pricegauger.db", now: datetime | None = None) -> int:
-    """Persist one auditable GPT baseline decision for each currently managed product.
+    """Optionally persist one auditable GPT baseline decision per managed product.
 
-    The LLM only chooses target exposure. It never sizes or submits orders. Decisions
-    are sampled on a 5-minute boundary from the existing canonical 1m/Cocktail clock.
+    Persistence is OFF by default and must be explicitly enabled with
+    PRICEGAUGER_AI_BASELINE_STORAGE. Historical samples remain readable.
+    The LLM only chooses target exposure; it never sizes or submits orders.
     """
+    if not ai_baseline_storage_enabled_v1():
+        return 0
     if not using_postgres():
         return 0
     ensure_ai_baseline_schema_v1()
@@ -421,10 +436,12 @@ def load_ai_baseline_series_v1(
 
 __all__ = [
     "AIBaselineDecisionV1",
+    "AI_BASELINE_STORAGE_ENV",
     "DECISION_INTERVAL_MINUTES",
     "MAX_DECISION_AGE",
     "PROMPT_VERSION",
     "STRATEGY_KEY",
+    "ai_baseline_storage_enabled_v1",
     "ai_decision_is_fresh_v1",
     "ensure_ai_baseline_schema_v1",
     "load_ai_baseline_series_v1",

@@ -4,11 +4,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from autotrader_ai_baseline_v1 import (
+    AI_BASELINE_STORAGE_ENV,
     AIBaselineDecisionV1,
     STRATEGY_KEY,
     _decision_schema,
     _system_prompt,
+    ai_baseline_storage_enabled_v1,
     ai_decision_is_fresh_v1,
+    run_ai_baseline_shadow_once_v1,
 )
 from autotrader_strategy_catalog_v2 import (
     AI_BASELINE_STRATEGY_V2,
@@ -56,6 +59,15 @@ def test_ai_decision_freshness_is_bounded():
     now = datetime(2026, 9, 3, 20, 0, tzinfo=timezone.utc)
     assert ai_decision_is_fresh_v1(_decision(now - timedelta(minutes=10)), now=now)
     assert not ai_decision_is_fresh_v1(_decision(now - timedelta(minutes=13)), now=now)
+
+
+def test_ai_baseline_storage_is_opt_in(monkeypatch):
+    monkeypatch.delenv(AI_BASELINE_STORAGE_ENV, raising=False)
+    assert not ai_baseline_storage_enabled_v1()
+    assert run_ai_baseline_shadow_once_v1() == 0
+
+    monkeypatch.setenv(AI_BASELINE_STORAGE_ENV, "true")
+    assert ai_baseline_storage_enabled_v1()
 
 
 def test_ai_baseline_is_live_selectable_but_has_no_direct_order_path():
