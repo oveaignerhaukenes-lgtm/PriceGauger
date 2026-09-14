@@ -81,6 +81,15 @@ def test_entry_policy_blocks_open_during_breakeven_cooldown():
     assert "pilot_key=enrollment.pilot_key" in source
 
 
+def test_cooldown_is_product_global_not_strategy_scoped():
+    source = Path("autotrader_breakeven_reset_v1.py").read_text(encoding="utf-8")
+    function = source[source.index("def latest_breakeven_cooldown_until_v1"):source.index("def require_breakeven_reentry_allowed_v1")]
+    assert "event.account_id = ?" in function
+    assert "event.uic = ?" in function
+    assert "event.asset_type = ?" in function
+    assert "rec.pilot_key = ?" not in function
+
+
 def test_autotrader_page_exposes_one_global_control():
     source = Path("pages/6_AutoTrader_POC.py").read_text(encoding="utf-8")
     assert "render_breakeven_reset_controls_v1" in source
