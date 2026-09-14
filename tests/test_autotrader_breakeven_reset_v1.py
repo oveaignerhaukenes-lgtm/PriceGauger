@@ -90,6 +90,14 @@ def test_cooldown_is_product_global_not_strategy_scoped():
     assert "rec.pilot_key = ?" not in function
 
 
+def test_cooldown_starts_at_close_reconciled_flat_not_delayed_pnl_booking():
+    source = Path("autotrader_breakeven_reset_v1.py").read_text(encoding="utf-8")
+    function = source[source.index("def latest_breakeven_cooldown_until_v1"):source.index("def require_breakeven_reentry_allowed_v1")]
+    assert "close.status = 'RECONCILED'" in function
+    assert "close.updated_at AS flat_confirmed_at" in function
+    assert "pg_v2_autotrader_equity_reconciliations" not in function
+
+
 def test_autotrader_page_exposes_one_global_control():
     source = Path("pages/6_AutoTrader_POC.py").read_text(encoding="utf-8")
     assert "render_breakeven_reset_controls_v1" in source
