@@ -6,7 +6,10 @@ import logging
 import time
 from typing import Any
 
-from autotrader_ai_baseline_v1 import PROMPT_VERSION as AI_PROMPT_VERSION
+from autotrader_ai_baseline_fresh_series_v1 import (
+    FRESH_SERIES_VERSION_V1 as AI_BASELINE_FRESH_SERIES_VERSION,
+    load_ai_baseline_fresh_series_v1,
+)
 from autotrader_cocktail_mode_1_shadow_v2 import CONFIG_VERSION as COCKTAIL_CONFIG_VERSION
 from autotrader_macd_a_series_v1 import MACD_A_SERIES_VERSION_V1, load_macd_a_series_v1
 from autotrader_macd_hybrid_v1 import (
@@ -86,7 +89,7 @@ def strategy_series_version_v1(strategy_key: str) -> str:
     if key == MACD_A_STRATEGY_V1:
         return str(MACD_A_SERIES_VERSION_V1)
     if key == AI_BASELINE_STRATEGY_V2:
-        return str(AI_PROMPT_VERSION)
+        return str(AI_BASELINE_FRESH_SERIES_VERSION)
     if key == COCKTAIL_MODE_1_SHADOW_STRATEGY_V2:
         return str(COCKTAIL_CONFIG_VERSION)
     if key in {item.key for item in PAPER_30M_STRATEGIES_V2}:
@@ -198,12 +201,26 @@ def materialize_strategy_series_once_v1(
                 as_of=end,
                 db_path=db_path,
             )
+            fresh_ai_baseline = load_ai_baseline_fresh_series_v1(
+                instrument_id=live.instrument_id,
+                seed_equity=comparison.seed_equity,
+                currency=comparison.currency,
+                started_at=comparison.started_at,
+                as_of=end,
+                db_path=db_path,
+            )
+            legacy_without_ai = tuple(
+                series
+                for series in comparison.paper_series
+                if str(series.strategy_key) != str(AI_BASELINE_STRATEGY_V2)
+            )
             raw_model_series = (
-                tuple(comparison.paper_series)
+                legacy_without_ai
                 + tuple(timeframe_controls)
                 + tuple(hybrid_controls)
                 + tuple(sfl_controls)
                 + (() if macd_a is None else (macd_a,))
+                + (() if fresh_ai_baseline is None else (fresh_ai_baseline,))
             )
             leveraged = apply_schedule_to_series_v2(raw_model_series, schedule=schedule)
             if len(leveraged) != len(raw_model_series):
