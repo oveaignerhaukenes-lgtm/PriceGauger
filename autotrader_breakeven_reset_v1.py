@@ -338,6 +338,8 @@ def latest_breakeven_cooldown_until_v1(
     uic: int,
     asset_type: str,
 ) -> datetime | None:
+    """Return product-global cooldown; a strategy switch cannot bypass the reset."""
+    _ = pilot_key  # retained for the common entry-policy call signature / diagnostics.
     ensure_breakeven_reset_schema_v1()
     config = load_breakeven_reset_config_v1()
     if not config.enabled:
@@ -353,11 +355,10 @@ def latest_breakeven_cooldown_until_v1(
               ON rec.close_event_id = close.event_id
             WHERE event.reason = ?
               AND event.account_id = ? AND event.uic = ? AND event.asset_type = ?
-              AND rec.pilot_key = ?
             ORDER BY rec.reconciled_at DESC
             LIMIT 1
             """,
-            (REASON_BREAKEVEN_RESET, str(account_id), int(uic), str(asset_type), str(pilot_key)),
+            (REASON_BREAKEVEN_RESET, str(account_id), int(uic), str(asset_type)),
         ).fetchone()
     if row is None:
         return None
