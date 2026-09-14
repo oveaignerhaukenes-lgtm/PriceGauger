@@ -22,11 +22,12 @@ shape or magnitude.
 
 Return 2-4 genuinely distinct plausible technical scenarios for the requested horizon. Probabilities must sum to
 approximately 1.0. Each scenario path_profile is a compact sequence of objects with progress and cumulative_return,
-from progress 0.0/current price to 1.0/horizon. The path must follow from supplied technical evidence: e.g. rebound
-before continuation, direct continuation, range/retest, failed breakout, or reversal when supported. Do not draw a
-curve merely because it looks plausible. If evidence is ambiguous, express that as multiple scenarios rather than
-forcing one confident path. As overall confidence rises, probabilities may concentrate on fewer similar paths; when
-signals conflict, paths should diverge more.
+from progress 0.0/current price to 1.0/horizon. Keep path points in chronological order. Progress values must be
+strictly increasing, the first point must be 0.0, and the last point must be 1.0. The path must follow from supplied
+technical evidence: e.g. rebound before continuation, direct continuation, range/retest, failed breakout, or reversal
+when supported. Do not draw a curve merely because it looks plausible. If evidence is ambiguous, express that as
+multiple scenarios rather than forcing one confident path. As overall confidence rises, probabilities may concentrate
+on fewer similar paths; when signals conflict, paths should diverge more.
 
 Scenario terminal_return and interval are technical estimates for calibration, not promises. Keep them conservative
 and consistent with observed volatility and recent moves. The interval must contain terminal_return. The path's final
@@ -168,6 +169,42 @@ def _response_output_text(payload: Mapping[str, Any]) -> str:
     raise ValueError("OpenAI response did not contain output text")
 
 
+def _normalize_scenario_paths(record: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Repair harmless model progress formatting without changing the scenario returns.
+
+    The array order already expresses chronology. Some structured-output responses have
+    repeated/rounded progress values even when the cumulative-return sequence is usable.
+    Re-spacing progress deterministically prevents a presentational field from discarding
+    the whole live analysis while keeping the model's path values untouched.
+    """
+    normalized = dict(record)
+    raw_scenarios = record.get("scenarios")
+    if not isinstance(raw_scenarios, (list, tuple)):
+        return normalized
+
+    scenarios: list[Any] = []
+    for raw_scenario in raw_scenarios:
+        if not isinstance(raw_scenario, Mapping):
+            scenarios.append(raw_scenario)
+            continue
+        scenario = dict(raw_scenario)
+        raw_profile = raw_scenario.get("path_profile")
+        if isinstance(raw_profile, (list, tuple)) and len(raw_profile) >= 2:
+            denominator = float(len(raw_profile) - 1)
+            profile: list[Any] = []
+            for index, raw_point in enumerate(raw_profile):
+                if not isinstance(raw_point, Mapping):
+                    profile.append(raw_point)
+                    continue
+                point = dict(raw_point)
+                point["progress"] = index / denominator
+                profile.append(point)
+            scenario["path_profile"] = profile
+        scenarios.append(scenario)
+    normalized["scenarios"] = scenarios
+    return normalized
+
+
 @dataclass(slots=True)
 class OpenAICompanionProviderV2:
     api_key: str
@@ -219,11 +256,12 @@ class OpenAICompanionProviderV2:
         return parsed
 
     def analyze(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
-        return self._complete(
+        parsed = self._complete(
             payload=payload,
             schema=companion_analysis_schema_v2(),
             schema_name="ta_analyst_v23",
         )
+        return _normalize_scenario_paths(parsed)
 
     def answer(self, payload: Mapping[str, Any], question: str) -> Mapping[str, Any]:
         request = dict(payload)
