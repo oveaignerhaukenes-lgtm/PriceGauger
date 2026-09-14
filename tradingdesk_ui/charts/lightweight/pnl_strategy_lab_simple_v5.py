@@ -14,6 +14,16 @@ def _replace_required(source: str, old: str, new: str, *, label: str) -> str:
 
 _STRATEGY_LAB_SIMPLE_JS = _STRATEGY_LAB_REGIME_JS
 
+# Match the interaction contract of the primary TradingDesk Lightweight chart. The
+# simulator should feel like the main chart: drag/pan in the plot, wheel/pinch zoom,
+# direct time/price-axis scaling, axis double-click reset and kinetic touch scrolling.
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """            rightPriceScale: { visible: true, borderColor: colors.border, minimumWidth: 52 },\n            leftPriceScale: { visible: false },\n            timeScale: {\n                borderColor: colors.border, timeVisible: true, secondsVisible: false,\n                rightOffset: 1, barSpacing: 7, minBarSpacing: .8,\n            },\n            crosshair: { mode: LWC.CrosshairMode.Normal },\n            handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },\n            handleScale: {\n                mouseWheel: true, pinch: true,\n                axisPressedMouseMove: { time: true, price: true },\n                axisDoubleClickReset: { time: true, price: true },\n            },\n            kineticScroll: { mouse: true, touch: true },""",
+    """            leftPriceScale: { visible: false, borderColor: colors.border },\n            rightPriceScale: {\n                visible: true, borderColor: colors.border,\n                scaleMargins: { top: .08, bottom: .08 }, minimumWidth: 58,\n            },\n            timeScale: {\n                borderColor: colors.border, timeVisible: true, secondsVisible: false,\n                rightOffset: 2, barSpacing: 8, minBarSpacing: .7,\n                fixLeftEdge: false, fixRightEdge: false,\n            },\n            crosshair: { mode: LWC.CrosshairMode.Normal },\n            handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },\n            handleScale: {\n                mouseWheel: true, pinch: true,\n                axisPressedMouseMove: { time: true, price: true },\n                axisDoubleClickReset: { time: true, price: true },\n            },\n            kineticScroll: { mouse: true, touch: true },\n            hoveredSeriesOnTop: true,""",
+    label="main-chart interaction parity",
+)
+
 # The lab is deliberately one simple comparison plane for now: all baseline series are
 # rebased to the visible window's left edge and therefore start at 0%. Range controls
 # define the comparison start. This avoids mixing cumulative-history and regime semantics.
