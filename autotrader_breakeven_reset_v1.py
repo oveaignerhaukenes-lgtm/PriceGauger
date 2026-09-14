@@ -215,6 +215,8 @@ def breakeven_reset_due_from_returns_v1(
 
 def materialize_breakeven_reset_triggers_v1() -> int:
     """Promote eligible managed positions into the existing hardened close pipeline."""
+    if not using_postgres():
+        return 0
     ensure_breakeven_reset_schema_v1()
     config = load_breakeven_reset_config_v1()
     if not config.enabled:
