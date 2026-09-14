@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from autotrader_breakeven_reset_ui_v1 import render_breakeven_reset_controls_v1
 from autotrader_macd_dry_run_ui_v2 import render_macd_dry_run_monitor_v2
 from autotrader_risk_control_ui_v2 import render_risk_control_monitor_v2
 from build_info import render_build_badge
@@ -68,6 +69,8 @@ with main_tab:
     render_tradingdesk_automanage_panel_v2(context)
 
 with runtime_tab:
+    render_breakeven_reset_controls_v1()
+    st.divider()
     st.subheader("RiskControl")
     render_risk_control_monitor_v2()
     st.divider()
