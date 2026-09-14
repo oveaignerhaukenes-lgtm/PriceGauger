@@ -4,6 +4,7 @@ import streamlit as st
 
 from build_info import render_build_badge
 from companion_ui_v2 import render_companion_panel_v2
+from live_companion_audio_v1 import render_live_companion_audio_v1
 from migration_debug_ui import render_migration_badge
 from overview_v2_read_model import load_v2_overview_snapshots
 from runtime_health_v2 import freshness_health_v2, load_runtime_health_v2
@@ -94,6 +95,7 @@ def _render_inspector() -> None:
     if not baseline.interpreter_available:
         st.caption("Technical Interpreter er foreløpig ikke en del av live TA-runtime. Toggle blir aktiv automatisk når et kompatibelt cached layer-output finnes.")
     render_companion_panel_v2(view)
+    render_live_companion_audio_v1()
 
 
 _fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
