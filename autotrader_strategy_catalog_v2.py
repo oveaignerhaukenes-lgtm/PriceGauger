@@ -22,6 +22,10 @@ MACD_15M_FLIP_STRATEGY_V2 = "macd-15m-flip-control-shadow-v1"
 MACD2_10_STRATEGY_V1 = "macd2-10-v1"
 MACD2_S_STRATEGY_V1 = "macd2-s-v1"
 MACD_A_STRATEGY_V1 = "macd-a-v1"
+SFL_1M_STRATEGY_V1 = "sfl-1m-v1"
+SFL_2M_STRATEGY_V1 = "sfl-2m-v1"
+SFL_5M_STRATEGY_V1 = "sfl-5m-v1"
+SFL_10M_STRATEGY_V1 = "sfl-10m-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-2m-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-5m-v1"
 AI_BASELINE_STRATEGY_V2 = "gpt-5-mini-ai-baseline-v1"
@@ -177,6 +181,25 @@ MACD_A_SPEC_V2 = AutoTraderStrategySpecV2(
     can_short=True,
 )
 
+
+def _sfl_spec(minutes: int) -> AutoTraderStrategySpecV2:
+    return AutoTraderStrategySpecV2(
+        key=f"sfl-{minutes}m-v1",
+        label=f"SFL{minutes}",
+        description=(
+            f"{minutes}m state/flow/latency model. MACD level, slope and acceleration combine with 1m price impulse, "
+            "micro-structure and a noise gate. Weak/reversing positions de-risk to FLAT before opposite confirmation."
+        ),
+        can_long=True,
+        can_short=True,
+    )
+
+
+SFL_1M_SPEC_V2 = _sfl_spec(1)
+SFL_2M_SPEC_V2 = _sfl_spec(2)
+SFL_5M_SPEC_V2 = _sfl_spec(5)
+SFL_10M_SPEC_V2 = _sfl_spec(10)
+
 MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2 = AutoTraderStrategySpecV2(
     key=MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2,
     label="MACD hybrid · exit 1m / entry 2m",
@@ -225,6 +248,10 @@ AUTOTRADER_STRATEGIES_V2 = (
     MACD2_10_SPEC_V2,
     MACD2_S_SPEC_V2,
     MACD_A_SPEC_V2,
+    SFL_1M_SPEC_V2,
+    SFL_2M_SPEC_V2,
+    SFL_5M_SPEC_V2,
+    SFL_10M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
     AI_BASELINE_SPEC_V2,
@@ -371,6 +398,14 @@ __all__ = [
     "MACD2_S_STRATEGY_V1",
     "MACD_A_SPEC_V2",
     "MACD_A_STRATEGY_V1",
+    "SFL_1M_SPEC_V2",
+    "SFL_1M_STRATEGY_V1",
+    "SFL_2M_SPEC_V2",
+    "SFL_2M_STRATEGY_V1",
+    "SFL_5M_SPEC_V2",
+    "SFL_5M_STRATEGY_V1",
+    "SFL_10M_SPEC_V2",
+    "SFL_10M_STRATEGY_V1",
     "MACD_FLIP_SPEC_V2",
     "MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2",
     "MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2",

@@ -22,6 +22,7 @@ from autotrader_mtf_flip_live_runtime_v2 import run_mtf_flip_live_strategy_once_
 from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
 from autotrader_mtf_short_live_runtime_v2 import run_mtf_short_live_strategy_once_v2
 from autotrader_risk_control_v2 import _position_observations_v2
+from autotrader_sfl_v1 import SFL_STRATEGY_KEYS_V1, run_sfl_live_once_v1
 from autotrader_strategy_catalog_v2 import (
     AI_BASELINE_STRATEGY_V2,
     MACD_1M_FLIP_STRATEGY_V2,
@@ -43,6 +44,7 @@ from saxo_provider import configured_client
 
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_dispatch_v2")
 FAST_LIVE_STRATEGIES = {STRONG_COCKTAIL_STRATEGY_V2}
+SFL_LIVE_STRATEGIES = set(SFL_STRATEGY_KEYS_V1.values())
 TIMEFRAME_MACD_LIVE_STRATEGIES = {
     MACD_1M_FLIP_STRATEGY_V2,
     MACD_2M_FLIP_STRATEGY_V2,
@@ -118,8 +120,6 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
     failed = 0
     for enrollment in enrollments:
         try:
-            # Explicit BUY/SELL remains available independent of AutoTrade. While a
-            # user target is pending no strategy may race it.
             if manual_target_pending_v2(enrollment.pilot_key):
                 cycle = run_manual_target_once_v2(enrollment, observations=observations)
                 if cycle is not None:
@@ -127,9 +127,6 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 evaluated += 1
                 continue
 
-            # Position ownership is a separate control from strategy signal authority.
-            # This keeps an adopted/manual position under the hardened management layer
-            # even when AutoTrade is paused.
             if position_management_enabled_v1(enrollment):
                 _adopt_observed_basis_if_needed_v1(enrollment, observations)
 
@@ -139,6 +136,13 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
 
             if enrollment.strategy_key == AI_BASELINE_STRATEGY_V2:
                 cycle = run_ai_live_strategy_once_v1(
+                    enrollment,
+                    db_path=db_path,
+                    observations=observations,
+                )
+                _log_fast_cycle_if_changed_v2(cycle)
+            elif enrollment.strategy_key in SFL_LIVE_STRATEGIES:
+                cycle = run_sfl_live_once_v1(
                     enrollment,
                     db_path=db_path,
                     observations=observations,

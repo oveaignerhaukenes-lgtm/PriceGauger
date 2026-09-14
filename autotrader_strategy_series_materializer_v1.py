@@ -8,6 +8,7 @@ from typing import Any
 
 from autotrader_ai_baseline_v1 import PROMPT_VERSION as AI_PROMPT_VERSION
 from autotrader_cocktail_mode_1_shadow_v2 import CONFIG_VERSION as COCKTAIL_CONFIG_VERSION
+from autotrader_macd_a_series_v1 import MACD_A_SERIES_VERSION_V1, load_macd_a_series_v1
 from autotrader_macd_hybrid_v1 import (
     HYBRID_SERIES_VERSION_V1,
     HYBRID_STRATEGY_KEYS_V1,
@@ -19,6 +20,7 @@ from autotrader_macd_timeframe_controls_v1 import (
     load_macd_timeframe_control_series_v1,
 )
 from autotrader_pnl_comparison_v2 import replay_automanager_pnl_comparison_v2
+from autotrader_sfl_v1 import SFL_SERIES_VERSION_V1, SFL_STRATEGY_KEYS_V1, load_sfl_series_v1
 from autotrader_shadow_leverage_v2 import (
     apply_schedule_to_series_v2,
     leverage_at_v2,
@@ -28,6 +30,7 @@ from autotrader_strategy_catalog_v2 import (
     AI_BASELINE_STRATEGY_V2,
     COCKTAIL_MODE_1_SHADOW_STRATEGY_V2,
     MACD_1M_FLIP_STRATEGY_V2,
+    MACD_A_STRATEGY_V1,
     PAPER_30M_STRATEGIES_V2,
     STRONG_COCKTAIL_STRATEGY_V2,
 )
@@ -77,6 +80,10 @@ def strategy_series_version_v1(strategy_key: str) -> str:
         return str(MACD_TIMEFRAME_SERIES_VERSION)
     if key in set(HYBRID_STRATEGY_KEYS_V1.values()):
         return str(HYBRID_SERIES_VERSION_V1)
+    if key in set(SFL_STRATEGY_KEYS_V1.values()):
+        return str(SFL_SERIES_VERSION_V1)
+    if key == MACD_A_STRATEGY_V1:
+        return str(MACD_A_SERIES_VERSION_V1)
     if key == AI_BASELINE_STRATEGY_V2:
         return str(AI_PROMPT_VERSION)
     if key == COCKTAIL_MODE_1_SHADOW_STRATEGY_V2:
@@ -134,12 +141,7 @@ def materialize_strategy_series_once_v1(
     db_path: str = "pricegauger.db",
     now: datetime | None = None,
 ) -> StrategySeriesMaterializeSummaryV1:
-    """Bridge current model engines into one durable Strategy Lab series contract.
-
-    Existing model replay remains temporarily authoritative here, in the background.
-    Interactive UI reads only persisted points. Native model producers can replace
-    this bridge one at a time without changing the stored chart/query contract.
-    """
+    """Bridge current model engines into one durable Strategy Lab series contract."""
     if not using_postgres():
         return StrategySeriesMaterializeSummaryV1(0, 0, 0, 0)
     ensure_strategy_series_schema_v1()
@@ -179,10 +181,28 @@ def materialize_strategy_series_once_v1(
                 as_of=end,
                 db_path=db_path,
             )
+            sfl_controls = load_sfl_series_v1(
+                instrument_id=live.instrument_id,
+                seed_equity=comparison.seed_equity,
+                currency=comparison.currency,
+                started_at=comparison.started_at,
+                as_of=end,
+                db_path=db_path,
+            )
+            macd_a = load_macd_a_series_v1(
+                instrument_id=live.instrument_id,
+                seed_equity=comparison.seed_equity,
+                currency=comparison.currency,
+                started_at=comparison.started_at,
+                as_of=end,
+                db_path=db_path,
+            )
             raw_model_series = (
                 tuple(comparison.paper_series)
                 + tuple(timeframe_controls)
                 + tuple(hybrid_controls)
+                + tuple(sfl_controls)
+                + (() if macd_a is None else (macd_a,))
             )
             leveraged = apply_schedule_to_series_v2(raw_model_series, schedule=schedule)
             if len(leveraged) != len(raw_model_series):
