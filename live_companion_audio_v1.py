@@ -10,6 +10,13 @@ SESSION_KEY = "pg-v2-analyst-companion-session"
 VOICE_ENABLED_KEY = "pg-live-companion-voice-enabled"
 VOICE_ONLY_CHANGES_KEY = "pg-live-companion-voice-only-changes"
 LAST_SPOKEN_KEY = "pg-live-companion-last-spoken"
+GOLD_ENABLED_KEY = "pg-live-companion-market-gold"
+SILVER_ENABLED_KEY = "pg-live-companion-market-silver"
+
+_MARKET_TOGGLE_KEYS = {
+    "Gold": GOLD_ENABLED_KEY,
+    "Silver": SILVER_ENABLED_KEY,
+}
 
 
 def _session():
@@ -37,6 +44,13 @@ def _spoken_text(session, *, initial: bool = False) -> str:
 
     cleaned = [str(part).strip().rstrip(".") for part in parts if str(part).strip()]
     return ". ".join(cleaned).strip()[:700]
+
+
+def _market_enabled(market: str) -> bool:
+    key = _MARKET_TOGGLE_KEYS.get(str(market))
+    if key is None:
+        return False
+    return bool(st.session_state.get(key, False))
 
 
 def _speak(text: str, *, interrupt: bool = False) -> None:
@@ -78,12 +92,22 @@ def _speak(text: str, *, interrupt: bool = False) -> None:
 def render_live_companion_audio_v1() -> None:
     """Render the first eyes-free output surface for the active TA Companion session."""
     st.markdown("#### Live Companion")
-    st.caption("Første testversjon: følger markedet som er valgt over og leser materielle TA-endringer i headset/høyttaler.")
+    st.caption("Velg markedene Companion skal få lov til å lese opp. Gull og sølv er første versjon; flere kan legges til senere.")
 
     if VOICE_ENABLED_KEY not in st.session_state:
         st.session_state[VOICE_ENABLED_KEY] = False
     if VOICE_ONLY_CHANGES_KEY not in st.session_state:
         st.session_state[VOICE_ONLY_CHANGES_KEY] = True
+    if GOLD_ENABLED_KEY not in st.session_state:
+        st.session_state[GOLD_ENABLED_KEY] = True
+    if SILVER_ENABLED_KEY not in st.session_state:
+        st.session_state[SILVER_ENABLED_KEY] = True
+
+    market_controls = st.columns(2)
+    with market_controls[0]:
+        st.toggle("Gull", key=GOLD_ENABLED_KEY)
+    with market_controls[1]:
+        st.toggle("Sølv", key=SILVER_ENABLED_KEY)
 
     controls = st.columns([1, 1, 1])
     with controls[0]:
@@ -106,9 +130,18 @@ def render_live_companion_audio_v1() -> None:
         st.caption("Tale er av. TA Analyst fortsetter som før.")
         return
 
+    selected_markets = [name for name, key in _MARKET_TOGGLE_KEYS.items() if bool(st.session_state.get(key, False))]
+    if not selected_markets:
+        st.caption("Ingen markeder er valgt for tale.")
+        return
+
     session = _session()
     if session is None or not getattr(session, "active", False) or getattr(session, "analysis", None) is None:
         st.caption("Venter på aktiv TA Analyst og første analyse.")
+        return
+
+    if not _market_enabled(str(session.market)):
+        st.caption(f"{session.market} er slått av for tale · valgt: {', '.join(selected_markets)}.")
         return
 
     key = _speech_key(session)
