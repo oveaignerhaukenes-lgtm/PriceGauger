@@ -8,6 +8,12 @@ from typing import Any
 
 import requests
 
+from autotrader_breakeven_reset_v1 import (
+    REASON_BREAKEVEN_RESET,
+    breakeven_trigger_still_valid_v1,
+    ensure_breakeven_reset_schema_v1,
+    materialize_breakeven_reset_triggers_v1,
+)
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_risk_control_v2 import (
@@ -55,6 +61,7 @@ def code_gate_enabled_v1() -> bool:
 def ensure_live_close_schema_v1() -> None:
     """Compatibility entrypoint for the centralized AutoTrader v2 schema."""
     ensure_autotrader_schema_v2()
+    ensure_breakeven_reset_schema_v1()
 
 
 def load_live_close_config_v1() -> LiveCloseConfigV1:
@@ -346,6 +353,26 @@ def _reconcile_accepted_attempts(client: SaxoClient) -> int:
     return reconciled
 
 
+def _breakeven_currently_executable_v1(
+    state: dict[str, Any],
+    current: PositionObservationV2,
+    *,
+    max_price_delay_minutes: int,
+) -> bool:
+    if not breakeven_trigger_still_valid_v1(
+        pnl_pct=float(current.pnl_pct),
+        high_water_pct=float(state["high_water_pct"]),
+    ):
+        return False
+    if not current.can_be_closed or not current.is_market_open:
+        return False
+    if str(current.non_tradable_reason or "").strip().lower() not in {"", "none"}:
+        return False
+    if current.calculation_reliability.strip().lower() not in {"", "ok"}:
+        return False
+    return int(current.price_delay_minutes) <= int(max_price_delay_minutes)
+
+
 def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
     config = load_live_close_config_v1()
     if not config.armed or not code_gate_enabled_v1():
@@ -358,6 +385,7 @@ def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
             failed=0,
         )
 
+    materialize_breakeven_reset_triggers_v1()
     states = _latest_triggered_states()
     pending_reconciliation = _has_pending_reconciliation_v1()
     if not states and not pending_reconciliation:
@@ -398,15 +426,27 @@ def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
                 blocked += 1
                 continue
 
-            fresh_decision = evaluate_risk_v2(
-                current,
-                config=risk_config,
-                previous_high_water_pct=float(state["high_water_pct"]),
-                already_triggered_reason=None,
-            )
-            if fresh_decision.action != ACTION_WOULD_CLOSE or not fresh_decision.eligible_for_execution:
-                blocked += 1
-                continue
+            trigger_reason = str(state.get("triggered_reason") or "")
+            if trigger_reason == REASON_BREAKEVEN_RESET:
+                if not _breakeven_currently_executable_v1(
+                    state,
+                    current,
+                    max_price_delay_minutes=risk_config.max_price_delay_minutes,
+                ):
+                    blocked += 1
+                    continue
+                close_reason = REASON_BREAKEVEN_RESET
+            else:
+                fresh_decision = evaluate_risk_v2(
+                    current,
+                    config=risk_config,
+                    previous_high_water_pct=float(state["high_water_pct"]),
+                    already_triggered_reason=None,
+                )
+                if fresh_decision.action != ACTION_WOULD_CLOSE or not fresh_decision.eligible_for_execution:
+                    blocked += 1
+                    continue
+                close_reason = fresh_decision.reason
 
             account_key = _account_key_for_account_id(client, account_id)
             external_reference = f"pg-close-{event_id.replace('-', '')[:32]}"
@@ -460,7 +500,7 @@ def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
                 order_id,
                 close_side,
                 current.amount,
-                fresh_decision.reason,
+                close_reason,
                 current.pnl_pct,
             )
         except Exception as exc:
