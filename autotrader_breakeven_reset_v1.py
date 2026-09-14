@@ -338,7 +338,13 @@ def latest_breakeven_cooldown_until_v1(
     uic: int,
     asset_type: str,
 ) -> datetime | None:
-    """Return product-global cooldown; a strategy switch cannot bypass the reset."""
+    """Return product-global cooldown anchored to the confirmed FLAT transition.
+
+    The LIVE close reconciler marks a close attempt RECONCILED only after the exact
+    Saxo position disappears/reduces. That is the authoritative FLAT timestamp for
+    this policy. P/L booking may legitimately lag, so it must not delay creation of
+    the cooldown or allow an early re-entry while accounting reconciliation waits.
+    """
     _ = pilot_key  # retained for the common entry-policy call signature / diagnostics.
     ensure_breakeven_reset_schema_v1()
     config = load_breakeven_reset_config_v1()
@@ -347,15 +353,13 @@ def latest_breakeven_cooldown_until_v1(
     with connect() as db:
         row = db.execute(
             """
-            SELECT rec.reconciled_at
+            SELECT close.updated_at AS flat_confirmed_at
             FROM pg_v2_autotrader_risk_events AS event
             JOIN pg_v2_autotrader_live_close_attempts AS close
               ON close.event_id = event.event_id AND close.status = 'RECONCILED'
-            JOIN pg_v2_autotrader_equity_reconciliations AS rec
-              ON rec.close_event_id = close.event_id
             WHERE event.reason = ?
               AND event.account_id = ? AND event.uic = ? AND event.asset_type = ?
-            ORDER BY rec.reconciled_at DESC
+            ORDER BY close.updated_at DESC
             LIMIT 1
             """,
             (REASON_BREAKEVEN_RESET, str(account_id), int(uic), str(asset_type)),
@@ -363,10 +367,10 @@ def latest_breakeven_cooldown_until_v1(
     if row is None:
         return None
     item = _row_dict(row)
-    reconciled_at = item["reconciled_at"]
-    if not isinstance(reconciled_at, datetime):
-        reconciled_at = datetime.fromisoformat(str(reconciled_at).replace("Z", "+00:00"))
-    return _utc(reconciled_at) + timedelta(seconds=int(config.cooldown_seconds))
+    flat_confirmed_at = item["flat_confirmed_at"]
+    if not isinstance(flat_confirmed_at, datetime):
+        flat_confirmed_at = datetime.fromisoformat(str(flat_confirmed_at).replace("Z", "+00:00"))
+    return _utc(flat_confirmed_at) + timedelta(seconds=int(config.cooldown_seconds))
 
 
 def require_breakeven_reentry_allowed_v1(
