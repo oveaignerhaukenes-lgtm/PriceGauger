@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from autotrader_breakeven_reset_v1 import require_breakeven_reentry_allowed_v1
 from autotrader_margin_envelope_v2 import AutoTraderMarginEnvelopeV2
 from autotrader_product_universe_v2 import (
     AutoTraderProductUniverseEntryV2,
@@ -352,6 +353,12 @@ def require_entry_policy_v2(
         product=product,
         universe=(admission.universe_entry,),
         margin_envelope_active=True,
+    )
+    require_breakeven_reentry_allowed_v1(
+        pilot_key=enrollment.pilot_key,
+        account_id=enrollment.account_id,
+        uic=enrollment.uic,
+        asset_type=enrollment.asset_type,
     )
     return admission, margin_config, envelope
 
