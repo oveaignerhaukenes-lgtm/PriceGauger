@@ -109,6 +109,14 @@ _strategy_lab_simple_component = st.components.v2.component(
 
 def render_strategy_lab_pnl_v5(comparison, *, key: str) -> None:
     payload = build_strategy_lab_payload_v1(comparison)
+    # The simple simulator is intentionally one comparison plane. The legacy payload
+    # still partitions fixed controls and adaptive/experimental models for other views,
+    # but this v5 renderer only consumes ``baseline_models``. Merge both groups here so
+    # selectable simulations such as MACD-A and SFL-1/2/5/10 are visible alongside the
+    # fixed MACD controls without changing their model identity or execution authority.
+    payload["baseline_models"] = list(payload.get("baseline_models") or []) + list(
+        payload.get("advanced_models") or []
+    )
     _strategy_lab_simple_component(
         key=f"{key}:baseline-simple-v5",
         data={"payload": payload, "mode": "baseline"},
