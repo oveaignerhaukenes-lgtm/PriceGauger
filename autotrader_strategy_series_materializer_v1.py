@@ -20,7 +20,8 @@ from autotrader_macd_timeframe_controls_v1 import (
     load_macd_timeframe_control_series_v1,
 )
 from autotrader_pnl_comparison_v2 import replay_automanager_pnl_comparison_v2
-from autotrader_sfl_v1 import SFL_SERIES_VERSION_V1, SFL_STRATEGY_KEYS_V1, load_sfl_series_v1
+from autotrader_sfl_v1 import SFL_STRATEGY_KEYS_V1
+from autotrader_sfl_series_v1 import SFL_SERIES_VERSION_V1, load_sfl_series_v1
 from autotrader_shadow_leverage_v2 import (
     apply_schedule_to_series_v2,
     leverage_at_v2,
