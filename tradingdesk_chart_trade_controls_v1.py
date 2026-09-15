@@ -28,6 +28,26 @@ export default function(component) {
     if (!entry?.root) return;
 
     const root = entry.root;
+
+    // A gesture that starts inside the chart belongs to the chart until it ends.
+    // Page scrolling remains available outside the chart.
+    root.style.touchAction = 'none';
+    root.style.overscrollBehavior = 'contain';
+    entry.chart?.applyOptions?.({
+        handleScroll: {
+            mouseWheel: true,
+            pressedMouseMove: true,
+            horzTouchDrag: true,
+            vertTouchDrag: true,
+        },
+        handleScale: {
+            mouseWheel: true,
+            pinch: true,
+            axisPressedMouseMove: { time: true, price: true },
+            axisDoubleClickReset: { time: true, price: true },
+        },
+    });
+
     const controlId = `pg-chart-trade-controls:${chartId}`;
     let controls = root.querySelector(`[data-pg-chart-trade-controls="${CSS.escape(controlId)}"]`);
     if (!controls) {
@@ -35,14 +55,14 @@ export default function(component) {
         controls.dataset.pgChartTradeControls = controlId;
         Object.assign(controls.style, {
             position: 'absolute',
-            left: '8px',
-            top: '8px',
+            left: '6px',
+            top: '6px',
             zIndex: '14',
             display: 'flex',
-            gap: '6px',
+            gap: '4px',
             alignItems: 'center',
             pointerEvents: 'auto',
-            font: '700 11px/1 system-ui,-apple-system,sans-serif',
+            font: '700 10px/1 system-ui,-apple-system,sans-serif',
         });
         root.appendChild(controls);
     }
@@ -55,11 +75,11 @@ export default function(component) {
             node.dataset.action = kind;
             Object.assign(node.style, {
                 border: '1px solid rgba(255,255,255,.24)',
-                borderRadius: '6px',
-                padding: '6px 8px',
-                minWidth: '72px',
+                borderRadius: '5px',
+                padding: '4px 6px',
+                minWidth: '60px',
                 color: '#ffffff',
-                boxShadow: '0 1px 4px rgba(0,0,0,.28)',
+                boxShadow: '0 1px 3px rgba(0,0,0,.24)',
                 cursor: 'pointer',
                 font: 'inherit',
                 backdropFilter: 'blur(3px)',
