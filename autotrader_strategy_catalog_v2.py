@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from autotrader_macd_dry_run_v2 import STRATEGY_KEY as MACD_LONG_FLAT_STRATEGY_V2
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
-
+from autotrader_overseer_performance_v1 import OVERSEER_PERFORMANCE_STRATEGY_KEY_V1
 
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
 MTF_LONG_FLAT_STRATEGY_V2 = "macd-mtf-30-10-5-long-flat-v1"
@@ -30,7 +30,6 @@ MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-2m-v1"
 MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2 = "macd-hybrid-exit-1m-entry-5m-v1"
 AI_BASELINE_STRATEGY_V2 = "gpt-5-mini-ai-baseline-v1"
 
-
 @dataclass(frozen=True, slots=True)
 class AutoTraderStrategySpecV2:
     key: str
@@ -39,16 +38,8 @@ class AutoTraderStrategySpecV2:
     can_long: bool
     can_short: bool
 
-
 @dataclass(frozen=True, slots=True)
 class AutoManagerStrategyTemplateV2:
-    """Named strategy recipe used during AutoManager experimentation.
-
-    Templates describe user-facing recipes; execution authority remains explicit in
-    ``AUTOTRADER_STRATEGIES_V2``. A template may therefore have a parallel shadow
-    runtime without sharing the same persistent strategy key.
-    """
-
     key: str
     label: str
     description: str
@@ -56,306 +47,64 @@ class AutoManagerStrategyTemplateV2:
     live_ready: bool
     shadow_running: bool
 
+def _spec(key: str, label: str, description: str, long: bool = True, short: bool = True) -> AutoTraderStrategySpecV2:
+    return AutoTraderStrategySpecV2(key, label, description, long, short)
 
-MACD_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_FLIP_STRATEGY_V2,
-    label="MACD30",
-    description="30m MACD 12/26/9: LONG on bullish cross; SHORT on bearish cross.",
-    can_long=True,
-    can_short=True,
-)
-
-MACD_LONG_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_LONG_FLAT_STRATEGY_V2,
-    label="30m MACD long/flat · defensive",
-    description="LONG on bullish cross; FLAT/cash on bearish cross.",
-    can_long=True,
-    can_short=False,
-)
-
-MACD_SHORT_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_SHORT_FLAT_STRATEGY_V2,
-    label="30m MACD short/flat · defensive",
-    description="SHORT on bearish cross; FLAT/cash on bullish cross.",
-    can_long=False,
-    can_short=True,
-)
-
-MTF_LONG_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MTF_LONG_FLAT_STRATEGY_V2,
-    label="MTF 30/10/5 · long/flat",
-    description=(
-        "30m context/regime; closed 5m bullish MACD trigger opens LONG; closed 10m validates or "
-        "rejects the provisional entry; closed 30m confirms the regime or ends it on bearish cross."
-    ),
-    can_long=True,
-    can_short=False,
-)
-
-MTF_SHORT_FLAT_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MTF_SHORT_FLAT_STRATEGY_V2,
-    label="MTF 30/10/5 · short/flat",
-    description=(
-        "30m bearish/deteriorating context; closed 5m bearish MACD trigger opens SHORT; closed 10m validates or "
-        "rejects the provisional entry; closed 30m confirms the regime or ends it on bullish cross."
-    ),
-    can_long=False,
-    can_short=True,
-)
-
-MTF_LONG_SHORT_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MTF_LONG_SHORT_FLIP_STRATEGY_V2,
-    label="MTF 30/10/5 · long/short flip",
-    description=(
-        "Symmetric MTF: 30m context, closed 5m early LONG/SHORT trigger and closed 10m validation. "
-        "An opposite closed 30m cross carries a reversal only through CLOSE -> confirmed FLAT -> OPEN."
-    ),
-    can_long=True,
-    can_short=True,
-)
-
-STRONG_COCKTAIL_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=STRONG_COCKTAIL_STRATEGY_V2,
-    label="Strong Cocktail · 1m event + MTF context",
-    description=(
-        "Fast 1m price/MACD event timing with Cocktail 5/10/15/30m context. "
-        "Slow horizons qualify confidence rather than acting as sequential entry gates."
-    ),
-    can_long=True,
-    can_short=True,
-)
-
-MACD_1M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_1M_FLIP_STRATEGY_V2,
-    label="MACD1",
-    description="1m MACD 12/26/9 binary LONG/SHORT control.",
-    can_long=True,
-    can_short=True,
-)
-
-MACD_2M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_2M_FLIP_STRATEGY_V2,
-    label="MACD2",
-    description="2m MACD 12/26/9 binary LONG/SHORT control.",
-    can_long=True,
-    can_short=True,
-)
-
-MACD_5M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_5M_FLIP_STRATEGY_V2,
-    label="MACD5",
-    description="5m MACD 12/26/9 binary LONG/SHORT control.",
-    can_long=True,
-    can_short=True,
-)
-
-MACD_15M_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_15M_FLIP_STRATEGY_V2,
-    label="MACD15",
-    description="15m MACD 12/26/9 binary LONG/SHORT control.",
-    can_long=True,
-    can_short=True,
-)
-
-MACD2_10_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD2_10_STRATEGY_V1,
-    label="MACD2-10",
-    description="2m MACD owns direction; closed 10m MACD only filters an opposing regime.",
-    can_long=True,
-    can_short=True,
-)
-
-MACD2_S_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD2_S_STRATEGY_V1,
-    label="MACD2-S",
-    description="2m MACD owns direction; 1m stochastic adjusts timing by at most 20% and never reverses the signal.",
-    can_long=True,
-    can_short=True,
-)
-
-MACD_A_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_A_STRATEGY_V1,
-    label="MACD-A",
-    description="Adaptive 1m/2m/5m MACD selected from recent fast-signal follow-through versus noise.",
-    can_long=True,
-    can_short=True,
-)
-
+MACD_FLIP_SPEC_V2 = _spec(MACD_FLIP_STRATEGY_V2, "MACD30", "30m MACD 12/26/9: LONG on bullish cross; SHORT on bearish cross.")
+MACD_LONG_FLAT_SPEC_V2 = _spec(MACD_LONG_FLAT_STRATEGY_V2, "30m MACD long/flat · defensive", "LONG on bullish cross; FLAT/cash on bearish cross.", True, False)
+MACD_SHORT_FLAT_SPEC_V2 = _spec(MACD_SHORT_FLAT_STRATEGY_V2, "30m MACD short/flat · defensive", "SHORT on bearish cross; FLAT/cash on bullish cross.", False, True)
+MTF_LONG_FLAT_SPEC_V2 = _spec(MTF_LONG_FLAT_STRATEGY_V2, "MTF 30/10/5 · long/flat", "30m context; 5m entry; 10m validation; 30m confirmation.", True, False)
+MTF_SHORT_FLAT_SPEC_V2 = _spec(MTF_SHORT_FLAT_STRATEGY_V2, "MTF 30/10/5 · short/flat", "30m bearish context; 5m entry; 10m validation; 30m confirmation.", False, True)
+MTF_LONG_SHORT_FLIP_SPEC_V2 = _spec(MTF_LONG_SHORT_FLIP_STRATEGY_V2, "MTF 30/10/5 · long/short flip", "Symmetric MTF with safe CLOSE -> FLAT -> OPEN reversals.")
+STRONG_COCKTAIL_SPEC_V2 = _spec(STRONG_COCKTAIL_STRATEGY_V2, "Strong Cocktail · 1m event + MTF context", "Fast 1m event timing with 5/10/15/30m context.")
+MACD_1M_FLIP_SPEC_V2 = _spec(MACD_1M_FLIP_STRATEGY_V2, "MACD1", "1m MACD 12/26/9 binary LONG/SHORT control.")
+MACD_2M_FLIP_SPEC_V2 = _spec(MACD_2M_FLIP_STRATEGY_V2, "MACD2", "2m MACD 12/26/9 binary LONG/SHORT control.")
+MACD_5M_FLIP_SPEC_V2 = _spec(MACD_5M_FLIP_STRATEGY_V2, "MACD5", "5m MACD 12/26/9 binary LONG/SHORT control.")
+MACD_15M_FLIP_SPEC_V2 = _spec(MACD_15M_FLIP_STRATEGY_V2, "MACD15", "15m MACD 12/26/9 binary LONG/SHORT control.")
+MACD2_10_SPEC_V2 = _spec(MACD2_10_STRATEGY_V1, "MACD2-10", "2m direction with 10m regime filter.")
+MACD2_S_SPEC_V2 = _spec(MACD2_S_STRATEGY_V1, "MACD2-S", "2m MACD with bounded stochastic timing adjustment.")
+MACD_A_SPEC_V2 = _spec(MACD_A_STRATEGY_V1, "MACD-A", "Adaptive 1m/2m/5m MACD selected from follow-through versus noise.")
 
 def _sfl_spec(minutes: int) -> AutoTraderStrategySpecV2:
-    return AutoTraderStrategySpecV2(
-        key=f"sfl-{minutes}m-v1",
-        label=f"SFL{minutes}",
-        description=(
-            f"{minutes}m state/flow/latency model. MACD level, slope and acceleration combine with 1m price impulse, "
-            "micro-structure and a noise gate. Weak/reversing positions de-risk to FLAT before opposite confirmation."
-        ),
-        can_long=True,
-        can_short=True,
-    )
-
+    return _spec(f"sfl-{minutes}m-v1", f"SFL{minutes}", f"{minutes}m state/flow/latency model with FLAT de-risking.")
 
 SFL_1M_SPEC_V2 = _sfl_spec(1)
 SFL_2M_SPEC_V2 = _sfl_spec(2)
 SFL_5M_SPEC_V2 = _sfl_spec(5)
 SFL_10M_SPEC_V2 = _sfl_spec(10)
-
-MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2,
-    label="MACD hybrid · exit 1m / entry 2m",
-    description=(
-        "Opposite 1m MACD cross de-risks to FLAT; new exposure requires either a closed 2m cross or a fresh 1m recovery cross aligned with the current closed 2m MACD regime. "
-        "Reversals still execute only as CLOSE -> confirmed FLAT -> OPEN."
-    ),
-    can_long=True,
-    can_short=True,
-)
-
-MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2,
-    label="MACD hybrid · exit 1m / entry 5m",
-    description=(
-        "Opposite 1m MACD cross de-risks to FLAT; new exposure requires either a closed 5m cross or a fresh 1m recovery cross aligned with the current closed 5m MACD regime. "
-        "Reversals still execute only as CLOSE -> confirmed FLAT -> OPEN."
-    ),
-    can_long=True,
-    can_short=True,
-)
-
-AI_BASELINE_SPEC_V2 = AutoTraderStrategySpecV2(
-    key=AI_BASELINE_STRATEGY_V2,
-    label="AI baseline · GPT-5 mini · technicals + news",
-    description=(
-        "Experimental GPT-5 mini policy chooses LONG/SHORT/FLAT from persisted technical, price and news context. "
-        "The model never controls sizing or orders; AutoManager's normal execution lifecycle remains authoritative."
-    ),
-    can_long=True,
-    can_short=True,
-)
+MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2 = _spec(MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2, "MACD hybrid · exit 1m / entry 2m", "1m defensive exit; 2m confirmed entry; safe reversal lifecycle.")
+MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2 = _spec(MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2, "MACD hybrid · exit 1m / entry 5m", "1m defensive exit; 5m confirmed entry; safe reversal lifecycle.")
+AI_BASELINE_SPEC_V2 = _spec(AI_BASELINE_STRATEGY_V2, "AI baseline · GPT-5 mini · technicals + news", "Experimental AI policy; normal execution lifecycle remains authoritative.")
+OVERSEER_PERFORMANCE_SPEC_V1 = _spec(OVERSEER_PERFORMANCE_STRATEGY_KEY_V1, "Overseer", "Meta-policy selects the currently strongest live-capable expert from recent simulator performance; FLAT and hysteresis are first-class.")
 
 AUTOTRADER_STRATEGIES_V2 = (
-    MACD_LONG_FLAT_SPEC_V2,
-    MACD_SHORT_FLAT_SPEC_V2,
-    MACD_FLIP_SPEC_V2,
-    MTF_LONG_FLAT_SPEC_V2,
-    MTF_SHORT_FLAT_SPEC_V2,
-    MTF_LONG_SHORT_FLIP_SPEC_V2,
-    STRONG_COCKTAIL_SPEC_V2,
-    MACD_1M_FLIP_SPEC_V2,
-    MACD_2M_FLIP_SPEC_V2,
-    MACD_5M_FLIP_SPEC_V2,
-    MACD_15M_FLIP_SPEC_V2,
-    MACD2_10_SPEC_V2,
-    MACD2_S_SPEC_V2,
-    MACD_A_SPEC_V2,
-    SFL_1M_SPEC_V2,
-    SFL_2M_SPEC_V2,
-    SFL_5M_SPEC_V2,
-    SFL_10M_SPEC_V2,
-    MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
-    MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
-    AI_BASELINE_SPEC_V2,
+    MACD_LONG_FLAT_SPEC_V2, MACD_SHORT_FLAT_SPEC_V2, MACD_FLIP_SPEC_V2,
+    MTF_LONG_FLAT_SPEC_V2, MTF_SHORT_FLAT_SPEC_V2, MTF_LONG_SHORT_FLIP_SPEC_V2,
+    STRONG_COCKTAIL_SPEC_V2, MACD_1M_FLIP_SPEC_V2, MACD_2M_FLIP_SPEC_V2,
+    MACD_5M_FLIP_SPEC_V2, MACD_15M_FLIP_SPEC_V2, MACD2_10_SPEC_V2,
+    MACD2_S_SPEC_V2, MACD_A_SPEC_V2, SFL_1M_SPEC_V2, SFL_2M_SPEC_V2,
+    SFL_5M_SPEC_V2, SFL_10M_SPEC_V2, MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
+    MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2, AI_BASELINE_SPEC_V2, OVERSEER_PERFORMANCE_SPEC_V1,
 )
+PAPER_30M_STRATEGIES_V2 = (MACD_LONG_FLAT_SPEC_V2, MACD_SHORT_FLAT_SPEC_V2, MACD_FLIP_SPEC_V2)
 
-PAPER_30M_STRATEGIES_V2 = (
-    MACD_LONG_FLAT_SPEC_V2,
-    MACD_SHORT_FLAT_SPEC_V2,
-    MACD_FLIP_SPEC_V2,
-)
-
-AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=MACD_LONG_FLAT_STRATEGY_V2,
-    label="Classic 30m",
-    description="Closed 30m MACD 12/26/9 controls LONG/FLAT directly.",
-    signal_stack="30m regime + 30m entry/exit",
-    live_ready=True,
-    shadow_running=True,
-)
-
-AUTOMANAGER_FAST_15M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2,
-    label="Fast 15m",
-    description="Closed 15m MACD 12/26/9 controls LONG/FLAT for earlier reactions.",
-    signal_stack="15m entry + 15m exit",
-    live_ready=False,
-    shadow_running=True,
-)
-
-AUTOMANAGER_MTF_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=MTF_LONG_FLAT_STRATEGY_V2,
-    label="MTF 30/10/5 · long",
-    description="30m context, 5m LONG entry trigger, 10m validation and 30m regime confirmation.",
-    signal_stack="30m regime -> 5m LONG entry -> 10m validation -> 30m confirmation",
-    live_ready=True,
-    shadow_running=True,
-)
-
-AUTOMANAGER_MTF_SHORT_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=MTF_SHORT_FLAT_STRATEGY_V2,
-    label="MTF 30/10/5 · short",
-    description="30m bearish context, 5m SHORT entry trigger, 10m validation and 30m regime confirmation.",
-    signal_stack="30m regime -> 5m SHORT entry -> 10m validation -> 30m confirmation",
-    live_ready=True,
-    shadow_running=False,
-)
-
-AUTOMANAGER_MTF_FLIP_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=MTF_LONG_SHORT_FLIP_STRATEGY_V2,
-    label="MTF 30/10/5 · long/short flip",
-    description=(
-        "30m regime with symmetric 5m early LONG/SHORT entries, 10m validation and safe two-step reversals."
-    ),
-    signal_stack="30m regime -> 5m LONG/SHORT entry -> 10m validation -> 30m CLOSE/FLAT/opposite OPEN",
-    live_ready=True,
-    shadow_running=False,
-)
-
-AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2,
-    label="Intrabar 30m · 1m cross",
-    description=(
-        "30m MACD 12/26/9 is re-evaluated on every closed canonical 1m sample; "
-        "the first observed intrabar cross is timestamped instead of waiting for the 30m close."
-    ),
-    signal_stack="forming 30m MACD sampled on canonical 1m closes -> immediate LONG/FLAT shadow transition",
-    live_ready=False,
-    shadow_running=False,
-)
-
-AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(
-    key=COCKTAIL_MODE_1_SHADOW_STRATEGY_V2,
-    label="Cocktail Mode #1",
-    description=(
-        "Adaptive 1m-clock MTF engine: NORMAL, SHOCK, TREND_LOCK and WHIPSAW. "
-        "5/10/15/30m MACD crosses are timestamped on one canonical 1m clock; FLAT is an active safety state."
-    ),
-    signal_stack=(
-        "canonical 1m clock -> forming 5/10/15/30m MACD crosses -> activity/SR/efficiency regime -> adaptive LONG/FLAT/SHORT shadow"
-    ),
-    live_ready=False,
-    shadow_running=True,
-)
-
-AUTOMANAGER_STRATEGY_TEMPLATES_V2 = (
-    AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2,
-    AUTOMANAGER_FAST_15M_TEMPLATE_V2,
-    AUTOMANAGER_MTF_TEMPLATE_V2,
-    AUTOMANAGER_MTF_SHORT_TEMPLATE_V2,
-    AUTOMANAGER_MTF_FLIP_TEMPLATE_V2,
-    AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2,
-    AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2,
-)
+AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(MACD_LONG_FLAT_STRATEGY_V2, "Classic 30m", "Closed 30m MACD controls LONG/FLAT.", "30m regime + 30m entry/exit", True, True)
+AUTOMANAGER_FAST_15M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2, "Fast 15m", "Closed 15m MACD controls LONG/FLAT.", "15m entry + 15m exit", False, True)
+AUTOMANAGER_MTF_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(MTF_LONG_FLAT_STRATEGY_V2, "MTF 30/10/5 · long", "30m context, 5m entry, 10m validation.", "30m -> 5m -> 10m", True, True)
+AUTOMANAGER_MTF_SHORT_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(MTF_SHORT_FLAT_STRATEGY_V2, "MTF 30/10/5 · short", "30m bearish context, 5m entry, 10m validation.", "30m -> 5m -> 10m", True, False)
+AUTOMANAGER_MTF_FLIP_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(MTF_LONG_SHORT_FLIP_STRATEGY_V2, "MTF 30/10/5 · long/short flip", "Symmetric MTF with safe reversals.", "30m -> 5m -> 10m -> CLOSE/FLAT/OPEN", True, False)
+AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2, "Intrabar 30m · 1m cross", "30m MACD sampled on canonical 1m closes.", "forming 30m on 1m clock", False, False)
+AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2 = AutoManagerStrategyTemplateV2(COCKTAIL_MODE_1_SHADOW_STRATEGY_V2, "Cocktail Mode #1", "Adaptive 1m-clock MTF engine.", "1m clock -> 5/10/15/30m context", False, True)
+AUTOMANAGER_STRATEGY_TEMPLATES_V2 = (AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2, AUTOMANAGER_FAST_15M_TEMPLATE_V2, AUTOMANAGER_MTF_TEMPLATE_V2, AUTOMANAGER_MTF_SHORT_TEMPLATE_V2, AUTOMANAGER_MTF_FLIP_TEMPLATE_V2, AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2, AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2)
 
 _BY_KEY = {item.key: item for item in AUTOTRADER_STRATEGIES_V2}
 _TEMPLATE_BY_KEY = {item.key: item for item in AUTOMANAGER_STRATEGY_TEMPLATES_V2}
-
 
 def strategy_spec_v2(strategy_key: str) -> AutoTraderStrategySpecV2:
     try:
         return _BY_KEY[str(strategy_key)]
     except KeyError as exc:
         raise ValueError(f"unsupported AutoTrader strategy: {strategy_key}") from exc
-
 
 def strategy_display_label_v2(strategy_key: str) -> str:
     key = str(strategy_key)
@@ -365,65 +114,6 @@ def strategy_display_label_v2(strategy_key: str) -> str:
         return _TEMPLATE_BY_KEY[key].label
     return key
 
-
-__all__ = [
-    "AI_BASELINE_SPEC_V2",
-    "AI_BASELINE_STRATEGY_V2",
-    "AUTOMANAGER_CLASSIC_30M_TEMPLATE_V2",
-    "AUTOMANAGER_COCKTAIL_MODE_1_TEMPLATE_V2",
-    "AUTOMANAGER_FAST_15M_TEMPLATE_V2",
-    "AUTOMANAGER_INTRABAR_30M_TEMPLATE_V2",
-    "AUTOMANAGER_MTF_FLIP_TEMPLATE_V2",
-    "AUTOMANAGER_MTF_SHORT_TEMPLATE_V2",
-    "AUTOMANAGER_MTF_TEMPLATE_V2",
-    "AUTOMANAGER_STRATEGY_TEMPLATES_V2",
-    "AUTOTRADER_STRATEGIES_V2",
-    "COCKTAIL_MODE_1_SHADOW_STRATEGY_V2",
-    "PAPER_30M_STRATEGIES_V2",
-    "AutoManagerStrategyTemplateV2",
-    "AutoTraderStrategySpecV2",
-    "FAST_15M_LONG_FLAT_SHADOW_STRATEGY_V2",
-    "INTRABAR_30M_LONG_FLAT_SHADOW_STRATEGY_V2",
-    "MACD_1M_FLIP_SPEC_V2",
-    "MACD_1M_FLIP_STRATEGY_V2",
-    "MACD_2M_FLIP_SPEC_V2",
-    "MACD_2M_FLIP_STRATEGY_V2",
-    "MACD_5M_FLIP_SPEC_V2",
-    "MACD_5M_FLIP_STRATEGY_V2",
-    "MACD_15M_FLIP_SPEC_V2",
-    "MACD_15M_FLIP_STRATEGY_V2",
-    "MACD2_10_SPEC_V2",
-    "MACD2_10_STRATEGY_V1",
-    "MACD2_S_SPEC_V2",
-    "MACD2_S_STRATEGY_V1",
-    "MACD_A_SPEC_V2",
-    "MACD_A_STRATEGY_V1",
-    "SFL_1M_SPEC_V2",
-    "SFL_1M_STRATEGY_V1",
-    "SFL_2M_SPEC_V2",
-    "SFL_2M_STRATEGY_V1",
-    "SFL_5M_SPEC_V2",
-    "SFL_5M_STRATEGY_V1",
-    "SFL_10M_SPEC_V2",
-    "SFL_10M_STRATEGY_V1",
-    "MACD_FLIP_SPEC_V2",
-    "MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2",
-    "MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2",
-    "MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2",
-    "MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2",
-    "MACD_LONG_FLAT_SPEC_V2",
-    "MACD_LONG_FLAT_STRATEGY_V2",
-    "MACD_SHORT_FLAT_SPEC_V2",
-    "MACD_SHORT_FLAT_STRATEGY_V2",
-    "MTF_LONG_ENTRY_SHADOW_STRATEGY_V2",
-    "MTF_LONG_FLAT_SPEC_V2",
-    "MTF_LONG_FLAT_STRATEGY_V2",
-    "MTF_LONG_SHORT_FLIP_SPEC_V2",
-    "MTF_LONG_SHORT_FLIP_STRATEGY_V2",
-    "MTF_SHORT_FLAT_SPEC_V2",
-    "MTF_SHORT_FLAT_STRATEGY_V2",
-    "STRONG_COCKTAIL_SPEC_V2",
-    "STRONG_COCKTAIL_STRATEGY_V2",
-    "strategy_display_label_v2",
-    "strategy_spec_v2",
+__all__ = [name for name in globals() if name.isupper()] + [
+    "AutoManagerStrategyTemplateV2", "AutoTraderStrategySpecV2", "strategy_display_label_v2", "strategy_spec_v2"
 ]
