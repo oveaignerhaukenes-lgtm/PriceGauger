@@ -90,8 +90,9 @@ def materialize_strategy_series_once_v1(*, db_path: str = "pricegauger.db", now:
             sfl_controls = load_sfl_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             macd_a = load_macd_a_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             fresh_ai = load_ai_baseline_fresh_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
-            legacy = tuple(series for series in comparison.paper_series if str(series.strategy_key) != str(AI_BASELINE_STRATEGY_V2))
-            experts = legacy + tuple(timeframe_controls) + tuple(hybrid_controls) + tuple(sfl_controls) + (() if macd_a is None else (macd_a,))
+            # Preserve the explicit freshness contract: never let the legacy AI baseline carry stale exposure.
+            legacy_without_ai = tuple(series for series in comparison.paper_series if str(series.strategy_key) != str(AI_BASELINE_STRATEGY_V2))
+            experts = legacy_without_ai + tuple(timeframe_controls) + tuple(hybrid_controls) + tuple(sfl_controls) + (() if macd_a is None else (macd_a,))
             overseer = load_overseer_performance_series_v1(experts)
             raw_model_series = experts + (() if fresh_ai is None else (fresh_ai,)) + (() if overseer is None else (overseer,))
             leveraged = apply_schedule_to_series_v2(raw_model_series, schedule=schedule)
