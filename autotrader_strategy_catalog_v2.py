@@ -55,7 +55,14 @@ MACD_LONG_FLAT_SPEC_V2 = _spec(MACD_LONG_FLAT_STRATEGY_V2, "30m MACD long/flat �
 MACD_SHORT_FLAT_SPEC_V2 = _spec(MACD_SHORT_FLAT_STRATEGY_V2, "30m MACD short/flat · defensive", "SHORT on bearish cross; FLAT/cash on bullish cross.", False, True)
 MTF_LONG_FLAT_SPEC_V2 = _spec(MTF_LONG_FLAT_STRATEGY_V2, "MTF 30/10/5 · long/flat", "30m context; 5m entry; 10m validation; 30m confirmation.", True, False)
 MTF_SHORT_FLAT_SPEC_V2 = _spec(MTF_SHORT_FLAT_STRATEGY_V2, "MTF 30/10/5 · short/flat", "30m bearish context; 5m entry; 10m validation; 30m confirmation.", False, True)
-MTF_LONG_SHORT_FLIP_SPEC_V2 = _spec(MTF_LONG_SHORT_FLIP_STRATEGY_V2, "MTF 30/10/5 · long/short flip", "Symmetric MTF with safe CLOSE -> FLAT -> OPEN reversals.")
+# Keep the direction capabilities explicit: wiring tests and entry gates treat these as a safety contract.
+MTF_LONG_SHORT_FLIP_SPEC_V2 = AutoTraderStrategySpecV2(
+    key=MTF_LONG_SHORT_FLIP_STRATEGY_V2,
+    label="MTF 30/10/5 · long/short flip",
+    description="Symmetric MTF with safe CLOSE -> FLAT -> OPEN reversals.",
+    can_long=True,
+    can_short=True,
+)
 STRONG_COCKTAIL_SPEC_V2 = _spec(STRONG_COCKTAIL_STRATEGY_V2, "Strong Cocktail · 1m event + MTF context", "Fast 1m event timing with 5/10/15/30m context.")
 MACD_1M_FLIP_SPEC_V2 = _spec(MACD_1M_FLIP_STRATEGY_V2, "MACD1", "1m MACD 12/26/9 binary LONG/SHORT control.")
 MACD_2M_FLIP_SPEC_V2 = _spec(MACD_2M_FLIP_STRATEGY_V2, "MACD2", "2m MACD 12/26/9 binary LONG/SHORT control.")
