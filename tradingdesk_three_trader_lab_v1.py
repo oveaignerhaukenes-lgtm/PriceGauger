@@ -25,7 +25,10 @@ def _stamp(value) -> pd.Timestamp:
 def _load_holistic_decisions(instrument_id: int, start: datetime, end: datetime) -> tuple[dict, ...]:
     try:
         with connect() as db:
-            rows = db.execute("""SELECT action_at, price, target_direction, confidence, summary FROM pg_v2_autotrader_ai_baseline_samples WHERE strategy_key = ? AND instrument_id = ? AND action_at >= ? AND action_at <= ? ORDER BY action_at ASC"", (HOLISTIC_AI_STRATEGY_KEY, int(instrument_id), start, end)).fetchall()
+            rows = db.execute(
+                "SELECT action_at, price, target_direction, confidence, summary FROM pg_v2_autotrader_ai_baseline_samples WHERE strategy_key = ? AND instrument_id = ? AND action_at >= ? AND action_at <= ? ORDER BY action_at ASC",
+                (HOLISTIC_AI_STRATEGY_KEY, int(instrument_id), start, end),
+            ).fetchall()
     except Exception:
         return ()
     result=[]
@@ -77,13 +80,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             adaptive_full,_=replay_hybrid_models_v1(bars,cost_bps_per_leg=cost_bps)
         except Exception as exc:
             st.caption(f"Tre-trader-lab venter på nok canonical data: {exc}"); return
-        visible_since=_stamp(end-timedelta(hours=hours))
-        rule_frame=rule_full[rule_full.index>=visible_since][["PRICE","TARGET"]].copy()
+        visible_since=_stamp(end-timedelta(hours=hours)); rule_frame=rule_full[rule_full.index>=visible_since][["PRICE","TARGET"]].copy()
         adaptive_slice=adaptive_full[adaptive_full.index>=visible_since]; adaptive_frame=pd.DataFrame(index=adaptive_slice.index); adaptive_frame["PRICE"]=adaptive_slice["PRICE"]; adaptive_frame["TARGET"]=adaptive_slice["TARGET_MACD-A"]
         decisions=_load_holistic_decisions(int(instrument_id),end-timedelta(hours=hours),end); holistic_frame=_target_frame(rule_frame,decisions)
         rule_events=tuple({"at":_stamp(item.at),"price":float(item.price),"target":int(item.target)} for item in rule_switches if _stamp(item.at)>=visible_since)
-        adaptive_events=_events_from_target(adaptive_frame); holistic_events=tuple(item for item in decisions if int(item["target"]) in (-1,1))
-        event_sets={RULE_NAME:rule_events,ADAPTIVE_NAME:adaptive_events,HOLISTIC_NAME:holistic_events}
+        adaptive_events=_events_from_target(adaptive_frame); holistic_events=tuple(item for item in decisions if int(item["target"]) in (-1,1)); event_sets={RULE_NAME:rule_events,ADAPTIVE_NAME:adaptive_events,HOLISTIC_NAME:holistic_events}
         if RULE_NAME in visible: _render_metrics(RULE_NAME,rule_frame,cost_bps=cost_bps)
         if ADAPTIVE_NAME in visible: _render_metrics(ADAPTIVE_NAME,adaptive_frame,cost_bps=cost_bps)
         if HOLISTIC_NAME in visible:
