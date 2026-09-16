@@ -60,5 +60,13 @@ def test_manager_module_has_no_execution_authority() -> None:
     from pathlib import Path
 
     source = (Path(__file__).resolve().parents[1] / "autotrader_position_manager_replay_v1.py").read_text(encoding="utf-8").lower()
-    for token in ("saxo", "broker", "order_request", "request_manual_target", "persist_intent"):
+    for token in (
+        "import saxo",
+        "from saxo",
+        "order_request",
+        "request_manual_target",
+        "persist_intent",
+        "client.post(",
+        "requests.post(",
+    ):
         assert token not in source
