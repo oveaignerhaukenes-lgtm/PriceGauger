@@ -40,7 +40,17 @@ export default function(component) {
         const price = chart.addSeries(L.LineSeries, { lineWidth: 2, title: 'Pris' });
         price.setData((payload.price || []).map(p => ({ time: p.time, value: p.value })));
         const markers = [];
-        for (const event of (payload.events || [])) markers.push({ time: event.time, position: event.target > 0 ? 'belowBar' : 'aboveBar', shape: event.target > 0 ? 'arrowUp' : 'arrowDown', color: event.color, text: event.short, size: event.size || 1 });
+        for (const event of (payload.events || [])) {
+            const target = Number(event.target || 0);
+            markers.push({
+                time: event.time,
+                position: target > 0 ? 'belowBar' : 'aboveBar',
+                shape: target > 0 ? 'arrowUp' : target < 0 ? 'arrowDown' : 'circle',
+                color: event.color,
+                text: target === 0 ? `${event.short} FLAT` : event.short,
+                size: event.size || 1,
+            });
+        }
         markers.sort((a,b) => a.time - b.time); if (L.createSeriesMarkers) L.createSeriesMarkers(price, markers);
         if (saved.range) { try { chart.timeScale().setVisibleLogicalRange(saved.range); } catch (_) {} } else chart.timeScale().fitContent();
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => { if (range) { saved.range = range; persist(); } });
@@ -70,14 +80,25 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
         "MACD-adaptiv": "#16a34a",
         "Holistisk AI": "#dc2626",
         "MACD + manager": "#7c3aed",
+        "MACD norm": "#0891b2",
+        "MACD norm + manager": "#db2777",
     }
     shorts = {
         "Dum MACD": "Rule",
         "MACD-adaptiv": "Adaptiv",
         "Holistisk AI": "AI",
         "MACD + manager": "Mgr",
+        "MACD norm": "Norm",
+        "MACD norm + manager": "Norm+Mgr",
     }
-    sizes = {"Dum MACD": 1, "MACD-adaptiv": 2, "Holistisk AI": 3, "MACD + manager": 2}
+    sizes = {
+        "Dum MACD": 1,
+        "MACD-adaptiv": 2,
+        "Holistisk AI": 3,
+        "MACD + manager": 2,
+        "MACD norm": 2,
+        "MACD norm + manager": 3,
+    }
     events = []
     for model, model_events in event_sets.items():
         if model not in visible_models:

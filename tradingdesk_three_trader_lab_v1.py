@@ -7,6 +7,7 @@ import streamlit as st
 
 from autotrader_ai_baseline_v1 import STRATEGY_KEY as HOLISTIC_AI_STRATEGY_KEY
 from autotrader_hybrid_replay_v1 import replay_hybrid_models_v1
+from autotrader_macd_supervisor_normalized_replay_v1 import replay_normalized_macd_supervisor_v1
 from autotrader_macd_supervisor_replay_v1 import replay_macd_supervisor_v1, summarize_macd_supervisor_frame_v1
 from autotrader_position_manager_replay_v1 import apply_position_manager_v1
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
@@ -18,7 +19,16 @@ RULE_NAME = "Dum MACD"
 ADAPTIVE_NAME = "MACD-adaptiv"
 HOLISTIC_NAME = "Holistisk AI"
 MANAGED_NAME = "MACD + manager"
-ALL_MODELS = (RULE_NAME, ADAPTIVE_NAME, HOLISTIC_NAME, MANAGED_NAME)
+NORMALIZED_NAME = "MACD norm"
+NORMALIZED_MANAGED_NAME = "MACD norm + manager"
+ALL_MODELS = (
+    RULE_NAME,
+    ADAPTIVE_NAME,
+    HOLISTIC_NAME,
+    MANAGED_NAME,
+    NORMALIZED_NAME,
+    NORMALIZED_MANAGED_NAME,
+)
 
 
 def _stamp(value) -> pd.Timestamp:
@@ -73,12 +83,14 @@ def _target_frame(price_frame: pd.DataFrame, decisions: tuple[dict, ...]) -> pd.
     return frame
 
 
-def _events_from_target(frame: pd.DataFrame) -> tuple[dict, ...]:
+def _events_from_target(frame: pd.DataFrame, *, include_flat: bool = False) -> tuple[dict, ...]:
     events = []
     previous = 0
     for at, row in frame.iterrows():
         current = int(row["TARGET"])
-        if current != previous and current in (-1, 1):
+        changed = current != previous
+        visible_target = current in (-1, 1) or (include_flat and current == 0 and previous in (-1, 1))
+        if changed and visible_target:
             events.append({"at": _stamp(at), "price": float(row["PRICE"]), "target": current})
         previous = current
     return tuple(events)
@@ -100,11 +112,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
     if instrument_id is None:
         return
     with st.container(border=True):
-        st.markdown("### Fire tradere · samme marked")
+        st.markdown("### Strategier · samme marked")
         st.caption(
-            "Sammenligner fire uavhengige spor på samme canonical prisserie: enkel MACD-supervisor, "
-            "adaptiv MACD-periode, den holistiske AI-baselinen og en analysis-only stateful manager "
-            "oppå samme MACD-supervisorsignal. Ingen av disse markørene sender ordre."
+            "Samme canonical prisserie, seks analysis-only spor: rå MACD-supervisor, adaptiv MACD, "
+            "holistisk AI, rå MACD med stateful manager, per-timeframe-normalisert MACD og "
+            "normalisert MACD med samme manager. Dette skiller signalrespons fra posisjonsforvaltning."
         )
         controls = st.columns([1, 1, 2])
         with controls[0]:
@@ -144,6 +156,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             rule_full, rule_switches, _ = replay_macd_supervisor_v1(bars, cost_bps_per_leg=cost_bps)
             adaptive_full, _ = replay_hybrid_models_v1(bars, cost_bps_per_leg=cost_bps)
             managed_full = apply_position_manager_v1(rule_full[["PRICE", "TARGET"]])
+            normalized_full, normalized_switches, _ = replay_normalized_macd_supervisor_v1(
+                bars,
+                cost_bps_per_leg=cost_bps,
+            )
+            normalized_managed_full = apply_position_manager_v1(normalized_full[["PRICE", "TARGET"]])
         except Exception as exc:
             st.caption(f"Trader-lab venter på nok canonical data: {exc}")
             return
@@ -151,6 +168,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         visible_since = _stamp(end - timedelta(hours=hours))
         rule_frame = rule_full[rule_full.index >= visible_since][["PRICE", "TARGET"]].copy()
         managed_frame = managed_full[managed_full.index >= visible_since][["PRICE", "TARGET"]].copy()
+        normalized_frame = normalized_full[normalized_full.index >= visible_since][["PRICE", "TARGET"]].copy()
+        normalized_managed_frame = normalized_managed_full[
+            normalized_managed_full.index >= visible_since
+        ][["PRICE", "TARGET"]].copy()
+
         adaptive_slice = adaptive_full[adaptive_full.index >= visible_since]
         adaptive_frame = pd.DataFrame(index=adaptive_slice.index)
         adaptive_frame["PRICE"] = adaptive_slice["PRICE"]
@@ -163,18 +185,32 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             for item in rule_switches
             if _stamp(item.at) >= visible_since
         )
+        normalized_events = tuple(
+            {"at": _stamp(item.at), "price": float(item.price), "target": int(item.target)}
+            for item in normalized_switches
+            if _stamp(item.at) >= visible_since
+        )
         adaptive_events = _events_from_target(adaptive_frame)
         holistic_events = tuple(item for item in decisions if int(item["target"]) in (-1, 1))
-        managed_events = _events_from_target(managed_frame)
+        managed_events = _events_from_target(managed_frame, include_flat=True)
+        normalized_managed_events = _events_from_target(normalized_managed_frame, include_flat=True)
         event_sets = {
             RULE_NAME: rule_events,
             ADAPTIVE_NAME: adaptive_events,
             HOLISTIC_NAME: holistic_events,
             MANAGED_NAME: managed_events,
+            NORMALIZED_NAME: normalized_events,
+            NORMALIZED_MANAGED_NAME: normalized_managed_events,
         }
 
         if RULE_NAME in visible:
             _render_metrics(RULE_NAME, rule_frame, cost_bps=cost_bps)
+        if MANAGED_NAME in visible:
+            _render_metrics(MANAGED_NAME, managed_frame, cost_bps=cost_bps)
+        if NORMALIZED_NAME in visible:
+            _render_metrics(NORMALIZED_NAME, normalized_frame, cost_bps=cost_bps)
+        if NORMALIZED_MANAGED_NAME in visible:
+            _render_metrics(NORMALIZED_MANAGED_NAME, normalized_managed_frame, cost_bps=cost_bps)
         if ADAPTIVE_NAME in visible:
             _render_metrics(ADAPTIVE_NAME, adaptive_frame, cost_bps=cost_bps)
         if HOLISTIC_NAME in visible:
@@ -183,17 +219,22 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             else:
                 st.markdown(f"**{HOLISTIC_NAME}**")
                 st.caption("Ingen lagrede holistiske AI-beslutninger i valgt vindu ennå.")
-        if MANAGED_NAME in visible:
-            _render_metrics(MANAGED_NAME, managed_frame, cost_bps=cost_bps)
+
+        if MANAGED_NAME in visible or NORMALIZED_MANAGED_NAME in visible:
             st.caption(
                 "Manager v1: 3-bar reversal-bekreftelse, volatilitetsarmert peak-profit-lock, "
-                "maks 25% giveback fra MFE og kort re-entry cooldown. Analysis-only."
+                "maks 25% giveback fra MFE og kort re-entry cooldown. Sirkelmarkør = manager gikk FLAT."
+            )
+        if NORMALIZED_NAME in visible or NORMALIZED_MANAGED_NAME in visible:
+            st.caption(
+                "Norm v1: hver timeframe skaleres mot sin egen tidligere MACD-spread før vekting. "
+                "Det fjerner rå skala-fordelen 15m/30m har over 1m/2m/5m, uten å endre live-strategien."
             )
 
         render_three_trader_tv_v1(rule_frame, event_sets, visible, key=f"three-trader-chart-{instrument_id}")
         st.caption(
             "TV-chart: dra/pinch/zoom i grafen, dra håndtaket under for høyde. Visningsområde og høyde huskes. "
-            "Rule / Adaptiv / AI / Manager-markører viser modellskiftene på samme prisserie."
+            "Markørene viser modellskiftene på samme prisserie; alle spor her er analyse-only."
         )
 
 
