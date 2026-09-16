@@ -24,6 +24,17 @@ def test_chart_controls_render_inside_existing_lightweight_chart_root() -> None:
     assert "BUY" in source and "SELL" in source
 
 
+def test_chart_claims_gestures_that_start_inside_chart() -> None:
+    source = (ROOT / "tradingdesk_chart_trade_controls_v1.py").read_text(encoding="utf-8")
+    assert "root.style.touchAction = 'none'" in source
+    assert "root.style.overscrollBehavior = 'contain'" in source
+    assert "pressedMouseMove: true" in source
+    assert "horzTouchDrag: true" in source
+    assert "vertTouchDrag: true" in source
+    assert "pinch: true" in source
+    assert "axisPressedMouseMove: { time: true, price: true }" in source
+
+
 def test_scheduled_refresh_reuses_same_signature_chart_and_defers_heavy_update() -> None:
     source = (ROOT / "tradingdesk_chart_runtime_continuity_v1.py").read_text(encoding="utf-8")
     assert "sameSignature && entry.parent !== parentElement" in source
