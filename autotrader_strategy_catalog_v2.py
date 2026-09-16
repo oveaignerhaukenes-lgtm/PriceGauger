@@ -22,6 +22,8 @@ MACD_15M_FLIP_STRATEGY_V2 = "macd-15m-flip-control-shadow-v1"
 MACD2_10_STRATEGY_V1 = "macd2-10-v1"
 MACD2_S_STRATEGY_V1 = "macd2-s-v1"
 MACD_A_STRATEGY_V1 = "macd-a-v1"
+MACD_NORM_STRATEGY_V1 = "macd-norm-v1"
+MACD_NORM_MANAGER_STRATEGY_V1 = "macd-norm-manager-v1"
 SFL_1M_STRATEGY_V1 = "sfl-1m-v1"
 SFL_2M_STRATEGY_V1 = "sfl-2m-v1"
 SFL_5M_STRATEGY_V1 = "sfl-5m-v1"
@@ -71,6 +73,16 @@ MACD_15M_FLIP_SPEC_V2 = _spec(MACD_15M_FLIP_STRATEGY_V2, "MACD15", "15m MACD 12/
 MACD2_10_SPEC_V2 = _spec(MACD2_10_STRATEGY_V1, "MACD2-10", "2m direction with 10m regime filter.")
 MACD2_S_SPEC_V2 = _spec(MACD2_S_STRATEGY_V1, "MACD2-S", "2m MACD with bounded stochastic timing adjustment.")
 MACD_A_SPEC_V2 = _spec(MACD_A_STRATEGY_V1, "MACD-A", "Adaptive 1m/2m/5m MACD selected from follow-through versus noise.")
+MACD_NORM_SPEC_V1 = _spec(
+    MACD_NORM_STRATEGY_V1,
+    "MACD norm",
+    "1/2/5/10/15/30m MACD normalized per timeframe before supervisor scoring; binary LONG/SHORT target.",
+)
+MACD_NORM_MANAGER_SPEC_V1 = _spec(
+    MACD_NORM_MANAGER_STRATEGY_V1,
+    "MACD norm + manager",
+    "Normalized MACD signal plus stateful MFE profit-lock, reversal confirmation and re-entry cooldown.",
+)
 
 def _sfl_spec(minutes: int) -> AutoTraderStrategySpecV2:
     return _spec(f"sfl-{minutes}m-v1", f"SFL{minutes}", f"{minutes}m state/flow/latency model with FLAT de-risking.")
@@ -89,9 +101,10 @@ AUTOTRADER_STRATEGIES_V2 = (
     MTF_LONG_FLAT_SPEC_V2, MTF_SHORT_FLAT_SPEC_V2, MTF_LONG_SHORT_FLIP_SPEC_V2,
     STRONG_COCKTAIL_SPEC_V2, MACD_1M_FLIP_SPEC_V2, MACD_2M_FLIP_SPEC_V2,
     MACD_5M_FLIP_SPEC_V2, MACD_15M_FLIP_SPEC_V2, MACD2_10_SPEC_V2,
-    MACD2_S_SPEC_V2, MACD_A_SPEC_V2, SFL_1M_SPEC_V2, SFL_2M_SPEC_V2,
-    SFL_5M_SPEC_V2, SFL_10M_SPEC_V2, MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2,
-    MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2, AI_BASELINE_SPEC_V2, OVERSEER_PERFORMANCE_SPEC_V1,
+    MACD2_S_SPEC_V2, MACD_A_SPEC_V2, MACD_NORM_SPEC_V1, MACD_NORM_MANAGER_SPEC_V1,
+    SFL_1M_SPEC_V2, SFL_2M_SPEC_V2, SFL_5M_SPEC_V2, SFL_10M_SPEC_V2,
+    MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2, MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
+    AI_BASELINE_SPEC_V2, OVERSEER_PERFORMANCE_SPEC_V1,
 )
 PAPER_30M_STRATEGIES_V2 = (MACD_LONG_FLAT_SPEC_V2, MACD_SHORT_FLAT_SPEC_V2, MACD_FLIP_SPEC_V2)
 
