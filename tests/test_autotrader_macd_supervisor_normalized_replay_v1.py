@@ -24,6 +24,13 @@ def test_per_timeframe_normalization_is_scale_invariant() -> None:
     pd.testing.assert_series_equal(normal, scaled, check_exact=False, rtol=1e-12, atol=1e-12)
 
 
+def test_flat_history_keeps_numeric_dtype_when_scale_is_zero() -> None:
+    spread = pd.Series(([0.0] * 12) + [0.05, 0.10, 0.15, 0.20], dtype="float64")
+    normalized = _normalize_spread_history(spread)
+    assert str(normalized.dtype) == "float64"
+    assert normalized.iloc[:12].isna().all()
+
+
 def test_fast_cascade_can_override_stale_slow_context_when_propagation_is_strong() -> None:
     states = {
         1: _state(1, 0.75, 0.20),
