@@ -65,12 +65,36 @@ _three_trader_tv_component = st.components.v2.component("pricegauger_three_trade
 
 def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: str) -> None:
     price = [{"time": int(item.timestamp()), "value": float(row["PRICE"])} for item, row in price_frame.iterrows()]
-    colors = {"Dum MACD": "#2563eb", "MACD-adaptiv": "#16a34a", "Holistisk AI": "#dc2626"}
-    shorts = {"Dum MACD": "Rule", "MACD-adaptiv": "Adaptiv", "Holistisk AI": "AI"}; sizes = {"Dum MACD": 1, "MACD-adaptiv": 2, "Holistisk AI": 3}; events = []
+    colors = {
+        "Dum MACD": "#2563eb",
+        "MACD-adaptiv": "#16a34a",
+        "Holistisk AI": "#dc2626",
+        "MACD + manager": "#7c3aed",
+    }
+    shorts = {
+        "Dum MACD": "Rule",
+        "MACD-adaptiv": "Adaptiv",
+        "Holistisk AI": "AI",
+        "MACD + manager": "Mgr",
+    }
+    sizes = {"Dum MACD": 1, "MACD-adaptiv": 2, "Holistisk AI": 3, "MACD + manager": 2}
+    events = []
     for model, model_events in event_sets.items():
-        if model not in visible_models: continue
-        for event in model_events: events.append({"time": int(event["at"].timestamp()), "target": int(event["target"]), "color": colors.get(model, "#64748b"), "short": shorts.get(model, model), "size": sizes.get(model, 1)})
-    _three_trader_tv_component(key=f"{key}:three-trader-tv-v1", data={"payload": {"price": price, "events": events}, "state_key": key}, height=850)
+        if model not in visible_models:
+            continue
+        for event in model_events:
+            events.append({
+                "time": int(event["at"].timestamp()),
+                "target": int(event["target"]),
+                "color": colors.get(model, "#64748b"),
+                "short": shorts.get(model, model),
+                "size": sizes.get(model, 1),
+            })
+    _three_trader_tv_component(
+        key=f"{key}:three-trader-tv-v1",
+        data={"payload": {"price": price, "events": events}, "state_key": key},
+        height=850,
+    )
 
 
 __all__ = ["_THREE_TRADER_TV_JS", "render_three_trader_tv_v1"]
