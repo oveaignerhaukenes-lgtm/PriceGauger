@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Sequence
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
@@ -14,6 +15,21 @@ def _revision(candle_payload, marker_payload) -> str:
         candle = ":".join(str(candle_payload.get(key)) for key in ("time", "open", "high", "low", "close"))
     markers = "|".join(str(item.get("id", "")) for item in marker_payload)
     return f"{candle}:{markers}"
+
+
+def _component_key(chart_id: str, revision: str) -> str:
+    """Return a Streamlit bidi-safe key while preserving revision remount semantics.
+
+    Streamlit components.v2 reserves ``__`` inside the computed bidi component ID.
+    Canonical product/marker identifiers may legitimately contain that sequence
+    (for example ``4912__CfdOnIndex``), so raw chart/revision data must never be
+    embedded directly in the component key.  A deterministic hex digest keeps the
+    key stable for one payload revision and changes it whenever chart/revision
+    changes, without leaking reserved delimiters into the ID.
+    """
+    raw = f"{chart_id}\0{revision}".encode("utf-8")
+    digest = hashlib.blake2s(raw, digest_size=16).hexdigest()
+    return f"pg-lightweight-live-update-{digest}"
 
 
 def render_lightweight_live_update_refresh_v2(
@@ -35,7 +51,7 @@ def render_lightweight_live_update_refresh_v2(
     markers = _legacy._marker_payload(trade_markers)
     revision = _revision(candle_payload, markers)
     _legacy._live_update_component(
-        key=f"pg-lightweight-live-update:{chart_id}:{revision}",
+        key=_component_key(str(chart_id), revision),
         data={
             "chart_id": str(chart_id),
             "timeframe_seconds": minutes * 60,
@@ -48,4 +64,4 @@ def render_lightweight_live_update_refresh_v2(
     )
 
 
-__all__ = ["render_lightweight_live_update_refresh_v2"]
+__all__ = ["_component_key", "render_lightweight_live_update_refresh_v2"]
