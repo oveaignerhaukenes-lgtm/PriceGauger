@@ -15,8 +15,8 @@ def _replace_required(source: str, old: str, new: str, label: str) -> str:
 
 _DIRECT_LIVE_OSLO_JS = _replace_required(
     _DIRECT_LIVE_JS,
-    """        const chart = LWC.createChart(root, {{\n            autoSize: true,""",
-    """        const osloClock = new Intl.DateTimeFormat('nb-NO', {{ timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit', hour12: false }});\n        const osloDateTime = new Intl.DateTimeFormat('nb-NO', {{ timeZone: 'Europe/Oslo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }});\n        const chart = LWC.createChart(root, {{\n            autoSize: true,\n            localization: {{ timeFormatter: time => osloDateTime.format(new Date(Number(time) * 1000)) }},""",
+    """        const chart = LWC.createChart(root, {\n            autoSize: true,""",
+    """        const osloClock = new Intl.DateTimeFormat('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit', hour12: false });\n        const osloDateTime = new Intl.DateTimeFormat('nb-NO', { timeZone: 'Europe/Oslo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });\n        const chart = LWC.createChart(root, {\n            autoSize: true,\n            localization: { timeFormatter: time => osloDateTime.format(new Date(Number(time) * 1000)) },""",
     "chart localization",
 )
 _DIRECT_LIVE_OSLO_JS = _replace_required(
