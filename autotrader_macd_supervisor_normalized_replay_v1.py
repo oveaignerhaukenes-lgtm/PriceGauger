@@ -86,8 +86,9 @@ def _normalize_spread_history(spread: pd.Series) -> pd.Series:
         min_periods=NORMALIZATION_MIN_BARS_V1,
     ).mean()
     fallback = shifted.expanding(min_periods=3).mean()
-    scale = scale.combine_first(fallback).replace(0.0, pd.NA)
-    ratio = spread / scale
+    scale = scale.combine_first(fallback).astype("float64")
+    scale = scale.mask(scale <= 1e-12)
+    ratio = spread.astype("float64") / scale
     bounded = ratio / (1.0 + ratio.abs())
     return bounded.astype("float64")
 
