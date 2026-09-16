@@ -28,6 +28,26 @@ export default function(component) {
     if (!entry?.root) return;
 
     const root = entry.root;
+
+    // A gesture that starts inside the chart belongs to the chart until it ends.
+    // Page scrolling remains available outside the chart.
+    root.style.touchAction = 'none';
+    root.style.overscrollBehavior = 'contain';
+    entry.chart?.applyOptions?.({
+        handleScroll: {
+            mouseWheel: true,
+            pressedMouseMove: true,
+            horzTouchDrag: true,
+            vertTouchDrag: true,
+        },
+        handleScale: {
+            mouseWheel: true,
+            pinch: true,
+            axisPressedMouseMove: { time: true, price: true },
+            axisDoubleClickReset: { time: true, price: true },
+        },
+    });
+
     const controlId = `pg-chart-trade-controls:${chartId}`;
     let controls = root.querySelector(`[data-pg-chart-trade-controls="${CSS.escape(controlId)}"]`);
     if (!controls) {
