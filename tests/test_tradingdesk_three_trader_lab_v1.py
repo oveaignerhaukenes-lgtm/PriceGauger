@@ -9,7 +9,8 @@ def test_three_trader_lab_mounts_three_distinct_models_without_execution_authori
     assert '"TARGET_MACD-A"' in source
     assert "pg_v2_autotrader_ai_baseline_samples" in source
     assert "replay_macd_supervisor_v1" in source
-    assert "st.plotly_chart" in source
+    assert "render_three_trader_tv_v1" in source
+    assert "st.plotly_chart" not in source
     assert "send order" not in source.lower()
     assert "saxo" not in source.lower()
 
