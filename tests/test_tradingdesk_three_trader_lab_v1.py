@@ -1,14 +1,16 @@
 from pathlib import Path
 
 
-def test_three_trader_lab_mounts_three_distinct_models_without_execution_authority():
+def test_trader_lab_mounts_four_distinct_models_without_execution_authority():
     source = Path("tradingdesk_three_trader_lab_v1.py").read_text(encoding="utf-8")
     assert 'RULE_NAME = "Dum MACD"' in source
     assert 'ADAPTIVE_NAME = "MACD-adaptiv"' in source
     assert 'HOLISTIC_NAME = "Holistisk AI"' in source
+    assert 'MANAGED_NAME = "MACD + manager"' in source
     assert '"TARGET_MACD-A"' in source
     assert "pg_v2_autotrader_ai_baseline_samples" in source
     assert "replay_macd_supervisor_v1" in source
+    assert "apply_position_manager_v1" in source
     assert "render_three_trader_tv_v1" in source
     assert "st.plotly_chart" not in source
     assert "send order" not in source.lower()
