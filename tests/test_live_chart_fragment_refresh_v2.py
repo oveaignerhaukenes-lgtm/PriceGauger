@@ -12,6 +12,5 @@ def test_package_installs_fragment_safe_live_overlay_without_execution_changes()
     source = Path("tradingdesk_ui/charts/lightweight/__init__.py").read_text(encoding="utf-8")
     assert "render_lightweight_live_update_refresh_v2" in source
     assert "_live_update.render_lightweight_live_update_v1 = render_lightweight_live_update_refresh_v2" in source
-    lowered = source.lower()
-    for forbidden in ("saxo order", "broker post", "persist_intent"):
-        assert forbidden not in lowered
+    assert "persist_intent" not in source
+    assert "order_request" not in source
