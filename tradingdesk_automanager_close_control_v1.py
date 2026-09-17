@@ -46,19 +46,19 @@ def render_close_position_control_v1(
     if not clicked:
         return
 
+    autotrade_key = (
+        f"td-simple-autotrade:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
+    )
     try:
         enrollment = _ensure_execution_ready_v1(enrollment)
-        result = request_manual_close_v1(enrollment, observation=observation)
-        # A manual FLAT command is an operator override. Pause strategy authority
-        # after the durable CLOSE request exists so the next strategy cycle cannot
-        # immediately re-enter when Saxo confirms FLAT.
+        # Operator CLOSE takes precedence over strategy authority. Pause first, so
+        # even a later request/precheck failure cannot leave a strategy free to race
+        # the user's explicit flatten command.
         set_auto_manage_enabled_v1(enrollment, False)
-        autotrade_key = (
-            f"td-simple-autotrade:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
-        )
         st.session_state[autotrade_key] = False
+        result = request_manual_close_v1(enrollment, observation=observation)
     except Exception as exc:
-        st.error(f"Posisjonen kunne ikke lukkes: {exc}")
+        st.error(f"Close position feilet. AutoTrade er pauset: {exc}")
         return
 
     if result.already_flat:
