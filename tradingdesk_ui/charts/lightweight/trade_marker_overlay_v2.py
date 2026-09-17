@@ -51,7 +51,6 @@ export default function(component) {
                 shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
                 color: isFlat ? '#64748b' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
                 size: isFlat ? 1.0 : (marker.active ? 1.0 : 0.72),
-                text: isFlat ? 'FLAT' : undefined,
                 id: `${marker.id || raw}:${index}`,
             }];
         });
