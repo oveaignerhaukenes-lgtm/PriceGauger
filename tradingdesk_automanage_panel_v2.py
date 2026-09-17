@@ -13,6 +13,7 @@ from tradingdesk_automanage_panel_legacy_v2 import (
     _pnl_enrollments_for_context_v2,
     _render_automanager_activity_log_v2,
 )
+from tradingdesk_automanager_close_control_v1 import render_close_position_control_v1
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
 from tradingdesk_chart_runtime_continuity_v1 import install_chart_runtime_continuity_v1
 from tradingdesk_chart_trade_controls_v1 import render_tradingdesk_chart_trade_controls_v1
@@ -49,6 +50,7 @@ def render_tradingdesk_automanage_panel_v2(
     @st.fragment
     def _automanager_fragment_v2():
         observations = render_tradingdesk_automanager_simple_v1(context)
+        render_close_position_control_v1(context, observations=observations)
         # The zero-height component lives in this isolated control fragment but mounts
         # its visual BUY/SELL shortcuts onto the already-rendered canonical chart root.
         # Clicks still reuse the existing durable manual-target execution lifecycle;

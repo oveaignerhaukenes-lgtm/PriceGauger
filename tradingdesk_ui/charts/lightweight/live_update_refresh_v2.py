@@ -6,6 +6,7 @@ from typing import Sequence
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
 from saxo_chart_live import FormingCandle1m
 from . import live_update as _legacy
+from .trade_marker_overlay_v2 import render_trade_marker_overlay_v2
 
 
 def _revision(candle_payload, marker_payload) -> str:
@@ -61,6 +62,14 @@ def render_lightweight_live_update_refresh_v2(
             "revision": revision,
         },
         height=0,
+    )
+    # Reapply the complete marker set after the legacy updater.  LONG/SHORT keep
+    # their arrows; confirmed FLAT transitions are neutral squares.
+    render_trade_marker_overlay_v2(
+        chart_id=str(chart_id),
+        timeframe_seconds=minutes * 60,
+        trade_markers=markers,
+        revision=revision,
     )
 
 

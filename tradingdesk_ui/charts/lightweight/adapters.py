@@ -4,7 +4,8 @@ from collections.abc import Sequence
 
 import streamlit as st
 
-from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1, load_autotrader_trade_markers_v1
+from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
+from autotrader_trade_markers_v2 import load_autotrader_trade_markers_v2
 
 
 @st.cache_data(ttl=3, show_spinner=False)
@@ -15,7 +16,7 @@ def load_lightweight_trade_markers_v1(market: str) -> Sequence[AutoTraderTradeMa
     The short cache avoids a database read on every one-second forming-candle refresh.
     """
 
-    return tuple(load_autotrader_trade_markers_v1(str(market)))
+    return tuple(load_autotrader_trade_markers_v2(str(market)))
 
 
 __all__ = ["load_lightweight_trade_markers_v1"]
