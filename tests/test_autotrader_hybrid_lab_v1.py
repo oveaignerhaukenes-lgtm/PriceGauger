@@ -116,17 +116,22 @@ def test_macd5_replay_switch_times_match_live_cross_times() -> None:
         elif previous.spread >= 0.0 > current.spread:
             live_crosses[pd.Timestamp(current.closed_at)] = "SHORT"
 
-    # Ignore the replay's initial state adoption; every subsequent directional
-    # switch must be an exact LIVE cross at the same completed 5m timestamp.
-    directional_switches = {
+    # Replay adopts the sign of the first fully-warmed MACD observation; that first
+    # non-FLAT state need not itself be a cross. After adoption, every switch must
+    # match the LIVE cross clock exactly, and every LIVE cross must appear in replay.
+    first_directional_at = next(at for at, value in target.items() if float(value) != 0.0)
+    replay_after_adoption = {
         at: direction
         for at, direction in replay_switches.items()
-        if at in live_crosses
+        if at > first_directional_at
     }
-    assert len(directional_switches) >= 2
-    assert directional_switches == {
-        at: direction for at, direction in live_crosses.items() if at in directional_switches
+    live_after_adoption = {
+        at: direction
+        for at, direction in live_crosses.items()
+        if at > first_directional_at and at <= target.index[-1]
     }
+    assert len(replay_after_adoption) >= 2
+    assert replay_after_adoption == live_after_adoption
 
 
 def test_hybrid_ui_is_test_only_and_does_not_submit_orders() -> None:
