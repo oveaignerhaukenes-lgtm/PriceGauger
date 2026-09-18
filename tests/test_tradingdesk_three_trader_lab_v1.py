@@ -8,11 +8,13 @@ def test_trader_lab_mounts_analysis_only_signal_and_manager_comparators():
     assert 'HOLISTIC_NAME = "Holistisk AI"' in source
     assert 'MANAGED_NAME = "MACD + manager"' in source
     assert 'NORMALIZED_NAME = "MACD norm"' in source
+    assert 'NORMALIZED_ESCAPE_NAME = "MACD norm + escape"' in source
     assert 'NORMALIZED_MANAGED_NAME = "MACD norm + manager"' in source
     assert '"TARGET_MACD-A"' in source
     assert "pg_v2_autotrader_ai_baseline_samples" in source
     assert "replay_macd_supervisor_v1" in source
     assert "replay_normalized_macd_supervisor_v1" in source
+    assert "large_move_escape=True" in source
     assert "apply_position_manager_v1" in source
     assert "include_flat=True" in source
     assert "render_three_trader_tv_v1" in source
