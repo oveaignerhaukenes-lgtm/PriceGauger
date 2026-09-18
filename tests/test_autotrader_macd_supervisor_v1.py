@@ -50,3 +50,21 @@ def test_requires_all_timeframes():
         assert "10" in str(exc)
     else:
         raise AssertionError("missing timeframe must fail closed")
+
+
+def test_closed_5m_cross_up_is_authoritative_even_against_strong_bearish_context():
+    values = {1: -0.20, 2: -0.30, 5: 0.02, 10: -0.70, 15: -0.90, 30: -1.00}
+    previous = {1: -0.25, 2: -0.35, 5: -0.03, 10: -0.68, 15: -0.88, 30: -0.98}
+    decision = evaluate_macd_supervisor_v1(_states(values, previous), current_target=-1)
+    assert decision.context_score < 0.0
+    assert decision.target == 1
+    assert "authoritative 5m CROSS_UP" in decision.explanation
+
+
+def test_closed_5m_cross_down_is_authoritative_even_against_strong_bullish_context():
+    values = {1: 0.20, 2: 0.30, 5: -0.02, 10: 0.70, 15: 0.90, 30: 1.00}
+    previous = {1: 0.25, 2: 0.35, 5: 0.03, 10: 0.68, 15: 0.88, 30: 0.98}
+    decision = evaluate_macd_supervisor_v1(_states(values, previous), current_target=1)
+    assert decision.context_score > 0.0
+    assert decision.target == -1
+    assert "authoritative 5m CROSS_DOWN" in decision.explanation
