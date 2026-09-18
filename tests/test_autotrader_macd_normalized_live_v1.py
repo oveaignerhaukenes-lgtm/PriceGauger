@@ -128,3 +128,46 @@ def test_normalized_live_runtime_uses_common_execution_contract_only() -> None:
     assert "MACD_NORMALIZED_LIVE_STRATEGIES_V1" in dispatch
     for forbidden in ("place_order(", "trade/v2/orders", "client.post(", "requests.post("):
         assert forbidden not in runtime
+
+
+def test_normalized_live_manager_cannot_delay_authoritative_cross() -> None:
+    state = _state(direction="SHORT", active_bars=12, mfe=0.01, cooldown=3, blocked="LONG")
+    next_state, reason = _manager_step_v1(
+        state,
+        raw_targets=("SHORT", "SHORT", "LONG"),
+        current_pnl_pct=-0.002,
+        rolling_vol=0.001,
+        action_at=datetime(2026, 9, 16, 7, 6, tzinfo=timezone.utc),
+        authoritative_cross="LONG",
+    )
+    assert next_state.direction == "LONG"
+    assert next_state.cooldown_remaining == 0
+    assert next_state.blocked_reentry_direction is None
+    assert reason == "authoritative_cross"
+
+
+def test_same_direction_authoritative_cross_preserves_live_manager_mfe() -> None:
+    state = _state(direction="LONG", active_bars=7, mfe=0.012)
+    next_state, reason = _manager_step_v1(
+        state,
+        raw_targets=("LONG", "LONG", "LONG"),
+        current_pnl_pct=0.010,
+        rolling_vol=0.001,
+        action_at=datetime(2026, 9, 16, 7, 7, tzinfo=timezone.utc),
+        authoritative_cross="LONG",
+    )
+    assert next_state.direction == "LONG"
+    assert next_state.active_bars == 8
+    assert next_state.mfe_pct == 0.012
+    assert reason == "authoritative_cross_hold"
+
+
+def test_normalized_live_evaluates_new_closed_bar_before_continuing_old_pending_intent() -> None:
+    runtime = Path("autotrader_macd_normalized_live_v1.py").read_text(encoding="utf-8")
+    assert "New closed-bar evidence is evaluated even while an older transition is pending." in runtime
+    frame_pos = runtime.index("frame, replay_action_at, data_gap = _latest_normalized_frame_v1(eligible)")
+    tail_pending_pos = runtime.rindex(
+        "if state.pending_target_direction is not None and observed_direction != state.pending_target_direction:"
+    )
+    assert frame_pos < tail_pending_pos
+    assert "supersede_prior=True" in runtime

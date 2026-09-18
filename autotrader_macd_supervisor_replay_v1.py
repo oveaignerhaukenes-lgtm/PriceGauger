@@ -8,6 +8,7 @@ import pandas as pd
 from autotrader_macd_supervisor_v1 import (
     TIMEFRAMES_V1,
     MacdTimeframeStateV1,
+    _authoritative_cross_direction_v1,
     evaluate_macd_supervisor_v1,
 )
 from canonical_market_bars_v2 import CanonicalMarketBarV2
@@ -168,6 +169,7 @@ def replay_macd_supervisor_v1(
     targets: list[int] = []
     scores: list[float] = []
     confidence: list[float] = []
+    authoritative_crosses: list[int] = []
     switches: list[MacdSupervisorSwitchV1] = []
 
     for index in range(len(frame)):
@@ -175,6 +177,7 @@ def replay_macd_supervisor_v1(
             targets.append(target)
             scores.append(0.0)
             confidence.append(0.0)
+            authoritative_crosses.append(0)
             continue
         states = {
             minutes: MacdTimeframeStateV1(
@@ -189,6 +192,7 @@ def replay_macd_supervisor_v1(
             current_target=target,
             switch_threshold=switch_threshold,
         )
+        authoritative_cross = _authoritative_cross_direction_v1(states)
         previous = target
         target = int(decision.target)
         if target != previous and target in (-1, 1):
@@ -210,10 +214,12 @@ def replay_macd_supervisor_v1(
         targets.append(target)
         scores.append(float(decision.score))
         confidence.append(float(decision.confidence))
+        authoritative_crosses.append(int(authoritative_cross))
 
     result["TARGET"] = pd.Series(targets, index=result.index, dtype="float64")
     result["SCORE"] = pd.Series(scores, index=result.index, dtype="float64")
     result["CONFIDENCE"] = pd.Series(confidence, index=result.index, dtype="float64")
+    result["AUTHORITATIVE_CROSS"] = pd.Series(authoritative_crosses, index=result.index, dtype="int64")
 
     # Keep a full replay curve for plotting/export; visible-card metrics are recalculated
     # from the visible slice with summarize_macd_supervisor_frame_v1.

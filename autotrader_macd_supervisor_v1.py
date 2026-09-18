@@ -5,6 +5,7 @@ from typing import Mapping
 
 
 TIMEFRAMES_V1 = (1, 2, 5, 10, 15, 30)
+AUTHORITATIVE_CROSS_TIMEFRAME_V1 = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,22 @@ def _normalized_strength(states: Mapping[int, MacdTimeframeStateV1]) -> dict[int
     if scale <= 0.0:
         return {minutes: 0.0 for minutes in TIMEFRAMES_V1}
     return {minutes: max(-1.0, min(1.0, states[minutes].spread / scale)) for minutes in TIMEFRAMES_V1}
+
+
+def _authoritative_cross_direction_v1(
+    states: Mapping[int, MacdTimeframeStateV1],
+) -> int:
+    """Return the confirmed 5m MACD cross direction, if any.
+
+    Supervisor scoring may anticipate the 5m cross, but it may never remain on the
+    opposite side once that already-lagging closed-bar signal has actually crossed.
+    """
+    state = states[AUTHORITATIVE_CROSS_TIMEFRAME_V1]
+    if state.previous_spread <= 0.0 < state.spread:
+        return 1
+    if state.previous_spread >= 0.0 > state.spread:
+        return -1
+    return 0
 
 
 def evaluate_macd_supervisor_v1(
@@ -86,19 +103,31 @@ def evaluate_macd_supervisor_v1(
     else:
         proposed = current_target if current_target in (-1, 1) else 0
 
-    # A strong slow backdrop requires material multi-timeframe evidence to reverse.
+    # A strong slow backdrop requires material multi-timeframe evidence to reverse
+    # *before* the primary MACD confirms. Once closed 5m MACD itself crosses, that
+    # lagging confirmation is authoritative and slow-context hysteresis cannot veto it.
     slow_direction = 1 if context > 0.30 else -1 if context < -0.30 else 0
     if current_target == slow_direction and proposed == -slow_direction and abs(directional_change) < 0.45:
         proposed = current_target
+
+    authoritative_cross = _authoritative_cross_direction_v1(states)
+    if authoritative_cross in (-1, 1):
+        proposed = authoritative_cross
 
     confidence = min(1.0, abs(score))
     target_word = "LONG" if proposed > 0 else "SHORT" if proposed < 0 else "HOLD"
     context_word = "bullish" if context > 0.10 else "bearish" if context < -0.10 else "mixed"
     change_word = "up" if directional_change > 0.10 else "down" if directional_change < -0.10 else "unclear"
+    cross_word = (
+        f"; authoritative {AUTHORITATIVE_CROSS_TIMEFRAME_V1}m CROSS_"
+        f"{'UP' if authoritative_cross > 0 else 'DOWN'}"
+        if authoritative_cross
+        else ""
+    )
     explanation = (
         f"{target_word}: slow context {context_word} ({context:+.2f}); "
         f"fast/mid propagation {change_word} ({directional_change:+.2f}); "
-        f"cascade {cascade:+.2f}; total {score:+.2f}."
+        f"cascade {cascade:+.2f}; total {score:+.2f}{cross_word}."
     )
     return MacdSupervisorDecisionV1(
         target=proposed,
@@ -111,7 +140,9 @@ def evaluate_macd_supervisor_v1(
 
 
 __all__ = [
+    "AUTHORITATIVE_CROSS_TIMEFRAME_V1",
     "TIMEFRAMES_V1",
+    "_authoritative_cross_direction_v1",
     "MacdSupervisorDecisionV1",
     "MacdTimeframeStateV1",
     "evaluate_macd_supervisor_v1",

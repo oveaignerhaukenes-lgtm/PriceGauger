@@ -10,7 +10,7 @@ from autotrader_macd_supervisor_replay_v1 import (
     MacdSupervisorReplaySummaryV1,
     summarize_macd_supervisor_frame_v1,
 )
-from autotrader_macd_supervisor_v1 import TIMEFRAMES_V1
+from autotrader_macd_supervisor_v1 import AUTHORITATIVE_CROSS_TIMEFRAME_V1, TIMEFRAMES_V1
 from canonical_market_bars_v2 import CanonicalMarketBarV2
 
 
@@ -107,6 +107,17 @@ def _timeframe_strength(frame: pd.DataFrame, minutes: int) -> pd.Series:
     return native_strength.reindex(frame.index, method="ffill")
 
 
+def _authoritative_normalized_cross_direction_v1(
+    states: Mapping[int, NormalizedMacdTimeframeStateV1],
+) -> int:
+    primary = states[AUTHORITATIVE_CROSS_TIMEFRAME_V1]
+    if primary.previous_strength <= 0.0 < primary.strength:
+        return 1
+    if primary.previous_strength >= 0.0 > primary.strength:
+        return -1
+    return 0
+
+
 def evaluate_normalized_macd_supervisor_v1(
     states: Mapping[int, NormalizedMacdTimeframeStateV1],
     *,
@@ -153,14 +164,24 @@ def evaluate_normalized_macd_supervisor_v1(
     if current_target == slow_direction and proposed == -slow_direction and abs(directional_change) < 0.45:
         proposed = current_target
 
+    authoritative_cross = _authoritative_normalized_cross_direction_v1(states)
+    if authoritative_cross in (-1, 1):
+        proposed = authoritative_cross
+
     confidence = min(1.0, abs(score))
     target_word = "LONG" if proposed > 0 else "SHORT" if proposed < 0 else "HOLD"
     context_word = "bullish" if context > 0.10 else "bearish" if context < -0.10 else "mixed"
     change_word = "up" if directional_change > 0.10 else "down" if directional_change < -0.10 else "unclear"
+    cross_word = (
+        f"; authoritative {AUTHORITATIVE_CROSS_TIMEFRAME_V1}m CROSS_"
+        f"{'UP' if authoritative_cross > 0 else 'DOWN'}"
+        if authoritative_cross
+        else ""
+    )
     explanation = (
         f"{target_word}: normalized slow context {context_word} ({context:+.2f}); "
         f"normalized fast/mid propagation {change_word} ({directional_change:+.2f}); "
-        f"cascade {cascade:+.2f}; total {score:+.2f}."
+        f"cascade {cascade:+.2f}; total {score:+.2f}{cross_word}."
     )
     return NormalizedMacdSupervisorDecisionV1(
         target=int(proposed),
@@ -200,6 +221,7 @@ def replay_normalized_macd_supervisor_v1(
     targets: list[int] = []
     scores: list[float] = []
     confidence: list[float] = []
+    authoritative_crosses: list[int] = []
     switches: list[NormalizedMacdSupervisorSwitchV1] = []
 
     for index in range(len(frame)):
@@ -213,6 +235,7 @@ def replay_normalized_macd_supervisor_v1(
             targets.append(target)
             scores.append(0.0)
             confidence.append(0.0)
+            authoritative_crosses.append(0)
             continue
 
         states = {
@@ -228,6 +251,7 @@ def replay_normalized_macd_supervisor_v1(
             current_target=target,
             switch_threshold=switch_threshold,
         )
+        authoritative_cross = _authoritative_normalized_cross_direction_v1(states)
         previous = target
         target = int(decision.target)
         if target != previous and target in (-1, 1):
@@ -249,10 +273,12 @@ def replay_normalized_macd_supervisor_v1(
         targets.append(target)
         scores.append(float(decision.score))
         confidence.append(float(decision.confidence))
+        authoritative_crosses.append(int(authoritative_cross))
 
     result["TARGET"] = pd.Series(targets, index=result.index, dtype="float64")
     result["SCORE"] = pd.Series(scores, index=result.index, dtype="float64")
     result["CONFIDENCE"] = pd.Series(confidence, index=result.index, dtype="float64")
+    result["AUTHORITATIVE_CROSS"] = pd.Series(authoritative_crosses, index=result.index, dtype="int64")
     for minutes in TIMEFRAMES_V1:
         result[f"STRENGTH_{minutes}M"] = strengths[minutes].astype("float64")
 
@@ -266,6 +292,7 @@ __all__ = [
     "NormalizedMacdSupervisorDecisionV1",
     "NormalizedMacdSupervisorSwitchV1",
     "NormalizedMacdTimeframeStateV1",
+    "_authoritative_normalized_cross_direction_v1",
     "evaluate_normalized_macd_supervisor_v1",
     "replay_normalized_macd_supervisor_v1",
 ]

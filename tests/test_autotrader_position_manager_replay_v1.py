@@ -70,3 +70,23 @@ def test_manager_module_has_no_execution_authority() -> None:
         "requests.post(",
     ):
         assert token not in source
+
+
+def test_authoritative_cross_bypasses_reversal_confirmation_and_cooldown() -> None:
+    frame = _frame(
+        [100.0, 100.0, 100.0],
+        [-1, 1, 1],
+    )
+    frame["AUTHORITATIVE_CROSS"] = [0, 1, 0]
+    managed = apply_position_manager_v1(
+        frame,
+        config=PositionManagerConfigV1(
+            reversal_confirm_bars=3,
+            reentry_cooldown_bars=5,
+            reentry_confirm_bars=3,
+            min_arm_pct=1.0,
+            arm_vol_multiple=0.0,
+        ),
+    )
+    assert list(managed["TARGET"]) == [-1.0, 1.0, 1.0]
+    assert managed["MANAGER_REASON"].iloc[1] == "authoritative_cross"

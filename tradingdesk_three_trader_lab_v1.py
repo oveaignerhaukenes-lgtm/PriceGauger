@@ -155,12 +155,16 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             )
             rule_full, rule_switches, _ = replay_macd_supervisor_v1(bars, cost_bps_per_leg=cost_bps)
             adaptive_full, _ = replay_hybrid_models_v1(bars, cost_bps_per_leg=cost_bps)
-            managed_full = apply_position_manager_v1(rule_full[["PRICE", "TARGET"]])
+            managed_full = apply_position_manager_v1(
+                rule_full[["PRICE", "TARGET", "AUTHORITATIVE_CROSS"]]
+            )
             normalized_full, normalized_switches, _ = replay_normalized_macd_supervisor_v1(
                 bars,
                 cost_bps_per_leg=cost_bps,
             )
-            normalized_managed_full = apply_position_manager_v1(normalized_full[["PRICE", "TARGET"]])
+            normalized_managed_full = apply_position_manager_v1(
+                normalized_full[["PRICE", "TARGET", "AUTHORITATIVE_CROSS"]]
+            )
         except Exception as exc:
             st.caption(f"Trader-lab venter på nok canonical data: {exc}")
             return
@@ -222,8 +226,9 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
 
         if MANAGED_NAME in visible or NORMALIZED_MANAGED_NAME in visible:
             st.caption(
-                "Manager v1: 3-bar reversal-bekreftelse, volatilitetsarmert peak-profit-lock, "
-                "maks 25% giveback fra MFE og kort re-entry cooldown. Sirkelmarkør = manager gikk FLAT."
+                "Manager v1: 3-bar reversal-bekreftelse mellom signalene, volatilitetsarmert "
+                "peak-profit-lock, maks 25% giveback fra MFE og kort re-entry cooldown. Bekreftet "
+                "5m MACD-cross er autoritativt og bypasser reversal-delay. Sirkelmarkør = manager gikk FLAT."
             )
         if NORMALIZED_NAME in visible or NORMALIZED_MANAGED_NAME in visible:
             st.caption(
