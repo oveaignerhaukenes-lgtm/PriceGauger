@@ -107,6 +107,17 @@ def _timeframe_strength(frame: pd.DataFrame, minutes: int) -> pd.Series:
     return native_strength.reindex(frame.index, method="ffill")
 
 
+def _authoritative_normalized_cross_direction_v1(
+    states: Mapping[int, NormalizedMacdTimeframeStateV1],
+) -> int:
+    primary = states[AUTHORITATIVE_CROSS_TIMEFRAME_V1]
+    if primary.previous_strength <= 0.0 < primary.strength:
+        return 1
+    if primary.previous_strength >= 0.0 > primary.strength:
+        return -1
+    return 0
+
+
 def evaluate_normalized_macd_supervisor_v1(
     states: Mapping[int, NormalizedMacdTimeframeStateV1],
     *,
@@ -153,12 +164,7 @@ def evaluate_normalized_macd_supervisor_v1(
     if current_target == slow_direction and proposed == -slow_direction and abs(directional_change) < 0.45:
         proposed = current_target
 
-    primary = states[AUTHORITATIVE_CROSS_TIMEFRAME_V1]
-    authoritative_cross = 0
-    if primary.previous_strength <= 0.0 < primary.strength:
-        authoritative_cross = 1
-    elif primary.previous_strength >= 0.0 > primary.strength:
-        authoritative_cross = -1
+    authoritative_cross = _authoritative_normalized_cross_direction_v1(states)
     if authoritative_cross in (-1, 1):
         proposed = authoritative_cross
 
@@ -215,6 +221,7 @@ def replay_normalized_macd_supervisor_v1(
     targets: list[int] = []
     scores: list[float] = []
     confidence: list[float] = []
+    authoritative_crosses: list[int] = []
     switches: list[NormalizedMacdSupervisorSwitchV1] = []
 
     for index in range(len(frame)):
@@ -228,6 +235,7 @@ def replay_normalized_macd_supervisor_v1(
             targets.append(target)
             scores.append(0.0)
             confidence.append(0.0)
+            authoritative_crosses.append(0)
             continue
 
         states = {
@@ -243,6 +251,7 @@ def replay_normalized_macd_supervisor_v1(
             current_target=target,
             switch_threshold=switch_threshold,
         )
+        authoritative_cross = _authoritative_normalized_cross_direction_v1(states)
         previous = target
         target = int(decision.target)
         if target != previous and target in (-1, 1):
@@ -264,10 +273,12 @@ def replay_normalized_macd_supervisor_v1(
         targets.append(target)
         scores.append(float(decision.score))
         confidence.append(float(decision.confidence))
+        authoritative_crosses.append(int(authoritative_cross))
 
     result["TARGET"] = pd.Series(targets, index=result.index, dtype="float64")
     result["SCORE"] = pd.Series(scores, index=result.index, dtype="float64")
     result["CONFIDENCE"] = pd.Series(confidence, index=result.index, dtype="float64")
+    result["AUTHORITATIVE_CROSS"] = pd.Series(authoritative_crosses, index=result.index, dtype="int64")
     for minutes in TIMEFRAMES_V1:
         result[f"STRENGTH_{minutes}M"] = strengths[minutes].astype("float64")
 
@@ -281,6 +292,7 @@ __all__ = [
     "NormalizedMacdSupervisorDecisionV1",
     "NormalizedMacdSupervisorSwitchV1",
     "NormalizedMacdTimeframeStateV1",
+    "_authoritative_normalized_cross_direction_v1",
     "evaluate_normalized_macd_supervisor_v1",
     "replay_normalized_macd_supervisor_v1",
 ]
