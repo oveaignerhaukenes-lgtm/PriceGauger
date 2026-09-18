@@ -225,6 +225,16 @@ def _manager_step_v1(
     if cross is not None:
         # A confirmed closed 5m MACD cross is already a lagging confirmation.
         # Management may protect profit between crosses but cannot delay/veto it.
+        if cross == state.direction:
+            return replace(
+                state,
+                active_bars=int(state.active_bars) + (1 if state.direction != DIRECTION_FLAT else 0),
+                mfe_pct=max(float(state.mfe_pct), float(current_pnl_pct)),
+                cooldown_remaining=0,
+                blocked_reentry_direction=None,
+                reentry_count=0,
+                last_action_at=action_at,
+            ), "authoritative_cross_hold"
         return replace(
             state,
             direction=cross,
