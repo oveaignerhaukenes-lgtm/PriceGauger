@@ -60,6 +60,38 @@ def test_isolated_micro_false_start_does_not_reverse_slow_bearish_regime() -> No
     assert decision.score < 0.0
 
 
+
+def test_normalized_closed_5m_cross_up_is_authoritative_over_bearish_score() -> None:
+    states = {
+        1: _state(1, -0.20, -0.25),
+        2: _state(2, -0.30, -0.35),
+        5: _state(5, 0.02, -0.03),
+        10: _state(10, -0.70, -0.68),
+        15: _state(15, -0.90, -0.88),
+        30: _state(30, -1.00, -0.98),
+    }
+    decision = evaluate_normalized_macd_supervisor_v1(states, current_target=-1)
+    assert decision.context_score < 0.0
+    assert decision.score < 0.0
+    assert decision.target == 1
+    assert "authoritative 5m CROSS_UP" in decision.explanation
+
+
+def test_normalized_closed_5m_cross_down_is_authoritative_over_bullish_score() -> None:
+    states = {
+        1: _state(1, 0.20, 0.25),
+        2: _state(2, 0.30, 0.35),
+        5: _state(5, -0.02, 0.03),
+        10: _state(10, 0.70, 0.68),
+        15: _state(15, 0.90, 0.88),
+        30: _state(30, 1.00, 0.98),
+    }
+    decision = evaluate_normalized_macd_supervisor_v1(states, current_target=1)
+    assert decision.context_score > 0.0
+    assert decision.score > 0.0
+    assert decision.target == -1
+    assert "authoritative 5m CROSS_DOWN" in decision.explanation
+
 def test_normalized_supervisor_has_no_execution_authority() -> None:
     source = (
         Path(__file__).resolve().parents[1] / "autotrader_macd_supervisor_normalized_replay_v1.py"
