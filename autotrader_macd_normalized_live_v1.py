@@ -476,32 +476,31 @@ def run_macd_normalized_live_once_v1(
             )
             _persist_manager_state_v1(manager_state)
 
-    if state.pending_target_direction is not None and observed_direction != state.pending_target_direction:
-        equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
-        continued = _persist_intent_and_request_v2(
-            enrollment=enrollment,
-            state=state,
-            observed=observed,
-            observed_direction=observed_direction,
-            budget_amount=equity.entry_budget,
-            budget_currency=equity.currency,
-            supersede_prior=False,
-        )
-        _persist_state_v2(state)
-        return FastLiveCycleV2(
-            enrollment.pilot_key,
-            enrollment.strategy_key,
-            state.desired_direction,
-            observed_direction,
-            state.pending_target_direction,
-            action_at,
-            False,
-            bool(continued),
-            False,
-            "PENDING_TRANSITION_RETRY_READY" if continued else "PENDING_TRANSITION_CONTINUED",
-        )
-
     if state.last_action_at is not None and action_at <= state.last_action_at:
+        if state.pending_target_direction is not None and observed_direction != state.pending_target_direction:
+            equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
+            continued = _persist_intent_and_request_v2(
+                enrollment=enrollment,
+                state=state,
+                observed=observed,
+                observed_direction=observed_direction,
+                budget_amount=equity.entry_budget,
+                budget_currency=equity.currency,
+                supersede_prior=False,
+            )
+            _persist_state_v2(state)
+            return FastLiveCycleV2(
+                enrollment.pilot_key,
+                enrollment.strategy_key,
+                state.desired_direction,
+                observed_direction,
+                state.pending_target_direction,
+                action_at,
+                False,
+                bool(continued),
+                False,
+                "PENDING_TRANSITION_RETRY_READY" if continued else "PENDING_TRANSITION_CONTINUED",
+            )
         return FastLiveCycleV2(
             enrollment.pilot_key,
             enrollment.strategy_key,
@@ -515,6 +514,9 @@ def run_macd_normalized_live_once_v1(
             "NO_NEW_MACD_NORM_ACTION",
         )
 
+    # New closed-bar evidence is evaluated even while an older transition is pending.
+    # This mirrors the hardened fast-MACD runtime: a newer authoritative cross may
+    # supersede stale PENDING/APPROVED work through the normal durable lifecycle.
     frame, replay_action_at, data_gap = _latest_normalized_frame_v1(eligible)
     action_at = replay_action_at
     clock = _clock_v1(action_at, frame, data_gap=data_gap)
@@ -615,6 +617,21 @@ def run_macd_normalized_live_once_v1(
         reason = f"TARGET_{candidate}" + (f"_{manager_reason.upper()}" if manager_reason else "")
     else:
         state = replace(state, last_action_at=action_at)
+
+    if state.pending_target_direction is not None and observed_direction != state.pending_target_direction:
+        equity = load_pilot_equity_v2(pilot_key=enrollment.pilot_key)
+        continued = _persist_intent_and_request_v2(
+            enrollment=enrollment,
+            state=state,
+            observed=observed,
+            observed_direction=observed_direction,
+            budget_amount=equity.entry_budget,
+            budget_currency=equity.currency,
+            supersede_prior=False,
+        )
+        request_created = request_created or bool(continued)
+        if reason == "TARGET_UNCHANGED":
+            reason = "PENDING_TRANSITION_RETRY_READY" if continued else "PENDING_TRANSITION_CONTINUED"
 
     _persist_state_v2(state)
     return FastLiveCycleV2(
