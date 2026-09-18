@@ -12,9 +12,11 @@ from instrument_registry_v2 import resolve_instrument_source_v2
 from realtime_market_data import MinuteBarAggregator, RealtimeMarketDataStore, RealtimeQuote, minute_start, utc
 from saxo_chart_live import (
     ChartStreamStatus,
+    FormingCandle1m,
     FormingCandleStore,
     chart_delay_minutes,
     create_chart_subscription,
+    forming_candle_event_age_seconds,
     forming_candle_from_chart_payload,
 )
 from saxo_provider import SaxoClient, SaxoError, SaxoInstrument
@@ -307,7 +309,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                     payload=snapshot,
                     delayed_by_minutes=delay,
                 )
-                if candle is not None:
+                if candle is not None and self._chart_candle_can_replace_current(candle):
                     self._forming_store.save(candle)
                 raw_actual = payload.get("RefreshRate") if isinstance(payload, dict) else None
                 try:
@@ -347,10 +349,57 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                     exc_info=True,
                 )
 
+    def _save_quote_forming_candle(self, quote: RealtimeQuote) -> None:
+        """Persist the current quote-built minute as presentation-only state."""
+        aggregator = self.aggregators.get(quote.market)
+        current = None if aggregator is None else aggregator.snapshot()
+        if current is None:
+            return
+        self._forming_store.save(
+            FormingCandle1m(
+                market=current.market,
+                bar_time=current.bar_time,
+                open=float(current.open),
+                high=float(current.high),
+                low=float(current.low),
+                close=float(current.close),
+                volume=current.volume,
+                provider="Saxo price stream",
+                uic=int(current.uic or quote.uic or 0),
+                asset_type=current.asset_type or quote.asset_type,
+                symbol=current.symbol or quote.symbol,
+                delayed_by_minutes=0.0,
+                source_event_at=str(quote.observed_at),
+                updated_at=_iso_now(),
+            )
+        )
+
+    def _chart_candle_can_replace_current(self, candle: FormingCandle1m) -> bool:
+        """Prevent chart-stream lag from moving the visible forming candle backwards."""
+        existing = self._forming_store.load(market=candle.market)
+        if existing is None:
+            return True
+        try:
+            existing_bar = utc(existing.bar_time)
+            incoming_bar = utc(candle.bar_time)
+        except (TypeError, ValueError):
+            return True
+        if incoming_bar < existing_bar:
+            return False
+        if incoming_bar > existing_bar:
+            return True
+        if (
+            existing.provider == "Saxo price stream"
+            and (forming_candle_event_age_seconds(existing) or 0.0) <= 3.0
+        ):
+            return False
+        return True
+
     def _consume_quote(self, quote: RealtimeQuote) -> None:
         previous = self._status_cache.get(quote.market)
         first_observation = previous is None or previous.last_quote_at is None
         super()._consume_quote(quote)
+        self._save_quote_forming_candle(quote)
         if first_observation:
             current = self._status_cache.get(quote.market)
             if current is not None:
@@ -537,7 +586,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                 source_event_at=event_at,
                 delayed_by_minutes=self._chart_delays.get(ref),
             )
-            if candle is not None:
+            if candle is not None and self._chart_candle_can_replace_current(candle):
                 self._forming_store.save(candle)
             self._save_chart_status(
                 market=chart_market,
