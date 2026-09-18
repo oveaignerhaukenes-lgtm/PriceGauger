@@ -128,3 +128,19 @@ def test_normalized_live_runtime_uses_common_execution_contract_only() -> None:
     assert "MACD_NORMALIZED_LIVE_STRATEGIES_V1" in dispatch
     for forbidden in ("place_order(", "trade/v2/orders", "client.post(", "requests.post("):
         assert forbidden not in runtime
+
+
+def test_normalized_live_manager_cannot_delay_authoritative_cross() -> None:
+    state = _state(direction="SHORT", active_bars=12, mfe=0.01, cooldown=3, blocked="LONG")
+    next_state, reason = _manager_step_v1(
+        state,
+        raw_targets=("SHORT", "SHORT", "LONG"),
+        current_pnl_pct=-0.002,
+        rolling_vol=0.001,
+        action_at=datetime(2026, 9, 16, 7, 6, tzinfo=timezone.utc),
+        authoritative_cross="LONG",
+    )
+    assert next_state.direction == "LONG"
+    assert next_state.cooldown_remaining == 0
+    assert next_state.blocked_reentry_direction is None
+    assert reason == "authoritative_cross"
