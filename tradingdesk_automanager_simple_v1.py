@@ -112,6 +112,13 @@ def _required_directions_v1(enrollment: StrategyEnrollmentV2) -> tuple[str, ...]
     return tuple(result)
 
 
+def _queue_strategy_switch_v1(selector_key: str, pending_key: str) -> None:
+    """Record strategy authority only from an actual selectbox change event."""
+    selected = str(st.session_state.get(selector_key) or "").strip()
+    if selected:
+        st.session_state[pending_key] = selected
+
+
 def _render_optional_settings_v1(enrollment: StrategyEnrollmentV2, client) -> None:
     """Optional tuning stays hidden from the normal BUY/SELL/manage path."""
     try:
@@ -305,10 +312,29 @@ def render_tradingdesk_automanager_simple_v1(
     manage_col, auto_col, strategy_col, settings_col = st.columns([1.2, 1.0, 2.0, 0.45], gap="small")
     manage_key = f"td-simple-manage:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
     autotrade_key = f"td-simple-autotrade:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
+    strategy_selector_key = (
+        f"td-simple-strategy:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
+    )
+    strategy_pending_key = f"{strategy_selector_key}:pending"
+    strategy_error_key = f"{strategy_selector_key}:error"
+    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
+    pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
+
     if manage_key not in st.session_state:
         st.session_state[manage_key] = position_manage_enabled
     if autotrade_key not in st.session_state:
         st.session_state[autotrade_key] = auto_trade_enabled
+
+    # Backend enrollment is authoritative on ordinary reruns. A browser/session may
+    # hold an old dropdown value after another tab/device changed the LIVE strategy;
+    # that stale widget state must never become an implicit switch command.
+    if strategy_selector_key not in st.session_state or not pending_strategy_key:
+        if str(st.session_state.get(strategy_selector_key) or "") != enrollment.strategy_key:
+            st.session_state[strategy_selector_key] = enrollment.strategy_key
+
+    strategy_error = st.session_state.pop(strategy_error_key, None)
+    if strategy_error:
+        st.error(f"Strategien kunne ikke byttes: {strategy_error}")
 
     with manage_col:
         selected_manage = st.toggle("Manage position", key=manage_key)
@@ -320,16 +346,14 @@ def render_tradingdesk_automanager_simple_v1(
             help="Valgt strategi bestemmer ønsket LONG/SHORT/FLAT-state og reconcilerer mot Saxo.",
         )
     with strategy_col:
-        current_index = next(
-            (index for index, item in enumerate(AUTOTRADER_STRATEGIES_V2) if item.key == enrollment.strategy_key),
-            0,
-        )
-        selected_strategy = st.selectbox(
+        st.selectbox(
             "Strategi",
-            AUTOTRADER_STRATEGIES_V2,
-            index=current_index,
-            format_func=lambda item: item.label,
-            key=f"td-simple-strategy:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}",
+            strategy_keys,
+            index=None,
+            format_func=lambda key: strategy_spec_v2(key).label,
+            key=strategy_selector_key,
+            on_change=_queue_strategy_switch_v1,
+            args=(strategy_selector_key, strategy_pending_key),
             label_visibility="collapsed",
         )
     with settings_col:
@@ -368,17 +392,22 @@ def render_tradingdesk_automanager_simple_v1(
         else:
             st.rerun()
 
-    if selected_strategy.key != enrollment.strategy_key:
+    requested_strategy_key = str(st.session_state.pop(strategy_pending_key, "") or "").strip()
+    if requested_strategy_key and requested_strategy_key != enrollment.strategy_key:
         try:
             result = switch_live_strategy_v2(
                 pilot_key=enrollment.pilot_key,
-                target_strategy_key=selected_strategy.key,
+                target_strategy_key=requested_strategy_key,
             )
             switched = load_strategy_enrollment_v2(result.to_pilot_key)
             if switched is not None:
                 _ensure_execution_ready_v1(switched)
         except Exception as exc:
-            st.error(f"Strategien kunne ikke byttes: {exc}")
+            # The selector widget has already been instantiated in this run, so its
+            # state cannot safely be rewritten here. Carry the error across one rerun;
+            # the next ordinary render resyncs the selector from backend truth.
+            st.session_state[strategy_error_key] = str(exc)
+            st.rerun()
         else:
             st.rerun()
 
@@ -392,7 +421,8 @@ def render_tradingdesk_automanager_simple_v1(
     manage_status = "ON" if position_manage_enabled else "OFF"
     auto_status = "ON" if auto_trade_enabled else "OFF"
     st.caption(
-        f"Nå {observed_direction} · Manage {manage_status} · AutoTrade {auto_status} · {spec.label}"
+        f"Nå {observed_direction} · Manage {manage_status} · AutoTrade {auto_status} · "
+        f"Aktiv LIVE-strategi (backend): {spec.label}"
     )
     return observations
 
