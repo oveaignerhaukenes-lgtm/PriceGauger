@@ -20,6 +20,7 @@ ADAPTIVE_NAME = "MACD-adaptiv"
 HOLISTIC_NAME = "Holistisk AI"
 MANAGED_NAME = "MACD + manager"
 NORMALIZED_NAME = "MACD norm"
+NORMALIZED_ESCAPE_NAME = "MACD norm + escape"
 NORMALIZED_MANAGED_NAME = "MACD norm + manager"
 ALL_MODELS = (
     RULE_NAME,
@@ -27,6 +28,7 @@ ALL_MODELS = (
     HOLISTIC_NAME,
     MANAGED_NAME,
     NORMALIZED_NAME,
+    NORMALIZED_ESCAPE_NAME,
     NORMALIZED_MANAGED_NAME,
 )
 
@@ -114,9 +116,9 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
     with st.container(border=True):
         st.markdown("### Strategier · samme marked")
         st.caption(
-            "Samme canonical prisserie, seks analysis-only spor: rå MACD-supervisor, adaptiv MACD, "
-            "holistisk AI, rå MACD med stateful manager, per-timeframe-normalisert MACD og "
-            "normalisert MACD med samme manager. Dette skiller signalrespons fra posisjonsforvaltning."
+            "Samme canonical prisserie, sju analysis-only spor: rå MACD-supervisor, adaptiv MACD, "
+            "holistisk AI, rå MACD med stateful manager, per-timeframe-normalisert MACD, "
+            "normalisert MACD med large-move escape og normalisert MACD med samme manager."
         )
         controls = st.columns([1, 1, 2])
         with controls[0]:
@@ -160,6 +162,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 bars,
                 cost_bps_per_leg=cost_bps,
             )
+            normalized_escape_full, normalized_escape_switches, _ = replay_normalized_macd_supervisor_v1(
+                bars,
+                cost_bps_per_leg=cost_bps,
+                large_move_escape=True,
+            )
             normalized_managed_full = apply_position_manager_v1(normalized_full[["PRICE", "TARGET"]])
         except Exception as exc:
             st.caption(f"Trader-lab venter på nok canonical data: {exc}")
@@ -169,6 +176,9 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         rule_frame = rule_full[rule_full.index >= visible_since][["PRICE", "TARGET"]].copy()
         managed_frame = managed_full[managed_full.index >= visible_since][["PRICE", "TARGET"]].copy()
         normalized_frame = normalized_full[normalized_full.index >= visible_since][["PRICE", "TARGET"]].copy()
+        normalized_escape_frame = normalized_escape_full[
+            normalized_escape_full.index >= visible_since
+        ][["PRICE", "TARGET"]].copy()
         normalized_managed_frame = normalized_managed_full[
             normalized_managed_full.index >= visible_since
         ][["PRICE", "TARGET"]].copy()
@@ -190,6 +200,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             for item in normalized_switches
             if _stamp(item.at) >= visible_since
         )
+        normalized_escape_events = tuple(
+            {"at": _stamp(item.at), "price": float(item.price), "target": int(item.target)}
+            for item in normalized_escape_switches
+            if _stamp(item.at) >= visible_since
+        )
         adaptive_events = _events_from_target(adaptive_frame)
         holistic_events = tuple(item for item in decisions if int(item["target"]) in (-1, 1))
         managed_events = _events_from_target(managed_frame, include_flat=True)
@@ -200,6 +215,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             HOLISTIC_NAME: holistic_events,
             MANAGED_NAME: managed_events,
             NORMALIZED_NAME: normalized_events,
+            NORMALIZED_ESCAPE_NAME: normalized_escape_events,
             NORMALIZED_MANAGED_NAME: normalized_managed_events,
         }
 
@@ -209,6 +225,8 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             _render_metrics(MANAGED_NAME, managed_frame, cost_bps=cost_bps)
         if NORMALIZED_NAME in visible:
             _render_metrics(NORMALIZED_NAME, normalized_frame, cost_bps=cost_bps)
+        if NORMALIZED_ESCAPE_NAME in visible:
+            _render_metrics(NORMALIZED_ESCAPE_NAME, normalized_escape_frame, cost_bps=cost_bps)
         if NORMALIZED_MANAGED_NAME in visible:
             _render_metrics(NORMALIZED_MANAGED_NAME, normalized_managed_frame, cost_bps=cost_bps)
         if ADAPTIVE_NAME in visible:
@@ -225,10 +243,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 "Manager v1: 3-bar reversal-bekreftelse, volatilitetsarmert peak-profit-lock, "
                 "maks 25% giveback fra MFE og kort re-entry cooldown. Sirkelmarkør = manager gikk FLAT."
             )
-        if NORMALIZED_NAME in visible or NORMALIZED_MANAGED_NAME in visible:
+        if NORMALIZED_NAME in visible or NORMALIZED_ESCAPE_NAME in visible or NORMALIZED_MANAGED_NAME in visible:
             st.caption(
                 "Norm v1: hver timeframe skaleres mot sin egen tidligere MACD-spread før vekting. "
-                "Det fjerner rå skala-fordelen 15m/30m har over 1m/2m/5m, uten å endre live-strategien."
+                "Escape-sporet er shadow-only: ved en vedvarende, volatilitetsmessig stor bevegelse mot "
+                "aktiv retning kan enstemmig 1m/2m/5m-konsensus overstyre treg 15m/30m-regimehukommelse."
             )
 
         render_three_trader_tv_v1(rule_frame, event_sets, visible, key=f"three-trader-chart-{instrument_id}")
