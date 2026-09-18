@@ -76,12 +76,12 @@ MACD_A_SPEC_V2 = _spec(MACD_A_STRATEGY_V1, "MACD-A", "Adaptive 1m/2m/5m MACD sel
 MACD_NORM_SPEC_V1 = _spec(
     MACD_NORM_STRATEGY_V1,
     "MACD norm",
-    "1/2/5/10/15/30m MACD normalized per timeframe before supervisor scoring; binary LONG/SHORT target.",
+    "1/2/5/10/15/30m MACD normalized per timeframe before supervisor scoring; closed 5m MACD cross is an authoritative LONG/SHORT backstop.",
 )
 MACD_NORM_MANAGER_SPEC_V1 = _spec(
     MACD_NORM_MANAGER_STRATEGY_V1,
     "MACD norm + manager",
-    "Normalized MACD signal plus stateful MFE profit-lock, reversal confirmation and re-entry cooldown.",
+    "Normalized MACD signal with authoritative closed 5m cross, plus stateful MFE profit-lock, reversal confirmation and re-entry cooldown.",
 )
 
 def _sfl_spec(minutes: int) -> AutoTraderStrategySpecV2:
