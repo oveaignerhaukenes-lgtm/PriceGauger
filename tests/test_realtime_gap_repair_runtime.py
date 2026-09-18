@@ -8,6 +8,7 @@ import pytest
 import realtime_gap_repair as gap_repair
 from realtime_gap_repair import GapRepairingSaxoRealtimeService
 from realtime_market_data import RealtimeQuote
+from saxo_chart_live import FormingCandle1m
 from saxo_provider import SaxoError, SaxoInstrument
 from saxo_streaming import SaxoStreamMessage, SaxoStreamReset
 
@@ -197,3 +198,71 @@ def test_heartbeat_for_stale_open_market_forces_controlled_stream_reset(tmp_path
                 payload={"Heartbeats": []},
             )
         )
+
+
+def test_price_stream_updates_forming_candle_on_each_real_quote(tmp_path):
+    service = _service(tmp_path)
+    first = RealtimeQuote(
+        market="Gold",
+        observed_at="2026-09-18T11:45:01+00:00",
+        bid=4400.0,
+        ask=4402.0,
+        uic=101,
+        asset_type="ContractFutures",
+        symbol="GOLD",
+    )
+    second = RealtimeQuote(
+        market="Gold",
+        observed_at="2026-09-18T11:45:02+00:00",
+        bid=4404.0,
+        ask=4406.0,
+        uic=101,
+        asset_type="ContractFutures",
+        symbol="GOLD",
+    )
+
+    service._consume_quote(first)
+    service._consume_quote(second)
+
+    candle = service._forming_store.load(market="Gold")
+    assert candle is not None
+    assert candle.provider == "Saxo price stream"
+    assert candle.bar_time == "2026-09-18T11:45:00+00:00"
+    assert candle.open == 4401.0
+    assert candle.high == 4405.0
+    assert candle.low == 4401.0
+    assert candle.close == 4405.0
+    assert candle.source_event_at == second.observed_at
+
+
+def test_older_chart_candle_cannot_replace_newer_price_stream_minute(tmp_path):
+    service = _service(tmp_path)
+    service._consume_quote(
+        RealtimeQuote(
+            market="Gold",
+            observed_at="2026-09-18T11:46:03+00:00",
+            bid=4410.0,
+            ask=4412.0,
+            uic=101,
+            asset_type="ContractFutures",
+            symbol="GOLD",
+        )
+    )
+    older = FormingCandle1m(
+        market="Gold",
+        bar_time="2026-09-18T11:45:00+00:00",
+        open=4400.0,
+        high=4408.0,
+        low=4399.0,
+        close=4407.0,
+        volume=None,
+        provider="Saxo chart stream",
+        uic=101,
+        asset_type="ContractFutures",
+        symbol="GOLD",
+        delayed_by_minutes=0.0,
+        source_event_at="2026-09-18T11:46:04+00:00",
+        updated_at="2026-09-18T11:46:04+00:00",
+    )
+
+    assert service._chart_candle_can_replace_current(older) is False

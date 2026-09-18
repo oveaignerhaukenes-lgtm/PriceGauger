@@ -67,7 +67,7 @@ def test_tradingdesk_auto_refresh_is_default_and_fragment_scoped() -> None:
     assert 'AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"' in source
     assert "st.session_state[AUTO_REFRESH_STATE_KEY] = True" in source
     assert '"Autooppdater TradingDesk"' in source
-    assert "LIVE_CHART_BASE_REFRESH_SECONDS = 60" in source
+    assert "LIVE_CHART_BASE_REFRESH_SECONDS = 5" in source
     assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1" in source
     assert "V2_ANALYSIS_REFRESH_SECONDS = 60" in source
 

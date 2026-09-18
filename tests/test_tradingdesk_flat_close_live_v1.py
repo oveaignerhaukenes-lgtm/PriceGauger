@@ -80,6 +80,8 @@ def test_live_chart_keeps_one_second_forming_candle_refresh() -> None:
     ).read_text(encoding="utf-8")
 
     assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1" in page
+    assert "LIVE_CHART_BASE_REFRESH_SECONDS = 5" in page
     assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")' in page
     assert "_recent_forming_candle(context)" in page
+    assert "context = baseline_contexts.get(market)" in page
     assert "render_trade_marker_overlay_v2(" in refresh
