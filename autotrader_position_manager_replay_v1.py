@@ -72,6 +72,11 @@ def apply_position_manager_v1(
     cfg = _bounded_config(config)
     result = frame.copy()
     raw_target = result["TARGET"].fillna(0.0).astype("float64")
+    authoritative_cross = (
+        result["AUTHORITATIVE_CROSS"].fillna(0.0).astype("float64")
+        if "AUTHORITATIVE_CROSS" in result.columns
+        else pd.Series(0.0, index=result.index, dtype="float64")
+    )
     price = result["PRICE"].astype("float64")
     minute_returns = price.pct_change()
     rolling_vol = minute_returns.rolling(
@@ -112,6 +117,9 @@ def apply_position_manager_v1(
         base_target = int(raw_target.iloc[index])
         if base_target not in (-1, 0, 1):
             base_target = 0
+        cross_target = int(authoritative_cross.iloc[index])
+        if cross_target not in (-1, 0, 1):
+            cross_target = 0
         if cooldown_remaining > 0:
             cooldown_remaining -= 1
 
@@ -119,7 +127,13 @@ def apply_position_manager_v1(
         current_pnl = 0.0
         arm = max(cfg.min_arm_pct, cfg.arm_vol_multiple * float(rolling_vol.iloc[index]))
 
-        if managed == 0:
+        if cross_target in (-1, 1):
+            # The already-lagging closed 5m MACD cross is a hard directional
+            # backstop. Management may protect profit between crosses, but it cannot
+            # delay or veto the confirmed MACD reversal itself.
+            enter(cross_target, current_price)
+            reason = "authoritative_cross"
+        elif managed == 0:
             if base_target in (-1, 1):
                 if blocked_reentry_direction == base_target:
                     if cooldown_remaining <= 0:
