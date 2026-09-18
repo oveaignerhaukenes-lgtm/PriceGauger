@@ -58,11 +58,13 @@ def test_live_open_rechecks_authority_and_broker_state_before_submit() -> None:
     assert source.count("_open_orders_exist(client, account_key=account_key, uic=enrollment.uic)") >= 2
 
 
-def test_simple_core_exposes_direct_strategy_switch_without_confirmation_button() -> None:
+def test_simple_core_exposes_event_driven_strategy_switch_without_confirmation_button() -> None:
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert "AUTOTRADER_STRATEGIES_V2" in source
     assert "switch_live_strategy_v2" in source
-    assert "selected_strategy = st.selectbox" in source
-    assert "selected_strategy.key != enrollment.strategy_key" in source
+    assert "st.selectbox(" in source
+    assert "on_change=_queue_strategy_switch_v1" in source
+    assert "requested_strategy_key != enrollment.strategy_key" in source
+    assert "selected_strategy.key != enrollment.strategy_key" not in source
     assert "st.rerun()" in source
     assert "Jeg vil at PriceGauger skal AutoManage" not in source

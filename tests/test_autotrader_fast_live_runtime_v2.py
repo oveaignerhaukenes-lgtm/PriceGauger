@@ -67,8 +67,10 @@ def test_dispatch_routes_fast_and_5m_hybrid_live_strategies() -> None:
     assert "enrollment.strategy_key in HYBRID_LIVE_STRATEGIES" in source
 
 
-def test_tradingdesk_live_selector_is_catalog_driven() -> None:
+def test_tradingdesk_live_selector_is_catalog_driven_and_event_authoritative() -> None:
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert '"Strategi"' in source
     assert "AUTOTRADER_STRATEGIES_V2" in source
-    assert "selected_strategy = st.selectbox" in source
+    assert "st.selectbox(" in source
+    assert "on_change=_queue_strategy_switch_v1" in source
+    assert "strategy_pending_key" in source

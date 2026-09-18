@@ -77,11 +77,15 @@ def test_live_chart_macd_follows_selected_chart_timeframe_without_redundant_cont
     assert "selected_timeframe=macd_timeframe" not in source
 
 
-def test_simple_core_strategy_selector_is_catalog_driven_and_hot_switches_existing_controller():
+def test_simple_core_strategy_selector_is_event_driven_and_backend_authoritative():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert "AUTOTRADER_STRATEGIES_V2" in source
     assert "switch_live_strategy_v2" in source
-    assert "selected_strategy.key != enrollment.strategy_key" in source
+    assert "on_change=_queue_strategy_switch_v1" in source
+    assert "strategy_pending_key" in source
+    assert "requested_strategy_key != enrollment.strategy_key" in source
+    assert "selected_strategy.key != enrollment.strategy_key" not in source
+    assert "st.session_state[strategy_selector_key] = enrollment.strategy_key" in source
     assert "product already has an active LIVE AutoManage controller" not in source
 
 
