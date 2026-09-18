@@ -145,8 +145,11 @@ def _large_move_escape_direction_v1(
     move_direction = 1 if move_return > 0.0 else -1 if move_return < 0.0 else 0
 
     returns = prices.pct_change()
-    vol_start = max(1, int(index) - int(LARGE_MOVE_ESCAPE_VOL_LOOKBACK_BARS_V1) + 1)
-    recent = returns.iloc[vol_start : int(index) + 1].dropna()
+    # Use the volatility regime *before* the candidate move. Including the move in
+    # its own baseline would mechanically raise the bar while the displacement grows.
+    vol_end = int(index) - window
+    vol_start = max(1, vol_end - int(LARGE_MOVE_ESCAPE_VOL_LOOKBACK_BARS_V1) + 1)
+    recent = returns.iloc[vol_start : vol_end + 1].dropna()
     sigma_1m = float(recent.std(ddof=0)) if len(recent) >= 5 else 0.0
     volatility_threshold = (
         float(LARGE_MOVE_ESCAPE_VOL_MULTIPLE_V1)
