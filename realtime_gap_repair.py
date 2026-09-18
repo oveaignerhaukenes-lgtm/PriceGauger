@@ -368,7 +368,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                 uic=int(current.uic or quote.uic or 0),
                 asset_type=current.asset_type or quote.asset_type,
                 symbol=current.symbol or quote.symbol,
-                delayed_by_minutes=0.0,
+                delayed_by_minutes=None,
                 source_event_at=str(quote.observed_at),
                 updated_at=_iso_now(),
             )
