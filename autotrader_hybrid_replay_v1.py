@@ -56,8 +56,25 @@ def _macd_spread(close: pd.Series) -> pd.Series:
 def _timeframe_spread(frame: pd.DataFrame, minutes: int) -> pd.Series:
     if int(minutes) == 1:
         return _macd_spread(frame["close"])
-    rule = f"{int(minutes)}min"
-    closed = frame["close"].resample(rule, origin="epoch", label="right", closed="left").last().dropna()
+
+    # frame is indexed by action time: a canonical 1m bar stamped 09:04 becomes
+    # observable at 09:05. Resampling that action-time index directly with
+    # closed="left" drops the 09:05 observation from the 09:00-09:05 bucket,
+    # shifting every multi-minute candle by one canonical bar versus LIVE.
+    #
+    # Move back to the canonical bar-start clock before aggregation, then label each
+    # completed N-minute bucket by its true close/action time. This mirrors
+    # closed_bars_v2 used by the LIVE MACD runtime.
+    minutes = int(minutes)
+    rule = f"{minutes}min"
+    canonical_close = frame["close"].copy()
+    canonical_close.index = canonical_close.index - pd.Timedelta(minutes=1)
+    closed = canonical_close.resample(
+        rule,
+        origin="epoch",
+        label="right",
+        closed="left",
+    ).last().dropna()
     spread = _macd_spread(closed)
     return spread.reindex(frame.index, method="ffill")
 
