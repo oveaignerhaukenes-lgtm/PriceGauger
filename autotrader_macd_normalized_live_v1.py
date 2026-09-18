@@ -210,11 +210,31 @@ def _manager_step_v1(
     current_pnl_pct: float,
     rolling_vol: float,
     action_at: datetime,
+    authoritative_cross: str | None = None,
 ) -> tuple[NormalizedManagerLiveStateV1, str]:
     """Advance the manager by one new closed 1m bar using actual-position P/L."""
     cfg = DEFAULT_POSITION_MANAGER_CONFIG_V1
     raw = raw_targets[-1] if raw_targets else DIRECTION_FLAT
     cooldown = max(0, int(state.cooldown_remaining) - 1)
+    cross = (
+        authoritative_cross
+        if authoritative_cross in {DIRECTION_LONG, DIRECTION_SHORT}
+        else None
+    )
+
+    if cross is not None:
+        # A confirmed closed 5m MACD cross is already a lagging confirmation.
+        # Management may protect profit between crosses but cannot delay/veto it.
+        return replace(
+            state,
+            direction=cross,
+            active_bars=0,
+            mfe_pct=0.0,
+            cooldown_remaining=0,
+            blocked_reentry_direction=None,
+            reentry_count=0,
+            last_action_at=action_at,
+        ), "authoritative_cross"
 
     if state.direction == DIRECTION_FLAT:
         if raw not in {DIRECTION_LONG, DIRECTION_SHORT}:
@@ -510,6 +530,12 @@ def run_macd_normalized_live_once_v1(
 
     raw_directions = tuple(_direction_from_target(item) for item in frame["TARGET"].tail(8))
     raw_candidate = raw_directions[-1]
+    authoritative_cross = (
+        _direction_from_target(float(frame["AUTHORITATIVE_CROSS"].iloc[-1]))
+        if "AUTHORITATIVE_CROSS" in frame.columns
+        and int(frame["AUTHORITATIVE_CROSS"].iloc[-1]) in (-1, 1)
+        else None
+    )
     score = float(frame["SCORE"].iloc[-1])
     confidence = float(frame["CONFIDENCE"].iloc[-1])
 
@@ -541,6 +567,7 @@ def run_macd_normalized_live_once_v1(
             current_pnl_pct=current_pnl,
             rolling_vol=rolling_vol,
             action_at=action_at,
+            authoritative_cross=authoritative_cross,
         )
         _persist_manager_state_v1(manager_state)
         candidate = manager_state.direction
@@ -554,6 +581,8 @@ def run_macd_normalized_live_once_v1(
             f"MACD_NORM:{candidate}:raw={raw_candidate}:score={score:+.3f}:"
             f"confidence={confidence:.3f}"
         )
+        if authoritative_cross is not None:
+            signal += f":authoritative_cross={authoritative_cross}"
         if manager_reason:
             signal += f":manager={manager_reason}"
         state = _new_intent_state_v2(
