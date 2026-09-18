@@ -127,14 +127,12 @@ def apply_position_manager_v1(
         current_pnl = 0.0
         arm = max(cfg.min_arm_pct, cfg.arm_vol_multiple * float(rolling_vol.iloc[index]))
 
-        if cross_target in (-1, 1):
-            # The already-lagging closed 5m MACD cross is a hard directional
-            # backstop. Management may protect profit between crosses, but it cannot
-            # delay or veto the confirmed MACD reversal itself.
-            enter(cross_target, current_price)
-            reason = "authoritative_cross"
-        elif managed == 0:
-            if base_target in (-1, 1):
+        if managed == 0:
+            if cross_target in (-1, 1):
+                # Confirmed closed 5m MACD cross overrides cooldown/re-entry delay.
+                enter(cross_target, current_price)
+                reason = "authoritative_cross"
+            elif base_target in (-1, 1):
                 if blocked_reentry_direction == base_target:
                     if cooldown_remaining <= 0:
                         reentry_count += 1
@@ -156,35 +154,47 @@ def apply_position_manager_v1(
                 current_pnl = managed * ((current_price / entry_price) - 1.0)
                 mfe = max(mfe, current_pnl)
 
-            if base_target == -managed:
-                if reversal_direction == base_target:
-                    reversal_count += 1
+            if cross_target in (-1, 1):
+                # If the supervisor anticipated the move before 5m confirms it, keep
+                # the existing entry/MFE. If 5m confirms the opposite direction,
+                # reverse immediately; management may never lag the confirmed cross.
+                if cross_target == managed:
+                    reversal_direction = 0
+                    reversal_count = 0
+                    reason = "authoritative_cross_hold"
                 else:
-                    reversal_direction = base_target
-                    reversal_count = 1
+                    enter(cross_target, current_price)
+                    reason = "authoritative_cross"
             else:
-                reversal_direction = 0
-                reversal_count = 0
+                if base_target == -managed:
+                    if reversal_direction == base_target:
+                        reversal_count += 1
+                    else:
+                        reversal_direction = base_target
+                        reversal_count = 1
+                else:
+                    reversal_direction = 0
+                    reversal_count = 0
 
-            profit_lock_armed = active_bars >= cfg.min_hold_bars and mfe >= arm and mfe > 0.0
-            giveback_triggered = profit_lock_armed and current_pnl <= mfe * (1.0 - cfg.max_giveback_fraction)
+                profit_lock_armed = active_bars >= cfg.min_hold_bars and mfe >= arm and mfe > 0.0
+                giveback_triggered = profit_lock_armed and current_pnl <= mfe * (1.0 - cfg.max_giveback_fraction)
 
-            if giveback_triggered:
-                previous_direction = managed
-                managed = 0
-                entry_price = None
-                active_bars = 0
-                cooldown_remaining = cfg.reentry_cooldown_bars
-                blocked_reentry_direction = previous_direction
-                reentry_count = 0
-                reversal_direction = 0
-                reversal_count = 0
-                reason = "profit_lock"
-            elif reversal_count >= cfg.reversal_confirm_bars:
-                enter(base_target, current_price)
-                reason = "confirmed_reversal"
-            elif base_target == 0:
-                reason = "hold_neutral"
+                if giveback_triggered:
+                    previous_direction = managed
+                    managed = 0
+                    entry_price = None
+                    active_bars = 0
+                    cooldown_remaining = cfg.reentry_cooldown_bars
+                    blocked_reentry_direction = previous_direction
+                    reentry_count = 0
+                    reversal_direction = 0
+                    reversal_count = 0
+                    reason = "profit_lock"
+                elif reversal_count >= cfg.reversal_confirm_bars:
+                    enter(base_target, current_price)
+                    reason = "confirmed_reversal"
+                elif base_target == 0:
+                    reason = "hold_neutral"
 
         targets.append(float(managed))
         reasons.append(reason)
