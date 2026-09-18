@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import math
 
+import pandas as pd
 import pytest
 
-from autotrader_hybrid_replay_v1 import replay_hybrid_models_v1
+from autotrader_hybrid_replay_v1 import _timeframe_spread, replay_hybrid_models_v1
+from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
 from canonical_market_bars_v2 import CanonicalMarketBarV2
 
 
@@ -54,6 +56,82 @@ def test_replay_cost_penalizes_turnover() -> None:
     free, _ = replay_hybrid_models_v1(_bars(), cost_bps_per_leg=0.0)
     costly, _ = replay_hybrid_models_v1(_bars(), cost_bps_per_leg=2.0)
     assert costly["HYBRID"].iloc[-1] < free["HYBRID"].iloc[-1]
+
+
+
+def test_macd5_replay_uses_exact_live_closed_bar_and_macd_contract() -> None:
+    bars = _bars(600)
+    frame = pd.DataFrame(
+        {
+            "at": [pd.Timestamp(item.bar_time) + pd.Timedelta(minutes=1) for item in bars],
+            "close": [float(item.close) for item in bars],
+        }
+    ).set_index("at")
+    replay_spread = _timeframe_spread(frame, 5)
+
+    closed = closed_bars_v2(
+        tuple(item.point for item in bars),
+        market=bars[0].market_name,
+        timeframe_minutes=5,
+    )
+    live_observations = macd_observations_v2(closed, timeframe_minutes=5)
+    comparable = [
+        item for item in live_observations
+        if pd.Timestamp(item.closed_at) in replay_spread.index
+    ]
+    assert len(comparable) > 20
+    for item in comparable[-20:]:
+        assert replay_spread.loc[pd.Timestamp(item.closed_at)] == pytest.approx(
+            float(item.spread),
+            abs=1e-12,
+        )
+
+
+def test_macd5_replay_switch_times_match_live_cross_times() -> None:
+    bars = _bars(720)
+    frame, _ = replay_hybrid_models_v1(bars)
+    target = frame["TARGET_MACD5"]
+    replay_switches = {
+        pd.Timestamp(at): ("LONG" if float(value) > 0 else "SHORT")
+        for at, value in target.items()
+        if float(value) != 0.0
+        and (
+            at == target.index[0]
+            or float(value) != float(target.shift(1).loc[at])
+        )
+    }
+
+    closed = closed_bars_v2(
+        tuple(item.point for item in bars),
+        market=bars[0].market_name,
+        timeframe_minutes=5,
+    )
+    observations = macd_observations_v2(closed, timeframe_minutes=5)
+    live_crosses = {}
+    for previous, current in zip(observations, observations[1:]):
+        if current.closed_at - previous.closed_at != timedelta(minutes=5):
+            continue
+        if previous.spread <= 0.0 < current.spread:
+            live_crosses[pd.Timestamp(current.closed_at)] = "LONG"
+        elif previous.spread >= 0.0 > current.spread:
+            live_crosses[pd.Timestamp(current.closed_at)] = "SHORT"
+
+    # Replay adopts the sign of the first fully-warmed MACD observation; that first
+    # non-FLAT state need not itself be a cross. After adoption, every switch must
+    # match the LIVE cross clock exactly, and every LIVE cross must appear in replay.
+    first_directional_at = next(at for at, value in target.items() if float(value) != 0.0)
+    replay_after_adoption = {
+        at: direction
+        for at, direction in replay_switches.items()
+        if at > first_directional_at
+    }
+    live_after_adoption = {
+        at: direction
+        for at, direction in live_crosses.items()
+        if at > first_directional_at and at <= target.index[-1]
+    }
+    assert len(replay_after_adoption) >= 2
+    assert replay_after_adoption == live_after_adoption
 
 
 def test_hybrid_ui_is_test_only_and_does_not_submit_orders() -> None:

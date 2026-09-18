@@ -15,6 +15,7 @@ from autotrader_macd_models_v1 import (
     macd2_stochastic_score_v1,
     stochastic_direction_score_v1,
 )
+from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
 from canonical_market_bars_v2 import CanonicalMarketBarV2
 
 
@@ -54,12 +55,35 @@ def _macd_spread(close: pd.Series) -> pd.Series:
 
 
 def _timeframe_spread(frame: pd.DataFrame, minutes: int) -> pd.Series:
-    if int(minutes) == 1:
-        return _macd_spread(frame["close"])
-    rule = f"{int(minutes)}min"
-    closed = frame["close"].resample(rule, origin="epoch", label="right", closed="left").last().dropna()
-    spread = _macd_spread(closed)
-    return spread.reindex(frame.index, method="ffill")
+    """Return the exact closed-bar MACD spread used by LIVE for one timeframe.
+
+    Replay rows are indexed by action time (canonical bar start + 1 minute). Convert
+    them back to canonical 1m timestamps and delegate both bucket formation and MACD
+    calculation to the same helpers used by ``autotrader_macd_timeframe_live_v1``.
+    This prevents candle-boundary, EMA-seeding and signal-cross drift between the
+    Strategy Scoreboard and actual AutoTrade.
+    """
+    timeframe = int(minutes)
+    if timeframe <= 0:
+        raise ValueError("timeframe minutes must be positive")
+    points = tuple(
+        (
+            (pd.Timestamp(action_at) - pd.Timedelta(minutes=1)).isoformat(),
+            float(close),
+        )
+        for action_at, close in frame["close"].items()
+    )
+    if not points:
+        return pd.Series(index=frame.index, dtype="float64")
+    closed = closed_bars_v2(points, market="hybrid-replay", timeframe_minutes=timeframe)
+    observations = macd_observations_v2(closed, timeframe_minutes=timeframe)
+    native = pd.Series(
+        {pd.Timestamp(item.closed_at): float(item.spread) for item in observations},
+        dtype="float64",
+    ).sort_index()
+    if native.empty:
+        return pd.Series(index=frame.index, dtype="float64")
+    return native.reindex(frame.index, method="ffill")
 
 
 def _stochastic_score(frame: pd.DataFrame) -> pd.Series:
