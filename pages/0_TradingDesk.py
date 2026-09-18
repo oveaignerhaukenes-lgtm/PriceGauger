@@ -49,7 +49,7 @@ from v2_forecast_visualization import (
 
 
 V2_ANALYSIS_REFRESH_SECONDS = 60
-LIVE_CHART_BASE_REFRESH_SECONDS = 60
+LIVE_CHART_BASE_REFRESH_SECONDS = 5
 LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
 QUICK_TIMEFRAMES = LIGHTWEIGHT_TIMEFRAMES_V1
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
@@ -308,7 +308,8 @@ with controls_column:
         )
         if auto_refresh:
             st.caption(
-                "Live-candlen oppdateres hvert sekund når Saxo chart-streamen er aktiv, ellers hvert femte sekund. "
+                f"Live-candlen oppdateres hvert {LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}. sekund fra Saxo price-stream; "
+                f"canonical chart/indikatorer synkes hvert {LIVE_CHART_BASE_REFRESH_SECONDS}. sekund. "
                 f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
             )
         else:
@@ -552,7 +553,9 @@ def _render_live_chart() -> None:
 
 
 def _render_lightweight_live_update() -> None:
-    context = _load_active_context()
+    # Keep the one-second fragment cheap: product identity is stable for the current
+    # page session, so do not reload the full v2 analysis/workspace on every tick.
+    context = baseline_contexts.get(market)
     forming = _recent_forming_candle(context)
     render_lightweight_live_update_v1(
         chart_id=f"TradingDeskLightweight:{market}",
@@ -563,8 +566,9 @@ def _render_lightweight_live_update() -> None:
     if forming is not None:
         age = forming_candle_event_age_seconds(forming)
         st.caption(
-            f"● Forming candle · Saxo chart-stream · UI-only · oppdatert for {age:.1f} sek siden. "
-            "Sekundbevegelsen oppdaterer Lightweight-serien direkte og inngår ikke i canonical historikk, indikatorer eller AutoManager-signaler."
+            f"● Forming candle · {forming.provider} · UI-only · oppdatert for {age:.1f} sek siden · "
+            f"live close {forming.close:g}. Sekundbevegelsen oppdaterer Lightweight-serien direkte; "
+            "canonical indikatorer/AutoManager bruker fortsatt bare lukkede bars."
         )
 
 
