@@ -81,6 +81,7 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
         "Holistisk AI": "#dc2626",
         "MACD + manager": "#7c3aed",
         "MACD norm": "#0891b2",
+        "MACD norm + escape": "#ea580c",
         "MACD norm + manager": "#db2777",
     }
     shorts = {
@@ -89,6 +90,7 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
         "Holistisk AI": "AI",
         "MACD + manager": "Mgr",
         "MACD norm": "Norm",
+        "MACD norm + escape": "Norm+Esc",
         "MACD norm + manager": "Norm+Mgr",
     }
     sizes = {
@@ -97,6 +99,7 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
         "Holistisk AI": 3,
         "MACD + manager": 2,
         "MACD norm": 2,
+        "MACD norm + escape": 3,
         "MACD norm + manager": 3,
     }
     events = []
