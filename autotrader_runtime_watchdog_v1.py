@@ -71,6 +71,7 @@ class WatchdogInputV1:
     latest_request_status: str | None
     latest_request_updated_at: datetime | None
     authoritative_cross: AuthoritativeCrossV1 | None
+    authoritative_cross_acknowledged: bool
     auto_manage_enabled: bool
 
 
@@ -99,6 +100,7 @@ class WatchdogReportV1:
     authoritative_cross_direction: str | None
     authoritative_cross_at: datetime | None
     authoritative_cross_timeframe_minutes: int | None
+    authoritative_cross_acknowledged: bool
     latest_request_id: str | None
     latest_request_action: str | None
     latest_request_status: str | None
@@ -146,7 +148,7 @@ def evaluate_watchdog_contracts_v1(
         cross_episode = f"{cross.timeframe_minutes}m:{cross.occurred_at.isoformat()}:{cross.direction}"
         if (
             cross_age >= TARGET_OPPOSITE_GRACE_SECONDS_V1
-            and _opposite(snapshot.desired_direction, cross.direction)
+            and not snapshot.authoritative_cross_acknowledged
         ):
             findings.append(
                 WatchdogFindingV1(
@@ -160,7 +162,7 @@ def evaluate_watchdog_contracts_v1(
                     severity="CRITICAL",
                     summary=(
                         f"{cross.timeframe_minutes}m MACD crossed {cross.direction}, "
-                        f"but strategy target is still {snapshot.desired_direction}."
+                        "but no strategy evaluation acknowledged that authoritative cross."
                     ),
                     evidence={
                         "cross_direction": cross.direction,
@@ -169,11 +171,13 @@ def evaluate_watchdog_contracts_v1(
                         "previous_spread": cross.previous_spread,
                         "current_spread": cross.current_spread,
                         "desired_direction": snapshot.desired_direction,
+                        "acknowledged": snapshot.authoritative_cross_acknowledged,
                     },
                 )
             )
         if (
             cross_age >= TARGET_NOT_REACHED_GRACE_SECONDS_V1
+            and snapshot.desired_direction == cross.direction
             and _opposite(snapshot.observed_direction, cross.direction)
         ):
             findings.append(
@@ -524,6 +528,48 @@ def _latest_authoritative_cross_v1(
     return None
 
 
+def _cross_acknowledged_v1(
+    pilot_key: str,
+    cross: AuthoritativeCrossV1 | None,
+) -> bool:
+    if cross is None:
+        return False
+    with connect() as db:
+        before = db.execute(
+            """
+            SELECT COALESCE(desired_direction, target_direction) AS desired
+            FROM pg_v2_autotrader_strategy_evaluations
+            WHERE pilot_key = ? AND created_at <= ?
+              AND COALESCE(desired_direction, target_direction) IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (pilot_key, cross.occurred_at),
+        ).fetchone()
+        after = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_strategy_evaluations
+            WHERE pilot_key = ?
+              AND created_at > ?
+              AND created_at <= ?
+              AND COALESCE(desired_direction, target_direction) = ?
+            LIMIT 1
+            """,
+            (
+                pilot_key,
+                cross.occurred_at,
+                cross.occurred_at + timedelta(seconds=TARGET_OPPOSITE_GRACE_SECONDS_V1),
+                cross.direction,
+            ),
+        ).fetchone()
+    if before is not None:
+        values = _row_mapping(before, ("desired",))
+        if str(values.get("desired") or "").upper() == cross.direction:
+            return True
+    return after is not None
+
+
 def _report_severity(findings: Sequence[WatchdogFindingV1]) -> str:
     levels = {item.severity for item in findings}
     if "CRITICAL" in levels:
@@ -538,7 +584,7 @@ def _build_report_v1(snapshot: WatchdogInputV1, findings: tuple[WatchdogFindingV
     report_id = str(
         uuid5(
             NAMESPACE_URL,
-            f"pg-watchdog-report-v1|{snapshot.pilot_key}|{now.replace(second=0, microsecond=0).isoformat()}",
+            f"pg-watchdog-report-v1|{snapshot.pilot_key}|{now.isoformat()}",
         )
     )
     return WatchdogReportV1(
@@ -555,6 +601,7 @@ def _build_report_v1(snapshot: WatchdogInputV1, findings: tuple[WatchdogFindingV
         authoritative_cross_direction=None if cross is None else cross.direction,
         authoritative_cross_at=None if cross is None else cross.occurred_at,
         authoritative_cross_timeframe_minutes=None if cross is None else cross.timeframe_minutes,
+        authoritative_cross_acknowledged=snapshot.authoritative_cross_acknowledged,
         latest_request_id=snapshot.latest_request_id,
         latest_request_action=snapshot.latest_request_action,
         latest_request_status=snapshot.latest_request_status,
@@ -717,6 +764,7 @@ def _snapshot_for_enrollment_v1(
     observed_direction = _observed_direction(observed)
     request = _latest_request_v1(enrollment.pilot_key)
     cross = _latest_authoritative_cross_v1(enrollment, now=now, store=store)
+    cross_acknowledged = _cross_acknowledged_v1(enrollment.pilot_key, cross)
     desired = str(state.get("desired_direction") or observed_direction).upper()
     if desired not in DIRECTIONS_V1:
         desired = observed_direction
@@ -740,6 +788,7 @@ def _snapshot_for_enrollment_v1(
             else _utc(request["updated_at"])
         ),
         authoritative_cross=cross,
+        authoritative_cross_acknowledged=cross_acknowledged,
         auto_manage_enabled=auto_manage_enabled_v1(enrollment),
     )
 
@@ -943,6 +992,7 @@ def load_watchdog_reports_v1(*, limit: int = 50) -> tuple[WatchdogReportV1, ...]
                     None if data.get("authoritative_cross_at") is None else _utc(data["authoritative_cross_at"])
                 ),
                 authoritative_cross_timeframe_minutes=data.get("authoritative_cross_timeframe_minutes"),
+                authoritative_cross_acknowledged=bool(data.get("authoritative_cross_acknowledged", False)),
                 latest_request_id=data.get("latest_request_id"),
                 latest_request_action=data.get("latest_request_action"),
                 latest_request_status=data.get("latest_request_status"),
@@ -970,7 +1020,7 @@ def format_watchdog_report_v1(report: WatchdogReportV1) -> str:
         f"pending: {report.pending_target_direction or 'none'}",
         f"signal: {report.intent_signal or 'none'} @ "
         f"{report.intent_signal_at.isoformat() if report.intent_signal_at else 'none'}",
-        f"authoritative_cross: {cross}",
+        f"authoritative_cross: {cross} · acknowledged={report.authoritative_cross_acknowledged}",
         f"execution: {report.latest_request_action or 'none'} / "
         f"{report.latest_request_status or 'none'} / {report.latest_request_id or 'none'}",
         f"findings: {len(report.findings)}",
