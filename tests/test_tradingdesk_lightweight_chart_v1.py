@@ -190,12 +190,15 @@ def test_touch_time_axis_drag_scales_x_axis_and_double_tap_fits_content() -> Non
     assert "height: '34px'" in source
 
 
-def test_trade_markers_use_non_candle_colors_for_long_and_short() -> None:
+def test_trade_markers_keep_pg_and_manual_saxo_colors_distinct() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
         encoding="utf-8"
     )
+    assert "source === 'SAXO_MANUAL_FILL'" in source
     assert "direction === 'LONG' ? '#0ea5e9' : '#f59e0b'" in source
-    assert "direction === 'LONG' ? '#16a34a' : '#dc2626'" not in source
+    assert "direction === 'LONG' ? '#16a34a' : '#dc2626'" in source
+    assert "SAXO BUY" in source
+    assert "SAXO SELL" in source
 
 
 def test_bottom_handle_resizes_whole_chart_and_preserves_pane_ratios() -> None:
