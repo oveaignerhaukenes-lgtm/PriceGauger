@@ -124,11 +124,11 @@ def _marker_payload(
         source = str(marker.source or "")
         manual_saxo = source == "SAXO_MANUAL_FILL"
         if manual_saxo:
-            color = "#0284c7" if direction == "LONG" else "#f59e0b"
+            color = "#16a34a" if direction == "LONG" else "#dc2626"
             label = "SAXO BUY" if direction == "LONG" else "SAXO SELL"
             size = 0.95
         else:
-            color = "#16a34a" if direction == "LONG" else "#dc2626"
+            color = "#0ea5e9" if direction == "LONG" else "#f59e0b"
             label = ""
             size = 1.0 if marker.active else 0.72
         result.append(
