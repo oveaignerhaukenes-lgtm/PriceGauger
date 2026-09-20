@@ -21,6 +21,7 @@ from autotrader_risk_control_v2 import (
     run_managed_risk_reaction_forever_v2,
     run_risk_control_forever_v2,
 )
+from autotrader_runtime_watchdog_v1 import run_runtime_watchdog_forever_v1
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_live_close_v2 import run_strategy_live_close_forever_v2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
@@ -133,6 +134,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_EQUITY_RECONCILIATION_SECONDS", "5")),
         help="Cadence for authoritative Saxo closed-position P/L booking.",
+    )
+    parser.add_argument(
+        "--autotrader-watchdog-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_WATCHDOG_SECONDS", "15")),
+        help="Cadence for read-only signal/target/execution/Saxo anomaly diagnostics.",
     )
     parser.add_argument(
         "--saxo-infoprice-probe-seconds",
@@ -390,6 +397,24 @@ def _start_autotrader_equity_reconciliation(*, interval_seconds: int) -> threadi
     return thread
 
 
+def _start_autotrader_runtime_watchdog(*, db_path: str, interval_seconds: int) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("AutoTrader runtime watchdog disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_runtime_watchdog_forever_v1,
+        kwargs={"db_path": db_path, "interval_seconds": interval_seconds},
+        name="pricegauger-autotrader-runtime-watchdog",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "AutoTrader runtime watchdog started interval_seconds=%d; read-only anomaly recorder",
+        max(10, interval_seconds),
+    )
+    return thread
+
+
 def _initial_runtime_instruments(
     configured: dict[str, SaxoInstrument],
 ) -> dict[str, SaxoInstrument]:
@@ -539,6 +564,10 @@ def main() -> None:
     )
     _start_autotrader_equity_reconciliation(
         interval_seconds=args.autotrader_equity_reconciliation_seconds,
+    )
+    _start_autotrader_runtime_watchdog(
+        db_path=args.db,
+        interval_seconds=args.autotrader_watchdog_seconds,
     )
     watcher = threading.Thread(
         target=_watch_v2_registry,
