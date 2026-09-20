@@ -405,20 +405,24 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
 
     if not using_postgres():
         return ()
-    ensure_manual_saxo_trade_marker_schema_v1()
-    with connect() as db:
-        rows = db.execute(
-            """
-            SELECT executed_at, execution_price, direction, amount,
-                   order_id, position_id
-            FROM pg_v2_saxo_manual_trade_markers
-            WHERE market_name = ?
-              AND executed_at >= now() - (? * INTERVAL '1 day')
-            ORDER BY executed_at ASC
-            LIMIT 500
-            """,
-            (str(market_name), max(1, int(days))),
-        ).fetchall()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
+    try:
+        with connect() as db:
+            rows = db.execute(
+                """
+                SELECT executed_at, execution_price, direction, amount,
+                       order_id, position_id
+                FROM pg_v2_saxo_manual_trade_markers
+                WHERE market_name = ?
+                  AND executed_at >= ?
+                ORDER BY executed_at ASC
+                LIMIT 500
+                """,
+                (str(market_name), cutoff),
+            ).fetchall()
+    except Exception:
+        # The stream worker owns schema installation. A web deploy may briefly race it.
+        return ()
 
     result = []
     for row in rows:
