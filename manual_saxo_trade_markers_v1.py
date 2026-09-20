@@ -179,6 +179,7 @@ def _positive_float(*values: Any) -> float | None:
 def parse_manual_fill_v1(
     row: Mapping[str, Any],
     *,
+    expected_account_id: str,
     products: Mapping[tuple[int, str], str],
     pg_order_ids: frozenset[str],
 ) -> ManualSaxoTradeMarkerV1 | None:
@@ -201,7 +202,13 @@ def parse_manual_fill_v1(
         return None
 
     market_name = products.get((uic, asset_type))
-    if market_name is None or not log_id or not order_id or not account_id:
+    if (
+        market_name is None
+        or not log_id
+        or not order_id
+        or not account_id
+        or account_id != str(expected_account_id)
+    ):
         return None
     if order_id in pg_order_ids:
         return None
@@ -347,6 +354,7 @@ def sync_manual_saxo_trade_markers_cycle_v1(*, client=None, now: datetime | None
                         pass
                 marker = parse_manual_fill_v1(
                     row,
+                    expected_account_id=account_id,
                     products=products,
                     pg_order_ids=pg_order_ids,
                 )
@@ -441,7 +449,9 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
                 direction=str(values["direction"]),
                 amount=float(values["amount"]),
                 strategy_key="manual-saxo",
-                net_position_id=str(values.get("position_id") or values.get("order_id") or ""),
+                net_position_id=(
+                    f"{str(values.get('position_id') or 'position')}:{str(values.get('order_id') or '')}"
+                ),
                 active=False,
                 source="SAXO_MANUAL_FILL",
             )
