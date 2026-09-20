@@ -22,6 +22,7 @@ from autotrader_risk_control_v2 import (
     run_risk_control_forever_v2,
 )
 from autotrader_runtime_watchdog_v1 import run_runtime_watchdog_forever_v1
+from manual_saxo_trade_markers_v1 import run_manual_saxo_trade_markers_forever_v1
 from autotrader_schema_v2 import ensure_autotrader_schema_v2
 from autotrader_strategy_live_close_v2 import run_strategy_live_close_forever_v2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
@@ -140,6 +141,12 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.getenv("PRICEGAUGER_AUTOTRADER_WATCHDOG_SECONDS", "15")),
         help="Cadence for read-only signal/target/execution/Saxo anomaly diagnostics.",
+    )
+    parser.add_argument(
+        "--manual-saxo-marker-seconds",
+        type=int,
+        default=int(os.getenv("PRICEGAUGER_MANUAL_SAXO_MARKER_SECONDS", "60")),
+        help="Low-cadence read-only Saxo OrderActivities sync for manual chart markers.",
     )
     parser.add_argument(
         "--saxo-infoprice-probe-seconds",
@@ -415,6 +422,24 @@ def _start_autotrader_runtime_watchdog(*, db_path: str, interval_seconds: int) -
     return thread
 
 
+def _start_manual_saxo_trade_markers(*, interval_seconds: int) -> threading.Thread | None:
+    if not using_postgres():
+        LOGGER.info("Manual Saxo chart markers disabled: PostgreSQL is not configured")
+        return None
+    thread = threading.Thread(
+        target=run_manual_saxo_trade_markers_forever_v1,
+        kwargs={"interval_seconds": interval_seconds},
+        name="pricegauger-manual-saxo-trade-markers",
+        daemon=True,
+    )
+    thread.start()
+    LOGGER.info(
+        "Manual Saxo chart marker collector started interval_seconds=%d; read-only OrderActivities",
+        max(30, interval_seconds),
+    )
+    return thread
+
+
 def _initial_runtime_instruments(
     configured: dict[str, SaxoInstrument],
 ) -> dict[str, SaxoInstrument]:
@@ -568,6 +593,9 @@ def main() -> None:
     _start_autotrader_runtime_watchdog(
         db_path=args.db,
         interval_seconds=args.autotrader_watchdog_seconds,
+    )
+    _start_manual_saxo_trade_markers(
+        interval_seconds=args.manual_saxo_marker_seconds,
     )
     watcher = threading.Thread(
         target=_watch_v2_registry,
