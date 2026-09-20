@@ -35,6 +35,7 @@ def _activity(**changes):
 def test_confirmed_non_pg_final_fill_becomes_manual_marker() -> None:
     marker = parse_manual_fill_v1(
         _activity(),
+        expected_account_id="ACC-1",
         products={(4912, "CfdOnIndex"): "US Tech 100 NAS · Saxo 4912"},
         pg_order_ids=frozenset(),
     )
@@ -48,6 +49,7 @@ def test_confirmed_non_pg_final_fill_becomes_manual_marker() -> None:
 def test_pg_order_id_is_never_projected_as_manual() -> None:
     marker = parse_manual_fill_v1(
         _activity(),
+        expected_account_id="ACC-1",
         products={(4912, "CfdOnIndex"): "US Tech 100 NAS · Saxo 4912"},
         pg_order_ids=frozenset({"ORDER-MANUAL-1"}),
     )
@@ -58,14 +60,26 @@ def test_partial_or_rejected_activity_is_not_projected() -> None:
     products = {(4912, "CfdOnIndex"): "US Tech 100 NAS · Saxo 4912"}
     assert parse_manual_fill_v1(
         _activity(Status="Fill"),
+        expected_account_id="ACC-1",
         products=products,
         pg_order_ids=frozenset(),
     ) is None
     assert parse_manual_fill_v1(
         _activity(SubStatus="Rejected"),
+        expected_account_id="ACC-1",
         products=products,
         pg_order_ids=frozenset(),
     ) is None
+
+
+def test_fill_from_other_account_is_rejected() -> None:
+    marker = parse_manual_fill_v1(
+        _activity(AccountId="ACC-OTHER"),
+        expected_account_id="ACC-1",
+        products={(4912, "CfdOnIndex"): "US Tech 100 NAS · Saxo 4912"},
+        pg_order_ids=frozenset(),
+    )
+    assert marker is None
 
 
 def test_manual_sell_maps_to_short_and_falls_back_to_price_amount() -> None:
@@ -77,6 +91,7 @@ def test_manual_sell_maps_to_short_and_falls_back_to_price_amount() -> None:
             AveragePrice=None,
             Price=24555.0,
         ),
+        expected_account_id="ACC-1",
         products={(4912, "CfdOnIndex"): "US Tech 100 NAS · Saxo 4912"},
         pg_order_ids=frozenset(),
     )
