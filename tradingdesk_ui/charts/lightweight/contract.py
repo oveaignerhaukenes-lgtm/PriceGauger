@@ -121,17 +121,29 @@ def _marker_payload(
         direction = str(marker.direction).upper()
         if direction not in {"LONG", "SHORT"}:
             continue
+        source = str(marker.source or "")
+        manual_saxo = source == "SAXO_MANUAL_FILL"
+        if manual_saxo:
+            color = "#16a34a" if direction == "LONG" else "#dc2626"
+            label = "SAXO BUY" if direction == "LONG" else "SAXO SELL"
+            size = 0.95
+        else:
+            color = "#0ea5e9" if direction == "LONG" else "#f59e0b"
+            label = ""
+            size = 1.0 if marker.active else 0.72
         result.append(
             {
                 "time": time_value,
                 "price": float(marker.execution_price),
                 "position": "atPriceMiddle",
                 "shape": "arrowUp" if direction == "LONG" else "arrowDown",
-                "color": "#16a34a" if direction == "LONG" else "#dc2626",
-                "size": 1.0 if marker.active else 0.72,
-                "id": f"{marker.net_position_id}:{raw_time}",
+                "color": color,
+                "text": label,
+                "size": size,
+                "id": f"{source}:{marker.net_position_id}:{raw_time}",
                 "direction": direction,
                 "active": bool(marker.active),
+                "source": source,
             }
         )
     result.sort(key=lambda item: int(item["time"]))

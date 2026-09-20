@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1, load_autotrader_trade_markers_v1
 from database import connect, using_postgres
+from manual_saxo_trade_markers_v1 import load_manual_saxo_trade_markers_v1
 
 
 def _flat_markers_v2(market_name: str) -> tuple[AutoTraderTradeMarkerV1, ...]:
@@ -75,6 +76,7 @@ def _flat_markers_v2(market_name: str) -> tuple[AutoTraderTradeMarkerV1, ...]:
 def load_autotrader_trade_markers_v2(market_name: str) -> tuple[AutoTraderTradeMarkerV1, ...]:
     markers = list(load_autotrader_trade_markers_v1(market_name))
     markers.extend(_flat_markers_v2(market_name))
+    markers.extend(load_manual_saxo_trade_markers_v1(market_name))
     markers.sort(key=lambda item: (item.executed_at, item.direction, item.net_position_id))
     return tuple(markers)
 

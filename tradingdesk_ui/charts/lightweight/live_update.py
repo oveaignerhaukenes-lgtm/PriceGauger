@@ -51,14 +51,19 @@ export default function(component) {
             if (time == null) return [];
             const direction = String(marker.direction || '').toUpperCase();
             if (direction !== 'LONG' && direction !== 'SHORT') return [];
+            const source = String(marker.source || '');
+            const manualSaxo = source === 'SAXO_MANUAL_FILL';
             return [{
                 time,
                 price,
                 position: 'atPriceMiddle',
                 shape: direction === 'LONG' ? 'arrowUp' : 'arrowDown',
-                color: direction === 'LONG' ? '#0ea5e9' : '#f59e0b',
-                size: marker.active ? 1.0 : 0.72,
-                id: `${marker.id || raw}:${index}`,
+                color: manualSaxo
+                    ? (direction === 'LONG' ? '#16a34a' : '#dc2626')
+                    : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
+                text: manualSaxo ? (direction === 'LONG' ? 'SAXO BUY' : 'SAXO SELL') : '',
+                size: manualSaxo ? 0.95 : (marker.active ? 1.0 : 0.72),
+                id: `${source}:${marker.id || raw}:${index}`,
             }];
         });
     }
@@ -534,6 +539,7 @@ def _marker_payload(markers: Sequence[AutoTraderTradeMarkerV1]) -> list[dict[str
             "execution_price": float(marker.execution_price),
             "direction": str(marker.direction),
             "active": bool(marker.active),
+            "source": str(marker.source or ""),
             "id": f"{marker.net_position_id}:{_epoch_seconds(marker.executed_at)}",
         }
         for marker in markers
