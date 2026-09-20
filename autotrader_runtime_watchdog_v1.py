@@ -1002,6 +1002,62 @@ def load_watchdog_reports_v1(*, limit: int = 50) -> tuple[WatchdogReportV1, ...]
     return tuple(reports)
 
 
+def load_watchdog_report_by_id_v1(report_id: str) -> WatchdogReportV1 | None:
+    target = str(report_id or "").strip()
+    if not target:
+        return None
+    try:
+        with connect() as db:
+            row = db.execute(
+                """
+                SELECT report_json
+                FROM pg_v2_autotrader_watchdog_reports
+                WHERE report_id = ?
+                LIMIT 1
+                """,
+                (target,),
+            ).fetchone()
+    except Exception:
+        return None
+    if row is None:
+        return None
+    raw = row["report_json"] if isinstance(row, dict) else row[0]
+    data = json.loads(str(raw))
+    findings = tuple(
+        WatchdogFindingV1(
+            finding_key=str(item["finding_key"]),
+            pilot_key=str(item["pilot_key"]),
+            code=str(item["code"]),
+            severity=str(item["severity"]),
+            summary=str(item["summary"]),
+            evidence=dict(item.get("evidence") or {}),
+        )
+        for item in data.get("findings") or []
+    )
+    return WatchdogReportV1(
+        report_id=str(data["report_id"]),
+        checked_at=_utc(data["checked_at"]),
+        pilot_key=str(data["pilot_key"]),
+        strategy_key=str(data["strategy_key"]),
+        market_name=str(data["market_name"]),
+        desired_direction=str(data["desired_direction"]),
+        observed_direction=str(data["observed_direction"]),
+        pending_target_direction=data.get("pending_target_direction"),
+        intent_signal_at=None if data.get("intent_signal_at") is None else _utc(data["intent_signal_at"]),
+        intent_signal=data.get("intent_signal"),
+        authoritative_cross_direction=data.get("authoritative_cross_direction"),
+        authoritative_cross_at=(
+            None if data.get("authoritative_cross_at") is None else _utc(data["authoritative_cross_at"])
+        ),
+        authoritative_cross_timeframe_minutes=data.get("authoritative_cross_timeframe_minutes"),
+        authoritative_cross_acknowledged=bool(data.get("authoritative_cross_acknowledged", False)),
+        latest_request_id=data.get("latest_request_id"),
+        latest_request_action=data.get("latest_request_action"),
+        latest_request_status=data.get("latest_request_status"),
+        findings=findings,
+    )
+
+
 def format_watchdog_report_v1(report: WatchdogReportV1) -> str:
     cross = "none"
     if report.authoritative_cross_direction and report.authoritative_cross_at:
@@ -1043,6 +1099,7 @@ __all__ = [
     "evaluate_watchdog_contracts_v1",
     "format_watchdog_report_v1",
     "load_watchdog_findings_v1",
+    "load_watchdog_report_by_id_v1",
     "load_watchdog_reports_v1",
     "load_watchdog_status_v1",
     "run_runtime_watchdog_cycle_v1",
