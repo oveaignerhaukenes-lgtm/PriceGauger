@@ -145,3 +145,18 @@ def test_strategy_lab_wraps_arbitrary_selected_base() -> None:
     assert '"TakeProfit base (X)"' in source
     assert "apply_take_profit_replay_v1(" in source
     assert "base_frames[tp_base]" in source
+
+
+def test_watchdog_uses_take_profit_as_effective_flat_target_during_latch() -> None:
+    source = Path("autotrader_runtime_watchdog_v1.py").read_text(encoding="utf-8")
+    assert "pg_v2_autotrader_take_profit_state" in source
+    assert '"desired_direction": DIRECTION_FLAT' in source
+    assert '"intent_signal": "TAKE_PROFIT_GIVEBACK"' in source
+
+
+def test_triggered_take_profit_blocks_base_strategy_until_flat() -> None:
+    source = Path("autotrader_take_profit_modifier_v1.py").read_text(encoding="utf-8")
+    dispatch = Path("autotrader_automanage_dispatch_v2.py").read_text(encoding="utf-8")
+    assert "take_profit_trigger_blocks_strategy_v1" in source
+    assert "take_profit_trigger_blocks_strategy_v1(" in dispatch
+    assert "TAKE_PROFIT latched FLAT authority" in dispatch
