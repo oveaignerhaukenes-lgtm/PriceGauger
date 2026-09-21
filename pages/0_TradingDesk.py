@@ -522,7 +522,7 @@ def _render_live_chart() -> None:
         render_lightweight_direct_live_v1(
             payload,
             key=f"tradingdesk-lightweight-direct:{market}",
-            refresh_ms=LIVE_CHART_BASE_REFRESH_SECONDS * 1000,
+            refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0),
         )
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
@@ -564,7 +564,7 @@ def _render_lightweight_live_update() -> None:
         timeframe_minutes=TIMEFRAME_MINUTES[timeframe],
         candle=forming,
         trade_markers=_load_trade_markers(),
-        refresh_ms=LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000,
+        refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0),
     )
     if forming is not None:
         age = forming_candle_event_age_seconds(forming)
