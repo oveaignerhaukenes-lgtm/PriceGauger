@@ -39,6 +39,7 @@ def render_lightweight_live_update_refresh_v2(
     timeframe_minutes: int,
     candle: FormingCandle1m | None,
     trade_markers: Sequence[AutoTraderTradeMarkerV1] = (),
+    refresh_ms: int = 0,
 ) -> None:
     """Compatibility wrapper for Streamlit v2 component fragment reruns.
 
@@ -60,8 +61,10 @@ def render_lightweight_live_update_refresh_v2(
             "candle": candle_payload,
             "trade_markers": markers,
             "revision": revision,
+            "refresh_ms": max(0, int(refresh_ms)),
         },
         height=0,
+        on_live_tick_change=lambda: None,
     )
     # Reapply the complete marker set after the legacy updater.  LONG/SHORT keep
     # their arrows; confirmed FLAT transitions are neutral squares.

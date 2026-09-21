@@ -33,9 +33,19 @@ _direct_live_oslo_component = st.components.v2.component(
 )
 
 
-def render_lightweight_direct_live_oslo_v2(payload: Mapping[str, Any], *, key: str) -> None:
+def render_lightweight_direct_live_oslo_v2(
+    payload: Mapping[str, Any],
+    *,
+    key: str,
+    refresh_ms: int = 0,
+) -> None:
     height = max(320, int(payload.get("height", 780)))
-    _direct_live_oslo_component(key=str(key), data={"payload": dict(payload)}, height=height)
+    _direct_live_oslo_component(
+        key=str(key),
+        data={"payload": dict(payload), "refresh_ms": max(0, int(refresh_ms))},
+        height=height,
+        on_live_tick_change=lambda: None,
+    )
 
 
 __all__ = ["_DIRECT_LIVE_OSLO_JS", "render_lightweight_direct_live_oslo_v2"]

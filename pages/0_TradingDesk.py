@@ -32,6 +32,7 @@ from tradingdesk_automanage_panel_v2 import (
     render_tradingdesk_automanage_pnl_chart_v2,
 )
 from tradingdesk_ui.charts.lightweight.adapters import load_lightweight_trade_markers_v1
+from tradingdesk_ui.charts.lightweight.base_update_v1 import render_lightweight_base_update_v1
 from tradingdesk_ui.charts.lightweight.direct_contract import (
     build_lightweight_direct_live_payload_v1,
 )
@@ -310,6 +311,7 @@ with controls_column:
             st.caption(
                 f"Live-candlen oppdateres hvert {LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}. sekund fra Saxo price-stream; "
                 f"canonical chart/indikatorer synkes hvert {LIVE_CHART_BASE_REFRESH_SECONDS}. sekund. "
+                "Chart-komponentene har egen browser-heartbeat, så dette er ikke avhengig av full side-refresh. "
                 f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
             )
         else:
@@ -521,7 +523,12 @@ def _render_live_chart() -> None:
         render_lightweight_direct_live_v1(
             payload,
             key=f"tradingdesk-lightweight-direct:{market}",
+            refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0),
         )
+        # Streamlit v2 may retain the keyed chart component without re-running its
+        # JS on a fragment rerun. Apply new closed bars/indicator series through a
+        # revision-keyed zero-height updater so the visible chart stays mounted.
+        render_lightweight_base_update_v1(payload)
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
             "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
@@ -562,6 +569,7 @@ def _render_lightweight_live_update() -> None:
         timeframe_minutes=TIMEFRAME_MINUTES[timeframe],
         candle=forming,
         trade_markers=_load_trade_markers(),
+        refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0),
     )
     if forming is not None:
         age = forming_candle_event_age_seconds(forming)
