@@ -11,6 +11,7 @@ from autotrader_macd_supervisor_normalized_replay_v1 import replay_normalized_ma
 from autotrader_macd_supervisor_replay_v1 import replay_macd_supervisor_v1, summarize_macd_supervisor_frame_v1
 from autotrader_position_manager_replay_v1 import apply_position_manager_v1
 from autotrader_price_stoch_v1 import replay_price_stoch_v1
+from autotrader_take_profit_modifier_v1 import apply_take_profit_replay_v1
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from trading_desk_v2_context import TradingDeskV2Context
@@ -23,6 +24,7 @@ MANAGED_NAME = "MACD + manager"
 NORMALIZED_NAME = "MACD norm"
 NORMALIZED_MANAGED_NAME = "MACD norm + manager"
 PRICE_STOCH_NAME = "Price + Stoch"
+TAKE_PROFIT_NAME = "X + TakeProfit"
 ALL_MODELS = (
     RULE_NAME,
     ADAPTIVE_NAME,
@@ -31,6 +33,7 @@ ALL_MODELS = (
     NORMALIZED_NAME,
     NORMALIZED_MANAGED_NAME,
     PRICE_STOCH_NAME,
+    TAKE_PROFIT_NAME,
 )
 
 
@@ -147,6 +150,34 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 key=f"three-trader-visible-{instrument_id}",
             )
 
+        tp_controls = st.columns([2, 1, 1])
+        with tp_controls[0]:
+            tp_base = st.selectbox(
+                "TakeProfit base (X)",
+                tuple(item for item in ALL_MODELS if item != TAKE_PROFIT_NAME),
+                index=6,
+                key=f"three-trader-tp-base-{instrument_id}",
+            )
+        with tp_controls[1]:
+            tp_giveback = float(st.number_input(
+                "TP giveback (%)",
+                min_value=1.0,
+                max_value=95.0,
+                value=10.0,
+                step=1.0,
+                key=f"three-trader-tp-giveback-{instrument_id}",
+            ))
+        with tp_controls[2]:
+            tp_min_peak = float(st.number_input(
+                "TP arm ≥ (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=0.10,
+                step=0.05,
+                format="%.2f",
+                key=f"three-trader-tp-arm-{instrument_id}",
+            ))
+
         end = datetime.now(timezone.utc)
         start = end - timedelta(hours=hours + 18)
         try:
@@ -191,6 +222,21 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         decisions = _load_holistic_decisions(int(instrument_id), end - timedelta(hours=hours), end)
         holistic_frame = _target_frame(rule_frame, decisions)
 
+        base_frames = {
+            RULE_NAME: rule_frame,
+            ADAPTIVE_NAME: adaptive_frame,
+            HOLISTIC_NAME: holistic_frame,
+            MANAGED_NAME: managed_frame,
+            NORMALIZED_NAME: normalized_frame,
+            NORMALIZED_MANAGED_NAME: normalized_managed_frame,
+            PRICE_STOCH_NAME: price_stoch_frame,
+        }
+        take_profit_frame = apply_take_profit_replay_v1(
+            base_frames[tp_base],
+            giveback_pct=tp_giveback,
+            min_peak_profit_pct=tp_min_peak,
+        )
+
         rule_events = tuple(
             {"at": _stamp(item.at), "price": float(item.price), "target": int(item.target)}
             for item in rule_switches
@@ -206,6 +252,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         managed_events = _events_from_target(managed_frame, include_flat=True)
         normalized_managed_events = _events_from_target(normalized_managed_frame, include_flat=True)
         price_stoch_events = _events_from_target(price_stoch_frame, include_flat=True)
+        take_profit_events = _events_from_target(take_profit_frame, include_flat=True)
         event_sets = {
             RULE_NAME: rule_events,
             ADAPTIVE_NAME: adaptive_events,
@@ -214,6 +261,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             NORMALIZED_NAME: normalized_events,
             NORMALIZED_MANAGED_NAME: normalized_managed_events,
             PRICE_STOCH_NAME: price_stoch_events,
+            TAKE_PROFIT_NAME: take_profit_events,
         }
 
         if RULE_NAME in visible:
@@ -226,6 +274,12 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             _render_metrics(NORMALIZED_MANAGED_NAME, normalized_managed_frame, cost_bps=cost_bps)
         if PRICE_STOCH_NAME in visible:
             _render_metrics(PRICE_STOCH_NAME, price_stoch_frame, cost_bps=cost_bps)
+        if TAKE_PROFIT_NAME in visible:
+            _render_metrics(
+                f"{tp_base} + TakeProfit {tp_giveback:.0f}%",
+                take_profit_frame,
+                cost_bps=cost_bps,
+            )
         if ADAPTIVE_NAME in visible:
             _render_metrics(ADAPTIVE_NAME, adaptive_frame, cost_bps=cost_bps)
         if HOLISTIC_NAME in visible:
@@ -250,6 +304,12 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             st.caption(
                 "Price + Stoch: 1m price-vector er beslutningssignal. %K-slope over 1/3/5 bars er scout/halvparade; "
                 "scouten kan gå FLAT når pris ikke lenger bekrefter aktiv retning, men kan ikke alene gå motsatt."
+            )
+        if TAKE_PROFIT_NAME in visible:
+            st.caption(
+                f"X + TakeProfit: base={tp_base}. Når peak-profit er minst {tp_min_peak:.2f}%, "
+                f"går wrapperen FLAT etter {tp_giveback:.1f}% relativ giveback av peak-profit. "
+                "Etter exit holder replayen FLAT til base-strategien faktisk skifter target."
             )
 
         render_three_trader_tv_v1(rule_frame, event_sets, visible, key=f"three-trader-chart-{instrument_id}")
