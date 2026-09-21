@@ -296,6 +296,7 @@ def test_direct_contract_carries_forming_candle_inside_same_chart_payload() -> N
         "high": 29509.0,
         "low": 29499.0,
         "close": 29507.0,
+        "updated_at": "2026-09-04T20:59:04+00:00",
     }
 
 
@@ -331,3 +332,20 @@ def test_direct_live_chart_uses_high_gain_touch_pinch_zoom():
     assert "Math.pow(ratio, 10)" in runtime
     assert "setVisibleLogicalRange" in runtime
     assert "event.preventDefault()" in runtime
+
+
+def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    contract = Path("tradingdesk_ui/charts/lightweight/direct_contract.py").read_text(encoding="utf-8")
+    assert "subscribeVisibleLogicalRangeChange" in runtime
+    assert "window.localStorage.setItem(viewKey" in runtime
+    assert "window.localStorage.getItem(viewKey)" in runtime
+    assert "entry = buildChart(LWC, visible)" in runtime
+    assert "sameSignature ? visible : null" not in runtime
+    assert "payload.timeframe" in runtime
+    assert "pressedMouseMove: true" in runtime
+    assert "root.style.touchAction = 'none'" in runtime
+    assert "lastLogical - 69" in runtime
+    assert "top: '-30px'" in runtime
+    assert "marginTop: '34px'" in runtime
+    assert '"updated_at": utc(candle.updated_at).isoformat()' in contract

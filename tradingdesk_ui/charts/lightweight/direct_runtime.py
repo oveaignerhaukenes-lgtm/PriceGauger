@@ -101,7 +101,7 @@ export default function(component) {{
         const inspector = document.createElement('div');
         inspector.className = 'pg-lightweight-direct-inspector';
         Object.assign(inspector.style, {{
-            position: 'absolute', left: '8px', top: '6px', zIndex: '8',
+            position: 'absolute', left: '8px', top: '-30px', zIndex: '8',
             maxWidth: 'calc(100% - 16px)', padding: '3px 6px', borderRadius: '5px',
             background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
             font: '500 10px/1.35 system-ui,-apple-system,sans-serif', pointerEvents: 'none',
@@ -113,7 +113,7 @@ export default function(component) {{
         const countdown = document.createElement('div');
         countdown.className = 'pg-lightweight-candle-countdown';
         Object.assign(countdown.style, {{
-            position: 'absolute', right: '66px', top: '6px', zIndex: '9',
+            position: 'absolute', right: '66px', top: '-30px', zIndex: '9',
             padding: '3px 7px', borderRadius: '5px',
             background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
             font: '600 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace',
@@ -167,7 +167,7 @@ export default function(component) {{
             }},
             timeScale: {{
                 borderColor: colors.border, timeVisible: true, secondsVisible: false,
-                rightOffset: 2, barSpacing: 8, minBarSpacing: .7,
+                rightOffset: 3, barSpacing: 11, minBarSpacing: 2.5,
                 fixLeftEdge: false, fixRightEdge: false,
             }},
             crosshair: {{ mode: LWC.CrosshairMode.Normal }},
@@ -329,12 +329,30 @@ export default function(component) {{
             inspector.style.opacity = parts.length ? '1' : '0';
         }});
         root.addEventListener('pointerleave', () => {{ inspector.style.opacity = '0'; }}, {{ passive: true }});
+        // Make body-drag unambiguously horizontal. Price-scale dragging remains on
+        // the right axis; the chart body must not consume vertical page movement.
+        // Do not constrain the chart body to one gesture axis. Lightweight Charts
+        // owns drag/pan inside the plot; page scrolling remains available outside it.
+        root.style.touchAction = 'none';
 
-        if (previousVisibleRange) {{
-            try {{ chart.timeScale().setVisibleLogicalRange(previousVisibleRange); }} catch (_) {{ chart.timeScale().fitContent(); }}
-        }} else {{
-            chart.timeScale().fitContent();
+        let savedVisibleRange = previousVisibleRange;
+        if (!savedVisibleRange) {{
+            try {{ savedVisibleRange = JSON.parse(window.localStorage.getItem(viewKey) || 'null'); }} catch (_) {{}}
         }}
+        if (savedVisibleRange) {{
+            try {{ chart.timeScale().setVisibleLogicalRange(savedVisibleRange); }} catch (_) {{ chart.timeScale().fitContent(); }}
+        }} else {{
+            // Useful first-open default: show the most recent ~70 candles rather than
+            // fitting the entire history into an unreadable strip.
+            const lastLogical = Math.max(0, candleData.length - 1);
+            const firstLogical = Math.max(0, lastLogical - 69);
+            try {{ chart.timeScale().setVisibleLogicalRange({{ from: firstLogical, to: lastLogical + 3 }}); }}
+            catch (_) {{ chart.timeScale().fitContent(); }}
+        }}
+        chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {{
+            if (!range) return;
+            try {{ window.localStorage.setItem(viewKey, JSON.stringify(range)); }} catch (_) {{}}
+        }});
 
         const entry = {{
             parent: parentElement, root, inspector, countdown, chart, candles, series, labels, markers,
@@ -428,7 +446,9 @@ export default function(component) {{
             if (entry.countdownTimer) window.clearInterval(entry.countdownTimer);
             try {{ entry.chart.remove(); }} catch (_) {{}}
             registry.delete(chartId);
-            entry = buildChart(LWC, sameSignature ? visible : null);
+            // Signature changes (indicator set, period/window, etc.) rebuild series,
+            // but the user's viewport remains authoritative.
+            entry = buildChart(LWC, visible);
             registry.set(chartId, entry);
             return;
         }}
