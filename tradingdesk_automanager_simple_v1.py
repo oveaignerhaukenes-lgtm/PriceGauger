@@ -45,6 +45,7 @@ from autotrader_take_profit_modifier_v1 import (
 )
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
+from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -450,6 +451,12 @@ def render_tradingdesk_automanager_simple_v1(
         with st.popover("⚙", width="stretch"):
             st.markdown("**Valgfritt**")
             _render_optional_settings_v1(enrollment, client)
+
+    with st.container(border=True):
+        render_strategy_family_builder_v1(
+            enrollment=enrollment,
+            instrument_id=int(enrollment.instrument_id),
+        )
 
     if selected_manage != position_manage_enabled:
         try:
