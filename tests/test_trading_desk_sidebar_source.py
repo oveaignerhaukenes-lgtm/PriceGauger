@@ -43,7 +43,7 @@ def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_de
     assert 'st.session_state[AUTO_REFRESH_STATE_KEY] = True' in source
     assert 'analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")' in source
     assert 'chart_fragment(run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s")' in source
-    assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")' in source
+    assert "overlay_fragment" not in source
 
 
 def test_tradingdesk_updates_recent_forming_candle_directly_in_lightweight_browser_series() -> None:
@@ -51,8 +51,10 @@ def test_tradingdesk_updates_recent_forming_candle_directly_in_lightweight_brows
 
     assert "forming_store.load(market=market)" in source
     assert "forming_candle_event_age_seconds(candidate)" in source
-    assert "render_lightweight_live_update_v1(" in source
-    assert "Sekundbevegelsen oppdaterer Lightweight-serien direkte" in source
+    assert "_forming_chart_candle(context)" in source
+    assert "forming_candle=forming" in source
+    assert "render_lightweight_live_update_v1(" not in source
+    assert "render_lightweight_base_update_v1(" not in source
     assert "render_live_candle_overlay_v2" not in source
 
 
