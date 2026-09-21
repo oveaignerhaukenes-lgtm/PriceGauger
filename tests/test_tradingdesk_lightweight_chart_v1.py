@@ -344,5 +344,8 @@ def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
     assert "sameSignature ? visible : null" not in runtime
     assert "payload.timeframe" in runtime
     assert "pressedMouseMove: true" in runtime
-    assert "root.style.touchAction = 'pan-y'" in runtime
+    assert "root.style.touchAction = 'none'" in runtime
+    assert "lastLogical - 69" in runtime
+    assert "top: '-30px'" in runtime
+    assert "marginTop: '34px'" in runtime
     assert '"updated_at": utc(candle.updated_at).isoformat()' in contract
