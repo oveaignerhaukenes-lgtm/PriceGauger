@@ -160,3 +160,33 @@ def test_triggered_take_profit_blocks_base_strategy_until_flat() -> None:
     assert "take_profit_trigger_blocks_strategy_v1" in source
     assert "take_profit_trigger_blocks_strategy_v1(" in dispatch
     assert "TAKE_PROFIT latched FLAT authority" in dispatch
+
+
+def test_take_profit_five_and_ten_percent_relative_floors_are_exact() -> None:
+    ten = evaluate_take_profit_v1(
+        current_pnl_pct=1.0,
+        previous_high_water_pct=1.0,
+        config=TakeProfitConfigV1(
+            enabled=True,
+            giveback_pct=10.0,
+            min_peak_profit_pct=0.10,
+            reentry_cooldown_seconds=30,
+        ),
+    )
+    five = evaluate_take_profit_v1(
+        current_pnl_pct=1.0,
+        previous_high_water_pct=1.0,
+        config=TakeProfitConfigV1(
+            enabled=True,
+            giveback_pct=5.0,
+            min_peak_profit_pct=0.10,
+            reentry_cooldown_seconds=30,
+        ),
+    )
+    assert ten.floor_pct == pytest.approx(0.90)
+    assert five.floor_pct == pytest.approx(0.95)
+
+
+def test_take_profit_default_is_opt_in_not_implicitly_live() -> None:
+    config = TakeProfitConfigV1()
+    assert config.enabled is False
