@@ -105,6 +105,7 @@ def build_price_macd_features_v1(
     bars: Sequence[CanonicalMarketBarV2 | ChartBar],
     *,
     timeframe_minutes: int,
+    macd_bars: Sequence[CanonicalMarketBarV2 | ChartBar] | None = None,
     config: PriceMacdConfigV1 = DEFAULT_PRICE_MACD_CONFIG_V1,
 ) -> pd.DataFrame:
     minutes = int(timeframe_minutes)
@@ -132,9 +133,15 @@ def build_price_macd_features_v1(
         axis=1,
     ).max(axis=1)
 
+    macd_chart_bars = tuple(
+        _chart_bar(item)
+        for item in (bars if macd_bars is None else macd_bars)
+    )
+    if not macd_chart_bars:
+        raise ValueError("Price + MACD requires closed bars for MACD context")
     closed = closed_bars_v2(
-        tuple((item.bar_time, float(item.close)) for item in chart_bars),
-        market=chart_bars[0].market,
+        tuple((item.bar_time, float(item.close)) for item in macd_chart_bars),
+        market=macd_chart_bars[0].market,
         timeframe_minutes=minutes,
     )
     observations = macd_observations_v2(closed, timeframe_minutes=minutes)
