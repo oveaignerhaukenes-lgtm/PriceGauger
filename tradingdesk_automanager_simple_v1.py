@@ -37,6 +37,7 @@ from autotrader_strategy_enrollment_v2 import (
     set_entry_mode_v2,
 )
 from autotrader_strategy_switch_v2 import switch_live_strategy_v2
+from autotrader_strategy_family_v1 import strategy_instance_label_v1
 from autotrader_take_profit_modifier_v1 import (
     TakeProfitConfigV1,
     load_take_profit_config_v1,
@@ -437,7 +438,11 @@ def render_tradingdesk_automanager_simple_v1(
             help="Valgt strategi bestemmer ønsket LONG/SHORT/FLAT-state og reconcilerer mot Saxo.",
         )
     with strategy_col:
-        st.caption(f"LIVE · {strategy_spec_v2(enrollment.strategy_key).label}")
+        family_label = strategy_instance_label_v1(
+            pilot_key=enrollment.pilot_key,
+            strategy_key=enrollment.strategy_key,
+        )
+        st.caption(f"LIVE · {family_label or strategy_spec_v2(enrollment.strategy_key).label}")
     with settings_col:
         with st.popover("⚙", width="stretch"):
             st.markdown("**Legacy / enkeltstrategi**")
@@ -518,11 +523,15 @@ def render_tradingdesk_automanager_simple_v1(
             st.caption(f"Position-basis venter: {exc}")
 
     spec = strategy_spec_v2(enrollment.strategy_key)
+    family_label = strategy_instance_label_v1(
+        pilot_key=enrollment.pilot_key,
+        strategy_key=enrollment.strategy_key,
+    )
     manage_status = "ON" if position_manage_enabled else "OFF"
     auto_status = "ON" if auto_trade_enabled else "OFF"
     st.caption(
         f"Nå {observed_direction} · Manage {manage_status} · AutoTrade {auto_status} · "
-        f"Aktiv LIVE-strategi (backend): {spec.label}"
+        f"Aktiv LIVE-strategi (backend): {family_label or spec.label}"
     )
     return observations
 
