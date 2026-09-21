@@ -215,3 +215,63 @@ def test_takeprofit_modifier_is_carried_across_family_live_switch() -> None:
     assert "take_profit_config = load_take_profit_config_v1(enrollment.pilot_key)" in source
     assert "save_take_profit_config_v1(" in source
     assert "target_enrollment.pilot_key" in source
+
+def test_custom_macd_family_timeframe_reaches_live_execution_clock() -> None:
+    source = Path("autotrader_macd_timeframe_live_v1.py").read_text(encoding="utf-8")
+    start = source.index("def run_macd_timeframe_live_once_v1")
+    runtime = source[start:]
+    assert "enrollment.strategy_key == FAMILY_MACD_STRATEGY_V1" in runtime
+    assert "load_strategy_family_config_v1(" in runtime
+    assert "minutes = int(family_config.timeframe_minutes)" in runtime
+    assert "_timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes)" in runtime
+
+
+def test_custom_price_macd_timeframe_reaches_both_sim_and_live_cores() -> None:
+    live = Path("autotrader_price_macd_live_v1.py").read_text(encoding="utf-8")
+    replay = Path("autotrader_family_replay_v1.py").read_text(encoding="utf-8")
+
+    assert "timeframe_minutes = int(family_config.timeframe_minutes)" in live
+    assert "build_price_macd_features_v1(" in live
+    assert "timeframe_minutes=timeframe_minutes" in live
+    assert "macd_bars=eligible" in live
+
+    assert "return replay_price_macd_v1(items, timeframe_minutes=minutes)" in replay
+
+
+def test_family_ui_supports_sim_live_or_both_without_hidden_activation() -> None:
+    source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    assert 'RUN_MODES_V1 = (SIM_MODE_V1, LIVE_MODE_V1)' in source
+    assert 'st.multiselect(' in source
+    assert '"Aktiver i"' in source
+    assert "if SIM_MODE_V1 in modes:" in source
+    assert "if LIVE_MODE_V1 in modes:" in source
+    assert "Ingen endring skjer før du trykker Bruk." in source
+
+
+def test_family_timeframe_change_cannot_mutate_ambiguous_execution() -> None:
+    source = Path("autotrader_strategy_family_v1.py").read_text(encoding="utf-8")
+    runtime_start = source.index("def reconfigure_live_family_v1")
+    runtime = source[runtime_start:]
+    inflight = runtime.index("status IN ('SUBMITTING','ORDER_ACCEPTED','UNCERTAIN')")
+    supersede = runtime.index("FAMILY_PARAMETER_CHANGE")
+    reset = runtime.index("DELETE FROM pg_v2_autotrader_fast_live_state")
+    persist = runtime.index("INSERT INTO pg_v2_autotrader_strategy_family_config")
+    assert inflight < supersede < reset < persist
+
+
+def test_family_ui_preserves_takeprofit_across_live_family_switch() -> None:
+    source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    switch = source.index("switch_live_strategy_v2(")
+    capture = source.rindex("take_profit_config = load_take_profit_config_v1(", 0, switch)
+    restore = source.index("save_take_profit_config_v1(", switch)
+    assert capture < switch < restore
+
+
+def test_price_macd_core_matches_price_first_contract() -> None:
+    source = Path("autotrader_price_macd_v1.py").read_text(encoding="utf-8")
+    evaluate = source[source.index("def evaluate_price_macd_row_v1"):]
+    price_branch = evaluate.index("if price_direction in (LONG, SHORT):")
+    macd_branch = evaluate.index("elif macd_cross in (LONG, SHORT):")
+    assert price_branch < macd_branch
+    assert 'state = "PRICE_AUTHORITY"' in evaluate
+    assert 'state = "MACD_FALLBACK"' in evaluate
