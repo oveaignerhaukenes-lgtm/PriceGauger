@@ -339,6 +339,9 @@ def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
     assert "subscribeVisibleLogicalRangeChange" in runtime
     assert "window.localStorage.setItem(viewKey" in runtime
     assert "window.localStorage.getItem(viewKey)" in runtime
+    assert "entry = buildChart(LWC, visible)" in runtime
+    assert "sameSignature ? visible : null" not in runtime
+    assert "payload.timeframe" in runtime
     assert "pressedMouseMove: true" in runtime
     assert "root.style.touchAction = 'pan-y'" in runtime
     assert '"updated_at": utc(candle.updated_at).isoformat()' in contract
