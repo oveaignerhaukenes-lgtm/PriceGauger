@@ -386,7 +386,7 @@ export default function(component) {{
         parentElement.appendChild(message);
     }});
 
-    return () => {};
+    return () => {{}};
 }}
 """
 
