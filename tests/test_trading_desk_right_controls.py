@@ -54,7 +54,7 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
     assert "if auto_refresh:" in source
     assert 'analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis_snapshot)()' in source
     assert 'chart_fragment(run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s")(_render_live_chart)()' in source
-    assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_lightweight_live_update)()' in source
+    assert "overlay_fragment" not in source
     assert "else:\n        _render_v2_analysis()\n        _render_live_chart_controls()\n        _render_live_chart()" in source
     assert "render_companion_panel_v2(view)" in source
     assert "_render_automanager_workspace()" in source
@@ -87,19 +87,21 @@ def test_timed_fragments_do_not_recreate_interactive_controls() -> None:
     assert "value=st.session_state[MODE_KEY]" not in companion_source
 
 
-def test_second_updates_use_native_lightweight_series_without_server_side_range_reapply() -> None:
+def test_second_updates_are_owned_by_the_visible_lightweight_component() -> None:
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
-    updater = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
-        encoding="utf-8"
-    )
+    runtime = (
+        ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "direct_runtime.py"
+    ).read_text(encoding="utf-8")
 
-    assert "render_lightweight_live_update_v1(" in source
+    assert "render_lightweight_live_update_v1(" not in source
+    assert "render_lightweight_base_update_v1(" not in source
     assert "render_live_candle_overlay_v2(" not in source
     assert "live_chart_overlay_key_v2" not in source
     assert "parse_live_chart_view_v2" not in source
     assert "navigation_key =" not in source
     assert "saved_view =" not in source
-    assert "entry.candles.update(merged)" in updater
-    assert "Plotly.relayout" not in updater
-    assert source.count('run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s"') == 1
+    assert "payload.forming_candle" in runtime
+    assert "entry.candles.update(merged)" in runtime
+    assert "Plotly.relayout" not in runtime
     assert source.count('run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s"') == 1
+    assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000" in source

@@ -27,7 +27,7 @@ def test_base_update_component_key_is_bidi_safe() -> None:
     assert "__" not in key
 
 
-def test_base_updater_updates_existing_chart_in_place_without_execution_authority() -> None:
+def test_legacy_base_updater_is_not_mounted_cross_iframe_and_has_no_execution_authority() -> None:
     source = Path("tradingdesk_ui/charts/lightweight/base_update_v1.py").read_text(encoding="utf-8")
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
 
@@ -35,7 +35,7 @@ def test_base_updater_updates_existing_chart_in_place_without_execution_authorit
     assert "entry.candles.setData(candleData)" in source
     assert "entry.series?.get?.(String(item.role))?.setData" in source
     assert "entry.formingCandles instanceof Map" in source
-    assert "render_lightweight_base_update_v1(payload)" in page
+    assert "render_lightweight_base_update_v1(payload)" not in page
 
     lowered = source.lower()
     for forbidden in (

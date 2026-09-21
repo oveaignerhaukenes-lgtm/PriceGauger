@@ -11,11 +11,12 @@ from companion_ui_v2 import render_companion_panel_v2
 from indicator_guide_v1 import render_indicator_guide_v1
 from realtime_market_data import RealtimeMarketDataStore
 from saxo_chart_live import (
+    FormingCandle1m,
     FormingCandleStore,
     forming_candle_event_age_seconds,
 )
 from time_display_v2 import oslo_label
-from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars
+from trading_desk import TIMEFRAME_MINUTES, last_available_window, resample_bars, utc
 from trading_desk_chart import OVERLAY_ACTUAL, OVERLAY_NORMALIZED
 from trading_desk_indicators import (
     DEFAULT_INDICATORS,
@@ -32,12 +33,10 @@ from tradingdesk_automanage_panel_v2 import (
     render_tradingdesk_automanage_pnl_chart_v2,
 )
 from tradingdesk_ui.charts.lightweight.adapters import load_lightweight_trade_markers_v1
-from tradingdesk_ui.charts.lightweight.base_update_v1 import render_lightweight_base_update_v1
 from tradingdesk_ui.charts.lightweight.direct_contract import (
     build_lightweight_direct_live_payload_v1,
 )
 from tradingdesk_ui.charts.lightweight.direct_runtime import render_lightweight_direct_live_v1
-from tradingdesk_ui.charts.lightweight.live_update import render_lightweight_live_update_v1
 from tradingdesk_ui.charts.lightweight.toolbar import (
     LIGHTWEIGHT_TIMEFRAMES_V1,
     render_lightweight_timeframe_toolbar_v1,
@@ -309,9 +308,9 @@ with controls_column:
         )
         if auto_refresh:
             st.caption(
-                f"Live-candlen oppdateres hvert {LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}. sekund fra Saxo price-stream; "
-                f"canonical chart/indikatorer synkes hvert {LIVE_CHART_BASE_REFRESH_SECONDS}. sekund. "
-                "Chart-komponentene har egen browser-heartbeat, så dette er ikke avhengig av full side-refresh. "
+                f"Ett chart-iframe eier både canonical bars og forming candle. Browser-heartbeat er "
+                f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s; Streamlit-fragmentet på "
+                f"{LIVE_CHART_BASE_REFRESH_SECONDS}s er fallback. "
                 f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
             )
         else:
@@ -430,6 +429,59 @@ def _recent_forming_candle(context: TradingDeskV2Context | None):
     return None
 
 
+def _forming_chart_candle(context: TradingDeskV2Context | None) -> FormingCandle1m | None:
+    """Aggregate the fresh 1m presentation candle into the selected chart bucket."""
+
+    candidate = _recent_forming_candle(context)
+    if candidate is None:
+        return None
+    minutes = int(TIMEFRAME_MINUTES[timeframe])
+    if minutes <= 1:
+        return candidate
+
+    current_at = utc(candidate.bar_time)
+    bucket_seconds = minutes * 60
+    bucket_epoch = int(current_at.timestamp()) - (int(current_at.timestamp()) % bucket_seconds)
+    bucket_at = datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
+    try:
+        closed_1m = tuple(
+            item
+            for item in store.load_range(
+                market=market,
+                start=bucket_at,
+                end=current_at,
+                limit=max(4, minutes + 2),
+            )
+            if bucket_at <= utc(item.bar_time) < current_at
+        )
+    except Exception:
+        closed_1m = ()
+
+    open_price = float(closed_1m[0].open) if closed_1m else float(candidate.open)
+    highs = [float(item.high) for item in closed_1m] + [float(candidate.high)]
+    lows = [float(item.low) for item in closed_1m] + [float(candidate.low)]
+    volumes = [float(item.volume) for item in closed_1m if item.volume is not None]
+    if candidate.volume is not None:
+        volumes.append(float(candidate.volume))
+
+    return FormingCandle1m(
+        market=candidate.market,
+        bar_time=bucket_at.isoformat(),
+        open=open_price,
+        high=max(highs),
+        low=min(lows),
+        close=float(candidate.close),
+        volume=sum(volumes) if volumes else None,
+        provider=candidate.provider,
+        uic=int(candidate.uic),
+        asset_type=candidate.asset_type,
+        symbol=candidate.symbol,
+        delayed_by_minutes=candidate.delayed_by_minutes,
+        source_event_at=candidate.source_event_at,
+        updated_at=candidate.updated_at,
+    )
+
+
 def _render_live_chart() -> None:
     context = _load_active_context()
     if context is None or context.instrument is None:
@@ -501,6 +553,8 @@ def _render_live_chart() -> None:
     st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
     st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
 
+    forming = _forming_chart_candle(context)
+
     payload = build_lightweight_direct_live_payload_v1(
         market=market,
         timeframe=timeframe,
@@ -513,6 +567,7 @@ def _render_live_chart() -> None:
         chart_height=chart_height,
         price_panel_share=price_panel_pct / 100.0,
         trade_markers=_load_trade_markers(),
+        forming_candle=forming,
     )
 
     if indicator_names:
@@ -523,16 +578,18 @@ def _render_live_chart() -> None:
         render_lightweight_direct_live_v1(
             payload,
             key=f"tradingdesk-lightweight-direct:{market}",
-            refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0),
+            refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0),
         )
-        # Streamlit v2 may retain the keyed chart component without re-running its
-        # JS on a fragment rerun. Apply new closed bars/indicator series through a
-        # revision-keyed zero-height updater so the visible chart stays mounted.
-        render_lightweight_base_update_v1(payload)
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
             "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
         )
+        if forming is not None:
+            age = forming_candle_event_age_seconds(forming)
+            st.caption(
+                f"● Forming candle · {forming.provider} · {timeframe} bucket · "
+                f"oppdatert for {age:.1f} sek siden · live close {forming.close:g}."
+            )
     if indicator_surface is not None:
         with indicator_surface:
             view = context.forecast
@@ -557,27 +614,6 @@ def _render_live_chart() -> None:
                 "Volum og VWAP bruker bare bars der canonical bar har ekte Saxo chart-volume. "
                 "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
             )
-
-
-def _render_lightweight_live_update() -> None:
-    # Keep the one-second fragment cheap: product identity is stable for the current
-    # page session, so do not reload the full v2 analysis/workspace on every tick.
-    context = baseline_contexts.get(market)
-    forming = _recent_forming_candle(context)
-    render_lightweight_live_update_v1(
-        chart_id=f"TradingDeskLightweight:{market}",
-        timeframe_minutes=TIMEFRAME_MINUTES[timeframe],
-        candle=forming,
-        trade_markers=_load_trade_markers(),
-        refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0),
-    )
-    if forming is not None:
-        age = forming_candle_event_age_seconds(forming)
-        st.caption(
-            f"● Forming candle · {forming.provider} · UI-only · oppdatert for {age:.1f} sek siden · "
-            f"live close {forming.close:g}. Sekundbevegelsen oppdaterer Lightweight-serien direkte; "
-            "canonical indikatorer/AutoManager bruker fortsatt bare lukkede bars."
-        )
 
 
 def _render_automanager_workspace() -> None:
@@ -621,15 +657,9 @@ with chart_column:
             chart_fragment(run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s")(_render_live_chart)()
         else:
             _render_live_chart()
-        overlay_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-        if overlay_fragment is not None:
-            overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_lightweight_live_update)()
-        else:
-            _render_lightweight_live_update()
     else:
         _render_v2_analysis()
         _render_live_chart_controls()
         _render_live_chart()
-        _render_lightweight_live_update()
 
     _render_automanager_workspace()
