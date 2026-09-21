@@ -382,11 +382,17 @@ def _take_profit_intent_v1(
     )
 
 
-def _trigger_event_id_v1(enrollment: StrategyEnrollmentV2, observation: Any) -> str:
+def _trigger_event_id_v1(
+    enrollment: StrategyEnrollmentV2,
+    observation: Any,
+    *,
+    triggered_at: datetime,
+) -> str:
     identity = (
         f"take-profit-v1|{enrollment.pilot_key}|{observation.account_id}|"
         f"{observation.net_position_id}|{observation.direction}|"
-        f"{float(observation.amount):.12g}|{float(observation.average_open_price):.12g}"
+        f"{float(observation.amount):.12g}|{float(observation.average_open_price):.12g}|"
+        f"{_utc(triggered_at).isoformat()}"
     )
     return str(uuid5(NAMESPACE_URL, identity))
 
@@ -409,6 +415,24 @@ def _mark_flat_since_v1(pilot_key: str, *, now: datetime) -> None:
             """,
             (now, str(pilot_key)),
         )
+
+
+def take_profit_trigger_blocks_strategy_v1(
+    enrollment: StrategyEnrollmentV2,
+    *,
+    observed_direction: str,
+) -> bool:
+    """Once TP triggers, automatic X cannot supersede its FLAT intent.
+
+    Explicit manual-target authority is handled before this gate in the dispatcher.
+    """
+    config = load_take_profit_config_v1(enrollment.pilot_key)
+    if not config.enabled:
+        return False
+    state = _load_state_v1(enrollment.pilot_key)
+    if not state or state.get("triggered_at") is None:
+        return False
+    return str(observed_direction).upper() != DIRECTION_FLAT
 
 
 def take_profit_reentry_blocked_v1(
@@ -502,7 +526,11 @@ def run_take_profit_observations_v1(
                 triggered += 1
                 if trigger_at is None:
                     trigger_at = current
-                    event_id = _trigger_event_id_v1(enrollment, observation)
+                    event_id = _trigger_event_id_v1(
+                        enrollment,
+                        observation,
+                        triggered_at=trigger_at,
+                    )
                     LOGGER.warning(
                         "TAKE_PROFIT trigger pilot=%s strategy=%s position=%s pnl=%.4f%% peak=%.4f%% floor=%.4f%% giveback=%.2f%%",
                         enrollment.pilot_key,
@@ -692,4 +720,5 @@ __all__ = [
     "run_take_profit_observations_v1",
     "save_take_profit_config_v1",
     "take_profit_reentry_blocked_v1",
+    "take_profit_trigger_blocks_strategy_v1",
 ]
