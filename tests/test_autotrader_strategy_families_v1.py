@@ -188,7 +188,8 @@ def test_price_stoch_family_uses_shared_selectable_timeframe_ui() -> None:
     source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
     assert "Price + Stoch v1 bruker foreløpig 1m" not in source
     assert "tf-stoch-fixed" not in source
-    assert '("1m", "2m", "3m", "5m", "10m", "15m", "30m")' in source
+    assert "tuple(TIMEFRAME_PRESETS_V1)" in source
+    assert "_timeframe_choice_v1(" in source
 
 
 def test_price_macd_live_uses_forming_price_but_closed_macd_context() -> None:
