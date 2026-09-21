@@ -12,11 +12,13 @@ from autotrader_strategy_family_v1 import (
     FAMILY_PRICE_MACD_V1,
     FAMILY_PRICE_STOCH_V1,
     TIMEFRAME_PRESETS_V1,
+    disable_family_sim_v1,
     family_display_label_v1,
     family_strategy_key_v1,
+    load_family_sim_config_v1,
     load_strategy_family_config_v1,
     reconfigure_live_family_v1,
-    save_strategy_family_config_v1,
+    save_family_sim_config_v1,
     strategy_family_v1,
     validate_timeframe_minutes_v1,
 )
@@ -40,6 +42,17 @@ def sim_family_session_key_v1(instrument_id: int) -> str:
 
 
 def load_sim_family_selection_v1(instrument_id: int) -> FamilyUiSelectionV1 | None:
+    try:
+        saved = load_family_sim_config_v1(int(instrument_id))
+    except Exception:
+        saved = None
+    if saved is not None:
+        return FamilyUiSelectionV1(
+            family=saved.family,
+            timeframe_minutes=int(saved.timeframe_minutes),
+        )
+
+    # Session fallback keeps the UI usable during first schema rollout.
     raw = st.session_state.get(sim_family_session_key_v1(instrument_id))
     if not isinstance(raw, dict):
         return None
@@ -184,11 +197,18 @@ def render_strategy_family_builder_v1(
         width="stretch",
     ):
         if SIM_MODE_V1 in modes:
+            save_family_sim_config_v1(
+                instrument_id=int(instrument_id),
+                family=family,
+                timeframe_minutes=int(minutes),
+                enabled=True,
+            )
             st.session_state[sim_family_session_key_v1(instrument_id)] = {
                 "family": family,
                 "timeframe_minutes": int(minutes),
             }
         else:
+            disable_family_sim_v1(int(instrument_id))
             st.session_state.pop(sim_family_session_key_v1(instrument_id), None)
 
         if LIVE_MODE_V1 in modes:
