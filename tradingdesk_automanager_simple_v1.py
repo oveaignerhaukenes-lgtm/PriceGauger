@@ -37,6 +37,11 @@ from autotrader_strategy_enrollment_v2 import (
     set_entry_mode_v2,
 )
 from autotrader_strategy_switch_v2 import switch_live_strategy_v2
+from autotrader_strategy_family_v1 import (
+    FAMILY_MACD_STRATEGY_V1,
+    FAMILY_PRICE_MACD_STRATEGY_V1,
+    strategy_instance_label_v1,
+)
 from autotrader_take_profit_modifier_v1 import (
     TakeProfitConfigV1,
     load_take_profit_config_v1,
@@ -45,6 +50,7 @@ from autotrader_take_profit_modifier_v1 import (
 )
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
+from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -407,7 +413,11 @@ def render_tradingdesk_automanager_simple_v1(
     )
     strategy_pending_key = f"{strategy_selector_key}:pending"
     strategy_error_key = f"{strategy_selector_key}:error"
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
+    family_primary_keys = {FAMILY_MACD_STRATEGY_V1, FAMILY_PRICE_MACD_STRATEGY_V1}
+    strategy_keys = tuple(
+        item.key for item in AUTOTRADER_STRATEGIES_V2
+        if item.key not in family_primary_keys
+    )
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
 
     if manage_key not in st.session_state:
@@ -436,20 +446,33 @@ def render_tradingdesk_automanager_simple_v1(
             help="Valgt strategi bestemmer ønsket LONG/SHORT/FLAT-state og reconcilerer mot Saxo.",
         )
     with strategy_col:
-        st.selectbox(
-            "Strategi",
-            strategy_keys,
-            index=None,
-            format_func=lambda key: strategy_spec_v2(key).label,
-            key=strategy_selector_key,
-            on_change=_queue_strategy_switch_v1,
-            args=(strategy_selector_key, strategy_pending_key),
-            label_visibility="collapsed",
+        family_label = strategy_instance_label_v1(
+            pilot_key=enrollment.pilot_key,
+            strategy_key=enrollment.strategy_key,
         )
+        st.caption(f"LIVE · {family_label or strategy_spec_v2(enrollment.strategy_key).label}")
     with settings_col:
         with st.popover("⚙", width="stretch"):
+            st.markdown("**Legacy / enkeltstrategi**")
+            st.selectbox(
+                "Strategi",
+                strategy_keys,
+                index=None,
+                format_func=lambda key: strategy_spec_v2(key).label,
+                key=strategy_selector_key,
+                on_change=_queue_strategy_switch_v1,
+                args=(strategy_selector_key, strategy_pending_key),
+                label_visibility="collapsed",
+            )
+            st.divider()
             st.markdown("**Valgfritt**")
             _render_optional_settings_v1(enrollment, client)
+
+    with st.container(border=True):
+        render_strategy_family_builder_v1(
+            enrollment=enrollment,
+            instrument_id=int(enrollment.instrument_id),
+        )
 
     if selected_manage != position_manage_enabled:
         try:
@@ -508,11 +531,15 @@ def render_tradingdesk_automanager_simple_v1(
             st.caption(f"Position-basis venter: {exc}")
 
     spec = strategy_spec_v2(enrollment.strategy_key)
+    family_label = strategy_instance_label_v1(
+        pilot_key=enrollment.pilot_key,
+        strategy_key=enrollment.strategy_key,
+    )
     manage_status = "ON" if position_manage_enabled else "OFF"
     auto_status = "ON" if auto_trade_enabled else "OFF"
     st.caption(
         f"Nå {observed_direction} · Manage {manage_status} · AutoTrade {auto_status} · "
-        f"Aktiv LIVE-strategi (backend): {spec.label}"
+        f"Aktiv LIVE-strategi (backend): {family_label or spec.label}"
     )
     return observations
 

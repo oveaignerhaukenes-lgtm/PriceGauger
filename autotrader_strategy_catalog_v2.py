@@ -6,6 +6,10 @@ from autotrader_macd_dry_run_v2 import STRATEGY_KEY as MACD_LONG_FLAT_STRATEGY_V
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 from autotrader_overseer_performance_v1 import OVERSEER_PERFORMANCE_STRATEGY_KEY_V1
 from autotrader_price_stoch_v1 import PRICE_STOCH_STRATEGY_V1
+from autotrader_strategy_family_v1 import (
+    FAMILY_MACD_STRATEGY_V1,
+    FAMILY_PRICE_MACD_STRATEGY_V1,
+)
 
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
 MTF_LONG_FLAT_STRATEGY_V2 = "macd-mtf-30-10-5-long-flat-v1"
@@ -89,6 +93,16 @@ PRICE_STOCH_SPEC_V1 = _spec(
     "Price + Stoch · half-parade",
     "Price owns direction; fast stochastic %K slope/angle scouts and may flatten early, but cannot reverse without price confirmation.",
 )
+FAMILY_MACD_SPEC_V1 = _spec(
+    FAMILY_MACD_STRATEGY_V1,
+    "MACD · parameterized",
+    "MACD 12/26/9 LONG/SHORT control with user-selected closed-bar timeframe.",
+)
+FAMILY_PRICE_MACD_SPEC_V1 = _spec(
+    FAMILY_PRICE_MACD_STRATEGY_V1,
+    "Price + MACD · parameterized",
+    "Price owns direction on the live price vector; selected-timeframe MACD is confirmation/fallback rather than a veto.",
+)
 
 def _sfl_spec(minutes: int) -> AutoTraderStrategySpecV2:
     return _spec(f"sfl-{minutes}m-v1", f"SFL{minutes}", f"{minutes}m state/flow/latency model with FLAT de-risking.")
@@ -108,7 +122,7 @@ AUTOTRADER_STRATEGIES_V2 = (
     STRONG_COCKTAIL_SPEC_V2, MACD_1M_FLIP_SPEC_V2, MACD_2M_FLIP_SPEC_V2,
     MACD_5M_FLIP_SPEC_V2, MACD_15M_FLIP_SPEC_V2, MACD2_10_SPEC_V2,
     MACD2_S_SPEC_V2, MACD_A_SPEC_V2, MACD_NORM_SPEC_V1, MACD_NORM_MANAGER_SPEC_V1,
-    PRICE_STOCH_SPEC_V1,
+    PRICE_STOCH_SPEC_V1, FAMILY_MACD_SPEC_V1, FAMILY_PRICE_MACD_SPEC_V1,
     SFL_1M_SPEC_V2, SFL_2M_SPEC_V2, SFL_5M_SPEC_V2, SFL_10M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2, MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
     AI_BASELINE_SPEC_V2, OVERSEER_PERFORMANCE_SPEC_V1,
