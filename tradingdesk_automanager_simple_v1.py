@@ -437,18 +437,21 @@ def render_tradingdesk_automanager_simple_v1(
             help="Valgt strategi bestemmer ønsket LONG/SHORT/FLAT-state og reconcilerer mot Saxo.",
         )
     with strategy_col:
-        st.selectbox(
-            "Strategi",
-            strategy_keys,
-            index=None,
-            format_func=lambda key: strategy_spec_v2(key).label,
-            key=strategy_selector_key,
-            on_change=_queue_strategy_switch_v1,
-            args=(strategy_selector_key, strategy_pending_key),
-            label_visibility="collapsed",
-        )
+        st.caption(f"LIVE · {strategy_spec_v2(enrollment.strategy_key).label}")
     with settings_col:
         with st.popover("⚙", width="stretch"):
+            st.markdown("**Legacy / enkeltstrategi**")
+            st.selectbox(
+                "Strategi",
+                strategy_keys,
+                index=None,
+                format_func=lambda key: strategy_spec_v2(key).label,
+                key=strategy_selector_key,
+                on_change=_queue_strategy_switch_v1,
+                args=(strategy_selector_key, strategy_pending_key),
+                label_visibility="collapsed",
+            )
+            st.divider()
             st.markdown("**Valgfritt**")
             _render_optional_settings_v1(enrollment, client)
 
