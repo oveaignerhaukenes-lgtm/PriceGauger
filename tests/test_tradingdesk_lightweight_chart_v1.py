@@ -120,7 +120,8 @@ def test_direct_lightweight_runtime_owns_native_navigation_without_plotly() -> N
         encoding="utf-8"
     )
     assert "lightweight-charts@5.2.1" in source
-    assert "pinch: true" in source
+    assert "pinch: false" in source
+    assert "Math.pow(ratio, 10)" in source
     assert "pressedMouseMove: true" in source
     assert "axisPressedMouseMove" in source
     assert "axisDoubleClickReset" in source
