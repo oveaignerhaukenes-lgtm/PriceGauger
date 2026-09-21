@@ -186,7 +186,7 @@ def render_strategy_family_builder_v1(
         RUN_MODES_V1,
         default=default_modes,
         key=f"{base_key}:modes:{family}:{minutes}",
-        help="Velg SIM, LIVE eller begge. Ingen endring skjer før du trykker Bruk.",
+        help="Velg SIM, LIVE eller begge. Ingen endring skjer før du trykker Bruk. Uten LIVE endres ikke en allerede aktiv LIVE-controller.",
     )
 
     target_label = family_display_label_v1(family, minutes)
@@ -228,11 +228,20 @@ def render_strategy_family_builder_v1(
                         timeframe_minutes=minutes,
                     )
                 else:
-                    reconfigure_live_family_v1(
-                        pilot_key=enrollment.pilot_key,
-                        family=family,
-                        timeframe_minutes=minutes,
+                    live_config = load_strategy_family_config_v1(
+                        enrollment.pilot_key,
+                        strategy_key=enrollment.strategy_key,
                     )
+                    if (
+                        live_config is None
+                        or live_config.family != family
+                        or int(live_config.timeframe_minutes) != int(minutes)
+                    ):
+                        reconfigure_live_family_v1(
+                            pilot_key=enrollment.pilot_key,
+                            family=family,
+                            timeframe_minutes=minutes,
+                        )
             except Exception as exc:
                 st.error(f"Familie/LIVE kunne ikke aktiveres: {exc}")
                 return
