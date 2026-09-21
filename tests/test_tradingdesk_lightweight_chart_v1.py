@@ -331,3 +331,15 @@ def test_direct_live_chart_uses_high_gain_touch_pinch_zoom():
     assert "Math.pow(ratio, 10)" in runtime
     assert "setVisibleLogicalRange" in runtime
     assert "event.preventDefault()" in runtime
+
+
+def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    contract = Path("tradingdesk_ui/charts/lightweight/direct_contract.py").read_text(encoding="utf-8")
+    assert "subscribeVisibleLogicalRangeChange" in runtime
+    assert "window.localStorage.setItem(viewKey" in runtime
+    assert "window.localStorage.getItem(viewKey)" in runtime
+    assert "pressedMouseMove: true" in runtime
+    assert "root.style.touchAction = 'pan-y'" in runtime
+    assert '"updated_at": utc(candle.updated_at).isoformat()' in contract
+    assert "dataset.pgPayloadRevision" in runtime
