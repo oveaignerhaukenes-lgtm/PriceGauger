@@ -37,6 +37,12 @@ from autotrader_strategy_enrollment_v2 import (
     set_entry_mode_v2,
 )
 from autotrader_strategy_switch_v2 import switch_live_strategy_v2
+from autotrader_take_profit_modifier_v1 import (
+    TakeProfitConfigV1,
+    load_take_profit_config_v1,
+    load_take_profit_state_v1,
+    save_take_profit_config_v1,
+)
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
 
@@ -183,7 +189,91 @@ def _render_optional_settings_v1(enrollment: StrategyEnrollmentV2, client) -> No
                 )
             st.success("Fast amount er lagret; Saxo revaliderer før hver ordre.")
             st.rerun()
+    _render_take_profit_settings_v1(enrollment)
     st.page_link("pages/6_AutoTrader_POC.py", label="Avanserte AutoTrader-detaljer", icon="⚙️")
+
+
+def _render_take_profit_settings_v1(enrollment: StrategyEnrollmentV2) -> None:
+    try:
+        config = load_take_profit_config_v1(enrollment.pilot_key)
+        state = load_take_profit_state_v1(enrollment.pilot_key)
+    except Exception as exc:
+        st.caption(f"TakeProfit venter: {exc}")
+        return
+
+    st.divider()
+    st.markdown("**X + TakeProfit**")
+    st.caption(
+        "Generisk wrapper rundt aktiv strategi. Peak-profit (MFE) spores på faktisk Saxo-posisjon; "
+        "ved valgt relativ giveback går wrapperen FLAT gjennom vanlig CLOSE-livssyklus."
+    )
+
+    enabled = st.toggle(
+        "TakeProfit aktiv",
+        value=bool(config.enabled),
+        key=f"td-tp-enabled:{enrollment.pilot_key}",
+    )
+    giveback = st.number_input(
+        "Tillatt tilbakegang av peak-profit (%)",
+        min_value=1.0,
+        max_value=95.0,
+        value=float(config.giveback_pct),
+        step=1.0,
+        format="%.1f",
+        disabled=not enabled,
+        key=f"td-tp-giveback:{enrollment.pilot_key}",
+        help="Eksempel: peak +1.00 %, giveback 10 % → FLAT-gulv ca. +0.90 %.",
+    )
+    min_peak = st.number_input(
+        "Aktiver først etter gevinst ≥ (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=float(config.min_peak_profit_pct),
+        step=0.05,
+        format="%.2f",
+        disabled=not enabled,
+        key=f"td-tp-min-peak:{enrollment.pilot_key}",
+        help="Hindrer at mikroskopisk positiv P/L og spread-støy armer TakeProfit.",
+    )
+    cooldown = st.number_input(
+        "Re-entry pause etter TakeProfit (sek)",
+        min_value=0,
+        max_value=3600,
+        value=int(config.reentry_cooldown_seconds),
+        step=5,
+        disabled=not enabled,
+        key=f"td-tp-cooldown:{enrollment.pilot_key}",
+    )
+    if st.button(
+        "Lagre TakeProfit",
+        key=f"td-tp-save:{enrollment.pilot_key}",
+        width="stretch",
+    ):
+        try:
+            save_take_profit_config_v1(
+                enrollment.pilot_key,
+                TakeProfitConfigV1(
+                    enabled=bool(enabled),
+                    giveback_pct=float(giveback),
+                    min_peak_profit_pct=float(min_peak),
+                    reentry_cooldown_seconds=int(cooldown),
+                ),
+            )
+        except Exception as exc:
+            st.error(f"TakeProfit kunne ikke lagres: {exc}")
+        else:
+            st.success("TakeProfit-innstillingene er lagret.")
+            st.rerun()
+
+    if state is not None:
+        peak = float(state.get("high_water_pct") or 0.0)
+        floor = state.get("floor_pct")
+        current = float(state.get("current_pnl_pct") or 0.0)
+        status = "TRIGGET" if state.get("triggered_at") else ("ARMERT" if state.get("armed") else "venter")
+        floor_text = "—" if floor is None else f"{float(floor):+.3f}%"
+        st.caption(
+            f"TakeProfit {status} · nå {current:+.3f}% · peak {peak:+.3f}% · gulv {floor_text}"
+        )
 
 
 def _bootstrap_candidate_v1(

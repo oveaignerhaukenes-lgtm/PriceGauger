@@ -6,7 +6,7 @@ import time
 from autotrader_ai_live_runtime_v1 import run_ai_live_strategy_once_v1
 from autotrader_automanage_runtime_v2 import run_automanage_strategy_once_v2
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
-from autotrader_fast_live_runtime_v2 import FastLiveCycleV2, _exact_product_observation, run_fast_live_strategy_once_v2
+from autotrader_fast_live_runtime_v2 import FastLiveCycleV2, _exact_product_observation, _observed_direction, run_fast_live_strategy_once_v2
 from autotrader_manage_control_v1 import auto_manage_enabled_v1, position_management_enabled_v1
 from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
@@ -31,6 +31,10 @@ from autotrader_strategy_catalog_v2 import (
     STRONG_COCKTAIL_STRATEGY_V2,
 )
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
+from autotrader_take_profit_modifier_v1 import (
+    take_profit_reentry_blocked_v1,
+    take_profit_trigger_blocks_strategy_v1,
+)
 from database import using_postgres
 from saxo_provider import configured_client
 
@@ -74,6 +78,34 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 if cycle is not None: _log_fast_cycle_if_changed_v2(cycle)
                 evaluated += 1
                 continue
+
+            exact_observation = _exact_product_observation(enrollment, observations)
+            exact_direction = _observed_direction(exact_observation)
+            if take_profit_trigger_blocks_strategy_v1(
+                enrollment,
+                observed_direction=exact_direction,
+            ):
+                LOGGER.info(
+                    "TAKE_PROFIT latched FLAT authority pilot=%s strategy=%s observed=%s",
+                    enrollment.pilot_key,
+                    enrollment.strategy_key,
+                    exact_direction,
+                )
+                evaluated += 1
+                continue
+            if take_profit_reentry_blocked_v1(
+                enrollment,
+                observed_direction=exact_direction,
+            ):
+                LOGGER.info(
+                    "TAKE_PROFIT re-entry cooldown pilot=%s strategy=%s observed=%s",
+                    enrollment.pilot_key,
+                    enrollment.strategy_key,
+                    exact_direction,
+                )
+                evaluated += 1
+                continue
+
             if position_management_enabled_v1(enrollment):
                 _adopt_observed_basis_if_needed_v1(enrollment, observations)
             if not auto_manage_enabled_v1(enrollment):
