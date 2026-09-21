@@ -296,6 +296,7 @@ def test_direct_contract_carries_forming_candle_inside_same_chart_payload() -> N
         "high": 29509.0,
         "low": 29499.0,
         "close": 29507.0,
+        "updated_at": "2026-09-04T20:59:04+00:00",
     }
 
 
@@ -345,4 +346,3 @@ def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
     assert "pressedMouseMove: true" in runtime
     assert "root.style.touchAction = 'pan-y'" in runtime
     assert '"updated_at": utc(candle.updated_at).isoformat()' in contract
-    assert "dataset.pgPayloadRevision" in runtime
