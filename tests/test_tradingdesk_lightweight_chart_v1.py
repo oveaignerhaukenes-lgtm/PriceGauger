@@ -312,3 +312,13 @@ def test_main_chart_runtime_applies_forming_payload_inside_its_own_iframe() -> N
     assert "forming_candle=forming" in page
     assert "render_lightweight_live_update_v1(" not in page
     assert "render_lightweight_base_update_v1(" not in page
+
+
+def test_direct_live_chart_has_browser_native_candle_countdown():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    contract = Path("tradingdesk_ui/charts/lightweight/direct_contract.py").read_text(encoding="utf-8")
+    assert 'payload["timeframe_seconds"]' in contract
+    assert "pg-lightweight-candle-countdown" in runtime
+    assert "Date.now()" in runtime
+    assert "window.setInterval(renderCountdown, 250)" in runtime
+    assert "window.clearInterval(entry.countdownTimer)" in runtime
