@@ -5,11 +5,31 @@ from datetime import datetime, timezone
 from typing import Any
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
-from trading_desk import ChartBar, utc
+from saxo_chart_live import FormingCandle1m
+from trading_desk import ChartBar, TIMEFRAME_MINUTES, utc
 from trading_desk_indicators import INDICATOR_SWING_BANDS, TechnicalIndicators
 from trading_desk_swing_bands import derive_swing_bands
 from tradingdesk_ui.charts.lightweight.contract import build_lightweight_live_payload_v1
 from tradingdesk_ui.charts.lightweight.rollover_markers import load_rollover_marker_events_v1
+
+
+def _forming_chart_payload_v1(
+    candle: FormingCandle1m | None,
+    *,
+    timeframe: str,
+) -> dict[str, float | int] | None:
+    if candle is None:
+        return None
+    seconds = int(TIMEFRAME_MINUTES[str(timeframe)]) * 60
+    raw_time = int(utc(candle.bar_time).timestamp())
+    bucket_time = raw_time - (raw_time % seconds)
+    return {
+        "time": bucket_time,
+        "open": float(candle.open),
+        "high": float(candle.high),
+        "low": float(candle.low),
+        "close": float(candle.close),
+    }
 
 
 # First successful production activation of PR #344 on the stream/runtime service.
@@ -99,6 +119,7 @@ def build_lightweight_direct_live_payload_v1(
     chart_height: int,
     price_panel_share: float,
     trade_markers: Sequence[AutoTraderTradeMarkerV1] = (),
+    forming_candle: FormingCandle1m | None = None,
     rollover_events: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Extend the stable LWC contract with direct-render-only structural primitives."""
@@ -129,6 +150,10 @@ def build_lightweight_direct_live_payload_v1(
                 }
             )
     payload["swing_bands"] = bands
+    payload["forming_candle"] = _forming_chart_payload_v1(
+        forming_candle,
+        timeframe=timeframe,
+    )
 
     resolved_rollovers: Sequence[Mapping[str, Any]] = rollover_events or ()
     if rollover_events is None:
