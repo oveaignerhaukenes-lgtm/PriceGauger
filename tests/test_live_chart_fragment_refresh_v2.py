@@ -51,4 +51,4 @@ def test_direct_chart_has_independent_five_second_browser_heartbeat():
     assert "setTriggerValue('live_tick', Date.now())" in source
     assert "document.visibilityState !== 'hidden'" in source
     assert "on_live_tick_change=lambda: None" in oslo
-    assert "refresh_ms=LIVE_CHART_BASE_REFRESH_SECONDS * 1000" in page
+    assert "refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
