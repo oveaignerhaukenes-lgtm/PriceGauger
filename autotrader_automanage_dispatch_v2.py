@@ -31,7 +31,10 @@ from autotrader_strategy_catalog_v2 import (
     STRONG_COCKTAIL_STRATEGY_V2,
 )
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
-from autotrader_take_profit_modifier_v1 import take_profit_reentry_blocked_v1
+from autotrader_take_profit_modifier_v1 import (
+    take_profit_reentry_blocked_v1,
+    take_profit_trigger_blocks_strategy_v1,
+)
 from database import using_postgres
 from saxo_provider import configured_client
 
@@ -77,15 +80,28 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 continue
 
             exact_observation = _exact_product_observation(enrollment, observations)
+            exact_direction = _observed_direction(exact_observation)
+            if take_profit_trigger_blocks_strategy_v1(
+                enrollment,
+                observed_direction=exact_direction,
+            ):
+                LOGGER.info(
+                    "TAKE_PROFIT latched FLAT authority pilot=%s strategy=%s observed=%s",
+                    enrollment.pilot_key,
+                    enrollment.strategy_key,
+                    exact_direction,
+                )
+                evaluated += 1
+                continue
             if take_profit_reentry_blocked_v1(
                 enrollment,
-                observed_direction=_observed_direction(exact_observation),
+                observed_direction=exact_direction,
             ):
                 LOGGER.info(
                     "TAKE_PROFIT re-entry cooldown pilot=%s strategy=%s observed=%s",
                     enrollment.pilot_key,
                     enrollment.strategy_key,
-                    _observed_direction(exact_observation),
+                    exact_direction,
                 )
                 evaluated += 1
                 continue
