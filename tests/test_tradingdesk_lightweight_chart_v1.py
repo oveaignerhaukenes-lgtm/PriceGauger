@@ -322,3 +322,11 @@ def test_direct_live_chart_has_browser_native_candle_countdown():
     assert "Date.now()" in runtime
     assert "window.setInterval(renderCountdown, 250)" in runtime
     assert "window.clearInterval(entry.countdownTimer)" in runtime
+
+
+def test_direct_live_chart_uses_high_gain_touch_pinch_zoom():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    assert "pinch: false" in runtime
+    assert "Math.pow(ratio, 10)" in runtime
+    assert "setVisibleLogicalRange" in runtime
+    assert "event.preventDefault()" in runtime
