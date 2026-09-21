@@ -75,16 +75,16 @@ def test_reconciled_close_is_projected_as_flat_square_marker() -> None:
 
 def test_live_chart_keeps_one_second_forming_candle_refresh() -> None:
     page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
-    refresh = (
-        ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update_refresh_v2.py"
+    runtime = (
+        ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "direct_runtime.py"
     ).read_text(encoding="utf-8")
 
     assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1" in page
     assert "LIVE_CHART_BASE_REFRESH_SECONDS = 5" in page
-    assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")' in page
-    assert "_recent_forming_candle(context)" in page
-    assert "context = baseline_contexts.get(market)" in page
+    assert "_forming_chart_candle(context)" in page
+    assert "forming_candle=forming" in page
     assert "refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
-    assert "refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
-    assert "render_trade_marker_overlay_v2(" in refresh
-    assert "on_live_tick_change=lambda: None" in refresh
+    assert "render_lightweight_live_update_v1(" not in page
+    assert "render_lightweight_base_update_v1(" not in page
+    assert "payload.forming_candle" in runtime
+    assert "setTriggerValue('live_tick', Date.now())" in runtime
