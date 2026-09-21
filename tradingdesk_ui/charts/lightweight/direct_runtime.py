@@ -95,7 +95,7 @@ export default function(component) {{
 
         const root = document.createElement('div');
         root.className = 'pg-lightweight-direct-live';
-        Object.assign(root.style, {{ width: '100%', height: '100%', position: 'relative', minWidth: '0' }});
+        Object.assign(root.style, {{ width: '100%', height: 'calc(100% - 34px)', position: 'relative', minWidth: '0', marginTop: '34px', overflow: 'visible' }});
         parentElement.appendChild(root);
 
         const inspector = document.createElement('div');

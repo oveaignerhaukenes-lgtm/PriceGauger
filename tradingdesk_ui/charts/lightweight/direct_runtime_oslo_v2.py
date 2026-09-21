@@ -21,8 +21,8 @@ _DIRECT_LIVE_OSLO_JS = _replace_required(
 )
 _DIRECT_LIVE_OSLO_JS = _replace_required(
     _DIRECT_LIVE_OSLO_JS,
-    """                rightOffset: 2, barSpacing: 8, minBarSpacing: .7,\n                fixLeftEdge: false, fixRightEdge: false,""",
-    """                rightOffset: 2, barSpacing: 8, minBarSpacing: .7,\n                tickMarkFormatter: time => osloClock.format(new Date(Number(time) * 1000)),\n                fixLeftEdge: false, fixRightEdge: false,""",
+    """                rightOffset: 3, barSpacing: 11, minBarSpacing: 2.5,\n                fixLeftEdge: false, fixRightEdge: false,""",
+    """                rightOffset: 3, barSpacing: 11, minBarSpacing: 2.5,\n                tickMarkFormatter: time => osloClock.format(new Date(Number(time) * 1000)),\n                fixLeftEdge: false, fixRightEdge: false,""",
     "time-axis localization",
 )
 
