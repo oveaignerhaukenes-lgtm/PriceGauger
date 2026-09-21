@@ -202,7 +202,7 @@ def render_strategy_family_builder_v1(
                     target_enrollment = load_strategy_enrollment_v2(switched.to_pilot_key)
                     if target_enrollment is None:
                         raise RuntimeError("family strategy switch did not persist target enrollment")
-                    save_strategy_family_config_v1(
+                    reconfigure_live_family_v1(
                         pilot_key=target_enrollment.pilot_key,
                         family=family,
                         timeframe_minutes=minutes,
