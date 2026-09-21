@@ -11,11 +11,14 @@ from autotrader_macd_supervisor_normalized_replay_v1 import replay_normalized_ma
 from autotrader_macd_supervisor_replay_v1 import replay_macd_supervisor_v1, summarize_macd_supervisor_frame_v1
 from autotrader_position_manager_replay_v1 import apply_position_manager_v1
 from autotrader_price_stoch_v1 import replay_price_stoch_v1
+from autotrader_family_replay_v1 import replay_strategy_family_v1
+from autotrader_strategy_family_v1 import family_display_label_v1
 from autotrader_take_profit_modifier_v1 import apply_take_profit_replay_v1
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_ui.charts.lightweight.three_trader_tv_v1 import render_three_trader_tv_v1
+from tradingdesk_strategy_family_ui_v1 import load_sim_family_selection_v1
 
 RULE_NAME = "Dum MACD"
 ADAPTIVE_NAME = "MACD-adaptiv"
@@ -25,6 +28,7 @@ NORMALIZED_NAME = "MACD norm"
 NORMALIZED_MANAGED_NAME = "MACD norm + manager"
 PRICE_STOCH_NAME = "Price + Stoch"
 TAKE_PROFIT_NAME = "X + TakeProfit"
+FAMILY_SIM_NAME = "Familie SIM"
 ALL_MODELS = (
     RULE_NAME,
     ADAPTIVE_NAME,
@@ -34,6 +38,7 @@ ALL_MODELS = (
     NORMALIZED_MANAGED_NAME,
     PRICE_STOCH_NAME,
     TAKE_PROFIT_NAME,
+    FAMILY_SIM_NAME,
 )
 
 
@@ -200,6 +205,16 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 normalized_full[["PRICE", "TARGET", "AUTHORITATIVE_CROSS"]]
             )
             price_stoch_full = replay_price_stoch_v1(bars)
+            family_sim_selection = load_sim_family_selection_v1(int(instrument_id))
+            family_sim_full = (
+                replay_strategy_family_v1(
+                    bars,
+                    family=family_sim_selection.family,
+                    timeframe_minutes=family_sim_selection.timeframe_minutes,
+                )
+                if family_sim_selection is not None
+                else None
+            )
         except Exception as exc:
             st.caption(f"Trader-lab venter på nok canonical data: {exc}")
             return
@@ -214,6 +229,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         price_stoch_frame = price_stoch_full[
             price_stoch_full.index >= visible_since
         ][["PRICE", "TARGET"]].copy()
+        family_sim_frame = (
+            family_sim_full[family_sim_full.index >= visible_since][["PRICE", "TARGET"]].copy()
+            if family_sim_full is not None
+            else None
+        )
 
         adaptive_slice = adaptive_full[adaptive_full.index >= visible_since]
         adaptive_frame = pd.DataFrame(index=adaptive_slice.index)
@@ -253,6 +273,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         normalized_managed_events = _events_from_target(normalized_managed_frame, include_flat=True)
         price_stoch_events = _events_from_target(price_stoch_frame, include_flat=True)
         take_profit_events = _events_from_target(take_profit_frame, include_flat=True)
+        family_sim_events = (
+            _events_from_target(family_sim_frame, include_flat=True)
+            if family_sim_frame is not None
+            else ()
+        )
         event_sets = {
             RULE_NAME: rule_events,
             ADAPTIVE_NAME: adaptive_events,
@@ -262,6 +287,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             NORMALIZED_MANAGED_NAME: normalized_managed_events,
             PRICE_STOCH_NAME: price_stoch_events,
             TAKE_PROFIT_NAME: take_profit_events,
+            FAMILY_SIM_NAME: family_sim_events,
         }
 
         if RULE_NAME in visible:
@@ -280,6 +306,16 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 take_profit_frame,
                 cost_bps=cost_bps,
             )
+        if FAMILY_SIM_NAME in visible:
+            if family_sim_frame is not None and family_sim_selection is not None:
+                _render_metrics(
+                    f"SIM · {family_display_label_v1(family_sim_selection.family, family_sim_selection.timeframe_minutes)}",
+                    family_sim_frame,
+                    cost_bps=cost_bps,
+                )
+            else:
+                st.markdown(f"**{FAMILY_SIM_NAME}**")
+                st.caption("Velg SIM i strategifamilie-byggeren over for å legge et familiespor her.")
         if ADAPTIVE_NAME in visible:
             _render_metrics(ADAPTIVE_NAME, adaptive_frame, cost_bps=cost_bps)
         if HOLISTIC_NAME in visible:
@@ -310,6 +346,12 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 f"X + TakeProfit: base={tp_base}. Når peak-profit er minst {tp_min_peak:.2f}%, "
                 f"går wrapperen FLAT etter {tp_giveback:.1f}% relativ giveback av peak-profit. "
                 "Etter exit holder replayen FLAT til base-strategien faktisk skifter target."
+            )
+
+        if FAMILY_SIM_NAME in visible and family_sim_selection is not None:
+            st.caption(
+                "Familie SIM bruker samme familie/timeframe-policy som LIVE-builderen, "
+                "men uten execution-authority."
             )
 
         render_three_trader_tv_v1(rule_frame, event_sets, visible, key=f"three-trader-chart-{instrument_id}")
