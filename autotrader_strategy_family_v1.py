@@ -185,6 +185,88 @@ def save_strategy_family_config_v1(
     )
 
 
+def reconfigure_live_family_v1(
+    *,
+    pilot_key: str,
+    family: str,
+    timeframe_minutes: int,
+) -> StrategyFamilyConfigV1:
+    """Change family parameters without replaying stale signal authority.
+
+    The product/strategy enrollment remains unchanged. Only unstarted strategy
+    requests are superseded; any broker-ambiguous execution blocks reconfiguration.
+    Runtime state is cleared so the next cycle bootstraps from observed Saxo exposure.
+    """
+
+    normalized_family = str(family).strip().upper()
+    expected_strategy_key = family_strategy_key_v1(normalized_family)
+    minutes = validate_timeframe_minutes_v1(timeframe_minutes)
+    ensure_strategy_family_schema_v1()
+    with connect() as db:
+        enrollment = db.execute(
+            """
+            SELECT strategy_key, execution_mode, enabled
+            FROM pg_v2_autotrader_strategy_enrollments
+            WHERE pilot_key = ?
+            """,
+            (str(pilot_key),),
+        ).fetchone()
+        if enrollment is None:
+            raise LookupError("active family enrollment not found")
+        values = dict(enrollment) if isinstance(enrollment, dict) else {
+            "strategy_key": enrollment[0],
+            "execution_mode": enrollment[1],
+            "enabled": enrollment[2],
+        }
+        if not bool(values["enabled"]) or str(values["execution_mode"]) != "LIVE_MANAGE":
+            raise ValueError("family reconfiguration requires an active LIVE enrollment")
+        if str(values["strategy_key"]) != expected_strategy_key:
+            raise ValueError("family reconfiguration does not match active strategy")
+
+        inflight = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_autotrader_execution_requests
+            WHERE pilot_key = ?
+              AND status IN ('SUBMITTING','ORDER_ACCEPTED','UNCERTAIN')
+            LIMIT 1
+            """,
+            (str(pilot_key),),
+        ).fetchone()
+        if inflight is not None:
+            raise ValueError("timeframe change waits while execution is in flight")
+
+        db.execute(
+            """
+            UPDATE pg_v2_autotrader_execution_requests
+            SET status='SUPERSEDED', block_reason='FAMILY_PARAMETER_CHANGE', updated_at=now()
+            WHERE pilot_key = ? AND status IN ('PENDING','APPROVED')
+            """,
+            (str(pilot_key),),
+        )
+        db.execute(
+            "DELETE FROM pg_v2_autotrader_fast_live_state WHERE pilot_key = ?",
+            (str(pilot_key),),
+        )
+        db.execute(
+            """
+            INSERT INTO pg_v2_autotrader_strategy_family_config(
+                pilot_key, family, timeframe_minutes, updated_at
+            ) VALUES (?, ?, ?, now())
+            ON CONFLICT (pilot_key) DO UPDATE SET
+                family=EXCLUDED.family,
+                timeframe_minutes=EXCLUDED.timeframe_minutes,
+                updated_at=now()
+            """,
+            (str(pilot_key), normalized_family, minutes),
+        )
+    return StrategyFamilyConfigV1(
+        pilot_key=str(pilot_key),
+        family=normalized_family,
+        timeframe_minutes=minutes,
+    )
+
+
 def family_display_label_v1(family: str, timeframe_minutes: int) -> str:
     normalized = str(family).strip().upper()
     label = FAMILY_LABELS_V1.get(normalized, normalized)
@@ -210,6 +292,7 @@ __all__ = [
     "family_display_label_v1",
     "family_strategy_key_v1",
     "load_strategy_family_config_v1",
+    "reconfigure_live_family_v1",
     "save_strategy_family_config_v1",
     "strategy_family_v1",
     "validate_timeframe_minutes_v1",
