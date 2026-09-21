@@ -201,6 +201,16 @@ def save_take_profit_config_v1(pilot_key: str, config: TakeProfitConfigV1) -> Ta
         )
         if not value.enabled:
             db.execute(
+                """
+                UPDATE pg_v2_autotrader_execution_requests
+                SET status='SUPERSEDED', block_reason='TAKE_PROFIT_OFF', updated_at=now()
+                WHERE pilot_key = ?
+                  AND status IN ('PENDING','APPROVED')
+                  AND signal LIKE 'TAKE_PROFIT_GIVEBACK:%%'
+                """,
+                (str(pilot_key),),
+            )
+            db.execute(
                 "DELETE FROM pg_v2_autotrader_take_profit_state WHERE pilot_key = ?",
                 (str(pilot_key),),
             )
