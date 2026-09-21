@@ -11,11 +11,13 @@ from saxo_chart_live import FormingCandle1m
 
 _LIGHTWEIGHT_LIVE_UPDATE_JS = r"""
 export default function(component) {
-    const { data, parentElement } = component;
+    const { data, parentElement, setTriggerValue } = component;
     const chartId = String(data.chart_id || '');
     const registry = window.__pricegaugerLightweightCharts;
     const geometryKey = `pg:tradingdesk:lightweight-geometry:v1:${chartId}`;
+    const refreshMs = Math.max(0, Number(data.refresh_ms || 0));
     let retryTimer = null;
+    let refreshTimer = null;
 
     function cleanNumber(value) {
         const number = Number(value);
@@ -491,9 +493,18 @@ export default function(component) {
         }, 100);
     }
 
+    if (refreshMs >= 250) {
+        refreshTimer = window.setInterval(() => {
+            if (document.visibilityState !== 'hidden') {
+                try { setTriggerValue('live_tick', Date.now()); } catch (_) {}
+            }
+        }, refreshMs);
+    }
+
     parentElement.style.display = 'none';
     return () => {
         if (retryTimer) window.clearInterval(retryTimer);
+        if (refreshTimer) window.clearInterval(refreshTimer);
     };
 }
 """
@@ -552,6 +563,7 @@ def render_lightweight_live_update_v1(
     timeframe_minutes: int,
     candle: FormingCandle1m | None,
     trade_markers: Sequence[AutoTraderTradeMarkerV1] = (),
+    refresh_ms: int = 0,
 ) -> None:
     """Update direct Lightweight LIVE state plus touch-only chart interaction helpers."""
 
@@ -564,8 +576,10 @@ def render_lightweight_live_update_v1(
             "active": candle is not None,
             "candle": _forming_payload(candle, timeframe_minutes=minutes) if candle is not None else None,
             "trade_markers": _marker_payload(trade_markers),
+            "refresh_ms": max(0, int(refresh_ms)),
         },
         height=0,
+        on_live_tick_change=lambda: None,
     )
 
 
