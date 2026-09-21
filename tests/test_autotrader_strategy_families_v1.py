@@ -184,10 +184,12 @@ def test_dispatch_routes_both_parameterized_families() -> None:
     assert "run_price_macd_live_once_v1" in source
 
 
-def test_price_stoch_family_is_explicitly_one_minute_in_v1_ui() -> None:
+def test_price_stoch_family_uses_shared_selectable_timeframe_ui() -> None:
     source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
-    assert "family == FAMILY_PRICE_STOCH_V1" in source
-    assert "Price + Stoch v1 bruker foreløpig 1m" in source
+    assert "Price + Stoch v1 bruker foreløpig 1m" not in source
+    assert "tf-stoch-fixed" not in source
+    assert "tuple(TIMEFRAME_PRESETS_V1)" in source
+    assert "_timeframe_choice_v1(" in source
 
 
 def test_price_macd_live_uses_forming_price_but_closed_macd_context() -> None:
@@ -275,3 +277,13 @@ def test_price_macd_core_matches_price_first_contract() -> None:
     assert price_branch < macd_branch
     assert 'state = "PRICE_AUTHORITY"' in evaluate
     assert 'state = "MACD_FALLBACK"' in evaluate
+
+
+def test_price_stoch_family_timeframe_is_selectable_and_live_runtime_honors_it():
+    ui = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    runtime = Path("autotrader_price_stoch_live_v1.py").read_text(encoding="utf-8")
+    assert "tf-stoch-fixed" not in ui
+    assert "load_strategy_family_config_v1(" in runtime
+    assert "timeframe_minutes = int(family_config.timeframe_minutes)" in runtime
+    assert "timeframe_minutes=timeframe_minutes" in runtime
+    assert "closed_bars_v2(" in runtime

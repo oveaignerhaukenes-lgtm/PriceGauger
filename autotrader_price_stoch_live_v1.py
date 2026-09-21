@@ -39,6 +39,8 @@ from autotrader_price_stoch_v1 import (
     evaluate_price_stoch_row_v1,
 )
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
+from autotrader_mtf_entry_shadow_v2 import closed_bars_v2
+from autotrader_strategy_family_v1 import FAMILY_PRICE_STOCH_V1, load_strategy_family_config_v1
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, StrategyEnrollmentV2
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2, CanonicalMarketBarV2
 from saxo_chart_live import FormingCandleStore, forming_candle_event_age_seconds
@@ -100,12 +102,15 @@ def _live_bars_and_action_v1(
     *,
     db_path: str,
     now: datetime,
+    timeframe_minutes: int = 1,
 ) -> tuple[tuple[ChartBar, ...], datetime, bool, bool]:
     """Append only a fresh exact-product forming candle for intra-minute scouting."""
 
     if not bars:
         raise ValueError("price/stoch LIVE has no canonical history")
-    chart_bars = _canonical_chart_bars_v1(bars)
+    minutes = max(1, int(timeframe_minutes))
+    one_minute = _canonical_chart_bars_v1(bars)
+    chart_bars = list(closed_bars_v2(tuple((item.bar_time, item.close) for item in one_minute), market=enrollment.market_name, timeframe_minutes=minutes)) if minutes > 1 else one_minute
     action_at = _bar_action_at(bars[-1])
     used_forming = False
 
@@ -127,17 +132,30 @@ def _live_bars_and_action_v1(
             and 0.0 <= age <= FORMING_MAX_AGE_SECONDS_V1
             and candle_at > last_closed_at
         ):
-            chart_bars.append(
-                ChartBar(
-                    market=enrollment.market_name,
-                    bar_time=candle_at.isoformat(),
-                    open=float(candle.open),
-                    high=float(candle.high),
-                    low=float(candle.low),
-                    close=float(candle.close),
-                    volume=None if candle.volume is None else float(candle.volume),
-                )
+            forming = ChartBar(
+                market=enrollment.market_name,
+                bar_time=candle_at.isoformat(),
+                open=float(candle.open),
+                high=float(candle.high),
+                low=float(candle.low),
+                close=float(candle.close),
+                volume=None if candle.volume is None else float(candle.volume),
             )
+            if minutes == 1:
+                chart_bars.append(forming)
+            else:
+                bucket_start = candle_at.replace(second=0, microsecond=0) - timedelta(minutes=candle_at.minute % minutes)
+                members = [item for item in one_minute if _utc(item.bar_time) >= bucket_start]
+                members.append(forming)
+                chart_bars.append(ChartBar(
+                    market=enrollment.market_name,
+                    bar_time=bucket_start.isoformat(),
+                    open=float(members[0].open),
+                    high=max(float(item.high) for item in members),
+                    low=min(float(item.low) for item in members),
+                    close=float(members[-1].close),
+                    volume=None,
+                ))
             action_at = _utc(candle.updated_at)
             used_forming = True
 
@@ -214,6 +232,14 @@ def run_price_stoch_live_once_v1(
     if enrollment.strategy_key not in PRICE_STOCH_LIVE_STRATEGIES_V1:
         raise ValueError("price/stoch runtime received an unsupported strategy")
 
+    family_config = load_strategy_family_config_v1(
+        enrollment.pilot_key,
+        strategy_key=enrollment.strategy_key,
+    )
+    if family_config is None or family_config.family != FAMILY_PRICE_STOCH_V1:
+        raise ValueError("Price + Stoch family configuration is missing")
+    timeframe_minutes = int(family_config.timeframe_minutes)
+
     ensure_fast_live_schema_v2()
     client = configured_client()
     if client is not None:
@@ -247,6 +273,7 @@ def run_price_stoch_live_once_v1(
         eligible,
         db_path=db_path,
         now=end,
+        timeframe_minutes=timeframe_minutes,
     )
     features = build_price_stoch_features_v1(
         live_bars,
