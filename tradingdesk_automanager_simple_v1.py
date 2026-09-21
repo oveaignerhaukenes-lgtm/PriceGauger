@@ -37,7 +37,11 @@ from autotrader_strategy_enrollment_v2 import (
     set_entry_mode_v2,
 )
 from autotrader_strategy_switch_v2 import switch_live_strategy_v2
-from autotrader_strategy_family_v1 import strategy_instance_label_v1
+from autotrader_strategy_family_v1 import (
+    FAMILY_MACD_STRATEGY_V1,
+    FAMILY_PRICE_MACD_STRATEGY_V1,
+    strategy_instance_label_v1,
+)
 from autotrader_take_profit_modifier_v1 import (
     TakeProfitConfigV1,
     load_take_profit_config_v1,
@@ -409,7 +413,11 @@ def render_tradingdesk_automanager_simple_v1(
     )
     strategy_pending_key = f"{strategy_selector_key}:pending"
     strategy_error_key = f"{strategy_selector_key}:error"
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
+    family_primary_keys = {FAMILY_MACD_STRATEGY_V1, FAMILY_PRICE_MACD_STRATEGY_V1}
+    strategy_keys = tuple(
+        item.key for item in AUTOTRADER_STRATEGIES_V2
+        if item.key not in family_primary_keys
+    )
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
 
     if manage_key not in st.session_state:
