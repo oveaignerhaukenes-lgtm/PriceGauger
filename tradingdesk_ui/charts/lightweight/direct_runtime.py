@@ -15,10 +15,8 @@ _DIRECT_LIVE_JS = rf"""
 const LIB_URL = {_LIGHTWEIGHT_CHARTS_URL!r};
 
 export default function(component) {{
-    const {{ data, parentElement, setTriggerValue }} = component;
+    const {{ data, parentElement }} = component;
     const payload = data.payload || {{}};
-    const refreshMs = Math.max(0, Number(data.refresh_ms || 0));
-    let refreshTimer = null;
     const chartId = String(payload.chart_id || 'TradingDeskLightweight:unknown');
     const registry = window.__pricegaugerLightweightCharts ||= new Map();
 
