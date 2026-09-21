@@ -114,3 +114,11 @@ def test_advanced_execution_gate_remains_available_but_is_not_primary_simple_cor
     assert "approve_open_request_v2" in advanced
     assert "ENTRY_MODE_MANUAL_ONLY" in advanced
     assert 'st.page_link("pages/6_AutoTrader_POC.py"' in simple
+
+
+def test_manage_and_autotrade_toggles_resync_from_backend_truth():
+    source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
+    assert "st.session_state.get(manage_key, position_manage_enabled)" in source
+    assert "st.session_state[manage_key] = position_manage_enabled" in source
+    assert "st.session_state.get(autotrade_key, auto_trade_enabled)" in source
+    assert "st.session_state[autotrade_key] = auto_trade_enabled" in source
