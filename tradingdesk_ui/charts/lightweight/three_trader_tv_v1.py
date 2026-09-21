@@ -84,6 +84,7 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
         "MACD norm + manager": "#db2777",
         "Price + Stoch": "#ea580c",
         "X + TakeProfit": "#f59e0b",
+        "Familie SIM": "#475569",
     }
     shorts = {
         "Dum MACD": "Rule",
@@ -94,6 +95,7 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
         "MACD norm + manager": "Norm+Mgr",
         "Price + Stoch": "P+S",
         "X + TakeProfit": "TP",
+        "Familie SIM": "SIM",
     }
     sizes = {
         "Dum MACD": 1,
@@ -104,6 +106,7 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
         "MACD norm + manager": 3,
         "Price + Stoch": 3,
         "X + TakeProfit": 4,
+        "Familie SIM": 2,
     }
     events = []
     for model, model_events in event_sets.items():
