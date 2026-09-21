@@ -287,10 +287,12 @@ export default function(component) {{
             chart.timeScale().fitContent();
         }}
 
-        return {{
+        const entry = {{
             parent: parentElement, root, inspector, chart, candles, series, labels, markers,
             baseCandles, formingCandles, signature: String(payload.signature || ''),
         }};
+        applyFormingPayload(entry);
+        return entry;
     }}
 
     function mergedForming(entry, item) {{
@@ -305,14 +307,28 @@ export default function(component) {{
         }};
     }}
 
+    function applyFormingPayload(entry) {{
+        if (!(entry?.formingCandles instanceof Map)) entry.formingCandles = new Map();
+        entry.formingCandles.clear();
+        const item = payload.forming_candle || null;
+        if (!item) return;
+        const time = Number(item.time);
+        const open = Number(item.open);
+        const high = Number(item.high);
+        const low = Number(item.low);
+        const close = Number(item.close);
+        if (![time, open, high, low, close].every(Number.isFinite)) return;
+        const merged = mergedForming(entry, {{ time, open, high, low, close }});
+        entry.formingCandles.set(time, merged);
+        try {{ entry.candles.update(merged); }} catch (_) {{}}
+    }}
+
     function updateEntry(entry) {{
         entry.parent.style.height = `${{Math.max(320, Number(payload.height || 780))}}px`;
         const candleData = Array.from(payload.candles || []);
         entry.baseCandles = new Map(candleData.map((item) => [Number(item.time), {{ ...item }}]));
         entry.candles.setData(candleData);
-        for (const item of entry.formingCandles.values()) {{
-            try {{ entry.candles.update(mergedForming(entry, item)); }} catch (_) {{}}
-        }}
+        applyFormingPayload(entry);
         for (const item of Array.from(payload.lines || [])) {{
             entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
         }}
@@ -332,7 +348,15 @@ export default function(component) {{
         entry.markers?.setMarkers?.(Array.from(payload.markers || []));
     }}
 
-    parentElement.innerHTML = '<div style="padding:.75rem;color:#64748b;font:500 12px system-ui">Laster Lightweight Charts…</div>';
+    if (!registry.get(chartId) && !parentElement.querySelector('.pg-lightweight-loading')) {{
+        const loading = document.createElement('div');
+        loading.className = 'pg-lightweight-loading';
+        loading.textContent = 'Laster Lightweight Charts…';
+        Object.assign(loading.style, {{
+            padding: '.75rem', color: '#64748b', font: '500 12px system-ui',
+        }});
+        parentElement.appendChild(loading);
+    }}
 
     loadLibrary().then((LWC) => {{
         let entry = registry.get(chartId) || null;
