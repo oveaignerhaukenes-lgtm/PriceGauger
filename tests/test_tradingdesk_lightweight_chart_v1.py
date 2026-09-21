@@ -349,3 +349,10 @@ def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
     assert "top: '-30px'" in runtime
     assert "marginTop: '34px'" in runtime
     assert '"updated_at": utc(candle.updated_at).isoformat()' in contract
+
+
+def test_direct_runtime_never_erases_price_series_on_empty_refresh():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    assert "if (candleData.length)" in runtime
+    assert "entry.candles.setData(candleData);" in runtime
+    assert "canonical candle payload is empty" in runtime
