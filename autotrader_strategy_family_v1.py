@@ -247,8 +247,6 @@ def save_strategy_family_config_v1(
     strategy_key = family_strategy_key_v1(normalized_family)
     minutes = validate_timeframe_minutes_v1(timeframe_minutes)
     ensure_strategy_family_schema_v1()
-    from autotrader_fast_live_runtime_v2 import ensure_fast_live_schema_v2
-    ensure_fast_live_schema_v2()
     with connect() as db:
         enrollment = db.execute(
             """
@@ -303,6 +301,8 @@ def reconfigure_live_family_v1(
     expected_strategy_key = family_strategy_key_v1(normalized_family)
     minutes = validate_timeframe_minutes_v1(timeframe_minutes)
     ensure_strategy_family_schema_v1()
+    from autotrader_fast_live_runtime_v2 import ensure_fast_live_schema_v2
+    ensure_fast_live_schema_v2()
     with connect() as db:
         enrollment = db.execute(
             """
