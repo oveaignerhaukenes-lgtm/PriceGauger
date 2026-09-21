@@ -188,3 +188,16 @@ def test_price_stoch_family_is_explicitly_one_minute_in_v1_ui() -> None:
     source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
     assert "family == FAMILY_PRICE_STOCH_V1" in source
     assert "Price + Stoch v1 bruker foreløpig 1m" in source
+
+
+def test_price_macd_live_uses_forming_price_but_closed_macd_context() -> None:
+    source = Path("autotrader_price_macd_live_v1.py").read_text(encoding="utf-8")
+    assert "_live_bars_and_action_v1(" in source
+    assert "macd_bars=eligible" in source
+
+
+def test_reconfigure_ensures_fast_runtime_schema_before_state_delete() -> None:
+    source = Path("autotrader_strategy_family_v1.py").read_text(encoding="utf-8")
+    ensure_pos = source.index("ensure_fast_live_schema_v2()", source.index("def reconfigure_live_family_v1"))
+    delete_pos = source.index("DELETE FROM pg_v2_autotrader_fast_live_state", source.index("def reconfigure_live_family_v1"))
+    assert ensure_pos < delete_pos
