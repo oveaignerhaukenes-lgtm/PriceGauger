@@ -329,12 +329,23 @@ export default function(component) {{
             inspector.style.opacity = parts.length ? '1' : '0';
         }});
         root.addEventListener('pointerleave', () => {{ inspector.style.opacity = '0'; }}, {{ passive: true }});
+        // Make body-drag unambiguously horizontal. Price-scale dragging remains on
+        // the right axis; the chart body must not consume vertical page movement.
+        root.style.touchAction = 'pan-y';
 
-        if (previousVisibleRange) {{
-            try {{ chart.timeScale().setVisibleLogicalRange(previousVisibleRange); }} catch (_) {{ chart.timeScale().fitContent(); }}
+        let savedVisibleRange = previousVisibleRange;
+        if (!savedVisibleRange) {{
+            try {{ savedVisibleRange = JSON.parse(window.localStorage.getItem(viewKey) || 'null'); }} catch (_) {{}}
+        }}
+        if (savedVisibleRange) {{
+            try {{ chart.timeScale().setVisibleLogicalRange(savedVisibleRange); }} catch (_) {{ chart.timeScale().fitContent(); }}
         }} else {{
             chart.timeScale().fitContent();
         }}
+        chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {{
+            if (!range) return;
+            try {{ window.localStorage.setItem(viewKey, JSON.stringify(range)); }} catch (_) {{}}
+        }});
 
         const entry = {{
             parent: parentElement, root, inspector, countdown, chart, candles, series, labels, markers,
