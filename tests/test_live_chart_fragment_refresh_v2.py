@@ -44,11 +44,11 @@ def test_live_overlay_has_browser_heartbeat_not_only_streamlit_run_every():
     assert "on_live_tick_change=lambda: None" in wrapper
 
 
-def test_direct_chart_has_independent_five_second_browser_heartbeat():
+def test_direct_chart_has_independent_one_second_browser_heartbeat():
     source = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
     oslo = Path("tradingdesk_ui/charts/lightweight/direct_runtime_oslo_v2.py").read_text(encoding="utf-8")
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     assert "setTriggerValue('live_tick', Date.now())" in source
     assert "document.visibilityState !== 'hidden'" in source
     assert "on_live_tick_change=lambda: None" in oslo
-    assert "refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
+    assert "refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
