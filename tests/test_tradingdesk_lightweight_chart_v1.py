@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
+from saxo_chart_live import FormingCandle1m
 from trading_desk import ChartBar
 from trading_desk_chart import OVERLAY_NORMALIZED
 from trading_desk_indicators import IndicatorPoint, TechnicalIndicators
@@ -255,3 +256,59 @@ def test_lightweight_boundary_contains_no_execution_authority() -> None:
     )
     for token in forbidden:
         assert token not in source
+
+
+def test_direct_contract_carries_forming_candle_inside_same_chart_payload() -> None:
+    bars = _bars()
+    forming = FormingCandle1m(
+        market="US Tech 100 NAS",
+        bar_time="2026-09-04T20:59:00+00:00",
+        open=29501.0,
+        high=29509.0,
+        low=29499.0,
+        close=29507.0,
+        volume=12.0,
+        provider="Saxo price stream",
+        uic=4912,
+        asset_type="CfdOnIndex",
+        symbol="NAS100",
+        delayed_by_minutes=None,
+        source_event_at="2026-09-04T20:59:04+00:00",
+        updated_at="2026-09-04T20:59:04+00:00",
+    )
+    payload = build_lightweight_direct_live_payload_v1(
+        market="US Tech 100 NAS",
+        timeframe="5m",
+        primary=bars,
+        overlays={},
+        overlay_mode=OVERLAY_NORMALIZED,
+        indicators=None,
+        indicator_names=(),
+        indicator_timeframes={},
+        chart_height=780,
+        price_panel_share=0.5,
+        forming_candle=forming,
+    )
+    assert payload["forming_candle"] == {
+        "time": int(datetime(2026, 9, 4, 20, 55, tzinfo=timezone.utc).timestamp()),
+        "open": 29501.0,
+        "high": 29509.0,
+        "low": 29499.0,
+        "close": 29507.0,
+    }
+
+
+def test_main_chart_runtime_applies_forming_payload_inside_its_own_iframe() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "direct_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
+
+    assert "function applyFormingPayload(entry)" in source
+    assert "const item = payload.forming_candle || null" in source
+    assert "entry.candles.update(merged)" in source
+    assert "applyFormingPayload(entry)" in source
+    assert "parentElement.innerHTML =" not in source
+    assert "forming_candle=forming" in page
+    assert "render_lightweight_live_update_v1(" not in page
+    assert "render_lightweight_base_update_v1(" not in page
