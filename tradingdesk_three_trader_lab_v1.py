@@ -129,6 +129,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             "Price + Stoch lar pris eie retningen; stochastic-vectoren varsler/kan gå FLAT tidlig, "
             "men får ikke reversere uten prisbekreftelse."
         )
+        family_sim_selection = load_sim_family_selection_v1(int(instrument_id))
         controls = st.columns([1, 1, 2])
         with controls[0]:
             hours = int(st.selectbox(
@@ -157,9 +158,14 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
 
         tp_controls = st.columns([2, 1, 1])
         with tp_controls[0]:
+            tp_base_options = tuple(
+                item for item in ALL_MODELS
+                if item != TAKE_PROFIT_NAME
+                and (item != FAMILY_SIM_NAME or family_sim_selection is not None)
+            )
             tp_base = st.selectbox(
                 "TakeProfit base (X)",
-                tuple(item for item in ALL_MODELS if item != TAKE_PROFIT_NAME),
+                tp_base_options,
                 index=6,
                 key=f"three-trader-tp-base-{instrument_id}",
             )
@@ -205,7 +211,6 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 normalized_full[["PRICE", "TARGET", "AUTHORITATIVE_CROSS"]]
             )
             price_stoch_full = replay_price_stoch_v1(bars)
-            family_sim_selection = load_sim_family_selection_v1(int(instrument_id))
             family_sim_full = (
                 replay_strategy_family_v1(
                     bars,
@@ -251,6 +256,8 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             NORMALIZED_MANAGED_NAME: normalized_managed_frame,
             PRICE_STOCH_NAME: price_stoch_frame,
         }
+        if family_sim_frame is not None:
+            base_frames[FAMILY_SIM_NAME] = family_sim_frame
         take_profit_frame = apply_take_profit_replay_v1(
             base_frames[tp_base],
             giveback_pct=tp_giveback,
