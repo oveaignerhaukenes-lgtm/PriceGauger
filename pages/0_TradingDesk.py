@@ -574,7 +574,7 @@ def _render_live_chart() -> None:
     else:
         chart_surface, indicator_surface = st.container(), None
     with chart_surface:
-        # The v2 component caches invocations by widget key. A constant key caused\n        # fragment reruns to read fresh PostgreSQL state but leave the visible JS\n        # component on its original payload. Key the component by the forming-candle\n        # revision so every fresh market event crosses the Python -> browser boundary.\n        forming_revision = "closed" if forming is None else str(forming.updated_at)\n        render_lightweight_direct_live_v1(\n            payload,\n            key=f"tradingdesk-lightweight-direct:{market}:{forming_revision}",\n        )
+        render_lightweight_direct_live_v1(\n            payload,\n            key=f"tradingdesk-lightweight-direct:{market}",\n        )
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
             "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
