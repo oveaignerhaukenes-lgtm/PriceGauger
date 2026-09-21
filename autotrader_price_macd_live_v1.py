@@ -160,6 +160,7 @@ def run_price_macd_live_once_v1(
     features = build_price_macd_features_v1(
         live_bars,
         timeframe_minutes=timeframe_minutes,
+        macd_bars=eligible,
         config=DEFAULT_PRICE_MACD_CONFIG_V1,
     )
     if features.empty:
