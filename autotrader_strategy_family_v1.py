@@ -364,6 +364,19 @@ def reconfigure_live_family_v1(
     )
 
 
+def strategy_instance_label_v1(*, pilot_key: str, strategy_key: str) -> str | None:
+    family = strategy_family_v1(strategy_key)
+    if family is None:
+        return None
+    config = load_strategy_family_config_v1(
+        pilot_key,
+        strategy_key=strategy_key,
+    )
+    if config is None:
+        return None
+    return family_display_label_v1(config.family, config.timeframe_minutes)
+
+
 def family_display_label_v1(family: str, timeframe_minutes: int) -> str:
     normalized = str(family).strip().upper()
     label = FAMILY_LABELS_V1.get(normalized, normalized)
@@ -396,5 +409,6 @@ __all__ = [
     "save_family_sim_config_v1",
     "save_strategy_family_config_v1",
     "strategy_family_v1",
+    "strategy_instance_label_v1",
     "validate_timeframe_minutes_v1",
 ]
