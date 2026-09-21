@@ -23,6 +23,10 @@ from autotrader_strategy_family_v1 import (
     validate_timeframe_minutes_v1,
 )
 from autotrader_strategy_switch_v2 import switch_live_strategy_v2
+from autotrader_take_profit_modifier_v1 import (
+    load_take_profit_config_v1,
+    save_take_profit_config_v1,
+)
 
 
 SIM_MODE_V1 = "SIM"
@@ -215,6 +219,7 @@ def render_strategy_family_builder_v1(
             target_strategy_key = family_strategy_key_v1(family)
             try:
                 if enrollment.strategy_key != target_strategy_key:
+                    take_profit_config = load_take_profit_config_v1(enrollment.pilot_key)
                     switched = switch_live_strategy_v2(
                         pilot_key=enrollment.pilot_key,
                         target_strategy_key=target_strategy_key,
@@ -226,6 +231,10 @@ def render_strategy_family_builder_v1(
                         pilot_key=target_enrollment.pilot_key,
                         family=family,
                         timeframe_minutes=minutes,
+                    )
+                    save_take_profit_config_v1(
+                        target_enrollment.pilot_key,
+                        take_profit_config,
                     )
                 else:
                     live_config = load_strategy_family_config_v1(
