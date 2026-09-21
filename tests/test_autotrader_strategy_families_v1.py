@@ -201,3 +201,17 @@ def test_reconfigure_ensures_fast_runtime_schema_before_state_delete() -> None:
     ensure_pos = source.index("ensure_fast_live_schema_v2()", source.index("def reconfigure_live_family_v1"))
     delete_pos = source.index("DELETE FROM pg_v2_autotrader_fast_live_state", source.index("def reconfigure_live_family_v1"))
     assert ensure_pos < delete_pos
+
+
+def test_family_sim_can_be_takeprofit_base_only_when_available() -> None:
+    source = Path("tradingdesk_three_trader_lab_v1.py").read_text(encoding="utf-8")
+    assert "tp_base_options = tuple(" in source
+    assert "item != FAMILY_SIM_NAME or family_sim_selection is not None" in source
+    assert "base_frames[FAMILY_SIM_NAME] = family_sim_frame" in source
+
+
+def test_takeprofit_modifier_is_carried_across_family_live_switch() -> None:
+    source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    assert "take_profit_config = load_take_profit_config_v1(enrollment.pilot_key)" in source
+    assert "save_take_profit_config_v1(" in source
+    assert "target_enrollment.pilot_key" in source
