@@ -21,6 +21,7 @@ from autotrader_mtf_short_live_runtime_v2 import run_mtf_short_live_strategy_onc
 from autotrader_overseer_live_v1 import run_overseer_live_once_v1
 from autotrader_overseer_performance_v1 import OVERSEER_PERFORMANCE_STRATEGY_KEY_V1
 from autotrader_price_stoch_live_v1 import PRICE_STOCH_LIVE_STRATEGIES_V1, run_price_stoch_live_once_v1
+from autotrader_price_macd_live_v1 import PRICE_MACD_LIVE_STRATEGIES_V1, run_price_macd_live_once_v1
 from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_sfl_v1 import SFL_STRATEGY_KEYS_V1, run_sfl_live_once_v1
 from autotrader_strategy_catalog_v2 import (
@@ -31,6 +32,7 @@ from autotrader_strategy_catalog_v2 import (
     STRONG_COCKTAIL_STRATEGY_V2,
 )
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
+from autotrader_strategy_family_v1 import FAMILY_MACD_STRATEGY_V1
 from autotrader_take_profit_modifier_v1 import (
     take_profit_reentry_blocked_v1,
     take_profit_trigger_blocks_strategy_v1,
@@ -41,7 +43,7 @@ from saxo_provider import configured_client
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_dispatch_v2")
 FAST_LIVE_STRATEGIES = {STRONG_COCKTAIL_STRATEGY_V2}
 SFL_LIVE_STRATEGIES = set(SFL_STRATEGY_KEYS_V1.values())
-TIMEFRAME_MACD_LIVE_STRATEGIES = {MACD_1M_FLIP_STRATEGY_V2, MACD_2M_FLIP_STRATEGY_V2, MACD_5M_FLIP_STRATEGY_V2, MACD_15M_FLIP_STRATEGY_V2, MACD_FLIP_STRATEGY_V2}
+TIMEFRAME_MACD_LIVE_STRATEGIES = {MACD_1M_FLIP_STRATEGY_V2, MACD_2M_FLIP_STRATEGY_V2, MACD_5M_FLIP_STRATEGY_V2, MACD_15M_FLIP_STRATEGY_V2, MACD_FLIP_STRATEGY_V2, FAMILY_MACD_STRATEGY_V1}
 HYBRID_LIVE_STRATEGIES = {MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2, MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2}
 _FAST_LOG_FINGERPRINTS: dict[str, tuple[object, ...]] = {}
 
@@ -120,6 +122,8 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 cycle = run_macd_normalized_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in PRICE_STOCH_LIVE_STRATEGIES_V1:
                 cycle = run_price_stoch_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
+            elif enrollment.strategy_key in PRICE_MACD_LIVE_STRATEGIES_V1:
+                cycle = run_price_macd_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in SFL_LIVE_STRATEGIES:
                 cycle = run_sfl_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in MACD_MODEL_LIVE_STRATEGIES_V1:
