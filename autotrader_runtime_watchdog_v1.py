@@ -384,6 +384,46 @@ def _row_mapping(row: Any, columns: Sequence[str]) -> dict[str, Any]:
 
 
 def _load_runtime_state_v1(enrollment: StrategyEnrollmentV2) -> dict[str, Any]:
+    # A triggered X + TakeProfit wrapper temporarily owns the effective target.
+    # Read it directly so diagnostics do not mislabel an intentional FLAT/cooldown
+    # as a base-strategy target mismatch. The tables may not exist before rollout.
+    try:
+        with connect() as db:
+            tp_row = db.execute(
+                """
+                SELECT state.triggered_at, state.flat_since,
+                       config.enabled, config.reentry_cooldown_seconds
+                FROM pg_v2_autotrader_take_profit_state AS state
+                JOIN pg_v2_autotrader_take_profit_config AS config
+                  ON config.pilot_key = state.pilot_key
+                WHERE state.pilot_key = ? AND state.triggered_at IS NOT NULL
+                LIMIT 1
+                """,
+                (enrollment.pilot_key,),
+            ).fetchone()
+    except Exception:
+        tp_row = None
+    if tp_row is not None:
+        tp = _row_mapping(
+            tp_row,
+            ("triggered_at", "flat_since", "enabled", "reentry_cooldown_seconds"),
+        )
+        flat_since = tp.get("flat_since")
+        cooldown = max(0, int(tp.get("reentry_cooldown_seconds") or 0))
+        latch_active = flat_since is None
+        if flat_since is not None and bool(tp.get("enabled")):
+            latch_active = datetime.now(timezone.utc) < (
+                _utc(flat_since) + timedelta(seconds=cooldown)
+            )
+        if bool(tp.get("enabled")) and latch_active:
+            return {
+                "desired_direction": DIRECTION_FLAT,
+                "pending_target_direction": DIRECTION_FLAT if flat_since is None else None,
+                "intent_signal_at": tp.get("triggered_at"),
+                "intent_signal": "TAKE_PROFIT_GIVEBACK",
+                "last_action_at": tp.get("triggered_at"),
+            }
+
     columns = (
         "desired_direction",
         "pending_target_direction",
