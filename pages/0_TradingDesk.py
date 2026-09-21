@@ -574,7 +574,10 @@ def _render_live_chart() -> None:
     else:
         chart_surface, indicator_surface = st.container(), None
     with chart_surface:
-        render_lightweight_direct_live_v1(\n            payload,\n            key=f"tradingdesk-lightweight-direct:{market}",\n        )
+        render_lightweight_direct_live_v1(
+            payload,
+            key=f"tradingdesk-lightweight-direct:{market}",
+        )
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
             "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
