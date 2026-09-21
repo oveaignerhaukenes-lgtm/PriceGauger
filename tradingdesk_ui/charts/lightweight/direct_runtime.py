@@ -109,7 +109,19 @@ export default function(component) {{
             transition: 'opacity 90ms ease',
         }});
         root.appendChild(inspector);
-        return {{ root, inspector }};
+
+        const countdown = document.createElement('div');
+        countdown.className = 'pg-lightweight-candle-countdown';
+        Object.assign(countdown.style, {{
+            position: 'absolute', right: '66px', top: '6px', zIndex: '9',
+            padding: '3px 7px', borderRadius: '5px',
+            background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
+            font: '600 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace',
+            pointerEvents: 'none', fontVariantNumeric: 'tabular-nums',
+        }});
+        countdown.textContent = '--:--';
+        root.appendChild(countdown);
+        return {{ root, inspector, countdown }};
     }}
 
     function formatValue(value) {{
@@ -122,7 +134,7 @@ export default function(component) {{
 
     function buildChart(LWC, previousVisibleRange = null) {{
         const colors = theme();
-        const {{ root, inspector }} = createRoot(colors);
+        const {{ root, inspector, countdown }} = createRoot(colors);
         const chart = LWC.createChart(root, {{
             autoSize: true,
             layout: {{
@@ -286,10 +298,21 @@ export default function(component) {{
         }}
 
         const entry = {{
-            parent: parentElement, root, inspector, chart, candles, series, labels, markers,
-            baseCandles, formingCandles, signature: String(payload.signature || ''),
+            parent: parentElement, root, inspector, countdown, chart, candles, series, labels, markers,
+            baseCandles, formingCandles, signature: String(payload.signature || ''), countdownTimer: null,
         }};
         applyFormingPayload(entry);
+        const timeframeSeconds = Math.max(60, Number(payload.timeframe_seconds || 60));
+        const renderCountdown = () => {{
+            const nowSeconds = Date.now() / 1000;
+            let remaining = Math.ceil(timeframeSeconds - (nowSeconds % timeframeSeconds));
+            if (remaining <= 0 || remaining > timeframeSeconds) remaining = timeframeSeconds;
+            const minutes = Math.floor(remaining / 60);
+            const seconds = remaining % 60;
+            entry.countdown.textContent = `${{String(minutes).padStart(2, '0')}}:${{String(seconds).padStart(2, '0')}}`;
+        }};
+        renderCountdown();
+        entry.countdownTimer = window.setInterval(renderCountdown, 250);
         return entry;
     }}
 
@@ -363,6 +386,7 @@ export default function(component) {{
         if (entry && (!sameParent || !sameSignature)) {{
             let visible = null;
             try {{ visible = entry.chart.timeScale().getVisibleLogicalRange(); }} catch (_) {{}}
+            if (entry.countdownTimer) window.clearInterval(entry.countdownTimer);
             try {{ entry.chart.remove(); }} catch (_) {{}}
             registry.delete(chartId);
             entry = buildChart(LWC, sameSignature ? visible : null);
