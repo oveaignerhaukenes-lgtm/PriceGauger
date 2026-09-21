@@ -87,4 +87,4 @@ def test_live_chart_keeps_one_second_forming_candle_refresh() -> None:
     assert "render_lightweight_live_update_v1(" not in page
     assert "render_lightweight_base_update_v1(" not in page
     assert "payload.forming_candle" in runtime
-    assert "setTriggerValue('live_tick', Date.now())" in runtime
+    assert "setTriggerValue('live_tick', Date.now())" not in runtime
