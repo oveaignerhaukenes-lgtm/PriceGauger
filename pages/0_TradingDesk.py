@@ -310,6 +310,7 @@ with controls_column:
             st.caption(
                 f"Live-candlen oppdateres hvert {LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}. sekund fra Saxo price-stream; "
                 f"canonical chart/indikatorer synkes hvert {LIVE_CHART_BASE_REFRESH_SECONDS}. sekund. "
+                "Chart-komponentene har egen browser-heartbeat, så dette er ikke avhengig av full side-refresh. "
                 f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
             )
         else:
@@ -521,6 +522,7 @@ def _render_live_chart() -> None:
         render_lightweight_direct_live_v1(
             payload,
             key=f"tradingdesk-lightweight-direct:{market}",
+            refresh_ms=LIVE_CHART_BASE_REFRESH_SECONDS * 1000,
         )
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
@@ -562,6 +564,7 @@ def _render_lightweight_live_update() -> None:
         timeframe_minutes=TIMEFRAME_MINUTES[timeframe],
         candle=forming,
         trade_markers=_load_trade_markers(),
+        refresh_ms=LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000,
     )
     if forming is not None:
         age = forming_candle_event_age_seconds(forming)
