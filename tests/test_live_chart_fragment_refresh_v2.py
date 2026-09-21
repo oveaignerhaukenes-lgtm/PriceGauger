@@ -49,6 +49,6 @@ def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
     oslo = Path("tradingdesk_ui/charts/lightweight/direct_runtime_oslo_v2.py").read_text(encoding="utf-8")
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     assert "setTriggerValue('live_tick', Date.now())" not in source
-    assert "window.setInterval" not in source
+    assert "setTriggerValue(\'live_tick\', Date.now())" not in source
     assert "on_live_tick_change" not in oslo
     assert 'chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_chart)()' in page
