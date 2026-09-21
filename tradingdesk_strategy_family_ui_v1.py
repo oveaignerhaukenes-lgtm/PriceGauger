@@ -91,17 +91,6 @@ def _legacy_hint_v1(enrollment: StrategyEnrollmentV2) -> FamilyUiSelectionV1 | N
 
 
 def _timeframe_choice_v1(*, base_key: str, family: str, default_minutes: int) -> int:
-    if family == FAMILY_PRICE_STOCH_V1:
-        st.selectbox(
-            "Tidsperiode",
-            ("1m",),
-            index=0,
-            disabled=True,
-            key=f"{base_key}:tf-stoch-fixed",
-            help="Price + Stoch v1 bruker foreløpig 1m price/stochastic-clock.",
-        )
-        return 1
-
     default = int(default_minutes)
     options: tuple[object, ...] = tuple(TIMEFRAME_PRESETS_V1) + (CUSTOM_TIMEFRAME_LABEL_V1,)
     default_option: object = default if default in TIMEFRAME_PRESETS_V1 else CUSTOM_TIMEFRAME_LABEL_V1
