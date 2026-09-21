@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from autotrader_macd_dry_run_v2 import STRATEGY_KEY as MACD_LONG_FLAT_STRATEGY_V2
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 from autotrader_overseer_performance_v1 import OVERSEER_PERFORMANCE_STRATEGY_KEY_V1
+from autotrader_price_stoch_v1 import PRICE_STOCH_STRATEGY_V1
 
 MACD_SHORT_FLAT_STRATEGY_V2 = "macd-30m-short-flat-v1"
 MTF_LONG_FLAT_STRATEGY_V2 = "macd-mtf-30-10-5-long-flat-v1"
@@ -83,6 +84,11 @@ MACD_NORM_MANAGER_SPEC_V1 = _spec(
     "MACD norm + manager",
     "Normalized MACD signal with authoritative closed 5m cross, plus stateful MFE profit-lock, reversal confirmation and re-entry cooldown.",
 )
+PRICE_STOCH_SPEC_V1 = _spec(
+    PRICE_STOCH_STRATEGY_V1,
+    "Price + Stoch · half-parade",
+    "Price owns direction; fast stochastic %K slope/angle scouts and may flatten early, but cannot reverse without price confirmation.",
+)
 
 def _sfl_spec(minutes: int) -> AutoTraderStrategySpecV2:
     return _spec(f"sfl-{minutes}m-v1", f"SFL{minutes}", f"{minutes}m state/flow/latency model with FLAT de-risking.")
@@ -102,6 +108,7 @@ AUTOTRADER_STRATEGIES_V2 = (
     STRONG_COCKTAIL_SPEC_V2, MACD_1M_FLIP_SPEC_V2, MACD_2M_FLIP_SPEC_V2,
     MACD_5M_FLIP_SPEC_V2, MACD_15M_FLIP_SPEC_V2, MACD2_10_SPEC_V2,
     MACD2_S_SPEC_V2, MACD_A_SPEC_V2, MACD_NORM_SPEC_V1, MACD_NORM_MANAGER_SPEC_V1,
+    PRICE_STOCH_SPEC_V1,
     SFL_1M_SPEC_V2, SFL_2M_SPEC_V2, SFL_5M_SPEC_V2, SFL_10M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2, MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
     AI_BASELINE_SPEC_V2, OVERSEER_PERFORMANCE_SPEC_V1,

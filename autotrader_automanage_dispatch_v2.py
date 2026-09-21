@@ -20,6 +20,7 @@ from autotrader_mtf_live_runtime_v2 import run_mtf_live_strategy_once_v2
 from autotrader_mtf_short_live_runtime_v2 import run_mtf_short_live_strategy_once_v2
 from autotrader_overseer_live_v1 import run_overseer_live_once_v1
 from autotrader_overseer_performance_v1 import OVERSEER_PERFORMANCE_STRATEGY_KEY_V1
+from autotrader_price_stoch_live_v1 import PRICE_STOCH_LIVE_STRATEGIES_V1, run_price_stoch_live_once_v1
 from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_sfl_v1 import SFL_STRATEGY_KEYS_V1, run_sfl_live_once_v1
 from autotrader_strategy_catalog_v2 import (
@@ -85,6 +86,8 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 cycle = run_ai_live_strategy_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in MACD_NORMALIZED_LIVE_STRATEGIES_V1:
                 cycle = run_macd_normalized_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
+            elif enrollment.strategy_key in PRICE_STOCH_LIVE_STRATEGIES_V1:
+                cycle = run_price_stoch_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in SFL_LIVE_STRATEGIES:
                 cycle = run_sfl_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in MACD_MODEL_LIVE_STRATEGIES_V1:

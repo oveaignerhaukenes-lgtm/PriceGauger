@@ -88,8 +88,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--autotrader-strategy-seconds",
         type=int,
-        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_STRATEGY_SECONDS", "15")),
-        help="Cadence for active LIVE AutoManage strategy planning on each strategy's explicit signal clock.",
+        default=int(os.getenv("PRICEGAUGER_AUTOTRADER_STRATEGY_SECONDS", "5")),
+        help="Cadence for active LIVE AutoManage strategy planning; each strategy still owns its explicit signal clock.",
     )
     parser.add_argument(
         "--autotrader-risk-control-seconds",

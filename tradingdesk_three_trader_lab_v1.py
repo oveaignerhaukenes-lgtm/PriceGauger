@@ -10,6 +10,7 @@ from autotrader_hybrid_replay_v1 import replay_hybrid_models_v1
 from autotrader_macd_supervisor_normalized_replay_v1 import replay_normalized_macd_supervisor_v1
 from autotrader_macd_supervisor_replay_v1 import replay_macd_supervisor_v1, summarize_macd_supervisor_frame_v1
 from autotrader_position_manager_replay_v1 import apply_position_manager_v1
+from autotrader_price_stoch_v1 import replay_price_stoch_v1
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from trading_desk_v2_context import TradingDeskV2Context
@@ -21,6 +22,7 @@ HOLISTIC_NAME = "Holistisk AI"
 MANAGED_NAME = "MACD + manager"
 NORMALIZED_NAME = "MACD norm"
 NORMALIZED_MANAGED_NAME = "MACD norm + manager"
+PRICE_STOCH_NAME = "Price + Stoch"
 ALL_MODELS = (
     RULE_NAME,
     ADAPTIVE_NAME,
@@ -28,6 +30,7 @@ ALL_MODELS = (
     MANAGED_NAME,
     NORMALIZED_NAME,
     NORMALIZED_MANAGED_NAME,
+    PRICE_STOCH_NAME,
 )
 
 
@@ -114,9 +117,9 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
     with st.container(border=True):
         st.markdown("### Strategier · samme marked")
         st.caption(
-            "Samme canonical prisserie, seks analysis-only spor: rå MACD-supervisor, adaptiv MACD, "
-            "holistisk AI, rå MACD med stateful manager, per-timeframe-normalisert MACD og "
-            "normalisert MACD med samme manager. Dette skiller signalrespons fra posisjonsforvaltning."
+            "Samme canonical prisserie med signal-/manager-spor og PG Price + Stoch. "
+            "Price + Stoch lar pris eie retningen; stochastic-vectoren varsler/kan gå FLAT tidlig, "
+            "men får ikke reversere uten prisbekreftelse."
         )
         controls = st.columns([1, 1, 2])
         with controls[0]:
@@ -165,6 +168,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             normalized_managed_full = apply_position_manager_v1(
                 normalized_full[["PRICE", "TARGET", "AUTHORITATIVE_CROSS"]]
             )
+            price_stoch_full = replay_price_stoch_v1(bars)
         except Exception as exc:
             st.caption(f"Trader-lab venter på nok canonical data: {exc}")
             return
@@ -175,6 +179,9 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         normalized_frame = normalized_full[normalized_full.index >= visible_since][["PRICE", "TARGET"]].copy()
         normalized_managed_frame = normalized_managed_full[
             normalized_managed_full.index >= visible_since
+        ][["PRICE", "TARGET"]].copy()
+        price_stoch_frame = price_stoch_full[
+            price_stoch_full.index >= visible_since
         ][["PRICE", "TARGET"]].copy()
 
         adaptive_slice = adaptive_full[adaptive_full.index >= visible_since]
@@ -198,6 +205,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         holistic_events = tuple(item for item in decisions if int(item["target"]) in (-1, 1))
         managed_events = _events_from_target(managed_frame, include_flat=True)
         normalized_managed_events = _events_from_target(normalized_managed_frame, include_flat=True)
+        price_stoch_events = _events_from_target(price_stoch_frame, include_flat=True)
         event_sets = {
             RULE_NAME: rule_events,
             ADAPTIVE_NAME: adaptive_events,
@@ -205,6 +213,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             MANAGED_NAME: managed_events,
             NORMALIZED_NAME: normalized_events,
             NORMALIZED_MANAGED_NAME: normalized_managed_events,
+            PRICE_STOCH_NAME: price_stoch_events,
         }
 
         if RULE_NAME in visible:
@@ -215,6 +224,8 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             _render_metrics(NORMALIZED_NAME, normalized_frame, cost_bps=cost_bps)
         if NORMALIZED_MANAGED_NAME in visible:
             _render_metrics(NORMALIZED_MANAGED_NAME, normalized_managed_frame, cost_bps=cost_bps)
+        if PRICE_STOCH_NAME in visible:
+            _render_metrics(PRICE_STOCH_NAME, price_stoch_frame, cost_bps=cost_bps)
         if ADAPTIVE_NAME in visible:
             _render_metrics(ADAPTIVE_NAME, adaptive_frame, cost_bps=cost_bps)
         if HOLISTIC_NAME in visible:
@@ -234,6 +245,11 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             st.caption(
                 "Norm v1: hver timeframe skaleres mot sin egen tidligere MACD-spread før vekting. "
                 "Det fjerner rå skala-fordelen 15m/30m har over 1m/2m/5m, uten å endre live-strategien."
+            )
+        if PRICE_STOCH_NAME in visible:
+            st.caption(
+                "Price + Stoch: 1m price-vector er beslutningssignal. %K-slope over 1/3/5 bars er scout/halvparade; "
+                "scouten kan gå FLAT når pris ikke lenger bekrefter aktiv retning, men kan ikke alene gå motsatt."
             )
 
         render_three_trader_tv_v1(rule_frame, event_sets, visible, key=f"three-trader-chart-{instrument_id}")
