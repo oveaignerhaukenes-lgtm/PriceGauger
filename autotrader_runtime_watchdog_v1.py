@@ -25,6 +25,11 @@ from autotrader_strategy_enrollment_v2 import (
     load_active_strategy_enrollments_v2,
 )
 from autotrader_macd_timeframe_live_v1 import LIVE_MACD_CONTROL_STRATEGIES_V1
+from autotrader_strategy_family_v1 import (
+    FAMILY_MACD_STRATEGY_V1,
+    FAMILY_MACD_V1,
+    load_strategy_family_config_v1,
+)
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect, using_postgres
 from saxo_provider import configured_client
@@ -528,6 +533,14 @@ def _latest_authoritative_cross_v1(
     store: CanonicalMarketBarStoreV2,
 ) -> AuthoritativeCrossV1 | None:
     timeframe = _authoritative_timeframe_v1(enrollment.strategy_key)
+    if enrollment.strategy_key == FAMILY_MACD_STRATEGY_V1:
+        family_config = load_strategy_family_config_v1(
+            enrollment.pilot_key,
+            strategy_key=enrollment.strategy_key,
+        )
+        if family_config is None or family_config.family != FAMILY_MACD_V1:
+            return None
+        timeframe = int(family_config.timeframe_minutes)
     if timeframe is None:
         return None
     lookback = max(timedelta(hours=8), timedelta(minutes=timeframe * 80))
