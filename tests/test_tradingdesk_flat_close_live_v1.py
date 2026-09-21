@@ -83,8 +83,8 @@ def test_live_chart_keeps_one_second_forming_candle_refresh() -> None:
     assert "LIVE_CHART_BASE_REFRESH_SECONDS = 5" in page
     assert "_forming_chart_candle(context)" in page
     assert "forming_candle=forming" in page
-    assert "refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
+    assert 'chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_chart)()' in page
     assert "render_lightweight_live_update_v1(" not in page
     assert "render_lightweight_base_update_v1(" not in page
     assert "payload.forming_candle" in runtime
-    assert "setTriggerValue('live_tick', Date.now())" in runtime
+    assert "setTriggerValue('live_tick', Date.now())" not in runtime

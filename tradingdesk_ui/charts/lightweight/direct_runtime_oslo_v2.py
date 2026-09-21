@@ -37,14 +37,12 @@ def render_lightweight_direct_live_oslo_v2(
     payload: Mapping[str, Any],
     *,
     key: str,
-    refresh_ms: int = 0,
 ) -> None:
     height = max(320, int(payload.get("height", 780)))
     _direct_live_oslo_component(
         key=str(key),
-        data={"payload": dict(payload), "refresh_ms": max(0, int(refresh_ms))},
+        data={"payload": dict(payload)},
         height=height,
-        on_live_tick_change=lambda: None,
     )
 
 

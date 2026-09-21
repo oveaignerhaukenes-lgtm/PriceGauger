@@ -308,9 +308,8 @@ with controls_column:
         )
         if auto_refresh:
             st.caption(
-                f"Ett chart-iframe eier både canonical bars og forming candle. Browser-heartbeat er "
-                f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s; Streamlit-fragmentet på "
-                f"{LIVE_CHART_BASE_REFRESH_SECONDS}s er fallback. "
+                f"Ett chart-iframe eier både canonical bars og forming candle. Live-fragmentet leser "
+                f"forming candle hvert {LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}. sekund; canonical data følger samme chart-runtime. "
                 f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
             )
         else:
@@ -578,7 +577,6 @@ def _render_live_chart() -> None:
         render_lightweight_direct_live_v1(
             payload,
             key=f"tradingdesk-lightweight-direct:{market}",
-            refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0),
         )
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
@@ -654,7 +652,7 @@ with chart_column:
         _render_live_chart_controls()
         chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
         if chart_fragment is not None:
-            chart_fragment(run_every=f"{LIVE_CHART_BASE_REFRESH_SECONDS}s")(_render_live_chart)()
+            chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_chart)()
         else:
             _render_live_chart()
     else:

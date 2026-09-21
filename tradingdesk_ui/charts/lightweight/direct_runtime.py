@@ -15,10 +15,8 @@ _DIRECT_LIVE_JS = rf"""
 const LIB_URL = {_LIGHTWEIGHT_CHARTS_URL!r};
 
 export default function(component) {{
-    const {{ data, parentElement, setTriggerValue }} = component;
+    const {{ data, parentElement }} = component;
     const payload = data.payload || {{}};
-    const refreshMs = Math.max(0, Number(data.refresh_ms || 0));
-    let refreshTimer = null;
     const chartId = String(payload.chart_id || 'TradingDeskLightweight:unknown');
     const registry = window.__pricegaugerLightweightCharts ||= new Map();
 
@@ -388,17 +386,7 @@ export default function(component) {{
         parentElement.appendChild(message);
     }});
 
-    if (refreshMs >= 250) {{
-        refreshTimer = window.setInterval(() => {{
-            if (document.visibilityState !== 'hidden') {{
-                try {{ setTriggerValue('live_tick', Date.now()); }} catch (_) {{}}
-            }}
-        }}, refreshMs);
-    }}
-
-    return () => {{
-        if (refreshTimer) window.clearInterval(refreshTimer);
-    }};
+    return () => {{}};
 }}
 """
 
@@ -414,16 +402,14 @@ def render_lightweight_direct_live_v1(
     payload: Mapping[str, Any],
     *,
     key: str,
-    refresh_ms: int = 0,
 ) -> None:
     """Render the canonical LIVE contract directly; Plotly is not involved."""
 
     height = max(320, int(payload.get("height", 780)))
     _direct_live_component(
         key=str(key),
-        data={"payload": dict(payload), "refresh_ms": max(0, int(refresh_ms))},
+        data={"payload": dict(payload)},
         height=height,
-        on_live_tick_change=lambda: None,
     )
 
 

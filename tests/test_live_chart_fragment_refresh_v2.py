@@ -44,11 +44,11 @@ def test_live_overlay_has_browser_heartbeat_not_only_streamlit_run_every():
     assert "on_live_tick_change=lambda: None" in wrapper
 
 
-def test_direct_chart_has_independent_one_second_browser_heartbeat():
+def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
     source = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
     oslo = Path("tradingdesk_ui/charts/lightweight/direct_runtime_oslo_v2.py").read_text(encoding="utf-8")
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert "setTriggerValue('live_tick', Date.now())" in source
-    assert "document.visibilityState !== 'hidden'" in source
-    assert "on_live_tick_change=lambda: None" in oslo
-    assert "refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
+    assert "setTriggerValue('live_tick', Date.now())" not in source
+    assert "window.setInterval" not in source
+    assert "on_live_tick_change" not in oslo
+    assert 'chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_chart)()' in page
