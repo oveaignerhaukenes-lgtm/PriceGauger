@@ -14,6 +14,7 @@ from trading_desk import ChartBar, utc
 LONG = 1
 FLAT = 0
 SHORT = -1
+PRICE_STOCH_STRATEGY_V1 = "price-stoch-half-parade-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,6 +437,7 @@ __all__ = [
     "DEFAULT_PRICE_STOCH_CONFIG_V1",
     "FLAT",
     "LONG",
+    "PRICE_STOCH_STRATEGY_V1",
     "PriceStochConfigV1",
     "PriceStochDecisionV1",
     "SHORT",
