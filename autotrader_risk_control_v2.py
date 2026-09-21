@@ -536,11 +536,20 @@ def run_managed_risk_reaction_cycle_v2() -> RiskCycleSummaryV2:
             if observation is not None and managed_position_matches_v1(enrollment, observation):
                 managed_observations.append(observation)
 
-        return _evaluate_observations_v2(
+        summary = _evaluate_observations_v2(
             tuple(managed_observations),
             config=load_risk_config_v2(),
             deactivate_missing=False,
         )
+        # Generic X + TakeProfit piggybacks on the same already-fetched managed
+        # Saxo observations. It only creates durable FLAT intents; broker execution
+        # remains in the existing hardened close executor.
+        try:
+            from autotrader_take_profit_modifier_v1 import run_take_profit_observations_v1
+            run_take_profit_observations_v1(tuple(managed_observations))
+        except Exception as exc:
+            LOGGER.warning("take-profit modifier cycle failed: %s", exc, exc_info=True)
+        return summary
 
 
 def run_risk_control_forever_v2(
