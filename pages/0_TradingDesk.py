@@ -32,6 +32,7 @@ from tradingdesk_automanage_panel_v2 import (
     render_tradingdesk_automanage_pnl_chart_v2,
 )
 from tradingdesk_ui.charts.lightweight.adapters import load_lightweight_trade_markers_v1
+from tradingdesk_ui.charts.lightweight.base_update_v1 import render_lightweight_base_update_v1
 from tradingdesk_ui.charts.lightweight.direct_contract import (
     build_lightweight_direct_live_payload_v1,
 )
@@ -524,6 +525,10 @@ def _render_live_chart() -> None:
             key=f"tradingdesk-lightweight-direct:{market}",
             refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0),
         )
+        # Streamlit v2 may retain the keyed chart component without re-running its
+        # JS on a fragment rerun. Apply new closed bars/indicator series through a
+        # revision-keyed zero-height updater so the visible chart stays mounted.
+        render_lightweight_base_update_v1(payload)
         st.caption(
             "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
             "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
