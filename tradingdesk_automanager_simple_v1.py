@@ -420,9 +420,11 @@ def render_tradingdesk_automanager_simple_v1(
     )
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
 
-    if manage_key not in st.session_state:
+    # Persisted controller state is authoritative on ordinary reruns. Streamlit
+    # widget state can otherwise become stale after backend adoption/restart.
+    if bool(st.session_state.get(manage_key, position_manage_enabled)) != position_manage_enabled:
         st.session_state[manage_key] = position_manage_enabled
-    if autotrade_key not in st.session_state:
+    if bool(st.session_state.get(autotrade_key, auto_trade_enabled)) != auto_trade_enabled:
         st.session_state[autotrade_key] = auto_trade_enabled
 
     # Backend enrollment is authoritative on ordinary reruns. A browser/session may
