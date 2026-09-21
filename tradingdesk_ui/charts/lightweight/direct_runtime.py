@@ -439,7 +439,9 @@ export default function(component) {{
             if (entry.countdownTimer) window.clearInterval(entry.countdownTimer);
             try {{ entry.chart.remove(); }} catch (_) {{}}
             registry.delete(chartId);
-            entry = buildChart(LWC, sameSignature ? visible : null);
+            // Signature changes (indicator set, period/window, etc.) rebuild series,
+            // but the user's viewport remains authoritative.
+            entry = buildChart(LWC, visible);
             registry.set(chartId, entry);
             return;
         }}
