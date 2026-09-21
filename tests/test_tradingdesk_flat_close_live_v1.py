@@ -84,7 +84,7 @@ def test_live_chart_keeps_one_second_forming_candle_refresh() -> None:
     assert 'overlay_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")' in page
     assert "_recent_forming_candle(context)" in page
     assert "context = baseline_contexts.get(market)" in page
-    assert "refresh_ms=LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000" in page
-    assert "refresh_ms=LIVE_CHART_BASE_REFRESH_SECONDS * 1000" in page
+    assert "refresh_ms=(LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
+    assert "refresh_ms=(LIVE_CHART_BASE_REFRESH_SECONDS * 1000 if auto_refresh else 0)" in page
     assert "render_trade_marker_overlay_v2(" in refresh
     assert "on_live_tick_change=lambda: None" in refresh
