@@ -52,3 +52,9 @@ def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
     assert "setTriggerValue(\'live_tick\', Date.now())" not in source
     assert "on_live_tick_change" not in oslo
     assert 'chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_chart)()' in page
+
+
+def test_visible_component_key_tracks_forming_candle_revision():
+    page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    assert 'forming_revision = "closed" if forming is None else str(forming.updated_at)' in page
+    assert 'key=f"tradingdesk-lightweight-direct:{market}:{forming_revision}"' in page
