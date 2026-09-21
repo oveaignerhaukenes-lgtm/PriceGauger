@@ -167,7 +167,7 @@ export default function(component) {{
             }},
             timeScale: {{
                 borderColor: colors.border, timeVisible: true, secondsVisible: false,
-                rightOffset: 2, barSpacing: 8, minBarSpacing: .7,
+                rightOffset: 3, barSpacing: 11, minBarSpacing: 2.5,
                 fixLeftEdge: false, fixRightEdge: false,
             }},
             crosshair: {{ mode: LWC.CrosshairMode.Normal }},
@@ -331,7 +331,9 @@ export default function(component) {{
         root.addEventListener('pointerleave', () => {{ inspector.style.opacity = '0'; }}, {{ passive: true }});
         // Make body-drag unambiguously horizontal. Price-scale dragging remains on
         // the right axis; the chart body must not consume vertical page movement.
-        root.style.touchAction = 'pan-y';
+        // Do not constrain the chart body to one gesture axis. Lightweight Charts
+        // owns drag/pan inside the plot; page scrolling remains available outside it.
+        root.style.touchAction = 'none';
 
         let savedVisibleRange = previousVisibleRange;
         if (!savedVisibleRange) {{
@@ -340,7 +342,12 @@ export default function(component) {{
         if (savedVisibleRange) {{
             try {{ chart.timeScale().setVisibleLogicalRange(savedVisibleRange); }} catch (_) {{ chart.timeScale().fitContent(); }}
         }} else {{
-            chart.timeScale().fitContent();
+            // Useful first-open default: show the most recent ~70 candles rather than
+            // fitting the entire history into an unreadable strip.
+            const lastLogical = Math.max(0, candleData.length - 1);
+            const firstLogical = Math.max(0, lastLogical - 69);
+            try {{ chart.timeScale().setVisibleLogicalRange({{ from: firstLogical, to: lastLogical + 3 }}); }}
+            catch (_) {{ chart.timeScale().fitContent(); }}
         }}
         chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {{
             if (!range) return;
