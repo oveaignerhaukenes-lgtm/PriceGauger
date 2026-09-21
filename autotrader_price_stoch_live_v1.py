@@ -33,6 +33,7 @@ from autotrader_price_stoch_v1 import (
     FLAT,
     LONG,
     SHORT,
+    PRICE_STOCH_STRATEGY_V1,
     PriceStochDecisionV1,
     build_price_stoch_features_v1,
     evaluate_price_stoch_row_v1,
@@ -45,7 +46,6 @@ from saxo_provider import configured_client
 from trading_desk import ChartBar, utc
 
 
-PRICE_STOCH_STRATEGY_V1 = "price-stoch-half-parade-v1"
 PRICE_STOCH_LIVE_STRATEGIES_V1 = {PRICE_STOCH_STRATEGY_V1}
 FORMING_MAX_AGE_SECONDS_V1 = 8.0
 MAX_CANONICAL_GAP_MINUTES_V1 = 2.0
