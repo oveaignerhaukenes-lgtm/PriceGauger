@@ -154,6 +154,7 @@ def build_lightweight_direct_live_payload_v1(
         forming_candle,
         timeframe=timeframe,
     )
+    payload["timeframe_seconds"] = int(TIMEFRAME_MINUTES[str(timeframe)]) * 60
 
     resolved_rollovers: Sequence[Mapping[str, Any]] = rollover_events or ()
     if rollover_events is None:

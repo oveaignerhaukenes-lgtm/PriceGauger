@@ -120,7 +120,8 @@ def test_direct_lightweight_runtime_owns_native_navigation_without_plotly() -> N
         encoding="utf-8"
     )
     assert "lightweight-charts@5.2.1" in source
-    assert "pinch: true" in source
+    assert "pinch: false" in source
+    assert "Math.pow(ratio, 10)" in source
     assert "pressedMouseMove: true" in source
     assert "axisPressedMouseMove" in source
     assert "axisDoubleClickReset" in source
@@ -312,3 +313,21 @@ def test_main_chart_runtime_applies_forming_payload_inside_its_own_iframe() -> N
     assert "forming_candle=forming" in page
     assert "render_lightweight_live_update_v1(" not in page
     assert "render_lightweight_base_update_v1(" not in page
+
+
+def test_direct_live_chart_has_browser_native_candle_countdown():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    contract = Path("tradingdesk_ui/charts/lightweight/direct_contract.py").read_text(encoding="utf-8")
+    assert 'payload["timeframe_seconds"]' in contract
+    assert "pg-lightweight-candle-countdown" in runtime
+    assert "Date.now()" in runtime
+    assert "window.setInterval(renderCountdown, 250)" in runtime
+    assert "window.clearInterval(entry.countdownTimer)" in runtime
+
+
+def test_direct_live_chart_uses_high_gain_touch_pinch_zoom():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    assert "pinch: false" in runtime
+    assert "Math.pow(ratio, 10)" in runtime
+    assert "setVisibleLogicalRange" in runtime
+    assert "event.preventDefault()" in runtime

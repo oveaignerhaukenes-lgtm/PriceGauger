@@ -109,7 +109,19 @@ export default function(component) {{
             transition: 'opacity 90ms ease',
         }});
         root.appendChild(inspector);
-        return {{ root, inspector }};
+
+        const countdown = document.createElement('div');
+        countdown.className = 'pg-lightweight-candle-countdown';
+        Object.assign(countdown.style, {{
+            position: 'absolute', right: '66px', top: '6px', zIndex: '9',
+            padding: '3px 7px', borderRadius: '5px',
+            background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
+            font: '600 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace',
+            pointerEvents: 'none', fontVariantNumeric: 'tabular-nums',
+        }});
+        countdown.textContent = '--:--';
+        root.appendChild(countdown);
+        return {{ root, inspector, countdown }};
     }}
 
     function formatValue(value) {{
@@ -122,7 +134,19 @@ export default function(component) {{
 
     function buildChart(LWC, previousVisibleRange = null) {{
         const colors = theme();
-        const {{ root, inspector }} = createRoot(colors);
+        const {{ root, inspector, countdown }} = createRoot(colors);
+        // Lightweight Charts' native pinch scaling is deliberately disabled below.
+        // A touch-only gesture controller applies a much stronger horizontal scale delta
+        // while preserving the midpoint under the user's fingers.
+        let pinchState = null;
+        root.addEventListener('touchstart', (event) => {{
+            if (event.touches.length !== 2) return;
+            const [a, b] = event.touches;
+            pinchState = {{
+                distance: Math.max(1, Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY)),
+            }};
+        }}, {{ passive: true }});
+
         const chart = LWC.createChart(root, {{
             autoSize: true,
             layout: {{
@@ -149,13 +173,40 @@ export default function(component) {{
             crosshair: {{ mode: LWC.CrosshairMode.Normal }},
             handleScroll: {{ mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false }},
             handleScale: {{
-                mouseWheel: true, pinch: true,
+                mouseWheel: true, pinch: false,
                 axisPressedMouseMove: {{ time: true, price: true }},
                 axisDoubleClickReset: {{ time: true, price: true }},
             }},
             kineticScroll: {{ mouse: true, touch: true }},
             hoveredSeriesOnTop: true,
         }});
+
+        root.addEventListener('touchmove', (event) => {{
+            if (!pinchState || event.touches.length !== 2) return;
+            const [a, b] = event.touches;
+            const distance = Math.max(1, Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY));
+            const ratio = distance / pinchState.distance;
+            if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.001) return;
+            const range = chart.timeScale().getVisibleLogicalRange();
+            if (!range) return;
+            const center = (range.from + range.to) / 2;
+            const span = Math.max(2, range.to - range.from);
+            // 10x gesture gain: a small finger-distance change produces a clearly
+            // visible zoom while clamping extreme jumps.
+            const boosted = Math.pow(ratio, 10);
+            const nextSpan = Math.max(2, Math.min(10000, span / boosted));
+            try {{
+                chart.timeScale().setVisibleLogicalRange({{
+                    from: center - nextSpan / 2,
+                    to: center + nextSpan / 2,
+                }});
+            }} catch (_) {{}}
+            pinchState.distance = distance;
+            event.preventDefault();
+        }}, {{ passive: false }});
+        const endPinch = () => {{ pinchState = null; }};
+        root.addEventListener('touchend', endPinch, {{ passive: true }});
+        root.addEventListener('touchcancel', endPinch, {{ passive: true }});
 
         const candles = chart.addSeries(LWC.CandlestickSeries, {{
             title: '', upColor: '#16a34a', downColor: '#dc2626',
@@ -286,10 +337,21 @@ export default function(component) {{
         }}
 
         const entry = {{
-            parent: parentElement, root, inspector, chart, candles, series, labels, markers,
-            baseCandles, formingCandles, signature: String(payload.signature || ''),
+            parent: parentElement, root, inspector, countdown, chart, candles, series, labels, markers,
+            baseCandles, formingCandles, signature: String(payload.signature || ''), countdownTimer: null,
         }};
         applyFormingPayload(entry);
+        const timeframeSeconds = Math.max(60, Number(payload.timeframe_seconds || 60));
+        const renderCountdown = () => {{
+            const nowSeconds = Date.now() / 1000;
+            let remaining = Math.ceil(timeframeSeconds - (nowSeconds % timeframeSeconds));
+            if (remaining <= 0 || remaining > timeframeSeconds) remaining = timeframeSeconds;
+            const minutes = Math.floor(remaining / 60);
+            const seconds = remaining % 60;
+            entry.countdown.textContent = `${{String(minutes).padStart(2, '0')}}:${{String(seconds).padStart(2, '0')}}`;
+        }};
+        renderCountdown();
+        entry.countdownTimer = window.setInterval(renderCountdown, 250);
         return entry;
     }}
 
@@ -363,6 +425,7 @@ export default function(component) {{
         if (entry && (!sameParent || !sameSignature)) {{
             let visible = null;
             try {{ visible = entry.chart.timeScale().getVisibleLogicalRange(); }} catch (_) {{}}
+            if (entry.countdownTimer) window.clearInterval(entry.countdownTimer);
             try {{ entry.chart.remove(); }} catch (_) {{}}
             registry.delete(chartId);
             entry = buildChart(LWC, sameSignature ? visible : null);
