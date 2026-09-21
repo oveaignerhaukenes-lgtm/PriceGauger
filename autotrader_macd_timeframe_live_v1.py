@@ -28,6 +28,11 @@ from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
 from autotrader_pilot_equity_v2 import load_pilot_equity_v2
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, StrategyEnrollmentV2
+from autotrader_strategy_family_v1 import (
+    FAMILY_MACD_STRATEGY_V1,
+    FAMILY_MACD_V1,
+    load_strategy_family_config_v1,
+)
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2, CanonicalMarketBarV2
 from database import connect
 from saxo_provider import configured_client
@@ -243,7 +248,16 @@ def run_macd_timeframe_live_once_v1(
     """
     if enrollment.execution_mode != EXECUTION_MODE_LIVE or not enrollment.enabled:
         raise ValueError("MACD timeframe runtime only executes active LIVE_MANAGE enrollments")
-    minutes = live_macd_control_timeframe_v1(enrollment.strategy_key)
+    if enrollment.strategy_key == FAMILY_MACD_STRATEGY_V1:
+        family_config = load_strategy_family_config_v1(
+            enrollment.pilot_key,
+            strategy_key=enrollment.strategy_key,
+        )
+        if family_config is None or family_config.family != FAMILY_MACD_V1:
+            raise ValueError("parameterized MACD family configuration is missing")
+        minutes = int(family_config.timeframe_minutes)
+    else:
+        minutes = live_macd_control_timeframe_v1(enrollment.strategy_key)
     ensure_fast_live_schema_v2()
 
     client = configured_client()
