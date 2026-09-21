@@ -29,6 +29,7 @@ def _forming_chart_payload_v1(
         "high": float(candle.high),
         "low": float(candle.low),
         "close": float(candle.close),
+        "updated_at": utc(candle.updated_at).isoformat(),
     }
 
 
