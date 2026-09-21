@@ -215,6 +215,9 @@ export default function(component) {{
             priceLineVisible: true, lastValueVisible: true,
         }}, 0);
         const candleData = Array.from(payload.candles || []);
+        if (!candleData.length) {{
+            throw new Error('PriceGauger live chart: canonical candle payload is empty');
+        }}
         candles.setData(candleData);
 
         const baseCandles = new Map(candleData.map((item) => [Number(item.time), {{ ...item }}]));
@@ -405,8 +408,13 @@ export default function(component) {{
         entry.parent.style.height = `${{Math.max(320, Number(payload.height || 780))}}px`;
         const candleData = Array.from(payload.candles || []);
         entry.baseCandles = new Map(candleData.map((item) => [Number(item.time), {{ ...item }}]));
-        entry.candles.setData(candleData);
-        applyFormingPayload(entry);
+        // Never erase a visible price series because one refresh produced an empty
+        // canonical slice. Indicators may have warm-up history even when the selected
+        // primary window transiently fails, which otherwise leaves an indicators-only chart.
+        if (candleData.length) {{
+            entry.candles.setData(candleData);
+            applyFormingPayload(entry);
+        }}
         for (const item of Array.from(payload.lines || [])) {{
             entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
         }}
