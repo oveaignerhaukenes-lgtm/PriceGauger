@@ -1,45 +1,48 @@
 # PriceGauger — Next Architect
 
-Updated: 2026-09-07
+Updated: 2026-09-21
 
-The authoritative handoff for Arkitekt 10 is now:
+The authoritative handoff for **Arkitekt 13** is:
 
-**[`docs/ARCHITECT_HANDOFF_2026-09-07_ARKITEKT10.md`](ARCHITECT_HANDOFF_2026-09-07_ARKITEKT10.md)**
+**[`docs/ARCHITECT_HANDOFF_2026-09-21_ARKITEKT13.md`](ARCHITECT_HANDOFF_2026-09-21_ARKITEKT13.md)**
 
-Read that document in full before changing AutoManager, LIVE OPEN/CLOSE, Saxo working-order handling, Strategy Series/Snapshot Spine, TradingDesk Lightweight charts, Spring evaluation, or futures rollover behavior.
+Read that document in full before changing AutoManager, strategy-family parameters, LIVE execution, TakeProfit, the runtime watchdog, or the TradingDesk Lightweight chart.
 
 ## Starting point
 
 Repository: `oveaignerhaukenes-lgtm/PriceGauger`
 
-Runtime `main` immediately before this documentation handoff branch:
+Authoritative `main` immediately before this documentation handoff branch:
 
-`07a464cc0fd57cfdb086270e8d8d83240d61a567`
+`97561cdb32eaee5174fd3fb6d5105f26bac59ade`
 
-That runtime baseline is PR #322 (**stale working-order / late-fill execution guard**) on top of the futures rollover hardening and the completed Lightweight TradingDesk/Strategy Lab migrations.
+This baseline includes:
 
-Final #322 CI: **1215 tests passed**.
+- parameterized strategy families: MACD(N), Price + MACD(N), Price + Stoch
+- timeframe presets + custom 1–240m for MACD/Price+MACD
+- explicit SIM / LIVE / both activation
+- generic `X + TakeProfit`
+- Price + Stoch half-parade
+- read-only runtime watchdog / flight recorder
+- corrected MACD cross authority
+- single-component live chart with forming-candle ownership
+- FLAT/manual trade markers
+- hardened CLOSE -> confirmed FLAT -> OPEN execution lifecycle
 
-Always refresh from current `main` before branching; the documentation merge itself will move `main` without changing runtime behavior.
+PR #417 provided full end-to-end family verification; its head passed GitHub **Tests #2574** successfully before merge.
+
+All Railway production services were **SUCCESS** at handoff creation.
+
+Always refresh from current `main` before branching. Older handoff documents are historical and must not override the Arkitekt 13 handoff or fresh source inspection.
 
 ## Immediate orientation
 
-The highest-priority new execution fact is the September 7 market-reopen incident: an unexpected SHORT appeared broker-side while the active MACD strategy could not yet evaluate fresh bars. Production history showed persisted Friday SHORT transition authority, exposing a stale working-order/late-fill provenance weakness. PR #322 now adds market-open precheck, PG-owned working-order cleanup, unknown-order pause behavior, late-fill quarantine and persisted execution anomalies.
+The next phase is no longer execution-foundation construction. It is:
 
-Do not restore unconditional AutoManager adoption of any exact Saxo position. Exposure state and execution provenance are now separate safety concerns.
+1. validate the newly landed family UI and single-component live chart on the user's actual mobile production session;
+2. consolidate family/modifier presentation so effective strategy identity is obvious everywhere;
+3. extend/test family semantics only with shared SIM/LIVE cores;
+4. use watchdog evidence for runtime anomalies instead of screenshot inference;
+5. close or deliberately revive stale draft PR #405 after review.
 
-TradingDesk LIVE and Strategy Lab/P&L charts now use TradingView Lightweight Charts as the canonical chart engine. Mobile X/Y scaling, pane and total-height resizing, persistence and compact timeframe controls have been physically tested by the user and work well.
-
-Futures data rollover is implemented through immutable contract identities and audited collection switching. Brent rolled `43660942 -> 44297299`; Silver rolled `45184335 -> 46652614`. Rollover has no execution authority and must never silently mutate a LIVE controller UIC.
-
-## Important open work
-
-1. Verify #322 production guard state, Saxo working orders, exact position and `pg_v2_autotrader_execution_anomalies` before adding new execution UI.
-2. PR #321 (**explicit Spring pane + wrapped legend**) is still open on an old base and is not in `main`; rebase/recreate it as presentation-only before merging.
-3. Build the user-approved AutoTrader monitor: bottom-right `Armed LIVE` / green `AutoManage OFF`, position/P&L/provenance/strategy diagnostics, plus deterministic Pause/Start/Stop/Close semantics.
-4. Add small red BUY / blue SELL quote buttons in the LIVE chart, showing current bid/ask so spread is visible, but route them through the existing `request_manual_target_v2()` lifecycle — never direct browser Saxo POST.
-5. Add a generic Saxo futures discovery fallback for Natural Gas UIC `50419383`, which is stale but cannot yet be safely resolved through PrimaryListing.
-6. Continue Spring observation and baseline comparison without inventing damping/absorption semantics before they are explicitly defined and versioned.
-7. Diagnose the existing `sp500 CFD: invalid 5m ATR` as a source/canonical-bar data-quality issue; do not weaken the ATR validity gate.
-
-Full invariants, exact incident timeline, #322 safety model, chart state, futures rollover semantics, Spring boundary, Railway identities and recommended work sequence are in the Arkitekt 10 handoff.
+Do not reintroduce cross-iframe chart updaters, score vetoes over confirmed MACD crosses, direct strategy-to-Saxo order submission, or strategy-key explosions for parameter/modifier combinations.
