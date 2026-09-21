@@ -101,7 +101,7 @@ export default function(component) {{
         const inspector = document.createElement('div');
         inspector.className = 'pg-lightweight-direct-inspector';
         Object.assign(inspector.style, {{
-            position: 'absolute', left: '8px', top: '6px', zIndex: '8',
+            position: 'absolute', left: '8px', top: '-30px', zIndex: '8',
             maxWidth: 'calc(100% - 16px)', padding: '3px 6px', borderRadius: '5px',
             background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
             font: '500 10px/1.35 system-ui,-apple-system,sans-serif', pointerEvents: 'none',
@@ -113,7 +113,7 @@ export default function(component) {{
         const countdown = document.createElement('div');
         countdown.className = 'pg-lightweight-candle-countdown';
         Object.assign(countdown.style, {{
-            position: 'absolute', right: '66px', top: '6px', zIndex: '9',
+            position: 'absolute', right: '66px', top: '-30px', zIndex: '9',
             padding: '3px 7px', borderRadius: '5px',
             background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
             font: '600 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace',
