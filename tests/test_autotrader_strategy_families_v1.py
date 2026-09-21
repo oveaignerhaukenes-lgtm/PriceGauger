@@ -275,3 +275,13 @@ def test_price_macd_core_matches_price_first_contract() -> None:
     assert price_branch < macd_branch
     assert 'state = "PRICE_AUTHORITY"' in evaluate
     assert 'state = "MACD_FALLBACK"' in evaluate
+
+
+def test_price_stoch_family_timeframe_is_selectable_and_live_runtime_honors_it():
+    ui = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    runtime = Path("autotrader_price_stoch_live_v1.py").read_text(encoding="utf-8")
+    assert "tf-stoch-fixed" not in ui
+    assert "load_strategy_family_config_v1(" in runtime
+    assert "timeframe_minutes = int(family_config.timeframe_minutes)" in runtime
+    assert "timeframe_minutes=timeframe_minutes" in runtime
+    assert "closed_bars_v2(" in runtime
