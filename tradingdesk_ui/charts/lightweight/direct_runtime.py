@@ -352,6 +352,11 @@ export default function(component) {{
         if (overlapsCurrentData(savedVisibleTimeRange)) {{
             try {{ chart.timeScale().setVisibleRange(savedVisibleTimeRange); }}
             catch (_) {{ savedVisibleTimeRange = null; }}
+        }} else {{
+            // A persisted range from an older rolling window is stale. Clear it
+            // explicitly; otherwise the non-null object suppresses the latest-bars fallback.
+            savedVisibleTimeRange = null;
+            try {{ window.localStorage.removeItem(viewKey); }} catch (_) {{}}
         }}
         if (!savedVisibleTimeRange) {{
             // Logical indices are safe only within the current dataset. Persisting them
