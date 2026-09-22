@@ -380,8 +380,22 @@ export default function(component) {{
             try {{ window.localStorage.setItem(viewKey, JSON.stringify(range)); }} catch (_) {{}}
         }});
 
+        const diagnostic = document.createElement('div');
+        diagnostic.className = 'pg-lightweight-live-diagnostic';
+        Object.assign(diagnostic.style, {{
+            position: 'absolute', left: '8px', bottom: '24px', zIndex: '10',
+            padding: '3px 6px', borderRadius: '4px',
+            background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
+            font: '500 9px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace',
+            pointerEvents: 'none', opacity: '.82',
+        }});
+        const firstBar = candleData[0] || {{}};
+        const lastBar = candleData[candleData.length - 1] || {{}};
+        diagnostic.textContent = `DBG candles=${{candleData.length}} first=${{firstBar.time ?? '?'}} last=${{lastBar.time ?? '?'}} OHLC=${{lastBar.open ?? '?'}}/${{lastBar.high ?? '?'}}/${{lastBar.low ?? '?'}}/${{lastBar.close ?? '?'}}`;
+        root.appendChild(diagnostic);
+
         const entry = {{
-            parent: parentElement, root, inspector, countdown, chart, candles, series, labels, markers,
+            parent: parentElement, root, inspector, countdown, diagnostic, chart, candles, series, labels, markers,
             baseCandles, formingCandles, signature: String(payload.signature || ''), countdownTimer: null,
         }};
         applyFormingPayload(entry);
@@ -430,6 +444,13 @@ export default function(component) {{
     function updateEntry(entry) {{
         entry.parent.style.height = `${{Math.max(320, Number(payload.height || 780))}}px`;
         const candleData = Array.from(payload.candles || []);
+        if (entry.diagnostic) {{
+            const firstBar = candleData[0] || {{}};
+            const lastBar = candleData[candleData.length - 1] || {{}};
+            let logical = null;
+            try {{ logical = entry.chart.timeScale().getVisibleLogicalRange(); }} catch (_) {{}}
+            entry.diagnostic.textContent = `DBG candles=${{candleData.length}} first=${{firstBar.time ?? '?'}} last=${{lastBar.time ?? '?'}} OHLC=${{lastBar.open ?? '?'}}/${{lastBar.high ?? '?'}}/${{lastBar.low ?? '?'}}/${{lastBar.close ?? '?'}} logical=${{logical ? Number(logical.from).toFixed(1)+'..'+Number(logical.to).toFixed(1) : '?'}}`;
+        }}
         entry.baseCandles = new Map(candleData.map((item) => [Number(item.time), {{ ...item }}]));
         // Never erase a visible price series because one refresh produced an empty
         // canonical slice. Indicators may have warm-up history even when the selected
