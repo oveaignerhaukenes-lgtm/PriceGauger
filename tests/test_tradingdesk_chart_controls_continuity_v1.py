@@ -55,3 +55,11 @@ def test_automanager_facade_installs_chart_continuity_before_runtime_use() -> No
     source = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "install_chart_runtime_continuity_v1()" in source
     assert "render_tradingdesk_chart_trade_controls_v1(context, observations=observations)" in source
+
+
+def test_chart_continuity_patch_installs_against_current_direct_runtime() -> None:
+    # This is an integration guard for the exact-string patch anchors. Source-only
+    # assertions did not catch production import failures after direct_runtime changed.
+    import tradingdesk_chart_runtime_continuity_v1 as continuity
+
+    assert continuity._INSTALLED is True
