@@ -565,6 +565,9 @@ def _render_live_chart() -> None:
         indicator_timeframes={INDICATOR_MACD: timeframe},
         chart_height=chart_height,
         price_panel_share=price_panel_pct / 100.0,
+        # Reload marker projection on every live fragment tick.  The adapter cache is
+        # intentionally short, so newly reconciled AutoTrader OPEN/CLOSE and manual
+        # Saxo fills become visible without a full-page reload.
         trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
