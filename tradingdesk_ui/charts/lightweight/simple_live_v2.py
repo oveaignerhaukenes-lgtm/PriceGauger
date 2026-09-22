@@ -168,9 +168,22 @@ export default function(component) {{
             }});
         }}
 
+        function markerPayload() {{
+            return Array.from(payload.markers || []).map((marker) => {{
+                const direction = String(marker.direction || '').toUpperCase();
+                const isFlat = direction === 'FLAT';
+                return {{
+                    ...marker,
+                    position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
+                    shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                    color: isFlat ? '#4b5563' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
+                }};
+            }});
+        }}
+
         let markers = null;
         if (LWC.createSeriesMarkers) {{
-            markers = LWC.createSeriesMarkers(candles, Array.from(payload.markers || []), {{
+            markers = LWC.createSeriesMarkers(candles, markerPayload(), {{
                 autoScale: false, zOrder: 'top',
             }});
         }}
@@ -214,7 +227,7 @@ export default function(component) {{
                 color: Number(point.value) >= 0 ? 'rgba(22,163,74,.34)' : 'rgba(220,38,38,.34)',
             }})));
         }}
-        entry.markers?.setMarkers?.(Array.from(payload.markers || []));
+        entry.markers?.setMarkers?.(Array.from(payload.markers || []).map((marker) => {\n            const direction = String(marker.direction || '').toUpperCase();\n            const isFlat = direction === 'FLAT';\n            return {\n                ...marker,\n                position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),\n                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),\n                color: isFlat ? '#4b5563' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),\n            };\n        }));
     }}
 
     parentElement.innerHTML = '<div style="padding:.75rem;color:#64748b;font:500 12px system-ui">Laster chart…</div>';
