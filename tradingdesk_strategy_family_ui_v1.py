@@ -263,7 +263,16 @@ def render_strategy_family_builder_v1(
         if current_sim is not None
         else "av"
     )
-    if hint is None:
+    # LIVE text must describe authority, not merely the persisted enrollment.
+    # A disabled controller previously rendered "LIVE nå: Legacy: ..." which looked
+    # active and contradicted the authoritative status line below.
+    live_authority = bool(
+        position_management_enabled_v1(enrollment)
+        and auto_manage_enabled_v1(enrollment)
+    )
+    if not live_authority:
+        live_text = "AV"
+    elif hint is None:
         live_text = f"Legacy: {enrollment.strategy_key}"
     else:
         live_text = family_display_label_v1(hint.family, hint.timeframe_minutes)
