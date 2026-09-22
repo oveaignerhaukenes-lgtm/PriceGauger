@@ -287,3 +287,10 @@ def test_price_stoch_family_timeframe_is_selectable_and_live_runtime_honors_it()
     assert "timeframe_minutes = int(family_config.timeframe_minutes)" in runtime
     assert "timeframe_minutes=timeframe_minutes" in runtime
     assert "closed_bars_v2(" in runtime
+
+
+def test_family_live_caption_reports_actual_authority_not_persisted_enrollment_only() -> None:
+    source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    assert "position_management_enabled_v1(enrollment)" in source
+    assert "auto_manage_enabled_v1(enrollment)" in source
+    assert 'live_text = "AV"' in source
