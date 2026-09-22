@@ -302,7 +302,7 @@ def _bootstrap_candidate_v1(
 def render_tradingdesk_automanager_simple_v1(
     context: TradingDeskV2Context,
 ) -> tuple[PositionObservationV2, ...] | None:
-    """Simple control plane: BUY, SELL, Manage position, AutoTrade, strategy."""
+    """Simple control plane: BUY, SELL and one LIVE strategy authority."""
     client = configured_client()
     if client is None or client.base_url.rstrip("/").lower() != LIVE_BASE_URL.lower():
         st.info("Saxo LIVE er ikke tilgjengelig.")
@@ -405,107 +405,34 @@ def render_tradingdesk_automanager_simple_v1(
                 st.success(f"Mål satt: {target}. Execution fortsetter på neste syklus.")
             st.rerun()
 
-    manage_col, auto_col, strategy_col, settings_col = st.columns([1.2, 1.0, 2.0, 0.45], gap="small")
-    manage_key = f"td-simple-manage:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
-    autotrade_key = f"td-simple-autotrade:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
+    strategy_col, settings_col = st.columns([3.55, 0.45], gap="small")
     strategy_selector_key = (
         f"td-simple-strategy:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
     )
     strategy_pending_key = f"{strategy_selector_key}:pending"
     strategy_error_key = f"{strategy_selector_key}:error"
     family_primary_keys = {FAMILY_MACD_STRATEGY_V1, FAMILY_PRICE_MACD_STRATEGY_V1}
-    strategy_keys = tuple(
-        item.key for item in AUTOTRADER_STRATEGIES_V2
-        if item.key not in family_primary_keys
-    )
+    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if item.key not in family_primary_keys)
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
-
-    # Persisted controller state is authoritative on ordinary reruns. Streamlit
-    # widget state can otherwise become stale after backend adoption/restart.
-    if bool(st.session_state.get(manage_key, position_manage_enabled)) != position_manage_enabled:
-        st.session_state[manage_key] = position_manage_enabled
-    if bool(st.session_state.get(autotrade_key, auto_trade_enabled)) != auto_trade_enabled:
-        st.session_state[autotrade_key] = auto_trade_enabled
-
-    # Backend enrollment is authoritative on ordinary reruns. A browser/session may
-    # hold an old dropdown value after another tab/device changed the LIVE strategy;
-    # that stale widget state must never become an implicit switch command.
     if strategy_selector_key not in st.session_state or not pending_strategy_key:
         if str(st.session_state.get(strategy_selector_key) or "") != enrollment.strategy_key:
             st.session_state[strategy_selector_key] = enrollment.strategy_key
-
     strategy_error = st.session_state.pop(strategy_error_key, None)
     if strategy_error:
         st.error(f"Strategien kunne ikke byttes: {strategy_error}")
-
-    with manage_col:
-        selected_manage = st.toggle("Manage position", key=manage_key)
-    with auto_col:
-        selected_autotrade = st.toggle(
-            "AutoTrade",
-            key=autotrade_key,
-            disabled=not selected_manage,
-            help="Valgt strategi bestemmer ønsket LONG/SHORT/FLAT-state og reconcilerer mot Saxo.",
-        )
     with strategy_col:
-        family_label = strategy_instance_label_v1(
-            pilot_key=enrollment.pilot_key,
-            strategy_key=enrollment.strategy_key,
-        )
-        st.caption(f"LIVE · {family_label or strategy_spec_v2(enrollment.strategy_key).label}")
+        family_label = strategy_instance_label_v1(pilot_key=enrollment.pilot_key, strategy_key=enrollment.strategy_key)
+        authority = "AKTIV" if (position_manage_enabled and auto_trade_enabled) else "AV"
+        st.caption(f"LIVE {authority} · {family_label or strategy_spec_v2(enrollment.strategy_key).label}")
     with settings_col:
         with st.popover("⚙", width="stretch"):
             st.markdown("**Legacy / enkeltstrategi**")
-            st.selectbox(
-                "Strategi",
-                strategy_keys,
-                index=None,
-                format_func=lambda key: strategy_spec_v2(key).label,
-                key=strategy_selector_key,
-                on_change=_queue_strategy_switch_v1,
-                args=(strategy_selector_key, strategy_pending_key),
-                label_visibility="collapsed",
-            )
+            st.selectbox("Strategi", strategy_keys, index=None, format_func=lambda key: strategy_spec_v2(key).label, key=strategy_selector_key, on_change=_queue_strategy_switch_v1, args=(strategy_selector_key, strategy_pending_key), label_visibility="collapsed")
             st.divider()
             st.markdown("**Valgfritt**")
             _render_optional_settings_v1(enrollment, client)
-
     with st.container(border=True):
-        render_strategy_family_builder_v1(
-            enrollment=enrollment,
-            instrument_id=int(enrollment.instrument_id),
-        )
-
-    if selected_manage != position_manage_enabled:
-        try:
-            if selected_manage:
-                set_position_management_enabled_v1(enrollment, True)
-                enrollment = _ensure_execution_ready_v1(enrollment)
-                if observation is not None and not is_position_managed_v1(observation):
-                    adopt_user_confirmed_position_v2(enrollment, observation)
-            else:
-                set_position_management_enabled_v1(enrollment, False)
-                if observation is not None:
-                    stop_managing_position_v1(observation.account_id, observation.net_position_id)
-                st.session_state[autotrade_key] = False
-        except Exception as exc:
-            st.session_state[manage_key] = position_manage_enabled
-            st.error(f"Manage position kunne ikke endres: {exc}")
-        else:
-            st.rerun()
-
-    if selected_autotrade != auto_trade_enabled and selected_manage:
-        try:
-            if selected_autotrade:
-                enrollment = _ensure_execution_ready_v1(enrollment)
-                if observation is not None and not is_position_managed_v1(observation):
-                    adopt_user_confirmed_position_v2(enrollment, observation)
-            set_auto_manage_enabled_v1(enrollment, selected_autotrade)
-        except Exception as exc:
-            st.session_state[autotrade_key] = auto_trade_enabled
-            st.error(f"AutoTrade kunne ikke endres: {exc}")
-        else:
-            st.rerun()
+        render_strategy_family_builder_v1(enrollment=enrollment, instrument_id=int(enrollment.instrument_id))
 
     requested_strategy_key = str(st.session_state.pop(strategy_pending_key, "") or "").strip()
     if requested_strategy_key and requested_strategy_key != enrollment.strategy_key:
@@ -537,11 +464,10 @@ def render_tradingdesk_automanager_simple_v1(
         pilot_key=enrollment.pilot_key,
         strategy_key=enrollment.strategy_key,
     )
-    manage_status = "ON" if position_manage_enabled else "OFF"
-    auto_status = "ON" if auto_trade_enabled else "OFF"
+    live_status = "AKTIV" if (position_manage_enabled and auto_trade_enabled) else "AV"
     st.caption(
-        f"Nå {observed_direction} · Manage {manage_status} · AutoTrade {auto_status} · "
-        f"Aktiv LIVE-strategi (backend): {family_label or spec.label}"
+        f"Nå {observed_direction} · LIVE {live_status} · "
+        f"Aktiv strategi (backend): {family_label or spec.label}"
     )
     return observations
 
