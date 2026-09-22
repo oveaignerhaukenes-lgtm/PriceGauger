@@ -360,3 +360,10 @@ def test_direct_runtime_never_erases_price_series_on_empty_refresh():
     assert "if (candleData.length)" in runtime
     assert "entry.candles.setData(candleData);" in runtime
     assert "canonical candle payload is empty" in runtime
+
+
+def test_direct_live_runtime_pins_candles_to_right_price_scale():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    assert "priceScaleId: 'right'" in runtime
+    assert "priceScaleId: 'volume'" in runtime
+
