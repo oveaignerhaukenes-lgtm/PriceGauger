@@ -33,7 +33,7 @@ def _svg_chart(pivot: pd.DataFrame) -> str:
             if pd.notna(val) and math.isfinite(float(val)):
                 pts.append(f"{x(i):.1f},{y(float(val)):.1f}")
         if len(pts) >= 2:
-            lines.append(f'<polyline points="{" ".join(pts)}" fill="none" stroke="{palette[ci % len(palette)]}" stroke-width="2.4" vector-effect="non-scaling-stroke"/>')
+            lines.append(f'<polyline points="{" ".join(pts)}" fill="none" stroke="{palette[ci % len(palette)]}" stroke-width="1.35" vector-effect="non-scaling-stroke"/>')
     zero=y(0.0)
     return f"""<div style="width:100%;overflow:hidden;margin:.2rem 0 .6rem">
 <svg viewBox="0 0 1000 360" width="100%" height="360" preserveAspectRatio="none" role="img" aria-label="Relativ strategiavkastning">
@@ -48,7 +48,7 @@ def _svg_chart(pivot: pd.DataFrame) -> str:
 def render_v3_regime_return_chart(comparison: AutoManagerPnlComparisonV2, *, bucket_count: int = 12) -> None:
     del bucket_count
     st.markdown("**V3 · relativ strategiavkastning**")
-    st.caption("Hver strategi starter på 0 og går kontinuerlig så langt over eller under null som avkastningen tilsier.")
+    st.caption("Hver strategi starter på 0 og går kontinuerlig så langt over eller under null som avkastningen tilsier. Linjene viser akkumulert relativ avkastning fra valgt start, ikke periodisk rebasering.")
     points = build_relative_return_lines_v3(comparison)
     if not points:
         st.info("Venter på strategihistorikk til v3-grafen.")
@@ -71,6 +71,7 @@ def render_v3_regime_return_chart(comparison: AutoManagerPnlComparisonV2, *, buc
             st.markdown(f"**{html.escape(selected)}**")
             c1,c2,c3=st.columns(3); c1.metric("Nå",f"{current:+.2f}%"); c2.metric("Beste",f"{best:+.2f}%"); c3.metric("Laveste",f"{worst:+.2f}%")
             st.caption(f"{series.execution_mode} · start {series.started_at:%Y-%m-%d %H:%M} · {len(series.points)} datapunkter")
+    st.caption("Alle strategier er normalisert til 0 ved start. Kryssing av 0 betyr at samlet relativ avkastning siden start skifter mellom gevinst og tap.")
 
 
 __all__=["render_v3_regime_return_chart"]
