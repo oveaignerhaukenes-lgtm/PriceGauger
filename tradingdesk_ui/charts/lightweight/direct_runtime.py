@@ -385,7 +385,7 @@ export default function(component) {{
         Object.assign(diagnostic.style, {{
             position: 'absolute', left: '8px', bottom: '24px', zIndex: '10',
             padding: '3px 6px', borderRadius: '4px',
-            background: colors.inspector, color: colors.text, border: `1px solid ${colors.border}`,
+            background: colors.inspector, color: colors.text, border: `1px solid ${{colors.border}}`,
             font: '500 9px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace',
             pointerEvents: 'none', opacity: '.82',
         }});
