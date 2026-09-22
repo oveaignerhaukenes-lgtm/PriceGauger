@@ -38,3 +38,9 @@ def test_simple_renderer_has_no_source_rewrite_or_execution_authority() -> None:
     )
     for token in forbidden:
         assert token not in source
+
+
+def test_automanager_facade_does_not_install_legacy_chart_runtime_patch() -> None:
+    source = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    assert "tradingdesk_chart_runtime_continuity_v1" not in source
+    assert "install_chart_runtime_continuity_v1" not in source

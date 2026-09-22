@@ -51,9 +51,10 @@ def test_base_and_live_trade_markers_share_blue_gold_palette() -> None:
     assert '#0ea5e9' in live and '#f59e0b' in live
 
 
-def test_automanager_facade_installs_chart_continuity_before_runtime_use() -> None:
+def test_automanager_facade_does_not_install_legacy_chart_continuity() -> None:
     source = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-    assert "install_chart_runtime_continuity_v1()" in source
+    assert "install_chart_runtime_continuity_v1()" not in source
+    assert "tradingdesk_chart_runtime_continuity_v1" not in source
     assert "render_tradingdesk_chart_trade_controls_v1(context, observations=observations)" in source
 
 
