@@ -73,4 +73,34 @@ def latest_strategy_returns_v3(cells: Iterable[RegimeReturnCellV3]) -> dict[str,
     return {key: value.return_pct for key, value in latest.items()}
 
 
-__all__ = ["RegimeReturnCellV3", "build_regime_return_cells_v3", "latest_strategy_returns_v3"]
+__all__ = ["RegimeReturnCellV3", "RelativeReturnPointV3", "build_regime_return_cells_v3", "build_relative_return_lines_v3", "latest_strategy_returns_v3"]
+
+
+@dataclass(frozen=True, slots=True)
+class RelativeReturnPointV3:
+    strategy_key: str
+    closed_at: datetime
+    return_pct: float
+
+
+def build_relative_return_lines_v3(
+    comparison: AutoManagerPnlComparisonV2,
+) -> tuple[RelativeReturnPointV3, ...]:
+    """Continuous strategy lines rebased to zero at each strategy's visible start."""
+    result: list[RelativeReturnPointV3] = []
+    for series in comparison.paper_series:
+        points = tuple(series.points)
+        if not points:
+            continue
+        baseline = float(points[0].equity)
+        if baseline <= 0:
+            continue
+        for point in points:
+            result.append(
+                RelativeReturnPointV3(
+                    strategy_key=series.strategy_key,
+                    closed_at=point.closed_at,
+                    return_pct=((float(point.equity) / baseline) - 1.0) * 100.0,
+                )
+            )
+    return tuple(result)
