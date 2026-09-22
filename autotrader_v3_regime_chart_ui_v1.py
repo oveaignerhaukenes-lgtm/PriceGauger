@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from autotrader_pnl_comparison_v2 import AutoManagerPnlComparisonV2
-from autotrader_v3_regime_returns_v1 import build_regime_return_cells_v3
+from autotrader_v3_regime_returns_v1 import build_relative_return_lines_v3
 
 
 def render_v3_regime_return_chart(
@@ -12,28 +12,52 @@ def render_v3_regime_return_chart(
     *,
     bucket_count: int = 12,
 ) -> None:
-    st.markdown("**V3 · regimeavkastning rundt null**")
+    del bucket_count
+    st.markdown("**V3 · relativ strategiavkastning**")
     st.caption(
-        "Hver søyle er avkastningen i selve perioden, rebased til 0. "
-        "Tidligere tap eller gevinst dras ikke med inn i neste regime."
+        "Hver strategi starter på 0 og går kontinuerlig så langt over eller under null "
+        "som avkastningen tilsier. Trykk på strateginavnet under grafen for detaljer."
     )
-    cells = build_regime_return_cells_v3(comparison, bucket_count=bucket_count)
-    if not cells:
-        st.info("Venter på nok strategihistorikk til regimegrafen.")
+    points = build_relative_return_lines_v3(comparison)
+    if not points:
+        st.info("Venter på nok strategihistorikk til v3-grafen.")
         return
 
     frame = pd.DataFrame(
         {
-            "Periode": [item.ended_at for item in cells],
-            "Strategi": [item.strategy_key for item in cells],
-            "Avkastning %": [item.return_pct for item in cells],
+            "Tid": [item.closed_at for item in points],
+            "Strategi": [item.strategy_key for item in points],
+            "Avkastning %": [item.return_pct for item in points],
         }
     )
     pivot = frame.pivot_table(
-        index="Periode", columns="Strategi", values="Avkastning %", aggfunc="last"
+        index="Tid", columns="Strategi", values="Avkastning %", aggfunc="last"
     ).sort_index()
-    st.bar_chart(pivot, x_label="Periode", y_label="Avkastning %", stack=False)
-    st.caption("Over 0 = lønnsomt regime · under 0 = tapsregime.")
+    st.line_chart(pivot, x_label="Tid", y_label="Avkastning %")
+
+    strategies = tuple(str(item) for item in pivot.columns)
+    selected = st.pills(
+        "Strategiinfo",
+        strategies,
+        key=f"v3_strategy_line_info_{comparison.product_key}",
+        selection_mode="single",
+    )
+    if selected:
+        series = next((item for item in comparison.paper_series if item.strategy_key == selected), None)
+        values = frame.loc[frame["Strategi"] == selected, "Avkastning %"]
+        if series is not None and not values.empty:
+            current = float(values.iloc[-1])
+            best = float(values.max())
+            worst = float(values.min())
+            st.markdown(f"**{selected}**")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Nå", f"{current:+.2f}%")
+            c2.metric("Beste", f"{best:+.2f}%")
+            c3.metric("Laveste", f"{worst:+.2f}%")
+            st.caption(
+                f"{series.execution_mode} · start {series.started_at:%Y-%m-%d %H:%M} · "
+                f"{len(series.points)} datapunkter"
+            )
 
 
 __all__ = ["render_v3_regime_return_chart"]

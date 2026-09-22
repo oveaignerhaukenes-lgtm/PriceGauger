@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from autotrader_v3_regime_returns_v1 import build_regime_return_cells_v3
+from autotrader_v3_regime_returns_v1 import build_regime_return_cells_v3, build_relative_return_lines_v3
 
 
 def _point(day, equity):
@@ -43,3 +43,12 @@ def test_regime_chart_builds_comparable_cells_for_multiple_strategies():
 def test_regime_bucket_count_must_be_positive():
     with pytest.raises(ValueError):
         build_regime_return_cells_v3(SimpleNamespace(paper_series=()), bucket_count=0)
+
+
+def test_relative_lines_start_at_zero_and_preserve_continuous_distance_from_zero():
+    series = SimpleNamespace(
+        strategy_key="strategy-a",
+        points=(_point(0, 100), _point(1, 80), _point(2, 88), _point(3, 110)),
+    )
+    points = build_relative_return_lines_v3(SimpleNamespace(paper_series=(series,)))
+    assert [item.return_pct for item in points] == pytest.approx([0.0, -20.0, -12.0, 10.0])
