@@ -8,7 +8,7 @@ def test_simple_core_primary_ui_has_only_position_manage_strategy_and_optional_s
     assert '"BUY"' in source or 'f"BUY @' in source
     assert '"SELL"' in source or 'f"SELL @' in source
     assert 'st.toggle("Manage position"' not in source
-    assert '"LIVE AKTIV"' in source
+    assert 'f"LIVE {authority}' in source
     assert '"Strategi"' in source
     assert 'with st.popover("⚙"' in source
     assert '"All-in ved ny strategi-entry"' in source
