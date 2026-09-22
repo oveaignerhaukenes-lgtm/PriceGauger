@@ -75,6 +75,19 @@ export default function(component) {{
         }})[String(role || '')] || ['#64748b', 1];
     }}
 
+    function markerPayload() {{
+        return Array.from(payload.markers || []).map((marker) => {{
+            const direction = String(marker.direction || '').toUpperCase();
+            const isFlat = direction === 'FLAT';
+            return {{
+                ...marker,
+                position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
+                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#4b5563' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
+            }};
+        }});
+    }}
+
     function build(LWC) {{
         const theme = colors();
         parentElement.replaceChildren();
@@ -165,19 +178,6 @@ export default function(component) {{
             stochastic?.createPriceLine?.({{
                 price: Number(threshold), color: 'rgba(100,116,139,.55)', lineWidth: 1,
                 lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: false, title: '',
-            }});
-        }}
-
-        function markerPayload() {{
-            return Array.from(payload.markers || []).map((marker) => {{
-                const direction = String(marker.direction || '').toUpperCase();
-                const isFlat = direction === 'FLAT';
-                return {{
-                    ...marker,
-                    position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
-                    shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                    color: isFlat ? '#4b5563' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
-                }};
             }});
         }}
 
