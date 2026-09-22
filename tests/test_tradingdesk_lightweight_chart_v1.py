@@ -373,3 +373,10 @@ def test_direct_live_runtime_resets_price_autoscale_from_ohlc():
     runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
     assert "candles.priceScale().applyOptions({{ autoScale: true }})" in runtime
     assert "entry.candles.priceScale().applyOptions({{ autoScale: true }})" in runtime
+
+
+def test_direct_live_runtime_exposes_candle_diagnostics():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    assert "pg-lightweight-live-diagnostic" in runtime
+    assert "DBG candles=" in runtime
+    assert "getVisibleLogicalRange()" in runtime
