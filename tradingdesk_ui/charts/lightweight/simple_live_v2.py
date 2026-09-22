@@ -257,7 +257,7 @@ def render_lightweight_simple_live_v2(
     height = max(360, int(payload.get("height", 780)))
     _simple_live_component(
         key=str(key),
-        data={{"payload": dict(payload)}},
+        data={"payload": dict(payload)},
         height=height,
     )
 
