@@ -110,14 +110,14 @@ def install_chart_runtime_continuity_v1() -> None:
 
     js = _replace_required(
         js,
-        """        if (panes.length === 1) {{
+        """        if (panes.length === 1) {
             panes[pricePaneIndex]?.setStretchFactor?.(1);
-        }} else {{
+        } else {
             const remainder = (1 - priceShare) / Math.max(1, panes.length - 1);
-            for (let index = 0; index < panes.length; index += 1) {{
+            for (let index = 0; index < panes.length; index += 1) {
                 panes[index]?.setStretchFactor?.(index === pricePaneIndex ? priceShare : remainder);
-            }}
-        }}
+            }
+        }
 
         chart.subscribeCrosshairMove""",
         """        if (panes.length === 1) {
