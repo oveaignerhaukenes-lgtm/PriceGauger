@@ -294,3 +294,10 @@ def test_family_live_caption_reports_actual_authority_not_persisted_enrollment_o
     assert "position_management_enabled_v1(enrollment)" in source
     assert "auto_manage_enabled_v1(enrollment)" in source
     assert 'live_text = "AV"' in source
+
+
+def test_family_authority_readers_are_imported() -> None:
+    source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    import_block = source.split("from autotrader_manage_control_v1 import (", 1)[1].split(")", 1)[0]
+    assert "position_management_enabled_v1" in import_block
+    assert "auto_manage_enabled_v1" in import_block
