@@ -213,6 +213,10 @@ export default function(component) {{
             borderUpColor: '#16a34a', borderDownColor: '#dc2626',
             wickUpColor: '#15803d', wickDownColor: '#b91c1c',
             priceLineVisible: true, lastValueVisible: true,
+            // Give price its own scale. Volume uses the hidden "volume" overlay scale;
+            // keeping candles on the default right scale prevents volume magnitudes
+            // from flattening the OHLC range into an invisible line.
+            priceScaleId: 'right',
         }}, 0);
         const candleData = Array.from(payload.candles || []);
         if (!candleData.length) {{
