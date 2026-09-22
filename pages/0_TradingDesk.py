@@ -51,6 +51,7 @@ from v2_forecast_visualization import (
 V2_ANALYSIS_REFRESH_SECONDS = 60
 LIVE_CHART_BASE_REFRESH_SECONDS = 5
 LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
+TRADINGDESK_PAGE_REFRESH_SECONDS = 5
 QUICK_TIMEFRAMES = LIGHTWEIGHT_TIMEFRAMES_V1
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
@@ -643,24 +644,30 @@ def _render_automanager_workspace() -> None:
     render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)
 
 
+def _render_tradingdesk_workspace_v3() -> None:
+    """Render one coherent TradingDesk snapshot.
+
+    The former nested fragment clocks could leave the chart host alive while its
+    Python data loaders stopped advancing.  Prefer an ordinary Streamlit rerun
+    clock for correctness; the stable Lightweight component key preserves the
+    browser chart instance across reruns.
+    """
+    _render_v2_analysis_snapshot()
+    _render_companion_workspace()
+    _render_live_chart_controls()
+    _render_live_chart()
+    _render_automanager_workspace()
+
+
 with chart_column:
     if auto_refresh:
-        analysis_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-        if analysis_fragment is not None:
-            analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")(_render_v2_analysis_snapshot)()
+        page_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+        if page_fragment is not None:
+            page_fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")(_render_tradingdesk_workspace_v3)()
         else:
-            _render_v2_analysis_snapshot()
-        _render_companion_workspace()
-
-        _render_live_chart_controls()
-        chart_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-        if chart_fragment is not None:
-            chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_chart)()
-        else:
-            _render_live_chart()
+            _render_tradingdesk_workspace_v3()
     else:
         _render_v2_analysis()
         _render_live_chart_controls()
         _render_live_chart()
-
-    _render_automanager_workspace()
+        _render_automanager_workspace()

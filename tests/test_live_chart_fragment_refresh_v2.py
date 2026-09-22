@@ -51,7 +51,8 @@ def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
     assert "setTriggerValue('live_tick', Date.now())" not in source
     assert "setTriggerValue(\'live_tick\', Date.now())" not in source
     assert "on_live_tick_change" not in oslo
-    assert 'chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")(_render_live_chart)()' in page
+    assert 'page_fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")(_render_tradingdesk_workspace_v3)()' in page
+    assert 'chart_fragment(run_every=' not in page
 
 
 
@@ -59,3 +60,12 @@ def test_visible_component_keeps_stable_host_across_fragment_ticks():
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     assert 'key=f"tradingdesk-lightweight-simple-v2:{market}"' in page
     assert ':{forming_revision}"' not in page
+
+
+def test_tradingdesk_periodic_refresh_rerenders_one_coherent_workspace_snapshot():
+    page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    assert "TRADINGDESK_PAGE_REFRESH_SECONDS = 5" in page
+    body = page.split("def _render_tradingdesk_workspace_v3() -> None:", 1)[1].split("with chart_column:", 1)[0]
+    assert "_render_live_chart()" in body
+    assert "_render_automanager_workspace()" in body
+    assert "_render_v2_analysis_snapshot()" in body
