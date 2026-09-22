@@ -107,4 +107,4 @@ def test_legacy_interaction_component_is_rollback_only_after_direct_lightweight_
     assert "render_trading_desk_legend_hover_v1" not in controls
     assert "render_trading_desk_legend_hover_v1" not in live_chart
     assert "render_lightweight_plotly_bridge_v1" not in source
-    assert "render_lightweight_direct_live_v1(" in live_chart
+    assert "render_lightweight_simple_live_v2(" in live_chart
