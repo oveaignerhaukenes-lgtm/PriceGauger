@@ -41,8 +41,8 @@ def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_de
     assert 'requested_market = str(st.query_params.get("market", "")' in source
     assert 'st.query_params["market"] = selected' in source
     assert 'st.session_state[AUTO_REFRESH_STATE_KEY] = True' in source
-    assert 'analysis_fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s")' in source
-    assert 'chart_fragment(run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s")' in source
+    assert 'page_fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")' in source
+    assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
 
 
