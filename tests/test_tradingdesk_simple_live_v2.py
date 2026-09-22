@@ -44,3 +44,11 @@ def test_automanager_facade_does_not_install_legacy_chart_runtime_patch() -> Non
     source = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "tradingdesk_chart_runtime_continuity_v1" not in source
     assert "install_chart_runtime_continuity_v1" not in source
+
+
+def test_simple_renderer_supports_tap_series_identification_and_live_marker_updates() -> None:
+    source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "simple_live_v2.py").read_text(encoding="utf-8")
+    assert "chart.subscribeClick" in source
+    assert "__pgLabel" in source
+    assert "selection.textContent = picked.__pgLabel" in source
+    assert "entry.markers?.setMarkers?.(markerPayload())" in source
