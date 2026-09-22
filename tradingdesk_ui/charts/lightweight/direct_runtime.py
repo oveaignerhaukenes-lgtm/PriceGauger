@@ -215,6 +215,14 @@ export default function(component) {{
             priceLineVisible: true, lastValueVisible: true,
             priceScaleId: 'right',
         }}, paneIndex('price'));
+        // Lightweight Charts can retain a pane at effectively zero height after
+        // interactive pane resizing. Restore a usable price-pane stretch before drawing.
+        try {{
+            const pricePane = chart.panes()[paneIndex('price')];
+            if (pricePane && typeof pricePane.setStretchFactor === 'function') {{
+                pricePane.setStretchFactor(Math.max(2, Number(payload.price_pane_stretch || 4)));
+            }}
+        }} catch (_) {{}}
         const candleData = Array.from(payload.candles || []);
         if (!candleData.length) {{
             throw new Error('PriceGauger live chart: canonical candle payload is empty');
@@ -446,7 +454,9 @@ export default function(component) {{
             const lastBar = candleData[candleData.length - 1] || {{}};
             let logical = null;
             try {{ logical = entry.chart.timeScale().getVisibleLogicalRange(); }} catch (_) {{}}
-            entry.diagnostic.textContent = `DBG candles=${{candleData.length}} first=${{firstBar.time ?? '?'}} last=${{lastBar.time ?? '?'}} OHLC=${{lastBar.open ?? '?'}}/${{lastBar.high ?? '?'}}/${{lastBar.low ?? '?'}}/${{lastBar.close ?? '?'}} logical=${{logical ? Number(logical.from).toFixed(1)+'..'+Number(logical.to).toFixed(1) : '?'}}`;
+            let panes = '?';
+            try {{ panes = entry.chart.panes().map((pane) => pane.getHeight?.() ?? '?').join('/'); }} catch (_) {{}}
+            entry.diagnostic.textContent = `DBG candles=${{candleData.length}} first=${{firstBar.time ?? '?'}} last=${{lastBar.time ?? '?'}} OHLC=${{lastBar.open ?? '?'}}/${{lastBar.high ?? '?'}}/${{lastBar.low ?? '?'}}/${{lastBar.close ?? '?'}} logical=${{logical ? Number(logical.from).toFixed(1)+'..'+Number(logical.to).toFixed(1) : '?'}} panes=${{panes}}`;
         }}
         entry.baseCandles = new Map(candleData.map((item) => [Number(item.time), {{ ...item }}]));
         // Never erase a visible price series because one refresh produced an empty
