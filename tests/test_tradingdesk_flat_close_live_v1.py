@@ -73,7 +73,7 @@ def test_reconciled_close_is_projected_as_flat_square_marker() -> None:
     assert "load_autotrader_trade_markers_v2" in adapter
 
 
-def test_live_chart_keeps_one_second_forming_candle_refresh() -> None:
+def test_live_chart_keeps_periodic_forming_candle_refresh() -> None:
     page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
     runtime = (
         ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "direct_runtime.py"
