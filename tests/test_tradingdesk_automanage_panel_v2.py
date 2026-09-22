@@ -20,7 +20,7 @@ def test_simple_automanage_panel_is_generic_product_strategy_control_not_order_s
     assert "request_manual_target_v2" in source
     assert 'st.toggle("Manage position"' not in source
     assert 'f"LIVE {authority}' in source
-    assert '"AutoTrade"' in source
+    assert 'st.toggle("AutoTrade"' not in source
     assert 'f"BUY @' in source
     assert 'f"SELL @' in source
     assert "session.post" not in source
