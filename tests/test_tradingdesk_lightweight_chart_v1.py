@@ -380,3 +380,8 @@ def test_direct_live_runtime_exposes_candle_diagnostics():
     assert "pg-lightweight-live-diagnostic" in runtime
     assert "DBG candles=" in runtime
     assert "getVisibleLogicalRange()" in runtime
+
+
+def test_direct_live_runtime_binds_candles_to_declared_price_pane():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    assert "}}, paneIndex('price'));" in runtime
