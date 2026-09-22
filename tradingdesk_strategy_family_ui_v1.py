@@ -6,6 +6,8 @@ import streamlit as st
 
 from autotrader_macd_timeframe_live_v1 import LIVE_MACD_CONTROL_STRATEGIES_V1
 from autotrader_manage_control_v1 import (
+    auto_manage_enabled_v1,
+    position_management_enabled_v1,
     set_auto_manage_enabled_v1,
     set_position_management_enabled_v1,
 )
