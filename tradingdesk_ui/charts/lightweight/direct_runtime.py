@@ -208,7 +208,7 @@ export default function(component) {{
         root.addEventListener('touchend', endPinch, {{ passive: true }});
         root.addEventListener('touchcancel', endPinch, {{ passive: true }});
 
-        const candles = chart.addSeries(LWC.CandlestickSeries, {{
+        // Resolve the price pane once. Every price-coupled series and every pane-layout\n        // operation must use this canonical index; never assume that price === pane 0.\n        const pricePaneIndex = paneIndex('price');\n        const candles = chart.addSeries(LWC.CandlestickSeries, {{
             title: '', upColor: '#16a34a', downColor: '#dc2626',
             borderUpColor: '#16a34a', borderDownColor: '#dc2626',
             wickUpColor: '#15803d', wickDownColor: '#b91c1c',
@@ -218,7 +218,7 @@ export default function(component) {{
         // Lightweight Charts can retain a pane at effectively zero height after
         // interactive pane resizing. Restore a usable price-pane stretch before drawing.
         try {{
-            const pricePane = chart.panes()[paneIndex('price')];
+            const pricePane = chart.panes()[pricePaneIndex];
             if (pricePane && typeof pricePane.setStretchFactor === 'function') {{
                 pricePane.setStretchFactor(Math.max(2, Number(payload.price_pane_stretch || 4)));
             }}
@@ -317,11 +317,12 @@ export default function(component) {{
         const panes = chart.panes();
         const priceShare = Math.max(.35, Math.min(.75, Number(payload.price_panel_share || .5)));
         if (panes.length === 1) {{
-            panes[0]?.setStretchFactor?.(1);
+            panes[pricePaneIndex]?.setStretchFactor?.(1);
         }} else {{
-            panes[0]?.setStretchFactor?.(priceShare);
             const remainder = (1 - priceShare) / Math.max(1, panes.length - 1);
-            for (let index = 1; index < panes.length; index += 1) panes[index]?.setStretchFactor?.(remainder);
+            for (let index = 0; index < panes.length; index += 1) {{
+                panes[index]?.setStretchFactor?.(index === pricePaneIndex ? priceShare : remainder);
+            }}
         }}
 
         chart.subscribeCrosshairMove((param) => {{
