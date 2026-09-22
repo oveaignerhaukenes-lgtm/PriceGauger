@@ -340,6 +340,8 @@ def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
     assert "subscribeVisibleTimeRangeChange" in runtime
     assert "setVisibleRange(savedVisibleTimeRange)" in runtime
     assert "overlapsCurrentData(savedVisibleTimeRange)" in runtime
+    assert "savedVisibleTimeRange = null" in runtime
+    assert "window.localStorage.removeItem(viewKey)" in runtime
     assert "window.localStorage.setItem(viewKey" in runtime
     assert "window.localStorage.getItem(viewKey)" in runtime
     assert "entry = buildChart(LWC, null)" in runtime
