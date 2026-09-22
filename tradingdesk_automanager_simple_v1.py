@@ -480,7 +480,9 @@ def render_tradingdesk_automanager_simple_v1(
     except Exception as exc:
         st.caption(f"LIVE runtime-state venter: {exc}")
     else:
-        if runtime_state is None:
+        if live_status != "AKTIV":
+            st.caption("LIVE runtime: AV — ingen strategi har ordreautoritet.")
+        elif runtime_state is None:
             st.warning("LIVE runtime: ingen persistert strategi-evaluering ennå.")
         else:
             evaluated_at = runtime_state.last_action_at
