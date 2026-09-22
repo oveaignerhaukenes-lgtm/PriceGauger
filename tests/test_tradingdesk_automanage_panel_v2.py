@@ -18,8 +18,9 @@ def test_simple_automanage_panel_is_generic_product_strategy_control_not_order_s
     assert "AUTOTRADER_STRATEGIES_V2" in source
     assert "enroll_strategy_position_v2" in source
     assert "request_manual_target_v2" in source
-    assert 'st.toggle("Manage position"' in source
-    assert '"AutoTrade"' in source
+    assert 'st.toggle("Manage position"' not in source
+    assert 'f"LIVE {authority}' in source
+    assert 'st.toggle("AutoTrade"' not in source
     assert 'f"BUY @' in source
     assert 'f"SELL @' in source
     assert "session.post" not in source
@@ -34,7 +35,10 @@ def test_manage_position_and_autotrade_are_distinct_product_authorities():
     assert "position_management_enabled_v1" in simple
     assert "set_position_management_enabled_v1" in simple
     assert "set_auto_manage_enabled_v1" in simple
-    assert "disabled=not selected_manage" in simple
+    assert 'st.toggle("AutoTrade"' not in simple
+    family_ui = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    assert "set_position_management_enabled_v1" in family_ui
+    assert "set_auto_manage_enabled_v1" in family_ui
     assert "position_management_enabled BOOLEAN NOT NULL DEFAULT TRUE" in control
     assert 'raise ValueError("AutoTrade requires Manage position to be ON")' in control
     assert "AUTOTRADE_OFF" in control
@@ -116,9 +120,11 @@ def test_advanced_execution_gate_remains_available_but_is_not_primary_simple_cor
     assert 'st.page_link("pages/6_AutoTrader_POC.py"' in simple
 
 
-def test_manage_and_autotrade_toggles_resync_from_backend_truth():
-    source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
-    assert "st.session_state.get(manage_key, position_manage_enabled)" in source
-    assert "st.session_state[manage_key] = position_manage_enabled" in source
-    assert "st.session_state.get(autotrade_key, auto_trade_enabled)" in source
-    assert "st.session_state[autotrade_key] = auto_trade_enabled" in source
+def test_live_family_activation_owns_internal_authority_gates():
+    simple = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
+    family_ui = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
+    assert 'st.toggle("Manage position"' not in simple
+    assert 'st.toggle("AutoTrade"' not in simple
+    assert "set_position_management_enabled_v1" in family_ui
+    assert "set_auto_manage_enabled_v1" in family_ui
+

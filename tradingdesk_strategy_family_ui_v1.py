@@ -5,6 +5,10 @@ from dataclasses import dataclass
 import streamlit as st
 
 from autotrader_macd_timeframe_live_v1 import LIVE_MACD_CONTROL_STRATEGIES_V1
+from autotrader_manage_control_v1 import (
+    set_auto_manage_enabled_v1,
+    set_position_management_enabled_v1,
+)
 from autotrader_strategy_enrollment_v2 import StrategyEnrollmentV2, load_strategy_enrollment_v2
 from autotrader_strategy_family_v1 import (
     FAMILY_LABELS_V1,
@@ -225,6 +229,10 @@ def render_strategy_family_builder_v1(
                         target_enrollment.pilot_key,
                         take_profit_config,
                     )
+                    # LIVE is the user-facing authority switch. The legacy two-gate
+                    # controller remains an internal safety invariant.
+                    set_position_management_enabled_v1(target_enrollment, True)
+                    set_auto_manage_enabled_v1(target_enrollment, True)
                 else:
                     live_config = load_strategy_family_config_v1(
                         enrollment.pilot_key,
@@ -240,6 +248,8 @@ def render_strategy_family_builder_v1(
                             family=family,
                             timeframe_minutes=minutes,
                         )
+                set_position_management_enabled_v1(enrollment, True)
+                set_auto_manage_enabled_v1(enrollment, True)
             except Exception as exc:
                 st.error(f"Familie/LIVE kunne ikke aktiveres: {exc}")
                 return

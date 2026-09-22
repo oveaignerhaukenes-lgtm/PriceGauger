@@ -7,7 +7,8 @@ def test_simple_core_primary_ui_has_only_position_manage_strategy_and_optional_s
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert '"BUY"' in source or 'f"BUY @' in source
     assert '"SELL"' in source or 'f"SELL @' in source
-    assert 'st.toggle("Manage position"' in source
+    assert 'st.toggle("Manage position"' not in source
+    assert 'f"LIVE {authority}' in source
     assert '"Strategi"' in source
     assert 'with st.popover("⚙"' in source
     assert '"All-in ved ny strategi-entry"' in source
