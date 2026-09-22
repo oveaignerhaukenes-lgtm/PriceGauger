@@ -317,3 +317,9 @@ For execution-sensitive work, production success means both CI success **and** p
 ## Recommended freeze point
 
 Treat `#239` as the **2026-08-30 architectural stable checkpoint**, with `#240`/`#241` as verified observability-only cleanup layered on top. Observe production before starting another architectural expansion. When development resumes, use this document plus fresh `main` as the handoff baseline.
+
+---
+
+## AutoTrader v3 direction
+
+The accepted rebuild architecture is specified in `docs/AUTOTRADER_V3_ARCHITECTURE_2026-09-22.md`. v2 remains the production path during staged migration.
