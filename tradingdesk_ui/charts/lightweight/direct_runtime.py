@@ -223,6 +223,10 @@ export default function(component) {{
             throw new Error('PriceGauger live chart: canonical candle payload is empty');
         }}
         candles.setData(candleData);
+        // Force the price scale to autoscale from OHLC after every fresh construction.
+        // This is presentation-only and protects against a stale/manual y-range that can
+        // leave the current-price line visible while every candle is outside the pane.
+        try {{ candles.priceScale().applyOptions({{ autoScale: true }}); }} catch (_) {{}}
 
         const baseCandles = new Map(candleData.map((item) => [Number(item.time), {{ ...item }}]));
         const formingCandles = new Map();
@@ -432,6 +436,7 @@ export default function(component) {{
         // primary window transiently fails, which otherwise leaves an indicators-only chart.
         if (candleData.length) {{
             entry.candles.setData(candleData);
+            try {{ entry.candles.priceScale().applyOptions({{ autoScale: true }}); }} catch (_) {{}}
             applyFormingPayload(entry);
         }}
         for (const item of Array.from(payload.lines || [])) {{
