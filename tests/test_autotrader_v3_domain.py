@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from autotrader_v3_domain import AccountBoundaryV3, ControlModeV3, DecisionSnapshotV3, TargetInventoryV3, signed_inventory_v3
+from autotrader_v3_domain import AccountBoundaryV3, CapitalAllocationV3, ControlModeV3, DecisionSnapshotV3, TargetInventoryV3, signed_inventory_v3
 from autotrader_v3_read_model_v1 import observe_v2_as_v3_v1
 
 
@@ -33,7 +33,7 @@ def test_decision_snapshot_rejects_incoherent_pending_delta():
     with pytest.raises(ValueError, match="pending_delta"):
         DecisionSnapshotV3(
             trader_id="t", account=boundary, mode=ControlModeV3.DETERMINISTIC,
-            strategy_key="s", base_target=TargetInventoryV3(0.02),
+            strategy_key="s", capital_allocation=CapitalAllocationV3(50), base_target=TargetInventoryV3(0.02),
             effective_target=TargetInventoryV3(0.02),
             risk_approved_target=TargetInventoryV3(0.02),
             actual_inventory=TargetInventoryV3(0.01), pending_delta=0.0,
@@ -57,3 +57,20 @@ def test_v2_bridge_represents_no_position_as_flat():
 def test_v2_bridge_fails_closed_on_ambiguous_exact_product():
     with pytest.raises(RuntimeError, match="multiple Saxo positions"):
         observe_v2_as_v3_v1(_enrollment(), (_observation(), _observation(amount=0.01)))
+
+
+def test_capital_allocation_is_simple_percent_of_account_equity():
+    allocation = CapitalAllocationV3(35)
+    assert allocation.fraction == pytest.approx(0.35)
+    assert allocation.tradeable_equity(1000) == pytest.approx(350)
+
+
+@pytest.mark.parametrize("pct", [-0.01, 100.01])
+def test_capital_allocation_rejects_percent_outside_account(pct):
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        CapitalAllocationV3(pct)
+
+
+def test_v2_bridge_defaults_to_full_dedicated_account_allocation():
+    snap = observe_v2_as_v3_v1(_enrollment(), ())
+    assert snap.capital_allocation.tradeable_pct == pytest.approx(100.0)
