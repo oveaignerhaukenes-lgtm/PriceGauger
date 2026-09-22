@@ -83,7 +83,7 @@ def test_timed_fragments_do_not_recreate_interactive_controls() -> None:
     )[0]
     assert "st.popover(" not in live_chart_body
     assert "st.button(" not in live_chart_body
-    assert "render_lightweight_direct_live_v1(" in live_chart_body
+    assert "render_lightweight_simple_live_v2(" in live_chart_body
     assert "value=st.session_state[MODE_KEY]" not in companion_source
 
 

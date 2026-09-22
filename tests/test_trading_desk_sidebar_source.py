@@ -74,7 +74,7 @@ def test_tradingdesk_live_chart_is_direct_lightweight_not_plotly_bridge() -> Non
     )[0]
 
     assert "build_lightweight_direct_live_payload_v1(" in live_chart
-    assert "render_lightweight_direct_live_v1(" in live_chart
+    assert "render_lightweight_simple_live_v2(" in live_chart
     assert "st.plotly_chart(" not in live_chart
     assert "build_trading_desk_figure(" not in live_chart
     assert "render_lightweight_plotly_bridge_v1" not in source

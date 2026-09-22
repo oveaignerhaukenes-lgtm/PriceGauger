@@ -226,7 +226,7 @@ def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> Non
         "def _render_lightweight_live_update()", 1
     )[0]
     assert "build_lightweight_direct_live_payload_v1(" in live_chart
-    assert "render_lightweight_direct_live_v1(" in live_chart
+    assert "render_lightweight_simple_live_v2(" in live_chart
     assert "st.plotly_chart(" not in live_chart
     assert "render_lightweight_plotly_bridge_v1" not in page
     assert "render_lightweight_presentation_cleanup_v1" not in page
