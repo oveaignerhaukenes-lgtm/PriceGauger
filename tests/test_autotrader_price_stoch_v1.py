@@ -152,3 +152,13 @@ def test_strategy_lab_uses_same_price_stoch_core() -> None:
     assert "replay_price_stoch_v1(bars)" in source
     assert "include_flat=True" in source
     assert '"Price + Stoch": "#ea580c"' in chart
+
+
+def test_tradingdesk_exposes_durable_live_management_state_read_only() -> None:
+    source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
+    assert "load_fast_live_state_v2(enrollment)" in source
+    assert "LIVE-evaluering:" in source
+    assert "runtime_state.desired_direction" in source
+    assert "runtime_state.pending_target_direction" in source
+    assert "runtime_state.intent_signal" in source
+    assert "DATA/RUNTIME SER STALE UT" in source
