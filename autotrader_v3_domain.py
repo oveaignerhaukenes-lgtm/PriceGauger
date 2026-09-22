@@ -54,11 +54,35 @@ class TargetInventoryV3:
 
 
 @dataclass(frozen=True, slots=True)
+class CapitalAllocationV3:
+    """Maximum share of the dedicated trader account available to strategy risk."""
+
+    tradeable_pct: float = 100.0
+
+    def __post_init__(self) -> None:
+        value = float(self.tradeable_pct)
+        if not isfinite(value) or value < 0.0 or value > 100.0:
+            raise ValueError("tradeable_pct must be between 0 and 100")
+        object.__setattr__(self, "tradeable_pct", value)
+
+    @property
+    def fraction(self) -> float:
+        return self.tradeable_pct / 100.0
+
+    def tradeable_equity(self, account_equity: float) -> float:
+        equity = float(account_equity)
+        if not isfinite(equity) or equity < 0.0:
+            raise ValueError("account_equity must be finite and non-negative")
+        return equity * self.fraction
+
+
+@dataclass(frozen=True, slots=True)
 class DecisionSnapshotV3:
     trader_id: str
     account: AccountBoundaryV3
     mode: ControlModeV3
     strategy_key: str
+    capital_allocation: CapitalAllocationV3
     base_target: TargetInventoryV3
     effective_target: TargetInventoryV3
     risk_approved_target: TargetInventoryV3
@@ -85,6 +109,7 @@ def signed_inventory_v3(*, direction: str, amount: float) -> TargetInventoryV3:
 
 __all__ = [
     "AccountBoundaryV3",
+    "CapitalAllocationV3",
     "ControlModeV3",
     "DecisionSnapshotV3",
     "TargetInventoryV3",

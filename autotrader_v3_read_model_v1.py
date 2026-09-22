@@ -4,6 +4,7 @@ from autotrader_risk_control_v2 import PositionObservationV2
 from autotrader_strategy_enrollment_v2 import StrategyEnrollmentV2
 from autotrader_v3_domain import (
     AccountBoundaryV3,
+    CapitalAllocationV3,
     ControlModeV3,
     DecisionSnapshotV3,
     TargetInventoryV3,
@@ -53,6 +54,7 @@ def observe_v2_as_v3_v1(
         account=boundary,
         mode=ControlModeV3.DETERMINISTIC,
         strategy_key=enrollment.strategy_key,
+        capital_allocation=CapitalAllocationV3(100.0),
         base_target=actual,
         effective_target=actual,
         risk_approved_target=actual,
