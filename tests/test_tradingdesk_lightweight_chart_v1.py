@@ -385,3 +385,10 @@ def test_direct_live_runtime_exposes_candle_diagnostics():
 def test_direct_live_runtime_binds_candles_to_declared_price_pane():
     runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
     assert "}}, paneIndex('price'));" in runtime
+
+
+def test_direct_live_runtime_recovers_price_pane_height():
+    runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
+    assert "chart.panes()[paneIndex('price')]" in runtime
+    assert "pricePane.setStretchFactor" in runtime
+    assert "pane.getHeight?.()" in runtime
