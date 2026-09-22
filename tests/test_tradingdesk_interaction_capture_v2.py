@@ -24,7 +24,7 @@ def test_interaction_capture_v2_is_retained_as_rollback_but_not_mounted_with_dir
     assert "tradingdesk_ui.charts.interaction_capture_v2" not in facade
     assert "render_tradingdesk_interaction_capture_v2()" not in facade
     assert "render_lightweight_plotly_bridge_v1" not in page
-    assert "render_lightweight_direct_live_v1(" in page
+    assert "render_lightweight_simple_live_v2(" in page
 
 
 def test_interaction_capture_v2_has_no_execution_authority() -> None:
