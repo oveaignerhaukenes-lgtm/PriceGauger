@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import streamlit as st
+from datetime import datetime, timezone
+
+from autotrader_fast_live_runtime_v2 import load_fast_live_state_v2
 
 from autotrader_entry_sizing_policy_v2 import (
     SIZING_MODE_FIXED,
@@ -469,6 +472,49 @@ def render_tradingdesk_automanager_simple_v1(
         f"Nå {observed_direction} · LIVE {live_status} · "
         f"Aktiv strategi (backend): {family_label or spec.label}"
     )
+
+    # Read-only LIVE observability. This deliberately reads the same durable state
+    # that the strategy runtimes persist; it has no execution or strategy authority.
+    try:
+        runtime_state = load_fast_live_state_v2(enrollment)
+    except Exception as exc:
+        st.caption(f"LIVE runtime-state venter: {exc}")
+    else:
+        if runtime_state is None:
+            st.warning("LIVE runtime: ingen persistert strategi-evaluering ennå.")
+        else:
+            evaluated_at = runtime_state.last_action_at
+            if evaluated_at is None:
+                evaluated_text = "aldri"
+                age_text = "ukjent alder"
+                stale = True
+            else:
+                evaluated_utc = evaluated_at.astimezone(timezone.utc)
+                age_seconds = max(
+                    0.0,
+                    (datetime.now(timezone.utc) - evaluated_utc).total_seconds(),
+                )
+                evaluated_text = evaluated_utc.strftime("%d.%m.%Y %H:%M:%S UTC")
+                age_text = f"{age_seconds:.0f}s siden"
+                stale = age_seconds > 180.0
+            pending = runtime_state.pending_target_direction or "ingen"
+            intent = runtime_state.intent_signal or "ingen"
+            message = (
+                f"LIVE-evaluering: {evaluated_text} ({age_text}) · "
+                f"target {runtime_state.desired_direction} · Saxo {observed_direction} · "
+                f"pending {pending}"
+            )
+            if stale and live_status == "AKTIV":
+                st.error(message + " · DATA/RUNTIME SER STALE UT")
+            else:
+                st.caption(message)
+            if runtime_state.intent_signal_at is not None or runtime_state.intent_signal:
+                signal_at = (
+                    "ukjent"
+                    if runtime_state.intent_signal_at is None
+                    else runtime_state.intent_signal_at.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M:%S UTC")
+                )
+                st.caption(f"Siste target-skifte: {signal_at} · {intent}")
     return observations
 
 
