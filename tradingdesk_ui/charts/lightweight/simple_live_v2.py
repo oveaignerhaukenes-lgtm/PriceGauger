@@ -96,8 +96,19 @@ export default function(component) {{
         parentElement.style.minWidth = '0';
 
         const root = document.createElement('div');
-        Object.assign(root.style, {{ width: '100%', height: '100%', minWidth: '0' }});
+        Object.assign(root.style, {{ width: '100%', height: '100%', minWidth: '0', position: 'relative' }});
         parentElement.appendChild(root);
+
+        const selection = document.createElement('div');
+        selection.textContent = 'Trykk på en indikatorlinje for navn';
+        Object.assign(selection.style, {{
+            position: 'absolute', left: '10px', top: '8px', zIndex: '20',
+            padding: '4px 8px', borderRadius: '6px', pointerEvents: 'none',
+            font: '600 12px system-ui', color: theme.text,
+            background: theme.background, border: '1px solid ' + theme.border,
+            opacity: '.88',
+        }});
+        root.appendChild(selection);
 
         const chart = LWC.createChart(root, {{
             autoSize: true,
@@ -153,6 +164,8 @@ export default function(component) {{
             const line = chart.addSeries(LWC.LineSeries, options, paneIndex(item.pane));
             line.setData(Array.from(item.data || []));
             series.set(String(item.role), line);
+            line.__pgLabel = String(item.label || item.role || 'indikator');
+            line.__pgRole = String(item.role || '');
         }});
         Array.from(payload.histograms || []).forEach((item) => {{
             const histogram = chart.addSeries(LWC.HistogramSeries, {{
@@ -164,6 +177,8 @@ export default function(component) {{
                 color: Number(point.value) >= 0 ? 'rgba(22,163,74,.34)' : 'rgba(220,38,38,.34)',
             }})));
             series.set(String(item.role), histogram);
+            histogram.__pgLabel = String(item.label || item.role || 'indikator');
+            histogram.__pgRole = String(item.role || '');
         }});
 
         const rsi = series.get('rsi');
@@ -197,10 +212,34 @@ export default function(component) {{
             panes.forEach((pane, index) => pane?.setStretchFactor?.(index === pricePane ? priceShare : remainder));
         }}
 
+        chart.subscribeClick?.((param) => {{
+            let picked = null;
+            if (param?.seriesData) {{
+                for (const [candidate, point] of param.seriesData.entries()) {{
+                    if (candidate === candles || point == null || !candidate?.__pgLabel) continue;
+                    picked = candidate;
+                    break;
+                }}
+            }}
+            if (!picked) {{
+                selection.textContent = 'Trykk på en indikatorlinje for navn';
+                for (const candidate of series.values()) {{
+                    if (candidate === candles) continue;
+                    try {{ candidate.applyOptions({{ lineWidth: roleStyle(candidate.__pgRole)[1] || 1 }}); }} catch (_) {{}}
+                }}
+                return;
+            }}
+            selection.textContent = picked.__pgLabel;
+            for (const candidate of series.values()) {{
+                if (candidate === candles) continue;
+                try {{ candidate.applyOptions({{ lineWidth: candidate === picked ? 4 : 1 }}); }} catch (_) {{}}
+            }}
+        }});
+
         if (candleData.length) chart.timeScale().fitContent();
 
         return {{
-            parent: parentElement, root, chart, candles, series, markers,
+            parent: parentElement, root, chart, candles, series, markers, selection,
             signature: String(payload.signature || ''),
         }};
     }}
