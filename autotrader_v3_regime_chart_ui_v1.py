@@ -33,16 +33,18 @@ def render_v3_regime_return_chart(
     pivot = frame.pivot_table(
         index="Tid", columns="Strategi", values="Avkastning %", aggfunc="last"
     ).sort_index()
-    st.line_chart(pivot, x_label="Tid", y_label="Avkastning %")
+    if len(pivot.index) < 2:
+        st.info("Venter på minst to tidspunkter før strategilinjene kan tegnes.")
+    else:
+        st.line_chart(pivot, x_label="Tid", y_label="Avkastning %", height=360)
 
     strategies = tuple(str(item) for item in pivot.columns)
-    selected = st.pills(
+    selected = st.selectbox(
         "Strategiinfo",
-        strategies,
+        ("Velg strategi …",) + strategies,
         key=f"v3_strategy_line_info_{comparison.product_key}",
-        selection_mode="single",
     )
-    if selected:
+    if selected != "Velg strategi …":
         series = next((item for item in comparison.paper_series if item.strategy_key == selected), None)
         values = frame.loc[frame["Strategi"] == selected, "Avkastning %"]
         if series is not None and not values.empty:
