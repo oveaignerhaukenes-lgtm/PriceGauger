@@ -15,7 +15,6 @@ from tradingdesk_automanage_panel_legacy_v2 import (
 )
 from tradingdesk_automanager_close_control_v1 import render_close_position_control_v1
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
-from tradingdesk_chart_runtime_continuity_v1 import install_chart_runtime_continuity_v1
 from tradingdesk_chart_trade_controls_v1 import render_tradingdesk_chart_trade_controls_v1
 from tradingdesk_hybrid_lab_v1 import render_tradingdesk_hybrid_lab_v1
 from tradingdesk_macd_supervisor_lab_v1 import render_tradingdesk_macd_supervisor_lab_v1
@@ -28,12 +27,6 @@ from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_simple_v5 import (
 )
 from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_sync_v1
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
-
-
-# This module is imported before the TradingDesk page imports the direct chart renderer.
-# Install the presentation-only continuity wrapper once so scheduled fragment refreshes
-# reuse the existing Lightweight Charts instance rather than destroying/recreating it.
-install_chart_runtime_continuity_v1()
 
 
 def render_tradingdesk_automanage_panel_v2(
