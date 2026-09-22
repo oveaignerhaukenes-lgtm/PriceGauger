@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from autotrader_v3_regime_returns_v1 import build_regime_return_cells_v3, build_relative_return_lines_v3
+from autotrader_v3_regime_returns_v1 import build_regime_return_cells_v3, build_relative_return_lines_v3, build_regime_reset_return_lines_v3
 
 
 def _point(day, equity):
@@ -52,3 +52,12 @@ def test_relative_lines_start_at_zero_and_preserve_continuous_distance_from_zero
     )
     points = build_relative_return_lines_v3(SimpleNamespace(paper_series=(series,)))
     assert [item.return_pct for item in points] == pytest.approx([0.0, -20.0, -12.0, 10.0])
+
+
+def test_regime_reset_does_not_carry_prior_profit_into_new_regime():
+    series = SimpleNamespace(
+        strategy_key="strategy-a",
+        points=(_point(0,100), _point(1,105), _point(2,105), _point(3,101.85)),
+    )
+    points = build_regime_reset_return_lines_v3(SimpleNamespace(paper_series=(series,)), bucket_count=2)
+    assert [item.return_pct for item in points] == pytest.approx([0.0,5.0,0.0,-3.0])
