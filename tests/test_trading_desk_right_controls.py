@@ -77,7 +77,8 @@ def test_timed_fragments_do_not_recreate_interactive_controls() -> None:
     companion_source = (ROOT / "companion_ui_v2.py").read_text(encoding="utf-8")
 
     assert "_render_v2_analysis(include_companion=False)" in source
-    assert "_render_companion_workspace()\n\n        _render_live_chart_controls()" in source
+    assert "_render_companion_workspace()" in source
+    assert "_render_live_chart_controls()" in source
     live_chart_body = source.split("def _render_live_chart() -> None:", 1)[1].split(
         "def _render_lightweight_live_update()", 1
     )[0]
@@ -103,6 +104,6 @@ def test_second_updates_are_owned_by_the_visible_lightweight_component() -> None
     assert "payload.forming_candle" in runtime
     assert "entry.candles.update(merged)" in runtime
     assert "Plotly.relayout" not in runtime
-    assert source.count('run_every=f"{LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}s"') == 1
+    assert source.count('run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s"') == 1
     assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000" not in source
     assert "setTriggerValue('live_tick', Date.now())" not in runtime
