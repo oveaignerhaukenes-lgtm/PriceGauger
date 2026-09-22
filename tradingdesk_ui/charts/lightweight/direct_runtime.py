@@ -338,21 +338,31 @@ export default function(component) {{
         // owns drag/pan inside the plot; page scrolling remains available outside it.
         root.style.touchAction = 'none';
 
-        let savedVisibleRange = previousVisibleRange;
-        if (!savedVisibleRange) {{
-            try {{ savedVisibleRange = JSON.parse(window.localStorage.getItem(viewKey) || 'null'); }} catch (_) {{}}
+        let savedVisibleTimeRange = null;
+        try {{ savedVisibleTimeRange = JSON.parse(window.localStorage.getItem(viewKey) || 'null'); }} catch (_) {{}}
+        const firstCandleTime = Number(candleData[0]?.time);
+        const lastCandleTime = Number(candleData[candleData.length - 1]?.time);
+        const overlapsCurrentData = (range) => {{
+            const from = Number(range?.from);
+            const to = Number(range?.to);
+            return Number.isFinite(from) && Number.isFinite(to) &&
+                Number.isFinite(firstCandleTime) && Number.isFinite(lastCandleTime) &&
+                to >= firstCandleTime && from <= lastCandleTime;
+        }};
+        if (overlapsCurrentData(savedVisibleTimeRange)) {{
+            try {{ chart.timeScale().setVisibleRange(savedVisibleTimeRange); }}
+            catch (_) {{ savedVisibleTimeRange = null; }}
         }}
-        if (savedVisibleRange) {{
-            try {{ chart.timeScale().setVisibleLogicalRange(savedVisibleRange); }} catch (_) {{ chart.timeScale().fitContent(); }}
-        }} else {{
-            // Useful first-open default: show the most recent ~70 candles rather than
-            // fitting the entire history into an unreadable strip.
+        if (!savedVisibleTimeRange) {{
+            // Logical indices are safe only within the current dataset. Persisting them
+            // across a rolling history window can restore an empty time region while
+            // indicator panes still render, so first/recovered open follows latest bars.
             const lastLogical = Math.max(0, candleData.length - 1);
             const firstLogical = Math.max(0, lastLogical - 69);
             try {{ chart.timeScale().setVisibleLogicalRange({{ from: firstLogical, to: lastLogical + 3 }}); }}
             catch (_) {{ chart.timeScale().fitContent(); }}
         }}
-        chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {{
+        chart.timeScale().subscribeVisibleTimeRangeChange((range) => {{
             if (!range) return;
             try {{ window.localStorage.setItem(viewKey, JSON.stringify(range)); }} catch (_) {{}}
         }});
@@ -449,14 +459,14 @@ export default function(component) {{
         const sameParent = entry && entry.parent === parentElement && document.body.contains(entry.root);
         const sameSignature = entry && entry.signature === String(payload.signature || '');
         if (entry && (!sameParent || !sameSignature)) {{
-            let visible = null;
-            try {{ visible = entry.chart.timeScale().getVisibleLogicalRange(); }} catch (_) {{}}
+            // Do not carry dataset-relative logical indices across a rebuild.
+            // The persisted timestamp range below is stable as the rolling history moves.
             if (entry.countdownTimer) window.clearInterval(entry.countdownTimer);
             try {{ entry.chart.remove(); }} catch (_) {{}}
             registry.delete(chartId);
             // Signature changes (indicator set, period/window, etc.) rebuild series,
             // but the user's viewport remains authoritative.
-            entry = buildChart(LWC, visible);
+            entry = buildChart(LWC, null);
             registry.set(chartId, entry);
             return;
         }}
