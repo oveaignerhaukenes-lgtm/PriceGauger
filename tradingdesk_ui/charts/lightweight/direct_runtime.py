@@ -215,13 +215,17 @@ export default function(component) {{
             priceLineVisible: true, lastValueVisible: true,
             priceScaleId: 'right',
         }}, paneIndex('price'));
-        // Lightweight Charts can retain a pane at effectively zero height after
-        // interactive pane resizing. Restore a usable price-pane stretch before drawing.
+        // Pane heights are mutable runtime state. A pane can be dragged down to its
+        // separator and remain effectively invisible even though every series is healthy.
+        // Seed all declared panes with usable stretch factors on construction.
         try {{
-            const pricePane = chart.panes()[paneIndex('price')];
-            if (pricePane && typeof pricePane.setStretchFactor === 'function') {{
-                pricePane.setStretchFactor(Math.max(2, Number(payload.price_pane_stretch || 4)));
-            }}
+            const panes = chart.panes();
+            const priceIndex = paneIndex('price');
+            panes.forEach((pane, index) => {{
+                if (typeof pane.setStretchFactor === 'function') {{
+                    pane.setStretchFactor(index === priceIndex ? 6 : 2);
+                }}
+            }});
         }} catch (_) {{}}
         const candleData = Array.from(payload.candles || []);
         if (!candleData.length) {{
@@ -458,6 +462,17 @@ export default function(component) {{
             try {{ panes = entry.chart.panes().map((pane) => pane.getHeight?.() ?? '?').join('/'); }} catch (_) {{}}
             entry.diagnostic.textContent = `DBG candles=${{candleData.length}} first=${{firstBar.time ?? '?'}} last=${{lastBar.time ?? '?'}} OHLC=${{lastBar.open ?? '?'}}/${{lastBar.high ?? '?'}}/${{lastBar.low ?? '?'}}/${{lastBar.close ?? '?'}} logical=${{logical ? Number(logical.from).toFixed(1)+'..'+Number(logical.to).toFixed(1) : '?'}} panes=${{panes}}`;
         }}
+        // Recover any pane that has been collapsed to a separator since construction.
+        try {{
+            const panes = entry.chart.panes();
+            const priceIndex = paneIndex('price');
+            panes.forEach((pane, index) => {{
+                const height = Number(pane.getHeight?.() ?? 0);
+                if (height < 24 && typeof pane.setStretchFactor === 'function') {{
+                    pane.setStretchFactor(index === priceIndex ? 6 : 2);
+                }}
+            }});
+        }} catch (_) {{}}
         entry.baseCandles = new Map(candleData.map((item) => [Number(item.time), {{ ...item }}]));
         // Never erase a visible price series because one refresh produced an empty
         // canonical slice. Indicators may have warm-up history even when the selected
