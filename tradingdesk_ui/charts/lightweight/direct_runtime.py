@@ -391,7 +391,7 @@ export default function(component) {{
         }});
         const firstBar = candleData[0] || {{}};
         const lastBar = candleData[candleData.length - 1] || {{}};
-        diagnostic.textContent = `DBG candles=${candleData.length} first=${firstBar.time ?? '?'} last=${lastBar.time ?? '?'} OHLC=${lastBar.open ?? '?'}/${lastBar.high ?? '?'}/${lastBar.low ?? '?'}/${lastBar.close ?? '?'}`;
+        diagnostic.textContent = `DBG candles=${{candleData.length}} first=${{firstBar.time ?? '?'}} last=${{lastBar.time ?? '?'}} OHLC=${{lastBar.open ?? '?'}}/${{lastBar.high ?? '?'}}/${{lastBar.low ?? '?'}}/${{lastBar.close ?? '?'}}`;
         root.appendChild(diagnostic);
 
         const entry = {{
