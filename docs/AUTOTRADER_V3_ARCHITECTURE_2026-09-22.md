@@ -50,6 +50,10 @@ Preserve shadow worlds where practical so an AI override can be compared with th
 
 MACD-Trailing is the first native inventory strategy. It changes target inventory in 0.01-unit tranches as trend evidence accumulates or decays, up to the Capital Governor's permitted inventory. It may use the whole dedicated trader account as its capital allocation, but cannot bypass hard margin/catastrophe constraints.
 
+## Capital allocation
+
+Every trader has one deliberately simple primary exposure control: `tradeable_pct` (0–100% of its dedicated account equity). This is the maximum account capital made available to strategy sizing before hard risk/margin constraints. It is displayed prominently in the AutoTrader fleet/card and configuration UI. It does not weaken the Risk/Capital Governor: 100% allocation means the strategy may size from the whole account, not that it may consume 100% margin or bypass catastrophe reserves.
+
 ## Modifiers and services
 
 TakeProfit remains a composable modifier, not a strategy. Watchdog independently detects stale data/runtime, stuck transitions, target/position divergence and execution anomalies. Overseer evaluates trader behavior/performance over longer horizons and may feed Supervisor policy according to configured mode.
