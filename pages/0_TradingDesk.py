@@ -36,7 +36,7 @@ from tradingdesk_ui.charts.lightweight.adapters import load_lightweight_trade_ma
 from tradingdesk_ui.charts.lightweight.direct_contract import (
     build_lightweight_direct_live_payload_v1,
 )
-from tradingdesk_ui.charts.lightweight.direct_runtime import render_lightweight_direct_live_v1
+from tradingdesk_ui.charts.lightweight.simple_live_v2 import render_lightweight_simple_live_v2
 from tradingdesk_ui.charts.lightweight.toolbar import (
     LIGHTWEIGHT_TIMEFRAMES_V1,
     render_lightweight_timeframe_toolbar_v1,
@@ -574,13 +574,13 @@ def _render_live_chart() -> None:
     else:
         chart_surface, indicator_surface = st.container(), None
     with chart_surface:
-        render_lightweight_direct_live_v1(
+        render_lightweight_simple_live_v2(
             payload,
-            key=f"tradingdesk-lightweight-direct:{market}",
+            key=f"tradingdesk-lightweight-simple-v2:{market}",
         )
         st.caption(
-            "Lightweight Charts · direkte canonical PG-data · dra for pan, pinch/hjul for zoom og dra på høyreaksen i hvert panel for skalering. "
-            "Dra håndtaket nederst for total chart-høyde; panelenes relative størrelser beholdes."
+            "Lightweight Charts · stabilitetsmodus: canonical candles, valgte indikatorer og AutoTrader-markører. "
+            "Dra for pan og bruk pinch/hjul for zoom."
         )
         if forming is not None:
             age = forming_candle_event_age_seconds(forming)
