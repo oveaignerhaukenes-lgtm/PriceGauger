@@ -208,13 +208,16 @@ export default function(component) {{
         root.addEventListener('touchend', endPinch, {{ passive: true }});
         root.addEventListener('touchcancel', endPinch, {{ passive: true }});
 
-        // Resolve the price pane once. Every price-coupled series and every pane-layout\n        // operation must use this canonical index; never assume that price === pane 0.\n        const pricePaneIndex = paneIndex('price');\n        const candles = chart.addSeries(LWC.CandlestickSeries, {{
+        // Resolve the price pane once. Every price-coupled series and every pane-layout
+        // operation must use this canonical index; never assume that price === pane 0.
+        const pricePaneIndex = paneIndex('price');
+        const candles = chart.addSeries(LWC.CandlestickSeries, {{
             title: '', upColor: '#16a34a', downColor: '#dc2626',
             borderUpColor: '#16a34a', borderDownColor: '#dc2626',
             wickUpColor: '#15803d', wickDownColor: '#b91c1c',
             priceLineVisible: true, lastValueVisible: true,
             priceScaleId: 'right',
-        }}, paneIndex('price'));
+        }}, pricePaneIndex);
         // Lightweight Charts can retain a pane at effectively zero height after
         // interactive pane resizing. Restore a usable price-pane stretch before drawing.
         try {{
@@ -246,7 +249,7 @@ export default function(component) {{
             const volume = chart.addSeries(LWC.HistogramSeries, {{
                 title: '', priceScaleId: 'volume', priceFormat: {{ type: 'volume' }},
                 priceLineVisible: false, lastValueVisible: false,
-            }}, 0);
+            }}, pricePaneIndex);
             volume.priceScale().applyOptions({{ scaleMargins: {{ top: .78, bottom: 0 }} }});
             volume.setData(volumeData);
             series.set('volume', volume);
