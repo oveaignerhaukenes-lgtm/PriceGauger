@@ -119,11 +119,16 @@ def _marker_payload(
         if time_value is None:
             continue
         direction = str(marker.direction).upper()
-        if direction not in {"LONG", "SHORT"}:
+        if direction not in {"LONG", "SHORT", "FLAT"}:
             continue
         source = str(marker.source or "")
         manual_saxo = source == "SAXO_MANUAL_FILL"
-        if manual_saxo:
+        is_flat = direction == "FLAT"
+        if is_flat:
+            color = "#4b5563"
+            label = ""
+            size = 0.9
+        elif manual_saxo:
             color = "#16a34a" if direction == "LONG" else "#dc2626"
             label = "SAXO BUY" if direction == "LONG" else "SAXO SELL"
             size = 0.95
@@ -136,7 +141,7 @@ def _marker_payload(
                 "time": time_value,
                 "price": float(marker.execution_price),
                 "position": "atPriceMiddle",
-                "shape": "arrowUp" if direction == "LONG" else "arrowDown",
+                "shape": "square" if is_flat else ("arrowUp" if direction == "LONG" else "arrowDown"),
                 "color": color,
                 "text": label,
                 "size": size,
