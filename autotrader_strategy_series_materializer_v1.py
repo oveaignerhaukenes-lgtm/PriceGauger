@@ -21,6 +21,8 @@ from autotrader_strategy_catalog_v2 import AI_BASELINE_STRATEGY_V2, COCKTAIL_MOD
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, StrategyEnrollmentV2, load_active_strategy_enrollments_v2
 from autotrader_strategy_series_store_v1 import StrategySeriesPointV1, ensure_strategy_series_schema_v1, make_strategy_series_identity_v1, persist_strategy_series_points_v1
 from autotrader_strong_cocktail_shadow_v2 import CONFIG_VERSION as STRONG_CONFIG_VERSION
+from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as MACD_TRAILING_STRATEGY_KEY_V3
+from autotrader_v3_macd_trailing_series_v1 import SERIES_VERSION_V3 as MACD_TRAILING_SERIES_VERSION_V3, load_macd_trailing_shadow_series_v3
 from database import using_postgres
 
 LOGGER = logging.getLogger("pricegauger.autotrader.strategy_series_materializer_v1")
@@ -42,6 +44,7 @@ def _utc(value: Any) -> datetime:
 
 def strategy_series_version_v1(strategy_key: str) -> str:
     key = str(strategy_key)
+    if key == MACD_TRAILING_STRATEGY_KEY_V3: return MACD_TRAILING_SERIES_VERSION_V3
     if key == OVERSEER_PERFORMANCE_STRATEGY_KEY_V1: return OVERSEER_PERFORMANCE_SERIES_VERSION_V1
     if key == STRONG_COCKTAIL_STRATEGY_V2: return str(STRONG_CONFIG_VERSION)
     if key == MACD_1M_FLIP_STRATEGY_V2: return MACD_1M_SERIES_VERSION
@@ -89,10 +92,11 @@ def materialize_strategy_series_once_v1(*, db_path: str = "pricegauger.db", now:
             hybrid_controls = load_macd_hybrid_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             sfl_controls = load_sfl_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             macd_a = load_macd_a_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
+            macd_trailing = load_macd_trailing_shadow_series_v3(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             fresh_ai = load_ai_baseline_fresh_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             # Preserve the explicit freshness contract: never let the legacy AI baseline carry stale exposure.
             legacy_without_ai = tuple(series for series in comparison.paper_series if str(series.strategy_key) != str(AI_BASELINE_STRATEGY_V2))
-            experts = legacy_without_ai + tuple(timeframe_controls) + tuple(hybrid_controls) + tuple(sfl_controls) + (() if macd_a is None else (macd_a,))
+            experts = legacy_without_ai + tuple(timeframe_controls) + tuple(hybrid_controls) + tuple(sfl_controls) + (() if macd_a is None else (macd_a,)) + (() if macd_trailing is None else (macd_trailing,))
             overseer = load_overseer_performance_series_v1(experts)
             raw_model_series = experts + (() if fresh_ai is None else (fresh_ai,)) + (() if overseer is None else (overseer,))
             leveraged = apply_schedule_to_series_v2(raw_model_series, schedule=schedule)

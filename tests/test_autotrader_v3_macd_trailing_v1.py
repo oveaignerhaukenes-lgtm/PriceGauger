@@ -52,3 +52,25 @@ def test_invalid_tranche_configuration_fails_closed():
         MacdTrailingConfigV3(tranche=0)
     with pytest.raises(ValueError):
         MacdTrailingConfigV3(tranche=.02, max_inventory=.01)
+
+
+def test_hard_opposite_reversal_flattens_entire_target():
+    decision = macd_trailing_target_v3(
+        current_target=TargetInventoryV3(.05),
+        previous_observation=_obs(.02),
+        observation=_obs(-.05),
+        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10, hard_reversal_ratio=2.0),
+    )
+    assert decision.target.amount == 0.0
+    assert decision.action == "HARD_REVERSAL_FLAT"
+
+
+def test_ordinary_reversal_still_reduces_one_tranche():
+    decision = macd_trailing_target_v3(
+        current_target=TargetInventoryV3(.05),
+        previous_observation=_obs(.04),
+        observation=_obs(-.05),
+        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10, hard_reversal_ratio=2.0),
+    )
+    assert decision.target.amount == pytest.approx(.04)
+    assert decision.action == "REDUCE"
