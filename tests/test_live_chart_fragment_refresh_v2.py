@@ -57,5 +57,5 @@ def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
 
 def test_visible_component_keeps_stable_host_across_fragment_ticks():
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert 'key=f"tradingdesk-lightweight-direct:{market}"' in page
+    assert 'key=f"tradingdesk-lightweight-simple-v2:{market}"' in page
     assert ':{forming_revision}"' not in page
