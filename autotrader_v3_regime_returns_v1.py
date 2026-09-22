@@ -73,7 +73,7 @@ def latest_strategy_returns_v3(cells: Iterable[RegimeReturnCellV3]) -> dict[str,
     return {key: value.return_pct for key, value in latest.items()}
 
 
-__all__ = ["RegimeReturnCellV3", "RelativeReturnPointV3", "build_regime_return_cells_v3", "build_relative_return_lines_v3", "latest_strategy_returns_v3"]
+__all__ = ["RegimeReturnCellV3", "RelativeReturnPointV3", "build_regime_return_cells_v3", "build_relative_return_lines_v3", "build_regime_reset_return_lines_v3", "latest_strategy_returns_v3"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,4 +103,39 @@ def build_relative_return_lines_v3(
                     return_pct=((float(point.equity) / baseline) - 1.0) * 100.0,
                 )
             )
+    return tuple(result)
+
+
+def build_regime_reset_return_lines_v3(
+    comparison: AutoManagerPnlComparisonV2,
+    *,
+    bucket_count: int = 12,
+) -> tuple[RelativeReturnPointV3, ...]:
+    """Continuous lines that reset to zero at each regime boundary.
+
+    Inside a regime the line is the return from that regime's opening equity.
+    At the next regime boundary the baseline resets to zero, so a +5% prior
+    regime followed by -3% in the new regime is shown as -3%, not +2%.
+    """
+    if bucket_count < 1:
+        raise ValueError("bucket_count must be positive")
+    result: list[RelativeReturnPointV3] = []
+    for series in comparison.paper_series:
+        points = tuple(series.points)
+        if not points:
+            continue
+        current_bucket = None
+        baseline = None
+        for index, point in enumerate(points):
+            bucket = _bucket_index(len(points), index, bucket_count)
+            if bucket != current_bucket:
+                current_bucket = bucket
+                baseline = float(point.equity)
+            if baseline is None or baseline <= 0:
+                continue
+            result.append(RelativeReturnPointV3(
+                strategy_key=series.strategy_key,
+                closed_at=point.closed_at,
+                return_pct=((float(point.equity) / baseline) - 1.0) * 100.0,
+            ))
     return tuple(result)

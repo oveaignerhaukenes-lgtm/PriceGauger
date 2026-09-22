@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from autotrader_pnl_comparison_v2 import AutoManagerPnlComparisonV2
-from autotrader_v3_regime_returns_v1 import build_relative_return_lines_v3
+from autotrader_v3_regime_returns_v1 import build_regime_reset_return_lines_v3
 
 
 def _svg_chart(pivot: pd.DataFrame) -> str:
@@ -46,10 +46,9 @@ def _svg_chart(pivot: pd.DataFrame) -> str:
 
 
 def render_v3_regime_return_chart(comparison: AutoManagerPnlComparisonV2, *, bucket_count: int = 12) -> None:
-    del bucket_count
     st.markdown("**V3 · relativ strategiavkastning**")
-    st.caption("Hver strategi starter på 0 og går kontinuerlig så langt over eller under null som avkastningen tilsier. Linjene viser akkumulert relativ avkastning fra valgt start, ikke periodisk rebasering.")
-    points = build_relative_return_lines_v3(comparison)
+    st.caption("Hver strategi nullstilles ved hvert regime. Linjen viser gevinst eller tap siden starten av gjeldende regime, slik at et nytt regime vurderes uavhengig av tidligere gevinst eller tap.")
+    points = build_regime_reset_return_lines_v3(comparison, bucket_count=bucket_count)
     if not points:
         st.info("Venter på strategihistorikk til v3-grafen.")
         return
@@ -71,7 +70,7 @@ def render_v3_regime_return_chart(comparison: AutoManagerPnlComparisonV2, *, buc
             st.markdown(f"**{html.escape(selected)}**")
             c1,c2,c3=st.columns(3); c1.metric("Nå",f"{current:+.2f}%"); c2.metric("Beste",f"{best:+.2f}%"); c3.metric("Laveste",f"{worst:+.2f}%")
             st.caption(f"{series.execution_mode} · start {series.started_at:%Y-%m-%d %H:%M} · {len(series.points)} datapunkter")
-    st.caption("Alle strategier er normalisert til 0 ved start. Kryssing av 0 betyr at samlet relativ avkastning siden start skifter mellom gevinst og tap.")
+    st.caption("Alle strategier nullstilles ved regimeskifte. +5 % i forrige regime etterfulgt av -3 % i neste vises derfor som -3 %, ikke +2 %.")
 
 
 __all__=["render_v3_regime_return_chart"]
