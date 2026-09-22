@@ -51,7 +51,7 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "url_path": "Macro_Calendar",
         },
     ),
-    "Tilkoblinger og handel": (
+    "Trading Schemes": (\n        {\n            "page": "pages/3_Trading_Schemes.py",\n            "title": "Middle East Reconstruction Fund",\n            "icon": "🏗️",\n            "url_path": "Trading_Schemes",\n        },\n    ),\n    "Tilkoblinger og handel": (
         {
             "page": "pages/1_Saxo_OpenAPI.py",
             "title": "Saxo",
