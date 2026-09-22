@@ -337,10 +337,12 @@ def test_direct_live_chart_uses_high_gain_touch_pinch_zoom():
 def test_direct_live_chart_persists_visible_range_and_horizontal_pan():
     runtime = Path("tradingdesk_ui/charts/lightweight/direct_runtime.py").read_text(encoding="utf-8")
     contract = Path("tradingdesk_ui/charts/lightweight/direct_contract.py").read_text(encoding="utf-8")
-    assert "subscribeVisibleLogicalRangeChange" in runtime
+    assert "subscribeVisibleTimeRangeChange" in runtime
+    assert "setVisibleRange(savedVisibleTimeRange)" in runtime
+    assert "overlapsCurrentData(savedVisibleTimeRange)" in runtime
     assert "window.localStorage.setItem(viewKey" in runtime
     assert "window.localStorage.getItem(viewKey)" in runtime
-    assert "entry = buildChart(LWC, visible)" in runtime
+    assert "entry = buildChart(LWC, null)" in runtime
     assert "sameSignature ? visible : null" not in runtime
     assert "payload.timeframe" in runtime
     assert "pressedMouseMove: true" in runtime
