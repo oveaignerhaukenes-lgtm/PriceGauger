@@ -6,3 +6,8 @@ def test_live_chart_does_not_depend_on_closed_canonical_bar_for_intrabar_motion(
     renderer=Path("tradingdesk_ui/charts/lightweight/simple_live_v2.py").read_text(encoding="utf-8")
     assert "entry.candles.update" in renderer
     assert "payload.forming_candle || null" in renderer
+
+def test_tradingdesk_refresh_clock_is_bound_to_named_fragment():
+    page=Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    assert '@st.fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")' in page
+    assert "page_fragment = getattr" not in page
