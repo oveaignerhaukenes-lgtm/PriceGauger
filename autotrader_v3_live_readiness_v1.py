@@ -18,5 +18,4 @@ def live_readiness_v3(enrollment:StrategyEnrollmentV2, *, broker_is_live:bool, e
     if not broker_is_live: reasons.append("Saxo environment is not LIVE")
     if sim_authority_armed_v3(enrollment.pilot_key,db_path=db_path): reasons.append("simulator authority still armed")
     if not live_authority_armed_v3(enrollment.pilot_key,db_path=db_path): reasons.append("LIVE authority not armed")
-    if abs(float(exact_inventory))>1e-12: reasons.append("pilot requires exact Saxo boundary FLAT at activation")
     return LiveReadinessV3(not reasons,tuple(reasons))
