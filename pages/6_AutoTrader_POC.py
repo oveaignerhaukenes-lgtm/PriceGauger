@@ -77,7 +77,8 @@ st.info(
 v3_tab, main_tab, runtime_tab = st.tabs(("V3 Fleet", "AutoManage v2", "Runtime / signal"))
 
 with v3_tab:
-    st.caption("AutoTrader v3 · simulator eller LIVE. LIVE authority = ON betyr at workeren faktisk forvalter den eksakte Saxo-boundaryen.")
+    st.subheader("ENGINE V3 · Target Inventory")
+    st.caption("V3 Fleet · simulator eller LIVE. Alle kontroller i denne fanen tilhører ENGINE V3. LIVE authority = ON betyr at v3-workeren faktisk forvalter den eksakte Saxo-boundaryen.")
     st.info("V3 · MACD-Trailing 5m ligger nå i simulatoren: 0,01-trinn, target inventory og hard-reversal FLAT. SIM-authority nedenfor starter bare den automatiske simulator-driveren; den kan ikke åpne, lukke eller overta en Saxo-posisjon.")
     try:
         v3_enrollments = tuple(
@@ -95,7 +96,7 @@ with v3_tab:
             for item in trailing:
                 armed = sim_authority_armed_v3(item.pilot_key)
                 desired = st.toggle(
-                    f"{item.market_name} · MACD-Trailing 5m simulator",
+                    f"ENGINE V3 · {item.market_name} · SIM",
                     value=armed,
                     key=f"v3-sim-arm:{item.pilot_key}",
                     help="Kjører beslutningsmotoren på lukkede 5m-bars. Ingen Saxo POST.",
@@ -106,7 +107,7 @@ with v3_tab:
 
                 live_armed = live_authority_armed_v3(item.pilot_key)
                 live_desired = st.toggle(
-                    f"{item.market_name} · LIVE authority",
+                    f"ENGINE V3 · {item.market_name} · LIVE",
                     value=live_armed,
                     key=f"v3-live-arm:{item.pilot_key}",
                     disabled=desired,
@@ -136,6 +137,8 @@ with v3_tab:
         st.warning(f"V3-preview kunne ikke bygges: {exc}")
 
 with main_tab:
+    st.subheader("ENGINE V2 · AutoManage")
+    st.caption("Alle kontroller i denne fanen tilhører ENGINE V2. V2 og V3 har separat authority og runtime.")
     render_tradingdesk_automanage_panel_v2(context)
 
 with runtime_tab:
