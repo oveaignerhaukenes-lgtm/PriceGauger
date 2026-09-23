@@ -51,7 +51,7 @@ from v2_forecast_visualization import (
 V2_ANALYSIS_REFRESH_SECONDS = 60
 LIVE_CHART_BASE_REFRESH_SECONDS = 5
 LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
-TRADINGDESK_PAGE_REFRESH_SECONDS = 5
+TRADINGDESK_PAGE_REFRESH_SECONDS = 2
 QUICK_TIMEFRAMES = LIGHTWEIGHT_TIMEFRAMES_V1
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
@@ -553,7 +553,8 @@ def _render_live_chart() -> None:
     st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
     st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
 
-    forming = _forming_chart_candle(context)
+    # Temporarily prefer canonical chart freshness over forming-candle overlay complexity.
+    forming = None
 
     payload = build_lightweight_direct_live_payload_v1(
         market=market,
@@ -586,12 +587,6 @@ def _render_live_chart() -> None:
             "Lightweight Charts · stabilitetsmodus: canonical candles, valgte indikatorer og AutoTrader-markører. "
             "Dra for pan og bruk pinch/hjul for zoom."
         )
-        if forming is not None:
-            age = forming_candle_event_age_seconds(forming)
-            st.caption(
-                f"● Forming candle · {forming.provider} · {timeframe} bucket · "
-                f"oppdatert for {age:.1f} sek siden · live close {forming.close:g}."
-            )
     if indicator_surface is not None:
         with indicator_surface:
             view = context.forecast
