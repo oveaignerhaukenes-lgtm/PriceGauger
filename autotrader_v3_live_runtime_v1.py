@@ -37,9 +37,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if e.strategy_key==STRATEGY_KEY_V3 and e.execution_mode==EXECUTION_MODE_LIVE
         and live_authority_armed_v3(e.pilot_key,db_path=db_path))
     if not enrollments: return 0
-    broker=configured_live_pilot_client_v3()
-    if broker is None: raise RuntimeError("v3 LIVE is armed but Saxo LIVE client is unavailable")
-    observations=_position_observations_v2(broker.client)
+    # Record the heartbeat before any external dependency. If setup fails after
+    # authority is armed, the UI must show the failure instead of "no heartbeat".
+    for e in enrollments:
+        _record_runtime(e.pilot_key,"RUNNING","worker cycle entered",db_path=db_path)
+    try:
+        broker=configured_live_pilot_client_v3()
+        if broker is None:
+            raise RuntimeError("Saxo LIVE client unavailable")
+        observations=_position_observations_v2(broker.client)
+    except Exception as exc:
+        for e in enrollments:
+            _record_runtime(e.pilot_key,"FAILED",f"{type(exc).__name__}: {exc}",db_path=db_path)
+        raise
     # Saxo account endpoint returns JSON dictionaries, not account objects.
     # Treating them as attributes made every armed v3 cycle fail before execution.
     accounts={}
@@ -52,7 +62,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             accounts[account_id]=account_key
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
-        _record_runtime(e.pilot_key,"RUNNING","worker cycle entered",db_path=db_path)
         actual=_actual(e,observations)
         bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
         closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,timeframe_minutes=5) if bars else ()
