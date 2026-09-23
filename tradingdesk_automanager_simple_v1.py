@@ -57,6 +57,7 @@ from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 from autotrader_v3_sim_authority_v1 import set_sim_authority_v3
+from database import connect
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -102,6 +103,16 @@ def _exact_observation_v1(
     if len(matches) > 1:
         raise RuntimeError("multiple Saxo positions matched the active AutoManager product")
     return matches[0] if matches else None
+
+
+def _v3_runtime_state_v1(trader_id: str):
+    try:
+        with connect() as db:
+            row=db.execute("SELECT status,detail,updated_at FROM autotrader_v3_live_runtime_state WHERE trader_id=?",(trader_id,)).fetchone()
+        if row is None: return None
+        return (str(row["status"] if isinstance(row,dict) else row[0]),str((row["detail"] if isinstance(row,dict) else row[1]) or ""),str(row["updated_at"] if isinstance(row,dict) else row[2]))
+    except Exception:
+        return None
 
 
 def _direction_v1(observation: PositionObservationV2 | None) -> str:
@@ -485,7 +496,15 @@ def render_tradingdesk_automanager_simple_v1(
             st.markdown("**ENGINE V3 · Strategi**")
             st.metric("Aktiv strategi", "MACD-Trailing")
             st.caption("5m · target inventory · trinnvis skalering · hard reversal → FLAT")
-            st.caption(f"Authority: {'LIVE AKTIV' if engine_on else 'OFF'} · Saxo nå: {observed_direction}")
+            runtime=_v3_runtime_state_v1(enrollment.pilot_key) if engine_on else None
+            if not engine_on:
+                st.caption(f"Authority: OFF · Saxo nå: {observed_direction}")
+            elif runtime is None:
+                st.error(f"LIVE ARMED · NOT MANAGING / ingen worker-heartbeat · Saxo nå: {observed_direction}")
+            elif runtime[0] == "MANAGING":
+                st.success(f"LIVE MANAGING · {runtime[1]} · heartbeat {runtime[2]} · Saxo nå: {observed_direction}")
+            else:
+                st.warning(f"LIVE {runtime[0]} · {runtime[1]} · heartbeat {runtime[2]} · Saxo nå: {observed_direction}")
             st.caption("V2-strategifamilier gjelder ikke mens ENGINE V3 er valgt.")
         return observations
 

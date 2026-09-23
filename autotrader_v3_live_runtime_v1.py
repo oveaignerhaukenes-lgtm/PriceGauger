@@ -8,6 +8,7 @@ from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
 from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+from database import connect
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
@@ -16,6 +17,14 @@ from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
+
+def _record_runtime(trader_id, status, detail="", *, db_path="pricegauger.db"):
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_live_runtime_state(
+          trader_id TEXT PRIMARY KEY,status TEXT NOT NULL,detail TEXT,updated_at TEXT NOT NULL)""")
+        db.execute("""INSERT INTO autotrader_v3_live_runtime_state(trader_id,status,detail,updated_at)
+          VALUES(?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(trader_id) DO UPDATE SET
+          status=excluded.status,detail=excluded.detail,updated_at=excluded.updated_at""",(trader_id,status,detail))
 
 def _actual(e,observations):
     matches=[o for o in observations if o.account_id==e.account_id and int(o.uic)==int(e.uic) and o.asset_type==e.asset_type]
@@ -43,17 +52,22 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             accounts[account_id]=account_key
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
+        _record_runtime(e.pilot_key,"RUNNING","worker cycle entered",db_path=db_path)
         actual=_actual(e,observations)
         bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
         closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,timeframe_minutes=5) if bars else ()
         obs=macd_observations_v2(closed,timeframe_minutes=5) if closed else ()
-        if not obs: continue
+        if not obs:
+            _record_runtime(e.pilot_key,"DEGRADED","no closed 5m MACD observation",db_path=db_path)
+            continue
         decision=evaluate_closed_bar_once_v3(trader_id=e.pilot_key,observation=obs[-1],db_path=db_path)
         trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual).snapshot
         plan=plan_execution_v3(snapshot)
         mutation=next((s for s in plan.steps if s.action in {"OPEN","ADD","REDUCE","CLOSE"}),None)
-        if mutation is None: continue
+        if mutation is None:
+            _record_runtime(e.pilot_key,"MANAGING",f"target={snapshot.risk_approved_target.amount:g} actual={actual.amount:g}",db_path=db_path)
+            continue
         account=accounts.get(e.account_id)
         if account is None: raise RuntimeError(f"v3 LIVE account unavailable: {e.account_id}")
         side=("Buy" if mutation.direction=="LONG" else "Sell")
@@ -65,5 +79,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
             raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
         broker.place_order(order,confirm_live=True); executed+=1
+        _record_runtime(e.pilot_key,"MANAGING",f"executed {mutation.action} {side} {mutation.amount:g}",db_path=db_path)
         LOGGER.warning("v3 LIVE executed trader=%s step=%s side=%s amount=%s",e.pilot_key,mutation.action,side,mutation.amount)
     return executed
