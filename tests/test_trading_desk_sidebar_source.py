@@ -51,7 +51,7 @@ def test_tradingdesk_updates_recent_forming_candle_directly_in_lightweight_brows
 
     assert "forming_store.load(market=market)" in source
     assert "forming_candle_event_age_seconds(candidate)" in source
-    assert "_forming_chart_candle(context)" in source
+    assert "forming = None" in source
     assert "forming_candle=forming" in source
     assert "render_lightweight_live_update_v1(" not in source
     assert "render_lightweight_base_update_v1(" not in source
