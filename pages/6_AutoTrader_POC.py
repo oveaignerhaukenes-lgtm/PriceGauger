@@ -17,6 +17,7 @@ from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_
 from saxo_provider import configured_client
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3, set_sim_authority_v3
+from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 
 
 ACTIVE_MARKET_KEY = "autotrader-v2-market"
@@ -102,6 +103,20 @@ with v3_tab:
                 if desired != armed:
                     set_sim_authority_v3(item.pilot_key, desired)
                     st.rerun()
+
+                live_armed = live_authority_armed_v3(item.pilot_key)
+                live_desired = st.toggle(
+                    f"{item.market_name} · LIVE authority",
+                    value=live_armed,
+                    key=f"v3-live-arm:{item.pilot_key}",
+                    disabled=desired,
+                    help="Generisk runtime-authority for denne AutoTraderen. Krever LIVE enrollment/broker og simulator AV før execution kan bli ready.",
+                )
+                if live_desired != live_armed:
+                    set_live_authority_v3(item.pilot_key, live_desired)
+                    st.rerun()
+                if live_armed:
+                    st.caption("LIVE ARMED · execution er fortsatt ikke koblet til worker i denne builden.")
 
         live_groups: dict[tuple[str, int, str, int], list] = {}
         for enrollment in v3_enrollments:
