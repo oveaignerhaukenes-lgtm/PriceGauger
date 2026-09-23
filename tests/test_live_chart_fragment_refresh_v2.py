@@ -51,7 +51,7 @@ def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
     assert "setTriggerValue('live_tick', Date.now())" not in source
     assert "setTriggerValue(\'live_tick\', Date.now())" not in source
     assert "on_live_tick_change" not in oslo
-    assert '@st.fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")' in page
+    assert 'st_autorefresh(' in page
     assert 'chart_fragment(run_every=' not in page
 
 
