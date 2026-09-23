@@ -58,7 +58,7 @@ def macd_trailing_target_v3(
     previous_observation: MacdObservationV2 | None = None,
     config: MacdTrailingConfigV3 = MacdTrailingConfigV3(),
 ) -> MacdTrailingDecisionV3:
-    """Move desired inventory one tranche toward current MACD evidence.
+    """Trail desired inventory one tranche with the change in MACD spread (impulse).
 
     This is intentionally a pure strategy function: no Saxo observation, persistence,
     capital lookup or order path. Repeated closed observations can accumulate inventory
@@ -87,23 +87,42 @@ def macd_trailing_target_v3(
             spread=spread,
         )
 
-    direction = 1.0 if spread > 0 else -1.0
-    proposed = current + direction * config.tranche
+    previous_spread = float(previous_observation.spread) if previous_observation is not None else None
+    if previous_spread is None:
+        # First observation establishes direction with one tranche.
+        delta = config.tranche if spread > 0 else -config.tranche
+        evidence = "initial spread"
+    else:
+        impulse = spread - previous_spread
+        if abs(impulse) <= config.deadband:
+            delta = 0.0
+            evidence = "flat impulse"
+        elif impulse > 0:
+            # MACD spread is improving: add/rebuild LONG, or trail SHORT out.
+            delta = config.tranche
+            evidence = f"bullish impulse {impulse:+.6f}"
+        else:
+            # MACD spread is deteriorating: add/rebuild SHORT, or trail LONG out.
+            delta = -config.tranche
+            evidence = f"bearish impulse {impulse:+.6f}"
+
+    proposed = current + delta
     bounded = max(-config.max_inventory, min(config.max_inventory, proposed))
     bounded = _quantize(bounded, config.tranche)
     if bounded == current:
-        action = "HOLD_MAX"
+        action = "HOLD_MAX" if abs(current) >= config.max_inventory else "HOLD_IMPULSE"
     elif abs(bounded) < abs(current):
-        action = "REDUCE"
+        action = "TRAIL_OUT"
     elif current == 0 or (current > 0) == (bounded > 0):
-        action = "ADD"
+        action = "ADD_IMPULSE"
     else:
         action = "CROSS_ZERO"
+
 
     return MacdTrailingDecisionV3(
         target=TargetInventoryV3(bounded),
         action=action,
-        reason=f"MACD spread {spread:+.6f}; one {config.tranche:g} tranche toward evidence",
+        reason=f"MACD spread {spread:+.6f}; {evidence}; one {config.tranche:g} tranche",
         spread=spread,
     )
 
