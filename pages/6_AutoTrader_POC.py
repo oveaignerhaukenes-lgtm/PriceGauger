@@ -15,7 +15,7 @@ from build_info import render_build_badge
 from trading_desk_v2_context import load_trading_desk_contexts_v2
 from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_v2
 from saxo_provider import configured_client
-from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
+from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3, set_sim_authority_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 
@@ -79,7 +79,7 @@ v3_tab, main_tab, runtime_tab = st.tabs(("V3 Fleet", "AutoManage v2", "Runtime /
 with v3_tab:
     st.subheader("ENGINE V3 · Target Inventory")
     st.caption("V3 Fleet · simulator eller LIVE. Alle kontroller i denne fanen tilhører ENGINE V3. LIVE authority = ON betyr at v3-workeren faktisk forvalter den eksakte Saxo-boundaryen.")
-    st.info("V3 · MACD-Trailing 5m ligger nå i simulatoren: 0,01-trinn, target inventory og hard-reversal FLAT. SIM-authority nedenfor starter bare den automatiske simulator-driveren; den kan ikke åpne, lukke eller overta en Saxo-posisjon.")
+    st.info("V3 · MACD-Histogram 5m ligger nå i simulatoren: 0,01-trinn, target inventory og hard-reversal FLAT. SIM-authority nedenfor starter bare den automatiske simulator-driveren; den kan ikke åpne, lukke eller overta en Saxo-posisjon.")
     try:
         v3_enrollments = tuple(
             item
