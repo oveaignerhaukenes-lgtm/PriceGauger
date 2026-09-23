@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from autotrader_macd_dry_run_v2 import STRATEGY_KEY as MACD_LONG_FLAT_STRATEGY_V2
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 from autotrader_overseer_performance_v1 import OVERSEER_PERFORMANCE_STRATEGY_KEY_V1
+from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as MACD_TRAILING_STRATEGY_V3
 from autotrader_price_stoch_v1 import PRICE_STOCH_STRATEGY_V1
 from autotrader_strategy_family_v1 import (
     FAMILY_MACD_STRATEGY_V1,
@@ -114,6 +115,11 @@ SFL_10M_SPEC_V2 = _sfl_spec(10)
 MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2 = _spec(MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2, "MACD hybrid · exit 1m / entry 2m", "1m defensive exit; 2m confirmed entry; safe reversal lifecycle.")
 MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2 = _spec(MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2, "MACD hybrid · exit 1m / entry 5m", "1m defensive exit; 5m confirmed entry; safe reversal lifecycle.")
 AI_BASELINE_SPEC_V2 = _spec(AI_BASELINE_STRATEGY_V2, "AI baseline · GPT-5 mini · technicals + news", "Experimental AI policy; normal execution lifecycle remains authoritative.")
+MACD_TRAILING_SPEC_V3 = _spec(
+    MACD_TRAILING_STRATEGY_V3,
+    "V3 · MACD-Trailing 5m",
+    "Inventory-native v3 simulator: +/-0.01 tranches on closed 5m MACD, hard reversal flattens before rebuilding.",
+)
 OVERSEER_PERFORMANCE_SPEC_V1 = _spec(OVERSEER_PERFORMANCE_STRATEGY_KEY_V1, "Overseer", "Meta-policy selects the currently strongest live-capable expert from recent simulator performance; FLAT and hysteresis are first-class.")
 
 AUTOTRADER_STRATEGIES_V2 = (
@@ -125,7 +131,7 @@ AUTOTRADER_STRATEGIES_V2 = (
     PRICE_STOCH_SPEC_V1, FAMILY_MACD_SPEC_V1, FAMILY_PRICE_MACD_SPEC_V1,
     SFL_1M_SPEC_V2, SFL_2M_SPEC_V2, SFL_5M_SPEC_V2, SFL_10M_SPEC_V2,
     MACD_HYBRID_EXIT_1M_ENTRY_2M_SPEC_V2, MACD_HYBRID_EXIT_1M_ENTRY_5M_SPEC_V2,
-    AI_BASELINE_SPEC_V2, OVERSEER_PERFORMANCE_SPEC_V1,
+    AI_BASELINE_SPEC_V2, MACD_TRAILING_SPEC_V3, OVERSEER_PERFORMANCE_SPEC_V1,
 )
 PAPER_30M_STRATEGIES_V2 = (MACD_LONG_FLAT_SPEC_V2, MACD_SHORT_FLAT_SPEC_V2, MACD_FLIP_SPEC_V2)
 

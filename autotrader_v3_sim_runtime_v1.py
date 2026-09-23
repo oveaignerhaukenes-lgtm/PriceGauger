@@ -8,7 +8,7 @@ from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 
 def run_v3_macd_trailing_sim_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
-    """Evaluate armed v3 SIM traders once per completed 5m bar. No broker POST here yet."""
+    """Evaluate armed v3 SIM traders once per completed 5m bar. Never mutates Saxo positions."""
     processed=0
     end=now or datetime.now(timezone.utc)
     for e in load_active_strategy_enrollments_v2():

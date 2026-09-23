@@ -15,6 +15,8 @@ from build_info import render_build_badge
 from trading_desk_v2_context import load_trading_desk_contexts_v2
 from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_v2
 from saxo_provider import configured_client
+from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
+from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3, set_sim_authority_v3
 
 
 ACTIVE_MARKET_KEY = "autotrader-v2-market"
@@ -74,7 +76,8 @@ st.info(
 v3_tab, main_tab, runtime_tab = st.tabs(("V3 Fleet", "AutoManage v2", "Runtime / signal"))
 
 with v3_tab:
-    st.caption("Ny AutoTrader-arkitektur · read-only observasjon mens v2 fortsatt eier execution.")
+    st.caption("Ny AutoTrader-arkitektur · simulator/shadow. Ingen v3-kontroll her sender Saxo-ordre.")
+    st.info("V3 · MACD-Trailing 5m ligger nå i simulatoren: 0,01-trinn, target inventory og hard-reversal FLAT. SIM-authority nedenfor starter bare den automatiske simulator-driveren; den kan ikke åpne, lukke eller overta en Saxo-posisjon.")
     try:
         v3_enrollments = tuple(
             item
@@ -85,6 +88,20 @@ with v3_tab:
         v3_observations = _position_observations_v2(client) if client is not None else ()
         fleet_rows = build_fleet_read_model_v3(v3_enrollments, v3_observations)
         render_autotrader_v3_fleet_preview(fleet_rows)
+        trailing = tuple(item for item in v3_enrollments if item.strategy_key == STRATEGY_KEY_V3)
+        if trailing:
+            st.markdown("**V3 simulator authority**")
+            for item in trailing:
+                armed = sim_authority_armed_v3(item.pilot_key)
+                desired = st.toggle(
+                    f"{item.market_name} · MACD-Trailing 5m simulator",
+                    value=armed,
+                    key=f"v3-sim-arm:{item.pilot_key}",
+                    help="Kjører beslutningsmotoren på lukkede 5m-bars. Ingen Saxo POST.",
+                )
+                if desired != armed:
+                    set_sim_authority_v3(item.pilot_key, desired)
+                    st.rerun()
 
         live_groups: dict[tuple[str, int, str, int], list] = {}
         for enrollment in v3_enrollments:

@@ -8,6 +8,7 @@ from autotrader_v3_execution_plan_v1 import ExecutionPlanV3, ExecutionStepV3, pl
 from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest, SaxoTradingClient, SaxoTradingSafetyError
 from autotrader_v3_execution_store_v1 import reserve_intent_v3, mark_intent_attempted_v3
+from autotrader_v3_sim_authority_v1 import any_sim_authority_armed_v3
 
 
 MAX_FIRST_TEST_DELTA_V3 = 0.01
@@ -46,7 +47,9 @@ def build_execution_intent_v3(*, snapshot: DecisionSnapshotV3, step: ExecutionSt
 
 def execute_first_test_step_v3(*, trading: SaxoTradingClient, intent: ExecutionIntentV3,
                                submitted_intent_ids: set[str], decision_key: str = "", db_path: str = "pricegauger.db") -> dict:
-    """SIM-only, exactly-once caller-state gate for the first 0.01 v3 execution test."""
+    """Dormant broker primitive for a future explicit execution test; never used by simulator runtime."""
+    if any_sim_authority_armed_v3(db_path=db_path):
+        raise SaxoTradingSafetyError("v3 simulator authority is armed; broker mutation is blocked")
     if intent.intent_id in submitted_intent_ids:
         raise SaxoTradingSafetyError("v3 intent already attempted; automatic retry blocked")
     if intent.step.action not in {"OPEN","ADD","REDUCE","CLOSE"}:
