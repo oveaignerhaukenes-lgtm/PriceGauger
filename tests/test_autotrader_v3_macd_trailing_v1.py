@@ -24,17 +24,27 @@ def test_positive_macd_adds_one_tranche_per_observation():
     assert decisions[-1].action == "HOLD_MAX"
 
 
-def test_reversal_walks_inventory_down_before_crossing_short():
+def test_negative_but_improving_macd_trails_short_out():
     config = MacdTrailingConfigV3(tranche=.01, max_inventory=.05)
     decisions = replay_macd_trailing_targets_v3(
-        (_obs(-.2), _obs(-.2), _obs(-.2), _obs(-.2)),
+        (_obs(-.30), _obs(-.20), _obs(-.10)),
         config=config,
-        initial_target=TargetInventoryV3(.02),
+        initial_target=TargetInventoryV3(-.03),
     )
-    assert [item.target.amount for item in decisions] == pytest.approx([.01, 0, -.01, -.02])
-    assert decisions[0].action == "REDUCE"
-    assert decisions[1].action == "REDUCE"
-    assert decisions[2].action == "ADD"
+    assert [item.target.amount for item in decisions] == pytest.approx([-.04, -.03, -.02])
+    assert decisions[1].action == "TRAIL_OUT"
+    assert decisions[2].action == "TRAIL_OUT"
+
+
+def test_short_bullish_impulse_can_cross_zero_to_capture_brief_reversal():
+    config = MacdTrailingConfigV3(tranche=.01, max_inventory=.05)
+    decisions = replay_macd_trailing_targets_v3(
+        (_obs(-.30), _obs(-.15), _obs(-.05), _obs(.02), _obs(.06)),
+        config=config,
+        initial_target=TargetInventoryV3(-.02),
+    )
+    assert [item.target.amount for item in decisions] == pytest.approx([-.03, -.02, -.01, 0, .01])
+    assert decisions[-1].action == "ADD_IMPULSE"
 
 
 def test_deadband_holds_inventory():
@@ -73,4 +83,4 @@ def test_ordinary_reversal_still_reduces_one_tranche():
         config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10, hard_reversal_ratio=2.0),
     )
     assert decision.target.amount == pytest.approx(.04)
-    assert decision.action == "REDUCE"
+    assert decision.action == "TRAIL_OUT"
