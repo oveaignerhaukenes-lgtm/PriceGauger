@@ -641,6 +641,7 @@ def _render_automanager_workspace() -> None:
     render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)
 
 
+@st.fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")
 def _render_tradingdesk_workspace_v3() -> None:
     """Render one coherent TradingDesk snapshot.
 
@@ -658,11 +659,7 @@ def _render_tradingdesk_workspace_v3() -> None:
 
 with chart_column:
     if auto_refresh:
-        page_fragment = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
-        if page_fragment is not None:
-            page_fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")(_render_tradingdesk_workspace_v3)()
-        else:
-            _render_tradingdesk_workspace_v3()
+        _render_tradingdesk_workspace_v3()
     else:
         _render_v2_analysis()
         _render_live_chart_controls()
