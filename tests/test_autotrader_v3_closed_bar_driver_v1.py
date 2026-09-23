@@ -13,7 +13,7 @@ def test_closed_bar_driver_applies_each_bar_once_across_calls(tmp_path):
     assert a.is_new and a.decision.target.amount==0.01
     assert not b.is_new and b.decision.target.amount==0.01
     assert c.is_new and c.decision.target.amount==0.01
-    assert c.decision.action=="HOLD_IMPULSE"
+    assert c.decision.action=="HOLD"
 
 def test_closed_bar_driver_rejects_older_bar_as_duplicate(tmp_path):
     db=str(tmp_path/"pg.db")

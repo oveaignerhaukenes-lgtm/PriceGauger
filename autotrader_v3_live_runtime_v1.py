@@ -10,7 +10,7 @@ from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from database import connect
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
-from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
+from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoInstrument

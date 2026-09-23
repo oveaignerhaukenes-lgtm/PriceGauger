@@ -6,7 +6,7 @@ from typing import Sequence
 
 from autotrader_macd_dry_run_v2 import MacdObservationV2
 from autotrader_v3_domain import TargetInventoryV3
-from autotrader_v3_macd_trailing_v1 import MacdTrailingConfigV3, MacdTrailingDecisionV3, macd_trailing_target_v3
+from autotrader_v3_macd_histogram_v1 import MacdHistogramConfigV3 as MacdTrailingConfigV3, MacdHistogramDecisionV3 as MacdTrailingDecisionV3, macd_histogram_target_v3 as macd_trailing_target_v3
 from database import connect
 
 
