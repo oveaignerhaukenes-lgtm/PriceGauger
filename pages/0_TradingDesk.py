@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2
 from build_info import render_build_badge
@@ -641,27 +642,19 @@ def _render_automanager_workspace() -> None:
     render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)
 
 
-@st.fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")
-def _render_tradingdesk_workspace_v3() -> None:
-    """Render one coherent TradingDesk snapshot.
+# Deliberately use a whole-script rerun here, not a Streamlit fragment.
+# TradingDesk needs one shared refresh boundary while we verify the live chart
+# end-to-end; fragment isolation previously allowed the visible page/chart to
+# remain stale while the backend stream kept advancing.
+if auto_refresh:
+    st_autorefresh(
+        interval=TRADINGDESK_PAGE_REFRESH_SECONDS * 1000,
+        limit=None,
+        key="tradingdesk-full-page-refresh-v1",
+    )
 
-    The former nested fragment clocks could leave the chart host alive while its
-    Python data loaders stopped advancing.  Prefer an ordinary Streamlit rerun
-    clock for correctness; the stable Lightweight component key preserves the
-    browser chart instance across reruns.
-    """
-    _render_v2_analysis_snapshot()
-    _render_companion_workspace()
+with chart_column:
+    _render_v2_analysis()
     _render_live_chart_controls()
     _render_live_chart()
     _render_automanager_workspace()
-
-
-with chart_column:
-    if auto_refresh:
-        _render_tradingdesk_workspace_v3()
-    else:
-        _render_v2_analysis()
-        _render_live_chart_controls()
-        _render_live_chart()
-        _render_automanager_workspace()

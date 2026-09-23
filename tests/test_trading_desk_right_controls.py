@@ -52,10 +52,10 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
 
     assert "with chart_column:" in source
     assert "if auto_refresh:" in source
-    assert '@st.fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")' in source
+    assert 'st_autorefresh(' in source
     assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
-    assert "else:\n        _render_v2_analysis()\n        _render_live_chart_controls()\n        _render_live_chart()" in source
+    assert "with chart_column:\n    _render_v2_analysis()\n    _render_live_chart_controls()\n    _render_live_chart()" in source
     assert "render_companion_panel_v2(view)" in source
     assert "_render_automanager_workspace()" in source
     assert source.index("with chart_column:") < source.rindex("_render_automanager_workspace()")
@@ -104,6 +104,8 @@ def test_second_updates_are_owned_by_the_visible_lightweight_component() -> None
     assert "payload.forming_candle" in runtime
     assert "entry.candles.update(merged)" in runtime
     assert "Plotly.relayout" not in runtime
-    assert source.count('run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s"') == 1
+    assert source.count("st_autorefresh(") == 1
+    assert "interval=TRADINGDESK_PAGE_REFRESH_SECONDS * 1000" in source
+    assert "@st.fragment" not in source
     assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000" not in source
     assert "setTriggerValue('live_tick', Date.now())" not in runtime
