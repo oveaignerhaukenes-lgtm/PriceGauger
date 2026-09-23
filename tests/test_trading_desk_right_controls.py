@@ -52,7 +52,7 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
 
     assert "with chart_column:" in source
     assert "if auto_refresh:" in source
-    assert 'page_fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")(_render_tradingdesk_workspace_v3)()' in source
+    assert '@st.fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")' in source
     assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
     assert "else:\n        _render_v2_analysis()\n        _render_live_chart_controls()\n        _render_live_chart()" in source
