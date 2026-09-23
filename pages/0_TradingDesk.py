@@ -309,7 +309,7 @@ with controls_column:
         )
         if auto_refresh:
             st.caption(
-                f"Ett chart-iframe eier både canonical bars og forming candle. Live-fragmentet leser "
+                f"Ett chart-iframe eier canonical bars og forming candle. TradingDesk leser "
                 f"forming candle hvert {LIVE_CANDLE_OVERLAY_REFRESH_SECONDS}. sekund; canonical data følger samme chart-runtime. "
                 f"V2 workspace/health/TA Analyst oppdateres hvert {V2_ANALYSIS_REFRESH_SECONDS}. sekund."
             )
@@ -553,8 +553,10 @@ def _render_live_chart() -> None:
     st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
     st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
 
-    # Temporarily prefer canonical chart freshness over forming-candle overlay complexity.
-    forming = None
+    # Canonical storage contains CLOSED 1m bars only.  A timed rerun cannot make the
+    # current 5m candle move unless we also project the presentation-only forming
+    # candle from the live Saxo stream into the selected timeframe.
+    forming = _forming_chart_candle(context)
 
     payload = build_lightweight_direct_live_payload_v1(
         market=market,
@@ -584,7 +586,7 @@ def _render_live_chart() -> None:
             key=f"tradingdesk-lightweight-simple-v2:{market}",
         )
         st.caption(
-            "Lightweight Charts · stabilitetsmodus: canonical candles, valgte indikatorer og AutoTrader-markører. "
+            "Lightweight Charts · canonical closed bars + live forming candle, valgte indikatorer og AutoTrader-markører. "
             "Dra for pan og bruk pinch/hjul for zoom."
         )
     if indicator_surface is not None:
