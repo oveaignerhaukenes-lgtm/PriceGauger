@@ -13,6 +13,7 @@ import pandas as pd
 from analysis_status import AnalysisStatusStore
 from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
+from autotrader_v3_sim_runtime_v1 import run_v3_macd_trailing_sim_cycle_v1
 from config import openai_api_key, openai_market_model
 from database import using_postgres
 from indicator_ai_insights_v1 import refresh_indicator_ai_once_v1
@@ -267,6 +268,13 @@ def run_once(
             )
     except Exception as exc:
         LOGGER.warning("strategy series materialization failed; worker continues: %s", exc, exc_info=True)
+
+    try:
+        v3_processed = run_v3_macd_trailing_sim_cycle_v1(db_path=str(db_path))
+        if v3_processed:
+            LOGGER.info("v3 MACD-Trailing SIM processed closed bars=%d", v3_processed)
+    except Exception as exc:
+        LOGGER.warning("v3 MACD-Trailing SIM cycle failed; worker continues: %s", exc, exc_info=True)
 
     summary = WorkerRunSummary(fetched=len(all_plans))
     LOGGER.info("cycle complete fetched=%s", summary.fetched)
