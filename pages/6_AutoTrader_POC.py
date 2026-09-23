@@ -77,7 +77,7 @@ st.info(
 v3_tab, main_tab, runtime_tab = st.tabs(("V3 Fleet", "AutoManage v2", "Runtime / signal"))
 
 with v3_tab:
-    st.caption("Ny AutoTrader-arkitektur · simulator/shadow. Ingen v3-kontroll her sender Saxo-ordre.")
+    st.caption("AutoTrader v3 · simulator eller LIVE. LIVE authority = ON betyr at workeren faktisk forvalter den eksakte Saxo-boundaryen.")
     st.info("V3 · MACD-Trailing 5m ligger nå i simulatoren: 0,01-trinn, target inventory og hard-reversal FLAT. SIM-authority nedenfor starter bare den automatiske simulator-driveren; den kan ikke åpne, lukke eller overta en Saxo-posisjon.")
     try:
         v3_enrollments = tuple(
@@ -110,13 +110,13 @@ with v3_tab:
                     value=live_armed,
                     key=f"v3-live-arm:{item.pilot_key}",
                     disabled=desired,
-                    help="Generisk runtime-authority for denne AutoTraderen. Krever LIVE enrollment/broker og simulator AV før execution kan bli ready.",
+                    help="ON = denne v3 AutoTraderen er aktiv i LIVE og workeren forvalter den eksakte Saxo account + UIC + AssetType-boundaryen.",
                 )
                 if live_desired != live_armed:
                     set_live_authority_v3(item.pilot_key, live_desired)
                     st.rerun()
                 if live_armed:
-                    st.caption("LIVE ARMED · execution er fortsatt ikke koblet til worker i denne builden.")
+                    st.success("LIVE AKTIV · worker execution er koblet. Eksisterende Saxo-inventory inngår i v3 reconciliation.")
 
         live_groups: dict[tuple[str, int, str, int], list] = {}
         for enrollment in v3_enrollments:
