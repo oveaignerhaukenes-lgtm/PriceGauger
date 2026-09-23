@@ -54,6 +54,8 @@ from autotrader_take_profit_modifier_v1 import (
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
+from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
+from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -359,6 +361,33 @@ def render_tradingdesk_automanager_simple_v1(
     observed_direction = _direction_v1(observation)
     auto_trade_enabled = auto_manage_enabled_v1(enrollment)
     position_manage_enabled = position_management_enabled_v1(enrollment)
+
+    # One obvious master authority control. Engine identity is explicit so V2 and V3
+    # can coexist without an ARMED badge from one engine being mistaken for the other.
+    engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3
+    if engine_v3:
+        engine_on = live_authority_armed_v3(enrollment.pilot_key)
+        engine_label = "ENGINE V3 · LIVE"
+    else:
+        engine_on = bool(position_manage_enabled and auto_trade_enabled)
+        engine_label = "ENGINE V2 · LIVE"
+    desired_engine_on = st.toggle(
+        f"{engine_label} · {'ON' if engine_on else 'OFF'}",
+        value=engine_on,
+        key=f"td-engine-master:{enrollment.pilot_key}",
+        help="Master authority. ON betyr at valgt motor faktisk forvalter denne Saxo-boundaryen; OFF betyr ingen authority.",
+    )
+    if desired_engine_on != engine_on:
+        try:
+            if engine_v3:
+                set_live_authority_v3(enrollment.pilot_key, desired_engine_on)
+            else:
+                set_position_management_enabled_v1(enrollment, desired_engine_on)
+                set_auto_manage_enabled_v1(enrollment, desired_engine_on)
+        except Exception as exc:
+            st.error(f"{engine_label} kunne ikke {'startes' if desired_engine_on else 'stoppes'}: {exc}")
+        else:
+            st.rerun()
 
     try:
         account_key, _ = _account_info(client, enrollment.account_id)
