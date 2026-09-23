@@ -56,6 +56,7 @@ from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
+from autotrader_v3_sim_authority_v1 import set_sim_authority_v3
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -362,9 +363,49 @@ def render_tradingdesk_automanager_simple_v1(
     auto_trade_enabled = auto_manage_enabled_v1(enrollment)
     position_manage_enabled = position_management_enabled_v1(enrollment)
 
+    # Engine selection is a first-class operator choice, separate from ON/OFF.
+    engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3
+    engine_choice = st.radio(
+        "AutoTrader-motor",
+        ("V2", "V3"),
+        index=1 if engine_v3 else 0,
+        horizontal=True,
+        key=f"td-engine-select:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}",
+        help="Velg hvilken motor som eier AutoTraderen. ON/OFF under gjelder den valgte motoren.",
+    )
+    requested_v3 = engine_choice == "V3"
+    if requested_v3 != engine_v3:
+        try:
+            source_key = enrollment.pilot_key
+            result = switch_live_strategy_v2(
+                pilot_key=source_key,
+                target_strategy_key=STRATEGY_KEY_V3 if requested_v3 else FAMILY_MACD_STRATEGY_V1,
+            )
+            switched = load_strategy_enrollment_v2(result.to_pilot_key)
+            if switched is None:
+                raise RuntimeError("engine switch did not persist target enrollment")
+            # Transfer operator authority to the selected engine; never leave both engines armed.
+            if requested_v3:
+                set_position_management_enabled_v1(switched, False)
+                set_auto_manage_enabled_v1(switched, False)
+                set_sim_authority_v3(source_key, False)
+                set_live_authority_v3(source_key, False)
+                set_sim_authority_v3(switched.pilot_key, False)
+                set_live_authority_v3(switched.pilot_key, True)
+            else:
+                set_live_authority_v3(source_key, False)
+                set_sim_authority_v3(source_key, False)
+                set_live_authority_v3(switched.pilot_key, False)
+                _ensure_execution_ready_v1(switched)
+                set_position_management_enabled_v1(switched, True)
+                set_auto_manage_enabled_v1(switched, True)
+        except Exception as exc:
+            st.error(f"Motorbytte kunne ikke fullføres: {exc}")
+        else:
+            st.rerun()
+
     # One obvious master authority control. Engine identity is explicit so V2 and V3
     # can coexist without an ARMED badge from one engine being mistaken for the other.
-    engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3
     if engine_v3:
         engine_on = live_authority_armed_v3(enrollment.pilot_key)
         engine_label = "ENGINE V3 · LIVE"
