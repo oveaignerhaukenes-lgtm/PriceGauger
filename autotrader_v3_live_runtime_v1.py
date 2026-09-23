@@ -31,7 +31,16 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     broker=configured_live_pilot_client_v3()
     if broker is None: raise RuntimeError("v3 LIVE is armed but Saxo LIVE client is unavailable")
     observations=_position_observations_v2(broker.client)
-    accounts={a.account_id:a for a in broker.accounts()}
+    # Saxo account endpoint returns JSON dictionaries, not account objects.
+    # Treating them as attributes made every armed v3 cycle fail before execution.
+    accounts={}
+    for row in broker.accounts():
+        if not isinstance(row,dict):
+            continue
+        account_id=str(row.get("AccountId") or "").strip()
+        account_key=str(row.get("AccountKey") or "").strip()
+        if account_id and account_key:
+            accounts[account_id]=account_key
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
         actual=_actual(e,observations)
@@ -50,7 +59,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         side=("Buy" if mutation.direction=="LONG" else "Sell")
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
-        order=SaxoOrderRequest(account_key=account.account_key,instrument=instrument,amount=mutation.amount,buy_sell=side,
+        order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
             external_reference=("pgv3-"+decision.decision_key)[-50:])
         pre=broker.precheck(order)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
