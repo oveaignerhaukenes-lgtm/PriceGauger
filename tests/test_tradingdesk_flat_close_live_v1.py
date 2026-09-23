@@ -81,7 +81,7 @@ def test_live_chart_keeps_periodic_forming_candle_refresh() -> None:
 
     assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1" in page
     assert "LIVE_CHART_BASE_REFRESH_SECONDS = 5" in page
-    assert "forming = None" in page
+    assert "forming = _forming_chart_candle(context)" in page
     assert "forming_candle=forming" in page
     assert 'page_fragment(run_every=f"{TRADINGDESK_PAGE_REFRESH_SECONDS}s")(_render_tradingdesk_workspace_v3)()' in page
     assert "render_lightweight_live_update_v1(" not in page
