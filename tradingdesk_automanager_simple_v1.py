@@ -54,10 +54,11 @@ from autotrader_take_profit_modifier_v1 import (
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
-from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
+from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 from autotrader_v3_sim_authority_v1 import set_sim_authority_v3
 from database import connect
+from autotrader_v3_modifier_selection_v1 import ModifierSelectionV3, load_modifier_selection_v3, save_modifier_selection_v3
 
 
 def _account_info(client, account_id: str) -> tuple[str, str]:
@@ -494,8 +495,19 @@ def render_tradingdesk_automanager_simple_v1(
     if engine_v3:
         with st.container(border=True):
             st.markdown("**ENGINE V3 · Strategi**")
-            st.metric("Aktiv strategi", "MACD-Trailing")
-            st.caption("5m · target inventory · trinnvis skalering · hard reversal → FLAT")
+            st.metric("Aktiv strategi", "MACD-Histogram")
+            st.caption("5m · histogramretning styrer target inventory direkte")
+            selection=load_modifier_selection_v3(enrollment.pilot_key)
+            st.markdown("**Modifikatorer / tjenester**")
+            m1,m2,m3=st.columns(3)
+            tp=m1.toggle("TakeProfit",value=selection.take_profit,key=f"v3-mod-tp:{enrollment.pilot_key}")
+            wd=m2.toggle("Watchdog",value=selection.watchdog,key=f"v3-mod-wd:{enrollment.pilot_key}")
+            ov=m3.toggle("Overseer",value=selection.overseer,key=f"v3-mod-ov:{enrollment.pilot_key}")
+            desired=ModifierSelectionV3(tp,wd,ov)
+            if desired != selection:
+                save_modifier_selection_v3(enrollment.pilot_key,desired)
+                st.rerun()
+            st.caption("TakeProfit kan kobles til target-pipelinen. Watchdog og Overseer er synlige valg nå; runtime-kontraktene deres kobles inn separat.")
             runtime=_v3_runtime_state_v1(enrollment.pilot_key) if engine_on else None
             if not engine_on:
                 st.caption(f"Authority: OFF · Saxo nå: {observed_direction}")
