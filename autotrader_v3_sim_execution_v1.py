@@ -7,6 +7,7 @@ from autotrader_v3_domain import DecisionSnapshotV3
 from autotrader_v3_execution_plan_v1 import ExecutionPlanV3, ExecutionStepV3, plan_execution_v3
 from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest, SaxoTradingClient, SaxoTradingSafetyError
+from autotrader_v3_execution_store_v1 import reserve_intent_v3, mark_intent_attempted_v3
 
 
 MAX_FIRST_TEST_DELTA_V3 = 0.01
@@ -44,7 +45,7 @@ def build_execution_intent_v3(*, snapshot: DecisionSnapshotV3, step: ExecutionSt
 
 
 def execute_first_test_step_v3(*, trading: SaxoTradingClient, intent: ExecutionIntentV3,
-                               submitted_intent_ids: set[str]) -> dict:
+                               submitted_intent_ids: set[str], decision_key: str = "", db_path: str = "pricegauger.db") -> dict:
     """SIM-only, exactly-once caller-state gate for the first 0.01 v3 execution test."""
     if intent.intent_id in submitted_intent_ids:
         raise SaxoTradingSafetyError("v3 intent already attempted; automatic retry blocked")
@@ -56,7 +57,10 @@ def execute_first_test_step_v3(*, trading: SaxoTradingClient, intent: ExecutionI
     precheck=trading.precheck(order)
     if str(precheck.get("PreCheckResult") or "").lower() != "ok" or precheck.get("PreTradeDisclaimers"):
         raise SaxoTradingSafetyError("Saxo precheck did not clear v3 execution")
+    if not reserve_intent_v3(intent_id=intent.intent_id, decision_key=decision_key or intent.intent_id, payload={"trader_id":intent.trader_id,"action":intent.step.action,"direction":intent.step.direction,"amount":intent.step.amount,"account_id":intent.account_id,"uic":intent.instrument.uic,"asset_type":intent.instrument.asset_type}, db_path=db_path):
+        raise SaxoTradingSafetyError("v3 intent already exists durably; automatic retry blocked")
     submitted_intent_ids.add(intent.intent_id)
+    mark_intent_attempted_v3(intent.intent_id, db_path=db_path)
     response=trading.place_order(order,confirm_sim=True)
     positions=trading.net_positions_me(account_id=intent.account_id,uic=intent.instrument.uic)
     return {"intent_id":intent.intent_id,"order_response":response,"net_positions":positions}
