@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from saxo_provider import LIVE_BASE_URL,SaxoClient,SaxoInstrument,SaxoError,configured_client
 from saxo_trading import SaxoOrderRequest,SaxoTradingSafetyError
 
-MAX_LIVE_PILOT_DELTA_V3=0.01
-
 class SaxoLivePilotClientV3:
     """Narrow LIVE adapter. Construction and every POST fail closed unless explicitly confirmed."""
     def __init__(self, client:SaxoClient):
@@ -17,8 +15,6 @@ class SaxoLivePilotClientV3:
         return self._post("trade/v2/orders/precheck",order.payload())
     def place_order(self, order:SaxoOrderRequest, *, confirm_live:bool=False):
         if not confirm_live: raise SaxoTradingSafetyError("v3 LIVE order requires explicit confirm_live=True")
-        if float(order.amount)>MAX_LIVE_PILOT_DELTA_V3+1e-12:
-            raise SaxoTradingSafetyError("v3 LIVE pilot is hard-capped to 0.01 per mutation")
         return self._post("trade/v2/orders",order.payload())
     def net_positions_exact(self, *,account_id:str,uic:int,asset_type:str):
         payload=self.client._get("port/v1/netpositions/me",params={"$top":1000}); matches=[]
