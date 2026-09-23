@@ -36,7 +36,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
     ensure_closed_bar_driver_schema_v3(db_path)
-    bar_time = observation.closed_at.isoformat()
+    bar_time = observation.bar_time.isoformat()
     with connect(db_path) as db:
         row = db.execute("SELECT last_bar_time,target_amount,previous_spread FROM autotrader_v3_closed_bar_state WHERE trader_id=?",
                          (trader_id,)).fetchone()
@@ -50,7 +50,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
                 return ClosedBarDecisionV3(f"{trader_id}|{bar_time}",hold,False)
             previous = None
             if prev_spread is not None:
-                previous = MacdObservationV2(closed_at=observation.closed_at, macd=0.0, signal=-float(prev_spread), spread=float(prev_spread))
+                previous = MacdObservationV2(bar_time=observation.bar_time, macd=float(prev_spread), signal=0.0)
         else:
             target=0.0; previous=None
         decision=macd_trailing_target_v3(current_target=TargetInventoryV3(target),
