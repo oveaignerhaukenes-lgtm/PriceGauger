@@ -478,6 +478,17 @@ def render_tradingdesk_automanager_simple_v1(
                 st.success(f"Mål satt: {target}. Execution fortsetter på neste syklus.")
             st.rerun()
 
+    # Strategy controls are engine-specific. Never render V2 family controls while
+    # ENGINE V3 owns the boundary: that made the selected behavior ambiguous.
+    if engine_v3:
+        with st.container(border=True):
+            st.markdown("**ENGINE V3 · Strategi**")
+            st.metric("Aktiv strategi", "MACD-Trailing")
+            st.caption("5m · target inventory · trinnvis skalering · hard reversal → FLAT")
+            st.caption(f"Authority: {'LIVE AKTIV' if engine_on else 'OFF'} · Saxo nå: {observed_direction}")
+            st.caption("V2-strategifamilier gjelder ikke mens ENGINE V3 er valgt.")
+        return observations
+
     strategy_col, settings_col = st.columns([3.55, 0.45], gap="small")
     strategy_selector_key = (
         f"td-simple-strategy:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
