@@ -62,10 +62,13 @@ def test_visible_component_keeps_stable_host_across_fragment_ticks():
     assert ':{forming_revision}"' not in page
 
 
-def test_tradingdesk_periodic_refresh_rerenders_one_coherent_workspace_snapshot():
+def test_tradingdesk_periodic_refresh_reruns_the_whole_script():
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     assert "TRADINGDESK_PAGE_REFRESH_SECONDS = 2" in page
-    body = page.split("def _render_tradingdesk_workspace_v3() -> None:", 1)[1].split("with chart_column:", 1)[0]
-    assert "_render_live_chart()" in body
-    assert "_render_automanager_workspace()" in body
-    assert "_render_v2_analysis_snapshot()" in body
+    assert "st_autorefresh(" in page
+    assert "interval=TRADINGDESK_PAGE_REFRESH_SECONDS * 1000" in page
+    assert "@st.fragment" not in page
+    main = page.split("with chart_column:", 1)[1]
+    assert "_render_live_chart()" in main
+    assert "_render_automanager_workspace()" in main
+    assert "_render_v2_analysis()" in main
