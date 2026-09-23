@@ -12,6 +12,12 @@ def sim_authority_armed_v3(trader_id:str, *, db_path="pricegauger.db")->bool:
         row=db.execute("SELECT armed FROM autotrader_v3_sim_authority WHERE trader_id=?",(trader_id,)).fetchone()
     return bool(row and (row["armed"] if isinstance(row,dict) else row[0]))
 
+def any_sim_authority_armed_v3(*, db_path="pricegauger.db")->bool:
+    ensure_v3_sim_authority_schema(db_path)
+    with connect(db_path) as db:
+        row=db.execute("SELECT 1 FROM autotrader_v3_sim_authority WHERE armed=TRUE LIMIT 1").fetchone()
+    return row is not None
+
 def set_sim_authority_v3(trader_id:str, armed:bool, *, db_path="pricegauger.db")->None:
     ensure_v3_sim_authority_schema(db_path)
     with connect(db_path) as db:
