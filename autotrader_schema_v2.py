@@ -231,7 +231,6 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """,
-        """,
         "ALTER TABLE pg_v2_autotrader_pilot_equity_state ADD COLUMN IF NOT EXISTS capital_allocation DOUBLE PRECISION CHECK (capital_allocation > 0)",
         """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_pilot_equity_events (
