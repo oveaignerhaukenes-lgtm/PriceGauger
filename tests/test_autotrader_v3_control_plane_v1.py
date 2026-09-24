@@ -7,7 +7,8 @@ from autotrader_v3_registry_v1 import CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES
 def test_v3_registry_keeps_timeframe_out_of_strategy_identity():
     keys = {item.key for item in STRATEGIES_V3}
     assert "macd" in keys
-    assert "macd-a" not in keys\n    assert "sfl" in keys
+    assert "macd-a" not in keys
+    assert "sfl" in keys
     assert not any(key.endswith("-5m") or key.endswith("-30m") for key in keys)
     assert "Adaptiv" in TIMEFRAMES_V3
 
