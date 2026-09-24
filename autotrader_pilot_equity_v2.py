@@ -78,6 +78,7 @@ def pilot_equity_snapshot_v2(
     seed_capital: float,
     realized_net_pnl_entries: Iterable[float] = (),
     currency: str = DEFAULT_PILOT_CURRENCY,
+    capital_allocation: float | None = None,
 ) -> PilotEquitySnapshotV2:
     """Pure equity calculation used by persistence and unit tests."""
     realized = sum(float(item) for item in realized_net_pnl_entries)
@@ -86,7 +87,7 @@ def pilot_equity_snapshot_v2(
         currency=str(currency).strip().upper(),
         seed_capital=float(seed_capital),
         realized_net_pnl=realized,
-        capital_allocation=float(seed_capital),
+        capital_allocation=float(seed_capital if capital_allocation is None else capital_allocation),
     )
 
 
