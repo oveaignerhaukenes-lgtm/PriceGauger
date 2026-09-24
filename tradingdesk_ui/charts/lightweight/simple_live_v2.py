@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Mapping
 
 import streamlit as st
@@ -269,7 +271,10 @@ export default function(component) {{
         entry.markers?.setMarkers?.(markerPayload());
     }}
 
-    parentElement.innerHTML = '<div style="padding:.75rem;color:#64748b;font:500 12px system-ui">Laster chart…</div>';
+    const mounted = registry.get(chartId);
+    if (!mounted || mounted.parent !== parentElement || !document.body.contains(mounted.root)) {{
+        parentElement.innerHTML = '<div style="padding:.75rem;color:#64748b;font:500 12px system-ui">Laster chart…</div>';
+    }}
     loadLibrary().then((LWC) => {{
         let entry = registry.get(chartId) || null;
         const valid = entry && entry.parent === parentElement && document.body.contains(entry.root);
@@ -299,6 +304,77 @@ _simple_live_component = st.components.v2.component(
 )
 
 
+_SIMPLE_LIVE_REFRESH_JS = r"""
+export default function(component) {
+    const { data, parentElement } = component;
+    const payload = data.payload || {};
+    const chartId = String(payload.chart_id || 'TradingDeskSimple:unknown');
+    let timer = null;
+
+    function apply() {
+        const entry = window.__pricegaugerSimpleLiveCharts?.get(chartId);
+        if (!entry || !document.body.contains(entry.root) ||
+            entry.signature !== String(payload.signature || '')) return false;
+
+        const candles = Array.from(payload.candles || []);
+        entry.candles.setData(candles);
+        const forming = payload.forming_candle;
+        if (forming && Number.isFinite(Number(forming.time))) {
+            entry.candles.update({
+                time: Number(forming.time), open: Number(forming.open),
+                high: Number(forming.high), low: Number(forming.low), close: Number(forming.close),
+            });
+        }
+        for (const item of Array.from(payload.lines || [])) {
+            entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
+        }
+        for (const item of Array.from(payload.histograms || [])) {
+            entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []).map(point => ({
+                time: point.time, value: point.value,
+                color: Number(point.value) >= 0 ? 'rgba(22,163,74,.34)' : 'rgba(220,38,38,.34)',
+            })));
+        }
+        entry.markers?.setMarkers?.(Array.from(payload.markers || []).map(marker => {
+            const direction = String(marker.direction || '').toUpperCase();
+            const isFlat = direction === 'FLAT';
+            return {
+                ...marker,
+                position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
+                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#4b5563' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
+            };
+        }));
+        return true;
+    }
+
+    if (!apply()) {
+        let attempts = 0;
+        timer = window.setInterval(() => {
+            if (apply() || ++attempts >= 40) {
+                window.clearInterval(timer);
+                timer = null;
+            }
+        }, 100);
+    }
+    parentElement.style.display = 'none';
+    return () => { if (timer) window.clearInterval(timer); };
+}
+"""
+
+
+_simple_live_refresh_component = st.components.v2.component(
+    "pricegauger_tradingdesk_simple_live_refresh_v2",
+    js=_SIMPLE_LIVE_REFRESH_JS,
+    isolate_styles=False,
+)
+
+
+def _payload_key(prefix: str, payload: Mapping[str, Any]) -> str:
+    """A changed data revision mounts a fresh updater without remounting the chart."""
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return f"{prefix}-{hashlib.blake2s(encoded, digest_size=16).hexdigest()}"
+
+
 def render_lightweight_simple_live_v2(
     payload: Mapping[str, Any],
     *,
@@ -307,10 +383,18 @@ def render_lightweight_simple_live_v2(
     """Minimal canonical LIVE renderer: candles, indicators and AutoTrader markers only."""
 
     height = max(360, int(payload.get("height", 780)))
+    chart_key = _payload_key(
+        "pg-simple-chart", {"key": key, "signature": payload.get("signature")},
+    )
     _simple_live_component(
-        key=str(key),
+        key=chart_key,
         data={"payload": dict(payload)},
         height=height,
+    )
+    _simple_live_refresh_component(
+        key=_payload_key("pg-simple-refresh", payload),
+        data={"payload": dict(payload)},
+        height=0,
     )
 
 
