@@ -5,6 +5,7 @@ import streamlit as st
 from autotrader_strategy_enrollment_v2 import load_active_strategy_enrollments_v2
 from autotrader_v3_config_v1 import AutoTraderConfigV3, load_autotrader_config_v3, save_autotrader_config_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+from autotrader_v3_modifier_settings_v1 import load_modifier_settings_v3, save_modifier_settings_v3
 from autotrader_v3_registry_v1 import CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3
 
 
@@ -68,7 +69,31 @@ with control_tab:
             key=f"v3-mod:{trader_id}:{spec.key}",
             help=spec.description,
         )
-        c2.button("⚙", key=f"v3-mod-settings:{trader_id}:{spec.key}", disabled=not on, help=f"Innstillinger for {spec.label}")
+        with c2:
+            with st.popover("⚙", disabled=not on, help=f"Innstillinger for {spec.label}"):
+                settings = load_modifier_settings_v3(trader_id, spec.key)
+                edited = dict(settings)
+                if spec.key == "impulse":
+                    edited["sensitivity"] = st.number_input("Sensitivitet", 0.1, 5.0, float(settings["sensitivity"]), 0.1, key=f"v3-set-imp-s:{trader_id}")
+                    edited["max_boost"] = st.number_input("Maks target-multiplikator", 1.0, 5.0, float(settings["max_boost"]), 0.1, key=f"v3-set-imp-b:{trader_id}")
+                elif spec.key == "reversal":
+                    edited["confirmation_bars"] = st.number_input("Bekreftelsesbars", 1, 20, int(settings["confirmation_bars"]), 1, key=f"v3-set-rev-c:{trader_id}")
+                    edited["strength"] = st.number_input("Styrke", 0.1, 3.0, float(settings["strength"]), 0.1, key=f"v3-set-rev-s:{trader_id}")
+                elif spec.key == "take-profit":
+                    edited["giveback_pct"] = st.number_input("Giveback %", 1.0, 95.0, float(settings["giveback_pct"]), 1.0, key=f"v3-set-tp-g:{trader_id}")
+                    edited["min_peak_profit_pct"] = st.number_input("Min peak %", 0.0, 100.0, float(settings["min_peak_profit_pct"]), 0.05, key=f"v3-set-tp-p:{trader_id}")
+                    edited["reentry_cooldown_seconds"] = st.number_input("Re-entry pause (s)", 0, 3600, int(settings["reentry_cooldown_seconds"]), 5, key=f"v3-set-tp-r:{trader_id}")
+                elif spec.key == "whipsaw":
+                    edited["lookback_bars"] = st.number_input("Lookback bars", 3, 200, int(settings["lookback_bars"]), 1, key=f"v3-set-wh-l:{trader_id}")
+                    edited["max_direction_changes"] = st.number_input("Maks retningsskift", 1, 50, int(settings["max_direction_changes"]), 1, key=f"v3-set-wh-m:{trader_id}")
+                    edited["cooldown_bars"] = st.number_input("Cooldown bars", 0, 50, int(settings["cooldown_bars"]), 1, key=f"v3-set-wh-c:{trader_id}")
+                elif spec.key == "regime":
+                    edited["lookback_bars"] = st.number_input("Lookback bars", 5, 500, int(settings["lookback_bars"]), 1, key=f"v3-set-reg-l:{trader_id}")
+                    edited["trend_threshold"] = st.number_input("Trendterskel", 0.0, 1.0, float(settings["trend_threshold"]), 0.05, key=f"v3-set-reg-t:{trader_id}")
+                if edited != settings and st.button("Lagre", key=f"v3-set-save:{trader_id}:{spec.key}", width="stretch"):
+                    save_modifier_settings_v3(trader_id, spec.key, edited)
+                    st.success("Lagret")
+                    st.rerun()
         if on:
             enabled.append(spec.key)
 
