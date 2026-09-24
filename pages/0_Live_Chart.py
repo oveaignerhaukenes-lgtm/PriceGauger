@@ -7,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 
 from realtime_market_data import RealtimeMarketDataStore
 from saxo_chart_live import FormingCandleStore, forming_candle_event_age_seconds
-from trading_desk import resample_bars
+from trading_desk import resample_bars, utc
 from trading_desk_v2_context import load_trading_desk_contexts_v2
 from tradingdesk_ui.charts.lightweight.direct_contract import build_lightweight_direct_live_payload_v1
 from tradingdesk_ui.charts.lightweight.simple_live_v2 import render_lightweight_simple_live_v2
@@ -65,7 +65,7 @@ if (
         bucket_at = datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
         bucket_raw = [
             item for item in raw
-            if bucket_at <= item.bar_time.astimezone(timezone.utc) < current_at
+            if bucket_at <= utc(item.bar_time) < current_at
         ]
         open_price = float(bucket_raw[0].open) if bucket_raw else float(candidate.open)
         highs = [float(x.high) for x in bucket_raw] + [float(candidate.high)]
