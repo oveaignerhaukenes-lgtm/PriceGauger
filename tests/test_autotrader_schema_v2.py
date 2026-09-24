@@ -55,3 +55,9 @@ def test_existing_config_is_not_overwritten_by_new_default() -> None:
     source = Path("autotrader_schema_v2.py").read_text(encoding="utf-8")
     assert "VALUES (1, TRUE, -2.0" in source
     assert "ON CONFLICT (config_id) DO NOTHING" in source
+
+
+def test_pilot_equity_schema_has_explicit_capital_allocation_migration():
+    source = Path("autotrader_schema_v2.py").read_text(encoding="utf-8")
+    assert "capital_allocation DOUBLE PRECISION CHECK (capital_allocation > 0)" in source
+    assert "ADD COLUMN IF NOT EXISTS capital_allocation" in source

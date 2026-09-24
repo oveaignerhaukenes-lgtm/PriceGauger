@@ -27,7 +27,11 @@ from autotrader_manual_target_v2 import (
     load_manual_target_state_v2,
     request_manual_target_v2,
 )
-from autotrader_pilot_equity_v2 import DEFAULT_PILOT_SEED_CAPITAL, load_pilot_equity_v2
+from autotrader_pilot_equity_v2 import (
+    DEFAULT_PILOT_SEED_CAPITAL,
+    load_pilot_equity_v2,
+    set_pilot_capital_allocation_v2,
+)
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
 from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2, strategy_spec_v2
 from autotrader_strategy_enrollment_v2 import (
@@ -157,7 +161,27 @@ def _render_optional_settings_v1(enrollment: StrategyEnrollmentV2, client) -> No
         st.caption(f"Innstillinger venter: {exc}")
         return
 
-    st.caption(f"Pilotkapital {equity.equity:.2f} {currency}")
+    st.caption(
+        f"Pilotkapital tildelt {equity.allocated_capital:.2f} {currency} · "
+        f"realisert P/L {equity.realized_net_pnl:+.2f} · entry-budget {equity.entry_budget:.2f}"
+    )
+    allocation = st.number_input(
+        "Kapital tildelt AutoTrader",
+        min_value=1.0,
+        value=float(equity.allocated_capital),
+        step=100.0,
+        format="%.2f",
+        key=f"td-simple-capital-allocation:{enrollment.pilot_key}",
+        help="Eksplisitt kapitalgrense for nye entries. All-in bruker maksimalt denne kapitalen + realisert P/L; resten av Saxo-kontoen er utenfor pilotens authority.",
+    )
+    if abs(float(allocation) - float(equity.allocated_capital)) > 1e-9:
+        if st.button("Lagre kapitalallokering", key=f"td-simple-capital-allocation-save:{enrollment.pilot_key}", width="stretch"):
+            set_pilot_capital_allocation_v2(
+                pilot_key=enrollment.pilot_key,
+                capital_allocation=float(allocation),
+            )
+            st.success("Kapitalallokeringen er oppdatert. Neste OPEN bruker den nye rammen.")
+            st.rerun()
     directions = _required_directions_v1(enrollment)
     policies = {
         direction: load_entry_sizing_policy_v2(
