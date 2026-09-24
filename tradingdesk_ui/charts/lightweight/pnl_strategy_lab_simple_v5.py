@@ -4,6 +4,7 @@ import streamlit as st
 
 from tradingdesk_ui.charts.lightweight.pnl_strategy_lab import build_strategy_lab_payload_v1
 from tradingdesk_ui.charts.lightweight.pnl_strategy_lab_regime_v3 import _STRATEGY_LAB_REGIME_JS
+from tradingdesk_ui.charts.lightweight.data_revision_v1 import chart_data_revision_key_v1
 
 
 def _replace_required(source: str, old: str, new: str, *, label: str) -> str:
@@ -128,7 +129,7 @@ def render_strategy_lab_pnl_v5(comparison, *, key: str) -> None:
         payload.get("advanced_models") or []
     )
     _strategy_lab_simple_component(
-        key=f"{key}:baseline-simple-v5",
+        key=chart_data_revision_key_v1("pg-strategy-lab-v5", key, payload),
         data={"payload": payload, "mode": "baseline"},
         height=690,
     )

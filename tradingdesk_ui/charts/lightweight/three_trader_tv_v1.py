@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+from tradingdesk_ui.charts.lightweight.data_revision_v1 import chart_data_revision_key_v1
 
 
 _THREE_TRADER_TV_JS = r"""
@@ -120,9 +121,10 @@ def render_three_trader_tv_v1(price_frame, event_sets, visible_models, *, key: s
                 "short": shorts.get(model, model),
                 "size": sizes.get(model, 1),
             })
+    payload = {"price": price, "events": events}
     _three_trader_tv_component(
-        key=f"{key}:three-trader-tv-v1",
-        data={"payload": {"price": price, "events": events}, "state_key": key},
+        key=chart_data_revision_key_v1("pg-three-trader-tv-v1", key, payload),
+        data={"payload": payload, "state_key": key},
         height=850,
     )
 
