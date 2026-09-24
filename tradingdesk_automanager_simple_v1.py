@@ -528,7 +528,7 @@ def render_tradingdesk_automanager_simple_v1(
             if not engine_on:
                 st.caption("V3 authority er av.")
             elif runtime is None:
-                st.error("LIVE ARMED · NOT MANAGING · ingen worker-heartbeat")
+                st.error("LIVE ARMED · NOT MANAGING / ingen worker-heartbeat")
             elif runtime[0] == "MANAGING":
                 st.success(f"LIVE MANAGING · {runtime[1]} · heartbeat {runtime[2]}")
             else:
