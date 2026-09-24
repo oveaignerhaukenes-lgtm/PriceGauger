@@ -225,11 +225,14 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_pilot_equity_state (
             pilot_key TEXT PRIMARY KEY,
             seed_capital DOUBLE PRECISION NOT NULL CHECK (seed_capital > 0),
+            capital_allocation DOUBLE PRECISION CHECK (capital_allocation > 0),
             currency TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """,
+        """,
+        "ALTER TABLE pg_v2_autotrader_pilot_equity_state ADD COLUMN IF NOT EXISTS capital_allocation DOUBLE PRECISION CHECK (capital_allocation > 0)",
         """
         CREATE TABLE IF NOT EXISTS pg_v2_autotrader_pilot_equity_events (
             event_id UUID PRIMARY KEY,
