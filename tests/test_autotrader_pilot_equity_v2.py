@@ -132,3 +132,25 @@ def test_non_finite_capital_is_rejected():
             seed_capital=500.0,
             realized_net_pnl=float("nan"),
         )
+
+
+def test_explicit_capital_allocation_controls_entry_budget_without_rewriting_seed():
+    equity = PilotEquitySnapshotV2(
+        pilot_key="pilot-1",
+        currency="NOK",
+        seed_capital=500.0,
+        realized_net_pnl=250.0,
+        capital_allocation=5000.0,
+    )
+    assert equity.seed_capital == pytest.approx(500.0)
+    assert equity.equity == pytest.approx(750.0)
+    assert equity.allocated_capital == pytest.approx(5000.0)
+    assert equity.entry_budget == pytest.approx(5250.0)
+
+
+def test_legacy_snapshot_falls_back_to_seed_as_allocation():
+    equity = PilotEquitySnapshotV2(
+        pilot_key="legacy", currency="NOK", seed_capital=500.0, realized_net_pnl=100.0
+    )
+    assert equity.allocated_capital == pytest.approx(500.0)
+    assert equity.entry_budget == pytest.approx(600.0)
