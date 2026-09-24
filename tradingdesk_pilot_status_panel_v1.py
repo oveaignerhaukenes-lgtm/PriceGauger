@@ -36,13 +36,15 @@ def render_tradingdesk_pilot_status_panel_v1(
 
     with st.container(border=True):
         st.markdown("**Pilotstatus**")
-        seed_col, equity_col, pnl_col = st.columns(3, gap="small")
+        seed_col, equity_col, allocation_col, budget_col = st.columns(4, gap="small")
         seed_col.metric("Seed", _fmt_money_v1(status.seed_capital, status.currency))
         equity_col.metric("Equity", _fmt_money_v1(status.equity, status.currency))
-        pnl_col.metric(
-            "Realisert P/L",
-            _fmt_money_v1(status.realized_net_pnl, status.currency),
-            delta=f"{status.return_pct:+.1f}%",
+        allocation_col.metric("Tildelt", _fmt_money_v1(status.capital_allocation, status.currency))
+        budget_col.metric("Entry-budget", _fmt_money_v1(status.entry_budget, status.currency))
+        st.caption(
+            f"Realisert P/L {_fmt_money_v1(status.realized_net_pnl, status.currency)} "
+            f"({status.return_pct:+.1f}% av opprinnelig seed). Tildelt er kapitalen AutoTrader har authority til å bruke; "
+            "entry-budget er rammen som faktisk går til neste OPEN før Margin Envelope og Saxo-precheck."
         )
 
         win_rate = "–" if status.win_rate_pct is None else f"{status.win_rate_pct:.1f}%"

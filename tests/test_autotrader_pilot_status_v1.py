@@ -73,3 +73,14 @@ def test_unresolved_trade_set_has_no_win_rate_or_utilization() -> None:
 
     assert status.win_rate_pct is None
     assert status.capital_utilization_pct is None
+
+
+def test_status_exposes_execution_allocation_and_entry_budget():
+    snapshot = pilot_equity_snapshot_v2(
+        pilot_key="pilot-a", seed_capital=500.0, realized_net_pnl_entries=(100.0,), currency="NOK", capital_allocation=1100.0
+    )
+    status = pilot_status_from_snapshot_v1(snapshot, closed_trades=0, wins=0, losses=0, breakeven=0)
+    assert status.seed_capital == 500.0
+    assert status.equity == 600.0
+    assert status.capital_allocation == 1100.0
+    assert status.entry_budget == 1200.0

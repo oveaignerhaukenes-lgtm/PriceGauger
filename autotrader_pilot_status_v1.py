@@ -15,6 +15,8 @@ class PilotStatusV1:
     seed_capital: float
     realized_net_pnl: float
     equity: float
+    capital_allocation: float
+    entry_budget: float
     cohort_count: int
     closed_trades: int
     wins: int
@@ -203,6 +205,8 @@ def pilot_status_from_snapshot_v1(
         seed_capital=original_seed,
         realized_net_pnl=float(snapshot.equity) - original_seed,
         equity=float(snapshot.equity),
+        capital_allocation=float(snapshot.allocated_capital),
+        entry_budget=float(snapshot.entry_budget),
         cohort_count=max(1, int(cohort_count)),
         closed_trades=max(0, int(closed_trades)),
         wins=max(0, int(wins)),
