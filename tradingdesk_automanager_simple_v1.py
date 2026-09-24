@@ -109,6 +109,20 @@ def _exact_observation_v1(
     return matches[0] if matches else None
 
 
+def _same_position_basis_v1(left: PositionObservationV2, right: PositionObservationV2) -> bool:
+    """The user's confirmation applies only to the exact Saxo basis shown on screen."""
+    return (
+        left.account_id == right.account_id
+        and int(left.uic) == int(right.uic)
+        and left.asset_type == right.asset_type
+        and bool(left.net_position_id)
+        and left.net_position_id == right.net_position_id
+        and left.direction == right.direction
+        and abs(float(left.amount) - float(right.amount)) <= 1e-9
+        and abs(float(left.average_open_price) - float(right.average_open_price)) <= 1e-9
+    )
+
+
 def _v3_runtime_state_v1(trader_id: str):
     try:
         with connect() as db:
@@ -447,9 +461,29 @@ def render_tradingdesk_automanager_simple_v1(
     else:
         engine_on = bool(position_manage_enabled and auto_trade_enabled)
         engine_label = "ENGINE V2 · LIVE"
+    needs_takeover = not engine_v3 and observation is not None and not is_position_managed_v1(observation)
+    if needs_takeover:
+        st.error("V2 er pauset: Saxo-posisjonen har ikke en bekreftet PriceGauger-basis. En omstart eller LIVE ON løser ikke dette.")
+        st.caption(
+            f"Saxo {observed_direction} {observation.amount:g} · konto {enrollment.account_id} · "
+            f"UIC {enrollment.uic} · {enrollment.asset_type} · posisjon {observation.net_position_id}"
+        )
+        st.caption("Bekreft bare hvis dette er posisjonen du vil at V2 skal forvalte. Bekreftelsen sender ingen ordre; slå LIVE ON etterpå.")
+        if st.button("Bekreft og overta Saxo-posisjon", key=f"td-confirm-position:{enrollment.pilot_key}"):
+            try:
+                fresh = _exact_observation_v1(enrollment, _position_observations_v2(client))
+                if fresh is None or not _same_position_basis_v1(observation, fresh):
+                    raise RuntimeError("Saxo-posisjonen endret seg. Oppdater siden og kontroller den på nytt.")
+                adopt_user_confirmed_position_v2(enrollment, fresh)
+            except Exception as exc:
+                st.error(f"Posisjonen kunne ikke overtas: {exc}")
+            else:
+                st.success("Posisjonen er bekreftet. V2 kan nå slås på med LIVE-bryteren.")
+                st.rerun()
     desired_engine_on = st.toggle(
         f"{engine_label} · {'ON' if engine_on else 'OFF'}",
         value=engine_on,
+        disabled=needs_takeover and not engine_on,
         key=f"td-engine-master:{enrollment.pilot_key}",
         help="Master authority. ON betyr at valgt motor faktisk forvalter denne Saxo-boundaryen; OFF betyr ingen authority.",
     )
@@ -583,12 +617,6 @@ def render_tradingdesk_automanager_simple_v1(
             st.rerun()
         else:
             st.rerun()
-
-    if position_manage_enabled and observation is not None and not is_position_managed_v1(observation):
-        try:
-            adopt_user_confirmed_position_v2(enrollment, observation)
-        except Exception as exc:
-            st.caption(f"Position-basis venter: {exc}")
 
     spec = strategy_spec_v2(enrollment.strategy_key)
     family_label = strategy_instance_label_v1(
