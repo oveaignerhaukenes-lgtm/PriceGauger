@@ -22,7 +22,7 @@ def test_overview_is_the_only_default_page() -> None:
 
 
 def test_tradingdesk_and_autodesk_are_prominent_top_level_operational_pages() -> None:
-    assert [page["title"] for page in PAGE_GROUPS[""]] == ["Oversikt", "TradingDesk", "Autodesk"]
+    assert [page["title"] for page in PAGE_GROUPS[""]] == ["Oversikt", "TradingDesk", "Live Chart", "Autodesk"]
     trading_desk = PAGE_GROUPS[""][1]
     autodesk = PAGE_GROUPS[""][2]
     assert trading_desk["page"] == "pages/0_TradingDesk.py"
