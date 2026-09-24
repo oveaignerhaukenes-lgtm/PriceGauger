@@ -516,20 +516,24 @@ def render_tradingdesk_automanager_simple_v1(
     # Strategy controls are engine-specific. Never render V2 family controls while
     # ENGINE V3 owns the boundary: that made the selected behavior ambiguous.
     if engine_v3:
+        # TradingDesk is deliberately only the cockpit summary for V3.
+        # Strategy/timeframe/modifier/AI configuration belongs on the dedicated
+        # AutoTrader V3 page so this surface cannot grow into a second control plane.
         with st.container(border=True):
-            st.markdown("**ENGINE V3 · Strategi**")
-            st.metric("Aktiv strategi", "MACD-Trailing")
-            st.caption("5m · target inventory · trinnvis skalering · hard reversal → FLAT")
-            runtime=_v3_runtime_state_v1(enrollment.pilot_key) if engine_on else None
+            st.markdown("**AutoTrader V3**")
+            runtime = _v3_runtime_state_v1(enrollment.pilot_key) if engine_on else None
+            status_col, position_col = st.columns(2, gap="small")
+            status_col.metric("Motor", "ON" if engine_on else "OFF")
+            position_col.metric("Saxo", observed_direction)
             if not engine_on:
-                st.caption(f"Authority: OFF · Saxo nå: {observed_direction}")
+                st.caption("V3 authority er av.")
             elif runtime is None:
-                st.error(f"LIVE ARMED · NOT MANAGING / ingen worker-heartbeat · Saxo nå: {observed_direction}")
+                st.error("LIVE ARMED · NOT MANAGING · ingen worker-heartbeat")
             elif runtime[0] == "MANAGING":
-                st.success(f"LIVE MANAGING · {runtime[1]} · heartbeat {runtime[2]} · Saxo nå: {observed_direction}")
+                st.success(f"LIVE MANAGING · {runtime[1]} · heartbeat {runtime[2]}")
             else:
-                st.warning(f"LIVE {runtime[0]} · {runtime[1]} · heartbeat {runtime[2]} · Saxo nå: {observed_direction}")
-            st.caption("V2-strategifamilier gjelder ikke mens ENGINE V3 er valgt.")
+                st.warning(f"LIVE {runtime[0]} · {runtime[1]} · heartbeat {runtime[2]}")
+            st.caption("Strategi, periode, modifiers, SIM-Adapt, Overseer og God Mode styres i den dedikerte V3-kontrollflaten.")
         return observations
 
     strategy_col, settings_col = st.columns([3.55, 0.45], gap="small")
