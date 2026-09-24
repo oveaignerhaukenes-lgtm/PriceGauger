@@ -41,6 +41,7 @@ class PilotEquitySnapshotV2:
     currency: str
     seed_capital: float
     realized_net_pnl: float
+    capital_allocation: float | None = None
 
     def __post_init__(self) -> None:
         if not self.pilot_key.strip():
@@ -51,15 +52,24 @@ class PilotEquitySnapshotV2:
             raise ValueError("seed_capital must be finite and positive")
         if not math.isfinite(float(self.realized_net_pnl)):
             raise ValueError("realized_net_pnl must be finite")
+        if self.capital_allocation is not None and (
+            not math.isfinite(float(self.capital_allocation)) or float(self.capital_allocation) <= 0
+        ):
+            raise ValueError("capital_allocation must be finite and positive")
 
     @property
     def equity(self) -> float:
         return float(self.seed_capital) + float(self.realized_net_pnl)
 
     @property
+    def allocated_capital(self) -> float:
+        """Explicit execution allocation; legacy pilots fall back to immutable seed."""
+        return float(self.seed_capital if self.capital_allocation is None else self.capital_allocation)
+
+    @property
     def entry_budget(self) -> float:
-        """Capital the next OPEN may use; never create exposure from negative equity."""
-        return max(0.0, self.equity)
+        """Capital the next OPEN may use: allocation plus settled P/L, never below zero."""
+        return max(0.0, self.allocated_capital + float(self.realized_net_pnl))
 
 
 def pilot_equity_snapshot_v2(
@@ -76,6 +86,7 @@ def pilot_equity_snapshot_v2(
         currency=str(currency).strip().upper(),
         seed_capital=float(seed_capital),
         realized_net_pnl=realized,
+        capital_allocation=float(seed_capital),
     )
 
 
@@ -100,7 +111,7 @@ def initialize_pilot_equity_v2(
     with connect() as db:
         row = db.execute(
             """
-            SELECT seed_capital, currency
+            SELECT seed_capital, currency, capital_allocation
             FROM pg_v2_autotrader_pilot_equity_state
             WHERE pilot_key = ?
             """,
@@ -110,10 +121,10 @@ def initialize_pilot_equity_v2(
             db.execute(
                 """
                 INSERT INTO pg_v2_autotrader_pilot_equity_state
-                    (pilot_key, seed_capital, currency)
-                VALUES (?, ?, ?)
+                    (pilot_key, seed_capital, currency, capital_allocation)
+                VALUES (?, ?, ?, ?)
                 """,
-                (key, capital, normalized_currency),
+                (key, capital, normalized_currency, capital),
             )
         else:
             existing_seed = float(row["seed_capital"] if isinstance(row, dict) else row[0])
@@ -133,13 +144,13 @@ def load_pilot_equity_v2(*, pilot_key: str) -> PilotEquitySnapshotV2:
     with connect() as db:
         row = db.execute(
             """
-            SELECT state.seed_capital, state.currency,
+            SELECT state.seed_capital, state.currency, state.capital_allocation,
                    COALESCE(SUM(events.realized_net_pnl), 0.0) AS realized_net_pnl
             FROM pg_v2_autotrader_pilot_equity_state AS state
             LEFT JOIN pg_v2_autotrader_pilot_equity_events AS events
               ON events.pilot_key = state.pilot_key
             WHERE state.pilot_key = ?
-            GROUP BY state.pilot_key, state.seed_capital, state.currency
+            GROUP BY state.pilot_key, state.seed_capital, state.currency, state.capital_allocation
             """,
             (key,),
         ).fetchone()
@@ -149,14 +160,38 @@ def load_pilot_equity_v2(*, pilot_key: str) -> PilotEquitySnapshotV2:
         seed = row["seed_capital"]
         currency = row["currency"]
         realized = row["realized_net_pnl"]
+        allocation = row["capital_allocation"]
     else:
-        seed, currency, realized = row
+        seed, currency, allocation, realized = row
     return pilot_equity_snapshot_v2(
         pilot_key=key,
         seed_capital=float(seed),
         realized_net_pnl_entries=(float(realized),),
         currency=str(currency),
+        capital_allocation=float(seed if allocation is None else allocation),
     )
+
+
+def set_pilot_capital_allocation_v2(*, pilot_key: str, capital_allocation: float) -> PilotEquitySnapshotV2:
+    """Set explicit execution capital without rewriting immutable seed/P&L history."""
+    ensure_autotrader_schema_v2()
+    key = str(pilot_key or "").strip()
+    allocation = float(capital_allocation)
+    if not key:
+        raise ValueError("pilot_key is required")
+    if not math.isfinite(allocation) or allocation <= 0:
+        raise ValueError("capital_allocation must be finite and positive")
+    load_pilot_equity_v2(pilot_key=key)
+    with connect() as db:
+        db.execute(
+            """
+            UPDATE pg_v2_autotrader_pilot_equity_state
+            SET capital_allocation = ?, updated_at = now()
+            WHERE pilot_key = ?
+            """,
+            (allocation, key),
+        )
+    return load_pilot_equity_v2(pilot_key=key)
 
 
 def record_realized_net_pnl_v2(
@@ -350,6 +385,7 @@ __all__ = [
     "pilot_equity_snapshot_v2",
     "planning_budget_v2",
     "record_realized_net_pnl_v2",
+    "set_pilot_capital_allocation_v2",
     "refresh_pending_reversal_budget_v2",
     "run_compounding_live_pilot_planning_once_v2",
 ]
