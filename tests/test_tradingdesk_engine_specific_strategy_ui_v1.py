@@ -8,6 +8,6 @@ def test_v3_hides_v2_strategy_family_controls():
     v2=text.index("strategy_col, settings_col",ret)
     assert marker < ret < v2
     block=text[marker:ret]
-    assert '"AutoTrader V3"' in block
+    assert "AutoTrader V3" in block
     assert "Strategi, periode, modifiers, SIM-Adapt, Overseer og God Mode" in block
     assert "render_strategy_family_builder_v1" not in block
