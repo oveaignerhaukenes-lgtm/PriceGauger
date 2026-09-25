@@ -80,6 +80,7 @@ export default function(component) {{
     function markerPayload() {{
         return Array.from(payload.markers || []).map((marker) => {{
             const direction = String(marker.direction || '').toUpperCase();
+            if (!['LONG', 'SHORT', 'FLAT'].includes(direction)) return marker;
             const isFlat = direction === 'FLAT';
             return {{
                 ...marker,
@@ -347,6 +348,7 @@ export default function(component) {
         }
         entry.markers?.setMarkers?.(Array.from(payload.markers || []).map(marker => {
             const direction = String(marker.direction || '').toUpperCase();
+            if (!['LONG', 'SHORT', 'FLAT'].includes(direction)) return marker;
             const isFlat = direction === 'FLAT';
             return {
                 ...marker,

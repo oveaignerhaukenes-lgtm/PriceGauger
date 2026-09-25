@@ -36,6 +36,7 @@ from tradingdesk_ui.charts.lightweight.adapters import load_lightweight_trade_ma
 from tradingdesk_ui.charts.lightweight.direct_contract import (
     build_lightweight_direct_live_payload_v1,
 )
+from tradingdesk_ui.charts.lightweight.live_test_snapshot_v1 import load_live_test_snapshot_v1
 from tradingdesk_ui.charts.lightweight.simple_live_v2 import render_lightweight_simple_live_v2
 from tradingdesk_ui.charts.lightweight.toolbar import (
     LIGHTWEIGHT_TIMEFRAMES_V1,
@@ -51,7 +52,7 @@ from v2_forecast_visualization import (
 V2_ANALYSIS_REFRESH_SECONDS = 60
 LIVE_CHART_BASE_REFRESH_SECONDS = 5
 LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
-TRADINGDESK_CHART_REFRESH_SECONDS = 2
+TRADINGDESK_CHART_REFRESH_SECONDS = 1
 QUICK_TIMEFRAMES = LIGHTWEIGHT_TIMEFRAMES_V1
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
@@ -482,10 +483,72 @@ def _forming_chart_candle(context: TradingDeskV2Context | None) -> FormingCandle
 
 
 def _render_live_chart(*, refresh_only: bool = False) -> None:
-    context = _load_active_context()
+    # The standalone chart uses the already resolved instrument identity. Reloading
+    # full forecast/workspace context every second blocks the TradingDesk chart.
+    context = baseline_contexts.get(market) if refresh_only else _load_active_context()
     if context is None or context.instrument is None:
         if not refresh_only:
             st.info("Live chart venter på eksplisitt aktiv v2-instrumentidentitet.")
+        return
+
+    if refresh_only:
+        # Same small candle snapshot and one-second clock as the working Live Chart.
+        # Indicator warmup, overlay loads and forecast reads must not block ticks.
+        closed, forming = load_live_test_snapshot_v1(
+            market=market, timeframe=timeframe, window_hours=window_hours,
+            instrument=context.instrument,
+        )
+        payload = build_lightweight_direct_live_payload_v1(
+            market=market, timeframe=timeframe, primary=closed,
+            overlays={}, overlay_mode=overlay_mode, indicators=None,
+            indicator_names=(), indicator_timeframes={}, chart_height=chart_height,
+            price_panel_share=price_panel_pct / 100.0,
+            trade_markers=_load_trade_markers(), forming_candle=forming,
+            rollover_events=(),
+        )
+        # Refresh optional TradingDesk studies at a slower cadence so indicator
+        # warmup and cross-market overlays cannot hold up every forming candle.
+        extras_key = f"tradingdesk-chart-extras:{market}:{timeframe}"
+        last_extras = st.session_state.get(extras_key)
+        if (indicator_names or overlays) and (
+            last_extras is None or (datetime.now(timezone.utc) - last_extras).total_seconds() >= 15
+        ):
+            try:
+                start = datetime.now(timezone.utc) - timedelta(hours=int(window_hours))
+                end = datetime.now(timezone.utc)
+                extra_overlays = {
+                    name: _load(name, range_start=start, range_end=end)
+                    for name in overlays
+                    if baseline_contexts.get(name) is not None
+                }
+                technical = None
+                if indicator_names and closed:
+                    warmup = TIMEFRAME_MINUTES[timeframe] * INDICATOR_WARMUP_PERIODS
+                    source = _load(market, range_start=start - timedelta(minutes=warmup),
+                                   range_end=end, limit=20000)
+                    technical = clip_indicators(
+                        calculate_indicators(source), start=closed[0].bar_time,
+                        end=closed[-1].bar_time,
+                    )
+                    if INDICATOR_VWAP in indicator_names:
+                        technical = replace(technical, vwap=calculate_indicators(closed).vwap)
+                extras = build_lightweight_direct_live_payload_v1(
+                    market=market, timeframe=timeframe, primary=closed,
+                    overlays=extra_overlays, overlay_mode=overlay_mode,
+                    indicators=technical, indicator_names=indicator_names,
+                    indicator_timeframes={INDICATOR_MACD: timeframe},
+                    chart_height=chart_height, price_panel_share=price_panel_pct / 100.0,
+                    forming_candle=forming, rollover_events=(),
+                )
+                payload["lines"] = extras["lines"]
+                payload["histograms"] = extras["histograms"]
+                st.session_state[extras_key] = datetime.now(timezone.utc)
+            except ValueError:
+                pass
+        payload["signature"] = st.session_state.get(f"tradingdesk-chart-signature:{market}", "")
+        render_lightweight_simple_live_v2(
+            payload, key=f"tradingdesk-lightweight-simple-v2:{market}", refresh_only=True,
+        )
         return
 
     now = datetime.now(timezone.utc)
@@ -493,10 +556,14 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
     resolved_end = now
 
     try:
-        primary = _load(market, range_start=resolved_start, range_end=resolved_end)
+        primary, forming = load_live_test_snapshot_v1(
+            market=market, timeframe=timeframe, window_hours=window_hours,
+            instrument=context.instrument,
+        )
     except ValueError as exc:
         st.error(f"Ugyldig canonical barserie for {market}: {exc}")
         primary = ()
+        forming = None
 
     showing_last_available = False
     if not primary:
@@ -557,7 +624,8 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
     # Canonical storage contains CLOSED 1m bars only.  A timed rerun cannot make the
     # current 5m candle move unless we also project the presentation-only forming
     # candle from the live Saxo stream into the selected timeframe.
-    forming = _forming_chart_candle(context)
+    if forming is None:
+        forming = _forming_chart_candle(context)
 
     payload = build_lightweight_direct_live_payload_v1(
         market=market,
@@ -576,14 +644,7 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
         trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
-
-    if refresh_only:
-        render_lightweight_simple_live_v2(
-            payload,
-            key=f"tradingdesk-lightweight-simple-v2:{market}",
-            refresh_only=True,
-        )
-        return
+    st.session_state[f"tradingdesk-chart-signature:{market}"] = payload["signature"]
 
     if indicator_names:
         chart_surface, indicator_surface = st.columns([4.4, 1.35], gap="small")
