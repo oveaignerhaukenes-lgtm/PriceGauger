@@ -24,7 +24,7 @@ def test_tradingdesk_keeps_page_controls_out_of_global_sidebar_and_automanager_o
     assert 'with st.expander(f"Handel · {market}"' not in source
     assert 'with st.expander(f"AutoManage · {market}"' not in source
     assert "def _render_automanager_workspace()" in source
-    assert "render_tradingdesk_automanage_panel_v2(context)" in source
+    assert "render_tradingdesk_automanage_panel_v2(context, auto_refresh=auto_refresh)" in source
 
 
 def test_right_control_market_section_omits_duplicate_runtime_identity_labels() -> None:
@@ -51,11 +51,11 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
     source = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
 
     assert "with chart_column:" in source
-    assert "if auto_refresh:" in source
-    assert 'st_autorefresh(' in source
+    assert "if auto_refresh else None" in source
+    assert 'st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(_render_live_chart)()' in source
     assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
-    assert "with chart_column:\n    _render_v2_analysis()\n    _render_live_chart_controls()\n    _render_live_chart()" in source
+    assert "with chart_column:\n    st.fragment(run_every=" in source
     assert "render_companion_panel_v2(view)" in source
     assert "_render_automanager_workspace()" in source
     assert source.index("with chart_column:") < source.rindex("_render_automanager_workspace()")
@@ -104,8 +104,8 @@ def test_second_updates_are_owned_by_the_visible_lightweight_component() -> None
     assert "payload.forming_candle" in runtime
     assert "entry.candles.update(merged)" in runtime
     assert "Plotly.relayout" not in runtime
-    assert source.count("st_autorefresh(") == 1
-    assert "interval=TRADINGDESK_PAGE_REFRESH_SECONDS * 1000" in source
-    assert "@st.fragment" not in source
+    assert source.count("st.fragment(run_every=") == 2
+    assert "st.fragment(run_every=" in source
+    assert "st.fragment(run_every=" in source
     assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS * 1000" not in source
     assert "setTriggerValue('live_tick', Date.now())" not in runtime
