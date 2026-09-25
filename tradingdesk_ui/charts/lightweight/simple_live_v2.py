@@ -406,11 +406,12 @@ def render_lightweight_simple_live_v2(
             data={"payload": dict(payload)},
             height=height,
         )
-    _simple_live_refresh_component(
-        key=_payload_key("pg-simple-refresh", payload),
-        data={"payload": dict(payload)},
-        height=0,
-    )
+    else:
+        _simple_live_refresh_component(
+            key=_payload_key("pg-simple-refresh", {"key": key, "payload": payload}),
+            data={"payload": dict(payload)},
+            height=0,
+        )
 
 
 __all__ = ["render_lightweight_simple_live_v2"]

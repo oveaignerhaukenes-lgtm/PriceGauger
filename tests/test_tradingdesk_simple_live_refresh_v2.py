@@ -1,6 +1,25 @@
 from tradingdesk_ui.charts.lightweight.simple_live_v2 import _payload_key
 
 
+def test_initial_chart_and_fragment_do_not_mount_duplicate_refresh_keys(monkeypatch):
+    import tradingdesk_ui.charts.lightweight.simple_live_v2 as renderer
+
+    visible, updates = [], []
+    monkeypatch.setattr(renderer, "_simple_live_component", lambda **kwargs: visible.append(kwargs))
+    monkeypatch.setattr(renderer, "_simple_live_refresh_component", lambda **kwargs: updates.append(kwargs))
+    payload = {"chart_id": "market", "signature": "5m", "height": 450, "candles": []}
+
+    renderer.render_lightweight_simple_live_v2(payload, key="desk")
+    assert len(visible) == 1
+    assert updates == []
+
+    renderer.render_lightweight_simple_live_v2(payload, key="desk", refresh_only=True)
+    renderer.render_lightweight_simple_live_v2(payload, key="other", refresh_only=True)
+    assert len(visible) == 1
+    assert len(updates) == 2
+    assert updates[0]["key"] != updates[1]["key"]
+
+
 def test_refresh_key_tracks_closed_and_forming_candle_changes():
     payload = {
         "chart_id": "Gold", "signature": "gold|5m",
