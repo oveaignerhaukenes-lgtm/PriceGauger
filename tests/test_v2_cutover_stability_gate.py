@@ -24,7 +24,7 @@ def test_tradingdesk_identity_analysis_companion_and_automanager_are_v2_bound() 
 
     assert "load_trading_desk_contexts_v2" in page_source
     assert "render_companion_panel_v2" in page_source
-    assert "render_tradingdesk_automanage_panel_v2(context)" in page_source
+    assert "render_tradingdesk_automanage_panel_v2(context, auto_refresh=auto_refresh)" in page_source
     assert "render_tradingdesk_automanager_simple_v1" in facade_source
     assert "TradingDeskV2Context" in simple_source
     assert "int(item.market_id) == int(context.market_id)" in simple_source
