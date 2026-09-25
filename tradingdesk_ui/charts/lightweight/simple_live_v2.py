@@ -243,6 +243,7 @@ export default function(component) {{
         return {{
             parent: parentElement, root, chart, candles, series, markers, selection,
             signature: String(payload.signature || ''),
+            closedRevision: JSON.stringify(candleData), formingTime: null,
         }};
     }}
 
@@ -250,7 +251,11 @@ export default function(component) {{
         entry.parent.style.height = `${{Math.max(360, Number(payload.height || 780))}}px`;
         const candles = Array.from(payload.candles || []);
         const forming = payload.forming_candle || null;
-        entry.candles.setData(candles);
+        const revision = JSON.stringify(candles);
+        if (revision !== entry.closedRevision || (!forming && entry.formingTime !== null)) {{
+            entry.candles.setData(candles);
+            entry.closedRevision = revision;
+        }}
         if (forming && Number.isFinite(Number(forming.time))) {{
             entry.candles.update({{
                 time: Number(forming.time),
@@ -258,6 +263,7 @@ export default function(component) {{
                 low: Number(forming.low), close: Number(forming.close),
             }});
         }}
+        entry.formingTime = forming ? Number(forming.time) : null;
         for (const item of Array.from(payload.lines || [])) {{
             entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
         }}
@@ -317,14 +323,19 @@ export default function(component) {
             entry.signature !== String(payload.signature || '')) return false;
 
         const candles = Array.from(payload.candles || []);
-        entry.candles.setData(candles);
+        const revision = JSON.stringify(candles);
         const forming = payload.forming_candle;
+        if (revision !== entry.closedRevision || (!forming && entry.formingTime !== null)) {
+            entry.candles.setData(candles);
+            entry.closedRevision = revision;
+        }
         if (forming && Number.isFinite(Number(forming.time))) {
             entry.candles.update({
                 time: Number(forming.time), open: Number(forming.open),
                 high: Number(forming.high), low: Number(forming.low), close: Number(forming.close),
             });
         }
+        entry.formingTime = forming ? Number(forming.time) : null;
         for (const item of Array.from(payload.lines || [])) {
             entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
         }
@@ -379,18 +390,20 @@ def render_lightweight_simple_live_v2(
     payload: Mapping[str, Any],
     *,
     key: str,
+    refresh_only: bool = False,
 ) -> None:
-    """Minimal canonical LIVE renderer: candles, indicators and AutoTrader markers only."""
+    """Keep the visible chart mounted while a fragment delivers new chart data."""
 
-    height = max(360, int(payload.get("height", 780)))
-    chart_key = _payload_key(
-        "pg-simple-chart", {"key": key, "signature": payload.get("signature")},
-    )
-    _simple_live_component(
-        key=chart_key,
-        data={"payload": dict(payload)},
-        height=height,
-    )
+    if not refresh_only:
+        height = max(360, int(payload.get("height", 780)))
+        chart_key = _payload_key(
+            "pg-simple-chart", {"key": key, "signature": payload.get("signature")},
+        )
+        _simple_live_component(
+            key=chart_key,
+            data={"payload": dict(payload)},
+            height=height,
+        )
     _simple_live_refresh_component(
         key=_payload_key("pg-simple-refresh", payload),
         data={"payload": dict(payload)},
