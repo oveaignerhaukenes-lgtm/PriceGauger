@@ -9,6 +9,8 @@ def ensure_modifier_authority_v1() -> None:
     if not using_postgres():
         return
     with connect() as db:
+        # Several stream workers start together; serialize the first CREATE TABLE.
+        db.execute("SELECT pg_advisory_xact_lock(hashtext('pg_v2_autotrader_modifier_authority_v1'))")
         db.execute(
             """CREATE TABLE IF NOT EXISTS pg_v2_autotrader_modifier_authority (
                 name TEXT PRIMARY KEY, enabled BOOLEAN NOT NULL DEFAULT FALSE,
