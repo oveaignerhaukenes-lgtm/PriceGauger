@@ -29,3 +29,5 @@ def test_active_tradingdesk_tv_charts_use_data_revision_keys():
     assert "render_strategy_lab_pnl_v5 as render_strategy_lab_pnl_v1" in facade
     assert "render_tradingdesk_three_trader_lab_v1(context)" in facade
     assert '@st.fragment(run_every="60s" if auto_refresh else None)' in facade
+    assert '"Vis utvidede analyselaboratorier"' in facade
+    assert facade.index("render_tradingdesk_three_trader_lab_v1(context)") < facade.index('"Vis utvidede analyselaboratorier"')

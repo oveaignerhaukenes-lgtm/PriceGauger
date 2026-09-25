@@ -124,10 +124,19 @@ def render_tradingdesk_automanage_pnl_chart_v2(
                 )
 
         render_tradingdesk_three_trader_lab_v1(context)
-        render_tradingdesk_macd_supervisor_lab_v1(context)
-        render_tradingdesk_strategy_scoreboard_v1(context)
-        render_tradingdesk_hybrid_lab_v1(context)
-        render_tradingdesk_storage_audit_v1()
+        # These historical replays read and recompute much larger windows. Running
+        # them on every page open can hold the Streamlit session long enough for
+        # the live chart's WebSocket to disconnect. Keep the two TV charts above
+        # available immediately and load these labs only when requested.
+        if st.toggle(
+            "Vis utvidede analyselaboratorier",
+            key=f"tradingdesk-extended-labs:{context.instrument_id}",
+            help="Åpner Supervisor, Scoreboard, Hybrid Lab og Storage Audit.",
+        ):
+            render_tradingdesk_macd_supervisor_lab_v1(context)
+            render_tradingdesk_strategy_scoreboard_v1(context)
+            render_tradingdesk_hybrid_lab_v1(context)
+            render_tradingdesk_storage_audit_v1()
 
     return _pnl_fragment_v2()
 
