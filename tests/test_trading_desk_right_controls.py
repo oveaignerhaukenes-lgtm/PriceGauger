@@ -52,7 +52,7 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
 
     assert "with chart_column:" in source
     assert "if auto_refresh else None" in source
-    assert 'st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(_render_live_chart)()' in source
+    assert 'st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(' in source
     assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
     assert "with chart_column:\n    st.fragment(run_every=" in source
@@ -79,7 +79,7 @@ def test_timed_fragments_do_not_recreate_interactive_controls() -> None:
     assert "_render_v2_analysis(include_companion=False)" in source
     assert "_render_companion_workspace()" in source
     assert "_render_live_chart_controls()" in source
-    live_chart_body = source.split("def _render_live_chart() -> None:", 1)[1].split(
+    live_chart_body = source.split("def _render_live_chart(*, refresh_only: bool = False) -> None:", 1)[1].split(
         "def _render_lightweight_live_update()", 1
     )[0]
     assert "st.popover(" not in live_chart_body

@@ -481,10 +481,11 @@ def _forming_chart_candle(context: TradingDeskV2Context | None) -> FormingCandle
     )
 
 
-def _render_live_chart() -> None:
+def _render_live_chart(*, refresh_only: bool = False) -> None:
     context = _load_active_context()
     if context is None or context.instrument is None:
-        st.info("Live chart venter på eksplisitt aktiv v2-instrumentidentitet.")
+        if not refresh_only:
+            st.info("Live chart venter på eksplisitt aktiv v2-instrumentidentitet.")
         return
 
     now = datetime.now(timezone.utc)
@@ -509,7 +510,7 @@ def _render_live_chart() -> None:
                 st.error(f"Ugyldig canonical barserie for {market}: {exc}")
                 primary = ()
 
-    if showing_last_available:
+    if showing_last_available and not refresh_only:
         latest_label = resolved_end - timedelta(minutes=1)
         st.caption(
             f"Markedet har ingen bars i siste {window_hours}t fra nå. Viser siste tilgjengelige "
@@ -549,8 +550,9 @@ def _render_live_chart() -> None:
     if primary:
         latest_display = f"{primary[-1].close:g} @ {oslo_label(primary[-1].bar_time)}"
 
-    st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
-    st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
+    if not refresh_only:
+        st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
+        st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
 
     # Canonical storage contains CLOSED 1m bars only.  A timed rerun cannot make the
     # current 5m candle move unless we also project the presentation-only forming
@@ -574,6 +576,14 @@ def _render_live_chart() -> None:
         trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
+
+    if refresh_only:
+        render_lightweight_simple_live_v2(
+            payload,
+            key=f"tradingdesk-lightweight-simple-v2:{market}",
+            refresh_only=True,
+        )
+        return
 
     if indicator_names:
         chart_surface, indicator_surface = st.columns([4.4, 1.35], gap="small")
@@ -643,5 +653,10 @@ def _render_automanager_workspace() -> None:
 with chart_column:
     st.fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s" if auto_refresh else None)(_render_v2_analysis)()
     _render_live_chart_controls()
-    st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(_render_live_chart)()
+    # The visible Lightweight chart must live outside the timed fragment. A fragment
+    # rerun replaces its own elements, which otherwise unmounts the chart every tick.
+    _render_live_chart()
+    st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(
+        lambda: _render_live_chart(refresh_only=True)
+    )()
     _render_automanager_workspace()

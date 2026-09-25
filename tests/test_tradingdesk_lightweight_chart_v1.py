@@ -222,7 +222,7 @@ def test_bottom_handle_resizes_whole_chart_and_preserves_pane_ratios() -> None:
 
 def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> None:
     page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
-    live_chart = page.split("def _render_live_chart() -> None:", 1)[1].split(
+    live_chart = page.split("def _render_live_chart(*, refresh_only: bool = False) -> None:", 1)[1].split(
         "def _render_lightweight_live_update()", 1
     )[0]
     assert "build_lightweight_direct_live_payload_v1(" in live_chart

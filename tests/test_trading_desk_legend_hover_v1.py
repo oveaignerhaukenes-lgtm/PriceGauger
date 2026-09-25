@@ -100,7 +100,7 @@ def test_legacy_interaction_component_is_rollback_only_after_direct_lightweight_
     controls = source.split("def _render_live_chart_controls() -> None:", 1)[1].split(
         "def _recent_forming_candle", 1
     )[0]
-    live_chart = source.split("def _render_live_chart() -> None:", 1)[1].split(
+    live_chart = source.split("def _render_live_chart(*, refresh_only: bool = False) -> None:", 1)[1].split(
         "def _render_lightweight_live_update()", 1
     )[0]
 
