@@ -7,20 +7,24 @@ from database import connect, using_postgres
 
 
 FAMILY_MACD_V1 = "MACD"
+FAMILY_MACD_HIST_V1 = "MACD_HIST"
 FAMILY_PRICE_MACD_V1 = "PRICE_MACD"
 FAMILY_PRICE_STOCH_V1 = "PRICE_STOCH"
 
 FAMILY_MACD_STRATEGY_V1 = "family-macd-v1"
+FAMILY_MACD_HIST_STRATEGY_V1 = "family-macd-hist-v1"
 FAMILY_PRICE_MACD_STRATEGY_V1 = "family-price-macd-v1"
 FAMILY_PRICE_STOCH_STRATEGY_V1 = "price-stoch-half-parade-v1"
 
 FAMILY_LABELS_V1 = {
     FAMILY_MACD_V1: "MACD",
+    FAMILY_MACD_HIST_V1: "macd-hist",
     FAMILY_PRICE_MACD_V1: "Price + MACD",
     FAMILY_PRICE_STOCH_V1: "Price + Stoch",
 }
 FAMILY_TO_STRATEGY_KEY_V1 = {
     FAMILY_MACD_V1: FAMILY_MACD_STRATEGY_V1,
+    FAMILY_MACD_HIST_V1: FAMILY_MACD_HIST_STRATEGY_V1,
     FAMILY_PRICE_MACD_V1: FAMILY_PRICE_MACD_STRATEGY_V1,
     FAMILY_PRICE_STOCH_V1: FAMILY_PRICE_STOCH_STRATEGY_V1,
 }
@@ -82,13 +86,14 @@ def ensure_strategy_family_schema_v1() -> None:
         if _SCHEMA_READY:
             return
         with connect() as db:
+            db.execute("SELECT pg_advisory_xact_lock(hashtext('pg_v2_autotrader_strategy_family_schema_v1'))")
             db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS pg_v2_autotrader_strategy_family_config (
                     pilot_key TEXT PRIMARY KEY
                         REFERENCES pg_v2_autotrader_strategy_enrollments(pilot_key),
                     family TEXT NOT NULL
-                        CHECK (family IN ('MACD','PRICE_MACD','PRICE_STOCH')),
+                        CHECK (family IN ('MACD','MACD_HIST','PRICE_MACD','PRICE_STOCH')),
                     timeframe_minutes INTEGER NOT NULL
                         CHECK (timeframe_minutes >= 1 AND timeframe_minutes <= 240),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -101,7 +106,7 @@ def ensure_strategy_family_schema_v1() -> None:
                     instrument_id BIGINT PRIMARY KEY
                         REFERENCES pg_v2_instruments(instrument_id),
                     family TEXT NOT NULL
-                        CHECK (family IN ('MACD','PRICE_MACD','PRICE_STOCH')),
+                        CHECK (family IN ('MACD','MACD_HIST','PRICE_MACD','PRICE_STOCH')),
                     timeframe_minutes INTEGER NOT NULL
                         CHECK (timeframe_minutes >= 1 AND timeframe_minutes <= 240),
                     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -109,6 +114,15 @@ def ensure_strategy_family_schema_v1() -> None:
                 )
                 """
             )
+            for table in (
+                "pg_v2_autotrader_strategy_family_config",
+                "pg_v2_autotrader_strategy_family_sim_config",
+            ):
+                db.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {table}_family_check")
+                db.execute(
+                    f"ALTER TABLE {table} ADD CONSTRAINT {table}_family_check "
+                    "CHECK (family IN ('MACD','MACD_HIST','PRICE_MACD','PRICE_STOCH'))"
+                )
         _SCHEMA_READY = True
 
 
@@ -390,6 +404,8 @@ def family_display_label_v1(family: str, timeframe_minutes: int) -> str:
 __all__ = [
     "FAMILY_LABELS_V1",
     "FAMILY_MACD_STRATEGY_V1",
+    "FAMILY_MACD_HIST_STRATEGY_V1",
+    "FAMILY_MACD_HIST_V1",
     "FAMILY_MACD_V1",
     "FAMILY_PRICE_MACD_STRATEGY_V1",
     "FAMILY_PRICE_MACD_V1",

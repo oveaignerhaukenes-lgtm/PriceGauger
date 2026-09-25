@@ -56,7 +56,7 @@ def test_catalog_exposes_all_five_as_symmetric_long_short_live_choices() -> None
 def test_simple_controls_use_completed_timeframe_bars_not_intrabar_clock() -> None:
     runtime = Path("autotrader_macd_timeframe_live_v1.py").read_text(encoding="utf-8")
     dispatch = Path("autotrader_automanage_dispatch_v2.py").read_text(encoding="utf-8")
-    assert "_timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes)" in runtime
+    assert "_timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes" in runtime
     assert "closed_bars_v2(" in runtime
     assert "macd_observations_v2(" in runtime
     assert "live_macd_intrabar_clock_v1(" not in runtime

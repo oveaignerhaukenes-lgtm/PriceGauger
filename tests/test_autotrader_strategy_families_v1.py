@@ -222,10 +222,10 @@ def test_custom_macd_family_timeframe_reaches_live_execution_clock() -> None:
     source = Path("autotrader_macd_timeframe_live_v1.py").read_text(encoding="utf-8")
     start = source.index("def run_macd_timeframe_live_once_v1")
     runtime = source[start:]
-    assert "enrollment.strategy_key == FAMILY_MACD_STRATEGY_V1" in runtime
+    assert "FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1" in runtime
     assert "load_strategy_family_config_v1(" in runtime
     assert "minutes = int(family_config.timeframe_minutes)" in runtime
-    assert "_timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes)" in runtime
+    assert "_timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes, histogram_turn=histogram_turn)" in runtime
 
 
 def test_custom_price_macd_timeframe_reaches_both_sim_and_live_cores() -> None:

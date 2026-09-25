@@ -15,6 +15,7 @@ from autotrader_strategy_enrollment_v2 import StrategyEnrollmentV2, load_strateg
 from autotrader_strategy_family_v1 import (
     FAMILY_LABELS_V1,
     FAMILY_MACD_V1,
+    FAMILY_MACD_HIST_V1,
     FAMILY_PRICE_MACD_V1,
     FAMILY_PRICE_STOCH_V1,
     TIMEFRAME_PRESETS_V1,
@@ -144,7 +145,8 @@ def render_strategy_family_builder_v1(
         "LIVE bruker den herdede AutoManager/execution-kjeden."
     )
 
-    family_options = (FAMILY_MACD_V1, FAMILY_PRICE_MACD_V1, FAMILY_PRICE_STOCH_V1)
+    family_options = (FAMILY_MACD_V1, FAMILY_MACD_HIST_V1, FAMILY_PRICE_MACD_V1, FAMILY_PRICE_STOCH_V1)
+    st.caption("macd-hist: to ferdige stolper med stigende histogram gir LONG; to fallende gir SHORT. Lik verdi gir ingen endring.")
     family = st.selectbox(
         "Familie",
         family_options,
