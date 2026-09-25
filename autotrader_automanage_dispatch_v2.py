@@ -32,7 +32,7 @@ from autotrader_strategy_catalog_v2 import (
     STRONG_COCKTAIL_STRATEGY_V2,
 )
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
-from autotrader_strategy_family_v1 import FAMILY_MACD_STRATEGY_V1
+from autotrader_strategy_family_v1 import FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1
 from autotrader_take_profit_modifier_v1 import (
     take_profit_reentry_blocked_v1,
     take_profit_trigger_blocks_strategy_v1,
@@ -43,7 +43,7 @@ from saxo_provider import configured_client
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_dispatch_v2")
 FAST_LIVE_STRATEGIES = {STRONG_COCKTAIL_STRATEGY_V2}
 SFL_LIVE_STRATEGIES = set(SFL_STRATEGY_KEYS_V1.values())
-TIMEFRAME_MACD_LIVE_STRATEGIES = {MACD_1M_FLIP_STRATEGY_V2, MACD_2M_FLIP_STRATEGY_V2, MACD_5M_FLIP_STRATEGY_V2, MACD_15M_FLIP_STRATEGY_V2, MACD_FLIP_STRATEGY_V2, FAMILY_MACD_STRATEGY_V1}
+TIMEFRAME_MACD_LIVE_STRATEGIES = {MACD_1M_FLIP_STRATEGY_V2, MACD_2M_FLIP_STRATEGY_V2, MACD_5M_FLIP_STRATEGY_V2, MACD_15M_FLIP_STRATEGY_V2, MACD_FLIP_STRATEGY_V2, FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1}
 HYBRID_LIVE_STRATEGIES = {MACD_HYBRID_EXIT_1M_ENTRY_2M_STRATEGY_V2, MACD_HYBRID_EXIT_1M_ENTRY_5M_STRATEGY_V2}
 _FAST_LOG_FINGERPRINTS: dict[str, tuple[object, ...]] = {}
 

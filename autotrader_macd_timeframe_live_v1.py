@@ -22,6 +22,7 @@ from autotrader_fast_live_runtime_v2 import (
     load_fast_live_state_v2,
 )
 from autotrader_macd_binary_execution_v1 import ensure_binary_macd_max_sizing_v1
+from autotrader_macd_hist_v1 import histogram_turn_v1
 from autotrader_macd_flip_policy_v2 import MACD_FLIP_STRATEGY_V2
 from autotrader_macd_timeframe_controls_v1 import macd_control_strategy_key_v1
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
@@ -30,6 +31,8 @@ from autotrader_risk_control_v2 import PositionObservationV2, _position_observat
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, StrategyEnrollmentV2
 from autotrader_strategy_family_v1 import (
     FAMILY_MACD_STRATEGY_V1,
+    FAMILY_MACD_HIST_STRATEGY_V1,
+    FAMILY_MACD_HIST_V1,
     FAMILY_MACD_V1,
     load_strategy_family_config_v1,
 )
@@ -71,6 +74,7 @@ def _timeframe_clock_v1(
     bars: tuple[CanonicalMarketBarV2, ...],
     *,
     timeframe_minutes: int,
+    histogram_turn: bool = False,
 ) -> Macd1mClockV2:
     """Build the execution clock strictly from completed timeframe bars.
 
@@ -87,14 +91,16 @@ def _timeframe_clock_v1(
         timeframe_minutes=minutes,
     )
     observations = macd_observations_v2(closed, timeframe_minutes=minutes)
-    if len(observations) < 2:
+    if len(observations) < (3 if histogram_turn else 2):
         raise ValueError(f"MACD {minutes}m LIVE needs enough closed history for MACD 12/26/9")
     previous, current = observations[-2], observations[-1]
     expected = timedelta(minutes=minutes)
     data_gap = current.closed_at - previous.closed_at != expected
     cross = None
     if not data_gap:
-        if previous.spread <= 0.0 < current.spread:
+        if histogram_turn:
+            cross = histogram_turn_v1(observations, timeframe_minutes=minutes)
+        elif previous.spread <= 0.0 < current.spread:
             cross = DIRECTION_LONG
         elif previous.spread >= 0.0 > current.spread:
             cross = DIRECTION_SHORT
@@ -248,12 +254,14 @@ def run_macd_timeframe_live_once_v1(
     """
     if enrollment.execution_mode != EXECUTION_MODE_LIVE or not enrollment.enabled:
         raise ValueError("MACD timeframe runtime only executes active LIVE_MANAGE enrollments")
-    if enrollment.strategy_key == FAMILY_MACD_STRATEGY_V1:
+    histogram_turn = enrollment.strategy_key == FAMILY_MACD_HIST_STRATEGY_V1
+    if enrollment.strategy_key in {FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1}:
         family_config = load_strategy_family_config_v1(
             enrollment.pilot_key,
             strategy_key=enrollment.strategy_key,
         )
-        if family_config is None or family_config.family != FAMILY_MACD_V1:
+        expected_family = FAMILY_MACD_HIST_V1 if histogram_turn else FAMILY_MACD_V1
+        if family_config is None or family_config.family != expected_family:
             raise ValueError("parameterized MACD family configuration is missing")
         minutes = int(family_config.timeframe_minutes)
     else:
@@ -273,7 +281,7 @@ def run_macd_timeframe_live_once_v1(
     )
     if not bars:
         raise ValueError(f"MACD {minutes}m LIVE has no exact canonical 1m history")
-    clock = _timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes)
+    clock = _timeframe_clock_v1(tuple(bars), timeframe_minutes=minutes, histogram_turn=histogram_turn)
 
     if observations is None:
         if client is None:
@@ -329,7 +337,11 @@ def run_macd_timeframe_live_once_v1(
             reason = f"CLOSED_{minutes}M_PRIMED"
         elif clock.cross_direction is not None and clock.cross_direction != state.desired_direction:
             target = clock.cross_direction
-            signal = f"CLOSED_CROSS_{minutes}M_{'UP' if target == DIRECTION_LONG else 'DOWN'}"
+            suffix = "UP" if target == DIRECTION_LONG else "DOWN"
+            signal = (
+                f"CLOSED_HIST_TURN_{minutes}M_{suffix}" if histogram_turn
+                else f"CLOSED_CROSS_{minutes}M_{suffix}"
+            )
             state = _new_intent_state_v2(
                 state,
                 target=target,
