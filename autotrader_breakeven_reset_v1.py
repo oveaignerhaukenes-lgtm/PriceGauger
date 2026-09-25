@@ -215,7 +215,8 @@ def breakeven_reset_due_from_returns_v1(
 
 def materialize_breakeven_reset_triggers_v1() -> int:
     """Promote eligible managed positions into the existing hardened close pipeline."""
-    if not using_postgres():
+    from autotrader_modifier_authority_v1 import modifier_enabled_v1
+    if not using_postgres() or not modifier_enabled_v1("breakeven_reset"):
         return 0
     ensure_breakeven_reset_schema_v1()
     config = load_breakeven_reset_config_v1()
@@ -381,6 +382,9 @@ def require_breakeven_reentry_allowed_v1(
     asset_type: str,
     now: datetime | None = None,
 ) -> None:
+    from autotrader_modifier_authority_v1 import modifier_enabled_v1
+    if not modifier_enabled_v1("breakeven_reset"):
+        return
     current = datetime.now(timezone.utc) if now is None else _utc(now)
     until = latest_breakeven_cooldown_until_v1(
         pilot_key=pilot_key,

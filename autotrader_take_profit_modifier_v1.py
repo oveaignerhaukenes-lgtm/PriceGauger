@@ -426,6 +426,9 @@ def take_profit_trigger_blocks_strategy_v1(
 
     Explicit manual-target authority is handled before this gate in the dispatcher.
     """
+    from autotrader_modifier_authority_v1 import modifier_enabled_v1
+    if not modifier_enabled_v1("take_profit"):
+        return False
     config = load_take_profit_config_v1(enrollment.pilot_key)
     if not config.enabled:
         return False
@@ -443,6 +446,9 @@ def take_profit_reentry_blocked_v1(
 ) -> bool:
     """Short cooldown after a take-profit FLAT so X cannot instantly churn back in."""
 
+    from autotrader_modifier_authority_v1 import modifier_enabled_v1
+    if not modifier_enabled_v1("take_profit"):
+        return False
     config = load_take_profit_config_v1(enrollment.pilot_key)
     if not config.enabled or int(config.reentry_cooldown_seconds) <= 0:
         return False
@@ -475,7 +481,8 @@ def run_take_profit_observations_v1(
     request consumed by the existing hardened strategy close executor.
     """
 
-    if not using_postgres():
+    from autotrader_modifier_authority_v1 import modifier_enabled_v1
+    if not using_postgres() or not modifier_enabled_v1("take_profit"):
         return TakeProfitCycleSummaryV1(0, 0, 0, 0, 0, 0)
     ensure_take_profit_schema_v1()
     current = _utc(now or datetime.now(timezone.utc))

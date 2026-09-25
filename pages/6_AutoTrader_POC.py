@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from autotrader_breakeven_reset_ui_v1 import render_breakeven_reset_controls_v1
+from autotrader_modifier_authority_ui_v1 import render_modifier_authority_v1
 from autotrader_macd_dry_run_ui_v2 import render_macd_dry_run_monitor_v2
 from autotrader_risk_control_ui_v2 import render_risk_control_monitor_v2
 from autotrader_risk_control_v2 import _position_observations_v2
@@ -139,6 +140,7 @@ with v3_tab:
 with main_tab:
     st.subheader("ENGINE V2 · AutoManage")
     st.caption("Alle kontroller i denne fanen tilhører ENGINE V2. V2 og V3 har separat authority og runtime.")
+    render_modifier_authority_v1()
     render_tradingdesk_automanage_panel_v2(context)
 
 with runtime_tab:

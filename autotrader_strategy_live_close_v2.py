@@ -26,6 +26,7 @@ from autotrader_live_close_v1 import (
 )
 from autotrader_macd_binary_execution_v1 import is_simple_binary_macd_strategy_v1
 from autotrader_managed_positions_v1 import is_position_managed_v1
+from autotrader_modifier_authority_v1 import modifier_enabled_v1
 from autotrader_manual_entry_adoption_v2 import run_manual_entry_adoption_cycle_v2
 from autotrader_precheck_diagnostics_v1 import precheck_failure_diagnostics_v1
 from autotrader_risk_control_v2 import PositionObservationV2, _position_observations_v2
@@ -108,7 +109,7 @@ def _pending_close_requests() -> tuple[dict[str, Any], ...]:
         rows = db.execute(
             """
             SELECT request_id, evaluation_id, pilot_key, strategy_key, desired_direction,
-                   signal_at, account_id, observed_net_position_id, observed_direction,
+                   signal_at, signal, account_id, observed_net_position_id, observed_direction,
                    observed_amount, observed_average_open_price, uic, asset_type,
                    created_at, updated_at
             FROM pg_v2_autotrader_execution_requests
@@ -227,6 +228,10 @@ def run_strategy_live_close_cycle_v2() -> StrategyCloseCycleV2:
     for request in pending:
         request_id = str(request["request_id"])
         try:
+            if str(request.get("signal") or "").startswith("TAKE_PROFIT_GIVEBACK:") and not modifier_enabled_v1("take_profit"):
+                _update_request(request_id, status=REQUEST_BLOCKED, block_reason="TAKE_PROFIT_DISABLED")
+                blocked += 1
+                continue
             enrollment = load_strategy_enrollment_v2(str(request["pilot_key"]))
             if enrollment is None or not enrollment.enabled or enrollment.execution_mode != EXECUTION_MODE_LIVE or enrollment.strategy_key != str(request["strategy_key"]) or enrollment.account_id != str(request["account_id"]) or int(enrollment.uic) != int(request["uic"]) or enrollment.asset_type != str(request["asset_type"]):
                 _update_request(request_id, status=REQUEST_BLOCKED, block_reason="LIVE_ENROLLMENT_MISMATCH")
