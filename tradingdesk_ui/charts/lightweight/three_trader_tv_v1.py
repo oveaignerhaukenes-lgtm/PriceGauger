@@ -6,7 +6,7 @@ from tradingdesk_ui.charts.lightweight.data_revision_v1 import chart_data_revisi
 
 _THREE_TRADER_TV_JS = r"""
 export default function(component) {
-    const { data } = component;
+    const { data, parentElement } = component;
     const payload = data.payload || {};
     const stateKey = data.state_key || 'three-trader';
     const storageKey = `${stateKey}:tv-workspace-v1`;
@@ -23,11 +23,13 @@ export default function(component) {
     root.style.width = '100%'; root.style.height = `${Math.max(320, Math.min(820, Number(saved.height)||430))}px`;
     root.style.position = 'relative'; root.style.overflow = 'hidden'; shell.appendChild(root);
 
+    let chart = null;
+    let disposed = false;
     const script = document.createElement('script');
     script.src = 'https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js';
-    script.onload = () => {
-        const L = window.LightweightCharts;
-        const chart = L.createChart(root, {
+    const mount = (L) => {
+        if (disposed || !L) return;
+        chart = L.createChart(root, {
             autoSize: true,
             layout: { background: { type: 'solid', color: '#ffffff' }, textColor: '#334155' },
             localization: { timeFormatter: time => osloDateTime.format(asDate(time)) },
@@ -56,7 +58,6 @@ export default function(component) {
         if (saved.range) { try { chart.timeScale().setVisibleLogicalRange(saved.range); } catch (_) {} } else chart.timeScale().fitContent();
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => { if (range) { saved.range = range; persist(); } });
     };
-    document.head.appendChild(script);
 
     const handle = document.createElement('div'); handle.title = 'Dra for å endre høyden';
     Object.assign(handle.style, {height:'12px', width:'100%', cursor:'ns-resize', touchAction:'none', display:'flex', alignItems:'center', justifyContent:'center', userSelect:'none'});
@@ -67,7 +68,19 @@ export default function(component) {
         const done=()=>{persist();handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',done);handle.removeEventListener('pointercancel',done);};
         handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',done);handle.addEventListener('pointercancel',done);
     });
-    return shell;
+    parentElement.replaceChildren(shell);
+    if (window.LightweightCharts) mount(window.LightweightCharts);
+    else {
+        script.onload = () => mount(window.LightweightCharts);
+        script.onerror = () => { if (!disposed) root.textContent = 'TV-chart kunne ikke lastes.'; };
+        document.head.appendChild(script);
+    }
+    return () => {
+        disposed = true;
+        try { chart?.remove(); } catch (_) {}
+        script.remove();
+        shell.remove();
+    };
 }
 """
 
