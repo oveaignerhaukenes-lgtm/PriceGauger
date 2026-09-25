@@ -31,6 +31,7 @@ from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsi
 
 def render_tradingdesk_automanage_panel_v2(
     context: TradingDeskV2Context,
+    *, auto_refresh: bool = True,
 ) -> tuple | None:
     """Render interactive Simple Core controls in their own rerun domain."""
 
@@ -40,7 +41,7 @@ def render_tradingdesk_automanage_panel_v2(
     render_tradingdesk_responsive_runtime_v1()
     render_tradingdesk_navigation_sync_v1()
 
-    @st.fragment
+    @st.fragment(run_every="10s" if auto_refresh else None)
     def _automanager_fragment_v2():
         observations = render_tradingdesk_automanager_simple_v1(context)
         render_close_position_control_v1(context, observations=observations)
@@ -59,10 +60,11 @@ def render_tradingdesk_automanage_pnl_chart_v2(
     context: TradingDeskV2Context,
     *,
     observations: tuple | None = None,
+    auto_refresh: bool = True,
 ) -> None:
     """Render persisted benchmark strategy history with a normalized percentage chart."""
 
-    @st.fragment
+    @st.fragment(run_every="10s" if auto_refresh else None)
     def _pnl_fragment_v2() -> None:
         if not using_postgres():
             return

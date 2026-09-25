@@ -7,8 +7,8 @@ def test_tradingdesk_renders_automanager_in_main_chart_pane_not_right_controls()
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     assert 'CONTROLS_WIDTH_STATE_KEY = "tradingdesk-controls-width-pct"' in source
     assert "def _render_automanager_workspace()" in source
-    assert "render_tradingdesk_automanage_panel_v2(context)" in source
-    assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)" in source
+    assert "render_tradingdesk_automanage_panel_v2(context, auto_refresh=auto_refresh)" in source
+    assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations, auto_refresh=auto_refresh)" in source
     assert "with chart_column:" in source
 
 
@@ -108,7 +108,7 @@ def test_bottom_chart_still_exposes_engine_provenance_and_next_status():
     assert "Hendelser og neste status" in legacy
     assert "Status nå:" in legacy
     assert "Neste:" in legacy
-    assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)" in page_source
+    assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations, auto_refresh=auto_refresh)" in page_source
 
 
 def test_advanced_execution_gate_remains_available_but_is_not_primary_simple_core():
