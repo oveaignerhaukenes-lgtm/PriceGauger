@@ -84,8 +84,8 @@ export default function(component) {{
             return {{
                 ...marker,
                 position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
-                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                color: isFlat ? '#4b5563' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
+                shape: isFlat ? 'circle' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#ef4444' : marker.color,
             }};
         }});
     }}
@@ -340,8 +340,8 @@ export default function(component) {
             return {
                 ...marker,
                 position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
-                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                color: isFlat ? '#4b5563' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
+                shape: isFlat ? 'circle' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#ef4444' : marker.color,
             };
         }));
         return true;
