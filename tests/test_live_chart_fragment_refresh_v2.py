@@ -64,7 +64,7 @@ def test_visible_component_keeps_stable_host_across_fragment_ticks():
 
 def test_tradingdesk_periodic_refresh_uses_independent_fragments():
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert "TRADINGDESK_CHART_REFRESH_SECONDS = 2" in page
+    assert "TRADINGDESK_CHART_REFRESH_SECONDS = 1" in page
     assert "st.fragment(run_every=" in page
     assert "st.fragment(run_every=" in page
     assert "st.fragment(run_every=" in page

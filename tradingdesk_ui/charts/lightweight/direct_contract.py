@@ -172,6 +172,9 @@ def build_lightweight_direct_live_payload_v1(
         *rollover_markers,
         *macd_rollout_markers,
     ]
+    # Lightweight Charts requires markers ordered by bar time. TradingDesk adds
+    # rollover markers to the trade markers; Live Chart usually has neither.
+    payload["markers"].sort(key=lambda marker: int(marker["time"]))
     payload["signature"] = (
         f"{payload.get('signature', '')}|direct-v1|swing:{len(bands)}|"
         f"rollover:{len(rollover_markers)}|macd-rollout:{len(macd_rollout_markers)}"
