@@ -10,7 +10,7 @@ def test_tradingdesk_uses_main_automanager_instead_of_manual_autotrader_quick_pa
     assert "render_saxo_product_panel(" not in source
     assert "AutoTraderExecutionContextV2.from_source(" not in source
     assert "def _render_automanager_workspace()" in source
-    assert "render_tradingdesk_automanage_panel_v2(context)" in source
+    assert "render_tradingdesk_automanage_panel_v2(context, auto_refresh=auto_refresh)" in source
     assert 'st.page_link("pages/6_AutoTrader_POC.py", label="Full AutoTrader"' in source
 
 
