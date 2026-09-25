@@ -404,10 +404,10 @@ def test_direct_live_runtime_uses_one_canonical_price_pane_index():
     assert "panes[0]?.setStretchFactor?.(priceShare)" not in runtime
 
 
-def test_live_payload_keeps_flat_as_neutral_dark_square() -> None:
+def test_live_payload_marks_confirmed_flat_as_red_circle() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "contract.py").read_text(
         encoding="utf-8"
     )
     assert '{"LONG", "SHORT", "FLAT"}' in source
-    assert 'color = "#4b5563"' in source
-    assert '"square" if is_flat' in source
+    assert 'color = "#ef4444"' in source
+    assert '"circle" if is_flat' in source

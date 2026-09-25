@@ -125,15 +125,15 @@ def _marker_payload(
         manual_saxo = source == "SAXO_MANUAL_FILL"
         is_flat = direction == "FLAT"
         if is_flat:
-            color = "#4b5563"
-            label = ""
-            size = 0.9
+            color = "#ef4444"
+            label = "FLAT"
+            size = 1.2
         elif manual_saxo:
             color = "#16a34a" if direction == "LONG" else "#dc2626"
             label = "SAXO BUY" if direction == "LONG" else "SAXO SELL"
             size = 0.95
         else:
-            color = "#0ea5e9" if direction == "LONG" else "#f59e0b"
+            color = "#16a34a" if direction == "LONG" else "#dc2626"
             label = ""
             size = 1.0 if marker.active else 0.72
         result.append(
@@ -141,7 +141,7 @@ def _marker_payload(
                 "time": time_value,
                 "price": float(marker.execution_price),
                 "position": "atPriceMiddle",
-                "shape": "square" if is_flat else ("arrowUp" if direction == "LONG" else "arrowDown"),
+                "shape": "circle" if is_flat else ("arrowUp" if direction == "LONG" else "arrowDown"),
                 "color": color,
                 "text": label,
                 "size": size,
