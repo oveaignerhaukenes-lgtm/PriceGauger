@@ -13,6 +13,7 @@ from autotrader_managed_positions_v1 import (
     load_active_managed_positions_v1,
     managed_position_matches_v1,
 )
+from autotrader_modifier_authority_v1 import modifier_enabled_v1
 from autotrader_saxo_net_position_direction_v2 import resolve_net_position_exposure_v2
 from autotrader_schema_v2 import DEFAULT_HARD_STOP_PCT, ensure_autotrader_schema_v2
 from database import connect, using_postgres
@@ -497,6 +498,8 @@ def run_risk_control_cycle_v2() -> RiskCycleSummaryV2:
     """Observe the complete portfolio at the normal, lower-frequency cadence."""
     with _RISK_CYCLE_LOCK:
         config = load_risk_config_v2()
+        if not modifier_enabled_v1("position_guardian"):
+            config = RiskConfigV2(enabled=False)
         client = configured_client()
         if client is None:
             raise RuntimeError("Saxo client is not configured")
@@ -538,7 +541,7 @@ def run_managed_risk_reaction_cycle_v2() -> RiskCycleSummaryV2:
 
         summary = _evaluate_observations_v2(
             tuple(managed_observations),
-            config=load_risk_config_v2(),
+            config=load_risk_config_v2() if modifier_enabled_v1("position_guardian") else RiskConfigV2(enabled=False),
             deactivate_missing=False,
         )
         # Generic X + TakeProfit piggybacks on the same already-fetched managed

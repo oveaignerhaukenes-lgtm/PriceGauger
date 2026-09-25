@@ -16,6 +16,7 @@ from autotrader_breakeven_reset_v1 import (
 )
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from autotrader_managed_positions_v1 import is_position_managed_v1
+from autotrader_modifier_authority_v1 import modifier_enabled_v1
 from autotrader_risk_control_v2 import (
     ACTION_WOULD_CLOSE,
     PositionObservationV2,
@@ -385,7 +386,8 @@ def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
             failed=0,
         )
 
-    materialize_breakeven_reset_triggers_v1()
+    if modifier_enabled_v1("breakeven_reset"):
+        materialize_breakeven_reset_triggers_v1()
     states = _latest_triggered_states()
     pending_reconciliation = _has_pending_reconciliation_v1()
     if not states and not pending_reconciliation:
@@ -427,6 +429,10 @@ def run_live_close_cycle_v1() -> LiveCloseCycleSummaryV1:
                 continue
 
             trigger_reason = str(state.get("triggered_reason") or "")
+            authority = "breakeven_reset" if trigger_reason == REASON_BREAKEVEN_RESET else "position_guardian"
+            if not modifier_enabled_v1(authority):
+                blocked += 1
+                continue
             if trigger_reason == REASON_BREAKEVEN_RESET:
                 if not _breakeven_currently_executable_v1(
                     state,

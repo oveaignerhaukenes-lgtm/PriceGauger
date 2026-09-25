@@ -20,6 +20,7 @@ from autotrader_manage_control_v1 import (
     set_position_management_enabled_v1,
 )
 from autotrader_managed_positions_v1 import is_position_managed_v1, stop_managing_position_v1
+from autotrader_modifier_authority_v1 import modifier_enabled_v1
 from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
 from autotrader_manual_target_v2 import (
     TARGET_PENDING,
@@ -255,6 +256,9 @@ def _render_optional_settings_v1(enrollment: StrategyEnrollmentV2, client) -> No
 
 
 def _render_take_profit_settings_v1(enrollment: StrategyEnrollmentV2) -> None:
+    if not modifier_enabled_v1("take_profit"):
+        st.caption("X + TakeProfit er AV globalt. Aktiver under AutoTrader v2 → Automatiske tillegg for å bruke den.")
+        return
     try:
         config = load_take_profit_config_v1(enrollment.pilot_key)
         state = load_take_profit_state_v1(enrollment.pilot_key)
