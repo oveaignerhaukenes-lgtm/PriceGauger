@@ -13,3 +13,12 @@ def test_three_trader_lab_uses_tv_chart_v1():
     assert "localStorage" in chart
     assert "pointerdown" in chart
     assert "saved.height" in chart
+
+
+def test_three_trader_component_cleans_up_chart_on_revision_remount():
+    chart = (Path(__file__).resolve().parents[1] / "tradingdesk_ui/charts/lightweight/three_trader_tv_v1.py").read_text(encoding="utf-8")
+    assert "parentElement.replaceChildren(shell)" in chart
+    assert "return shell;" not in chart
+    assert "return () => {" in chart
+    assert "chart?.remove()" in chart
+    assert "if (disposed || !L) return" in chart

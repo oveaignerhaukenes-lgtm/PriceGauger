@@ -64,7 +64,9 @@ def render_tradingdesk_automanage_pnl_chart_v2(
 ) -> None:
     """Render persisted benchmark strategy history with a normalized percentage chart."""
 
-    @st.fragment(run_every="10s" if auto_refresh else None)
+    # Strategy Lab and the replay labs load substantially more history than the
+    # live candle. Keep their refresh clock slower so chart ticks can finish.
+    @st.fragment(run_every="60s" if auto_refresh else None)
     def _pnl_fragment_v2() -> None:
         if not using_postgres():
             return
