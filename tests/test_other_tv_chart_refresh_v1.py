@@ -28,3 +28,4 @@ def test_active_tradingdesk_tv_charts_use_data_revision_keys():
     facade = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "render_strategy_lab_pnl_v5 as render_strategy_lab_pnl_v1" in facade
     assert "render_tradingdesk_three_trader_lab_v1(context)" in facade
+    assert '@st.fragment(run_every="60s" if auto_refresh else None)' in facade
