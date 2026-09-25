@@ -4,7 +4,6 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
 from autotrader_strategy_catalog_v2 import AUTOTRADER_STRATEGIES_V2
 from build_info import render_build_badge
@@ -52,7 +51,7 @@ from v2_forecast_visualization import (
 V2_ANALYSIS_REFRESH_SECONDS = 60
 LIVE_CHART_BASE_REFRESH_SECONDS = 5
 LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1
-TRADINGDESK_PAGE_REFRESH_SECONDS = 2
+TRADINGDESK_CHART_REFRESH_SECONDS = 2
 QUICK_TIMEFRAMES = LIGHTWEIGHT_TIMEFRAMES_V1
 TIMEFRAME_STATE_KEY = "tradingdesk_timeframe"
 AUTO_REFRESH_STATE_KEY = "tradingdesk_auto_refresh"
@@ -304,8 +303,7 @@ with controls_column:
             "Autooppdater TradingDesk",
             key=AUTO_REFRESH_STATE_KEY,
             help=(
-                "På som standard. Analyse og chart oppdateres i separate fragmenter, slik at resten av siden "
-                "ikke skal fade eller lastes på nytt."
+                "På som standard. Chart, analyse og AutoManager oppdateres uavhengig."
             ),
         )
         if auto_refresh:
@@ -638,23 +636,12 @@ def _render_automanager_workspace() -> None:
         st.info("AutoManager venter på aktivt v2-workspace.")
         return
     with st.container(border=True):
-        observations = render_tradingdesk_automanage_panel_v2(context)
-    render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations)
+        observations = render_tradingdesk_automanage_panel_v2(context, auto_refresh=auto_refresh)
+    render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations, auto_refresh=auto_refresh)
 
-
-# Deliberately use a whole-script rerun here, not a Streamlit fragment.
-# TradingDesk needs one shared refresh boundary while we verify the live chart
-# end-to-end; fragment isolation previously allowed the visible page/chart to
-# remain stale while the backend stream kept advancing.
-if auto_refresh:
-    st_autorefresh(
-        interval=TRADINGDESK_PAGE_REFRESH_SECONDS * 1000,
-        limit=None,
-        key="tradingdesk-full-page-refresh-v1",
-    )
 
 with chart_column:
-    _render_v2_analysis()
+    st.fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s" if auto_refresh else None)(_render_v2_analysis)()
     _render_live_chart_controls()
-    _render_live_chart()
+    st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(_render_live_chart)()
     _render_automanager_workspace()
