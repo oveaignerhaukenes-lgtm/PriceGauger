@@ -12,6 +12,7 @@ import uuid
 from typing import Any, Callable
 
 from autotrader_hunter_v1 import Hunter
+from autotrader_rabid_dog_v1 import RabidDog
 from realtime_market_data import (
     MinuteBarAggregator,
     RealtimeBar1m,
@@ -360,6 +361,7 @@ class SaxoRealtimeService:
         # Diagnostic shadow only: Hunter has no broker order authority.
         self._hunter = {market: Hunter() for market, instrument in self.instruments.items()
                         if int(instrument.uic) == 4912 and instrument.asset_type == "CfdOnIndex"}
+        self._rabid_dog = {market: RabidDog() for market in self._hunter}
         self._hunter_tradable: dict[str, bool] = {}
         self.reference_to_market: dict[str, str] = {}
         self.snapshots: dict[str, dict[str, Any]] = {}
@@ -484,6 +486,20 @@ class SaxoRealtimeService:
                                 decision.at.isoformat(), quote.bid, quote.ask)
             except (TypeError, ValueError) as exc:
                 LOGGER.warning("Hunter SHADOW ignored invalid quote market=%s error=%s", quote.market, exc)
+            try:
+                decision = self._rabid_dog[quote.market].on_quote(
+                    utc(quote.observed_at), quote.bid, quote.ask)
+                if decision is not None:
+                    LOGGER.info(
+                        "Rabid Dog SHADOW market=%s target=%s reason=%s hypothetical_amount=%.2f "
+                        "orders_hour=%d realized_points=%+.2f unrealized_points=%+.2f at=%s",
+                        quote.market, decision.target, decision.reason,
+                        decision.order_amount, decision.orders_last_hour,
+                        decision.realized_points, decision.unrealized_points,
+                        decision.at.isoformat(),
+                    )
+            except (TypeError, ValueError) as exc:
+                LOGGER.warning("Rabid Dog SHADOW ignored invalid quote market=%s error=%s", quote.market, exc)
         self._status(
             quote.market,
             "STREAMING",
