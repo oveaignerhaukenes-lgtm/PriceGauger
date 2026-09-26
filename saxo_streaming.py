@@ -11,6 +11,7 @@ import time
 import uuid
 from typing import Any, Callable
 
+from autotrader_hunter_v1 import Hunter
 from realtime_market_data import (
     MinuteBarAggregator,
     RealtimeBar1m,
@@ -344,6 +345,9 @@ class SaxoRealtimeService:
         self.refresh_ms = max(250, int(refresh_ms))
         self.store = RealtimeMarketDataStore(db_path)
         self.aggregators = {market: MinuteBarAggregator() for market in self.instruments}
+        # Diagnostic shadow only: Hunter has no broker order authority.
+        self._hunter = {market: Hunter() for market, instrument in self.instruments.items()
+                        if int(instrument.uic) == 4912 and instrument.asset_type == "CfdOnIndex"}
         self.reference_to_market: dict[str, str] = {}
         self.snapshots: dict[str, dict[str, Any]] = {}
         self._status_cache: dict[str, StreamStatus] = {
@@ -456,6 +460,16 @@ class SaxoRealtimeService:
         completed = self.aggregators[quote.market].add(quote)
         if completed is not None:
             self.store.save_bar(completed)
+        hunter = self._hunter.get(quote.market)
+        if hunter is not None and quote.bid is not None and quote.ask is not None:
+            try:
+                decision = hunter.on_quote(utc(quote.observed_at), quote.bid, quote.ask)
+                if decision is not None:
+                    LOGGER.info("Hunter SHADOW market=%s target=%s reason=%s mid=%.2f at=%s bid=%.2f ask=%.2f",
+                                quote.market, decision.target, decision.reason, decision.price,
+                                decision.at.isoformat(), quote.bid, quote.ask)
+            except (TypeError, ValueError) as exc:
+                LOGGER.warning("Hunter SHADOW ignored invalid quote market=%s error=%s", quote.market, exc)
         self._status(
             quote.market,
             "STREAMING",
