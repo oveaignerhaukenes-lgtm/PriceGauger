@@ -360,6 +360,7 @@ class SaxoRealtimeService:
         # Diagnostic shadow only: Hunter has no broker order authority.
         self._hunter = {market: Hunter() for market, instrument in self.instruments.items()
                         if int(instrument.uic) == 4912 and instrument.asset_type == "CfdOnIndex"}
+        self._hunter_tradable: dict[str, bool] = {}
         self.reference_to_market: dict[str, str] = {}
         self.snapshots: dict[str, dict[str, Any]] = {}
         self._status_cache: dict[str, StreamStatus] = {
@@ -459,7 +460,8 @@ class SaxoRealtimeService:
                     detail="subscription active",
                 )
                 if quote is not None:
-                    self._consume_quote(quote, tradable=_hunter_quote_tradable(snapshot))
+                    self._hunter_tradable[market] = _hunter_quote_tradable(snapshot)
+                    self._consume_quote(quote)
             except Exception as exc:
                 self._status(
                     market,
@@ -468,12 +470,12 @@ class SaxoRealtimeService:
                 )
                 LOGGER.exception("Saxo subscription failed market=%s", market)
 
-    def _consume_quote(self, quote: RealtimeQuote, *, tradable: bool = False) -> None:
+    def _consume_quote(self, quote: RealtimeQuote) -> None:
         completed = self.aggregators[quote.market].add(quote)
         if completed is not None:
             self.store.save_bar(completed)
         hunter = self._hunter.get(quote.market)
-        if hunter is not None and tradable and quote.bid is not None and quote.ask is not None:
+        if hunter is not None and self._hunter_tradable.get(quote.market, False) and quote.bid is not None and quote.ask is not None:
             try:
                 decision = hunter.on_quote(utc(quote.observed_at), quote.bid, quote.ask)
                 if decision is not None:
@@ -612,7 +614,8 @@ class SaxoRealtimeService:
         if quote is not None:
             quote_count = self._quote_message_counts.get(ref, 0) + 1
             self._quote_message_counts[ref] = quote_count
-            self._consume_quote(quote, tradable=_hunter_quote_tradable(merged))
+            self._hunter_tradable[market] = _hunter_quote_tradable(merged)
+            self._consume_quote(quote)
         if _should_log_count(count):
             LOGGER.info(
                 "Saxo price message diagnostic market=%s reference=%s count=%d quote_count=%d "
