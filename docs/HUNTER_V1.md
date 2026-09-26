@@ -3,6 +3,8 @@
 Hunter consumes Saxo bid/ask updates for `USNAS100.I` (UIC 4912). The streaming
 service runs it in **shadow** and logs `Hunter SHADOW` transitions. No strategy
 enrollment, Saxo order submission, netting, or 0.01 live sizing is connected.
+Only quotes with zero delay and both bid/ask marked `Tradable` reach Hunter;
+closed-market `OldIndicative` snapshots do not generate decisions.
 
 ## Causal policy
 
