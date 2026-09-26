@@ -6,6 +6,8 @@ import logging
 import time
 from typing import Any
 
+from autotrader_aen1_series_v1 import SERIES_VERSION as AEN1_SERIES_VERSION, load_aen1_series_v1
+from autotrader_aen1_v1 import STRATEGY_KEY as AEN1_STRATEGY_KEY
 from autotrader_ai_baseline_fresh_series_v1 import FRESH_SERIES_VERSION_V1 as AI_BASELINE_FRESH_SERIES_VERSION, load_ai_baseline_fresh_series_v1
 from autotrader_cocktail_mode_1_shadow_v2 import CONFIG_VERSION as COCKTAIL_CONFIG_VERSION
 from autotrader_macd_a_series_v1 import MACD_A_SERIES_VERSION_V1, load_macd_a_series_v1
@@ -44,6 +46,7 @@ def _utc(value: Any) -> datetime:
 
 def strategy_series_version_v1(strategy_key: str) -> str:
     key = str(strategy_key)
+    if key == AEN1_STRATEGY_KEY: return AEN1_SERIES_VERSION
     if key == MACD_TRAILING_STRATEGY_KEY_V3: return MACD_TRAILING_SERIES_VERSION_V3
     if key == OVERSEER_PERFORMANCE_STRATEGY_KEY_V1: return OVERSEER_PERFORMANCE_SERIES_VERSION_V1
     if key == STRONG_COCKTAIL_STRATEGY_V2: return str(STRONG_CONFIG_VERSION)
@@ -93,12 +96,13 @@ def materialize_strategy_series_once_v1(*, db_path: str = "pricegauger.db", now:
             sfl_controls = load_sfl_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             macd_a = load_macd_a_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             macd_trailing = load_macd_trailing_shadow_series_v3(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
+            aen1 = load_aen1_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             fresh_ai = load_ai_baseline_fresh_series_v1(instrument_id=live.instrument_id, seed_equity=comparison.seed_equity, currency=comparison.currency, started_at=comparison.started_at, as_of=end, db_path=db_path)
             # Preserve the explicit freshness contract: never let the legacy AI baseline carry stale exposure.
             legacy_without_ai = tuple(series for series in comparison.paper_series if str(series.strategy_key) != str(AI_BASELINE_STRATEGY_V2))
             experts = legacy_without_ai + tuple(timeframe_controls) + tuple(hybrid_controls) + tuple(sfl_controls) + (() if macd_a is None else (macd_a,)) + (() if macd_trailing is None else (macd_trailing,))
             overseer = load_overseer_performance_series_v1(experts)
-            raw_model_series = experts + (() if fresh_ai is None else (fresh_ai,)) + (() if overseer is None else (overseer,))
+            raw_model_series = experts + (() if fresh_ai is None else (fresh_ai,)) + (() if overseer is None else (overseer,)) + (() if aen1 is None else (aen1,))
             leveraged = apply_schedule_to_series_v2(raw_model_series, schedule=schedule)
             if len(leveraged) != len(raw_model_series): raise ValueError("leverage transformation changed strategy-series count")
             for raw, lev in zip(raw_model_series, leveraged):

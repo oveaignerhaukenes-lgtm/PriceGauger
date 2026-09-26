@@ -44,6 +44,8 @@ _MACD_CONTROL_MINUTES_BY_KEY = {
 
 def _strategy_label(strategy_key: str) -> str:
     key = str(strategy_key)
+    if key == "aen-1-price-breakout-shadow-v1":
+        return "Aen#1 · prisbrudd (shadow, antatt spread)"
     if key == STRONG_COCKTAIL_STRATEGY_KEY:
         return "Strong Cocktail · 1m event + MTF context"
     if key == MACD_1M_CONTROL_STRATEGY_KEY:
