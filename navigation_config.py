@@ -36,6 +36,12 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
             "icon": "🧠",
             "url_path": "Autodesk",
         },
+        {
+            "page": "pages/0_Strategy_Lab.py",
+            "title": "Strategy Lab",
+            "icon": "🧪",
+            "url_path": "Strategy_Lab",
+        },
     ),
     "Analyse": (
         {
