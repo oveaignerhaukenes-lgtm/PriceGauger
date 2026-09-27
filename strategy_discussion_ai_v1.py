@@ -7,6 +7,7 @@ from config import openai_api_key, openai_market_model
 from market_chat import OPENAI_RESPONSES_URL, _response_output_text
 from research_strategy_store_v1 import load_research_events_v1
 from research_trade_plan_store_v1 import load_research_trade_plans_v1
+from strategy_factor_store_v1 import load_strategy_factors_v1
 
 PROMPT_VERSION="strategy-lab-discussion-v1"
 MAX_MESSAGES=40
@@ -19,12 +20,17 @@ def answer_strategy_discussion_v1(strategy_key: str, messages: Sequence[Mapping[
         raise ValueError("OPENAI_API_KEY is not configured")
     events=load_research_events_v1(strategy_key)
     plans=load_research_trade_plans_v1(strategy_key)
+    factors=load_strategy_factors_v1(strategy_key)
     context={
         "strategy_key":strategy_key,
         "hypothesis_timeline":[{
             "version":e.version,"type":e.event_type,"verdict":e.verdict,
             "title":e.title,"body":e.body,"observed_at":e.observed_at.isoformat()
         } for e in events],
+        "factor_configuration":[{
+            "factor_key":f.factor_key,"label":f.label,"enabled":f.enabled,
+            "category":f.category,"rationale":f.rationale
+        } for f in factors],
         "trade_plans":[{
             "plan_id":p.plan_id,"version":p.hypothesis_version,"status":p.status,
             "instrument":p.instrument_label,"direction":p.direction,
@@ -36,7 +42,7 @@ def answer_strategy_discussion_v1(strategy_key: str, messages: Sequence[Mapping[
     }
     instructions=(
         "You are the Strategy Lab research partner inside PriceGauger. The persisted strategy "
-        "timeline and Trade Plans below are shared memory and authoritative history. Help the user "
+        "timeline, factor configuration and Trade Plans below are shared memory and authoritative history. Help the user "
         "criticise, falsify, refine and compare the strategy. Never silently rewrite prior hypotheses; "
         "propose a new version when a material premise changes. Distinguish evidence, inference and "
         "uncertainty. Probability estimates are ex-ante judgments, not guarantees. You have no execution "
