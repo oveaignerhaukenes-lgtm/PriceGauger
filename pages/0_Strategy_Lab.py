@@ -7,7 +7,7 @@ from strategy_discussion_store_v1 import append_strategy_message_v1, load_strate
 from strategy_factor_store_v1 import load_strategy_factors_v1, set_strategy_factor_enabled_v1
 from research_trade_plan_store_v1 import create_research_trade_plan_v1, load_research_trade_plans_v1
 from research_strategy_store_v1 import (
-    strategy, STRATEGY_KEY_SILVER_MACRO, STRATEGY_KEY_OIL_BALANCE,
+    STRATEGY_KEY_GOLD_FED, STRATEGY_KEY_SILVER_MACRO, STRATEGY_KEY_OIL_BALANCE,
     append_research_event_v1, load_research_events_v1, seed_research_strategies_v1,
 )
 
@@ -20,7 +20,7 @@ if isinstance(strategy, list):
     strategy = strategy[0] if strategy else None
 
 PROFILES = {
-    strategy: {
+    STRATEGY_KEY_GOLD_FED: {
         "title":"Gull + Fed/renter", "horizon":"1–3 uker", "instrument":"Gold CFD",
         "summary":"Monetært regime: Fed, realrenter, USD, inflasjon og energipress.",
         "signals":"2Y · 10Y real/TIPS · breakeven · DXY · Brent · gull",
