@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+from math import isfinite
 from uuid import uuid4
 from database import connect
 
@@ -55,8 +56,8 @@ def create_research_trade_plan_v1(*,strategy_key:str,hypothesis_version:int,inst
     if direction not in VALID_DIRECTIONS: raise ValueError("direction must be LONG or SHORT")
     for label,value in (("probability_pct",probability_pct),("capital_pct",capital_pct)):
         if not 0<float(value)<=100: raise ValueError(f"{label} must be in (0,100]")
-    if not 0<=float(exposure_pct)<=100: raise ValueError("exposure_pct must be in [0,100]")
-    if float(budget_nok)<=0: raise ValueError("budget_nok must be positive")
+    if not isfinite(float(exposure_pct)) or not 0<=float(exposure_pct)<=100: raise ValueError("exposure_pct must be finite and in [0,100]")
+    if not isfinite(float(budget_nok)) or float(budget_nok)<=0: raise ValueError("budget_nok must be finite and positive")
     for label,value in (("stop_loss_pct",stop_loss_pct),("trail_activation_pct",trail_activation_pct),("trailing_distance_pct",trailing_distance_pct)):
         if float(value)<=0: raise ValueError(f"{label} must be positive")
     plan_id=str(uuid4()); ensure_research_trade_plan_schema_v1()
@@ -78,6 +79,7 @@ def load_research_trade_plans_v1(strategy_key:str)->tuple[ResearchTradePlanV1,..
     return tuple(ResearchTradePlanV1(**dict(r)) for r in rows)
 
 def approve_research_trade_plan_v1(plan_id:str)->str:
+    """Freeze the user's plan for handoff; broker execution remains downstream."""
     ensure_research_trade_plan_schema_v1(); now=datetime.now(timezone.utc)
     with connect() as db:
         row=db.execute("SELECT * FROM pg_v2_research_trade_plans WHERE plan_id=?",(plan_id,)).fetchone()

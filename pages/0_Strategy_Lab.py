@@ -6,7 +6,10 @@ from strategy_discussion_ai_v1 import answer_strategy_discussion_v1
 from strategy_discussion_store_v1 import append_strategy_message_v1, load_strategy_messages_v1
 from strategy_factor_store_v1 import load_strategy_factors_v1, set_strategy_factor_enabled_v1
 from strategy_execution_control_v1 import request_strategy_execution_control_v1, load_strategy_execution_controls_v1
-from research_trade_plan_store_v1 import (\n    approve_research_trade_plan_v1, create_research_trade_plan_v1,\n    load_research_execution_handoff_v1, load_research_trade_plans_v1,\n)
+from research_trade_plan_store_v1 import (
+    approve_research_trade_plan_v1, create_research_trade_plan_v1,
+    load_research_execution_handoff_v1, load_research_trade_plans_v1,
+)
 from research_strategy_store_v1 import (
     STRATEGY_KEY_GOLD_FED, STRATEGY_KEY_SILVER_MACRO, STRATEGY_KEY_OIL_BALANCE,
     append_research_event_v1, load_research_events_v1, seed_research_strategies_v1,
@@ -145,6 +148,8 @@ with st.expander("Ny Trade Plan", expanded=not bool(plans)):
                 direction=direction,
                 probability_pct=probability_pct,
                 capital_pct=capital_pct,
+                budget_nok=budget_nok,
+                exposure_pct=exposure_pct,
                 stop_loss_pct=stop_loss_pct,
                 trail_activation_pct=trail_activation_pct,
                 trailing_distance_pct=trailing_distance_pct,
