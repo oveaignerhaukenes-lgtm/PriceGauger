@@ -1,13 +1,14 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from uuid import uuid4
 from database import connect
 
 STRATEGY_KEY_GOLD_FED = "gold-fed-rates"
 
 @dataclass(frozen=True, slots=True)
 class ResearchEventV1:
-    id: int
+    id: str
     strategy_key: str
     version: int
     event_type: str
@@ -20,7 +21,7 @@ def ensure_research_strategy_schema_v1() -> None:
     with connect() as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS pg_v2_research_strategy_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 strategy_key TEXT NOT NULL, version INTEGER NOT NULL,
                 event_type TEXT NOT NULL, verdict TEXT NOT NULL,
                 title TEXT NOT NULL, body TEXT NOT NULL,
@@ -45,9 +46,9 @@ def append_research_event_v1(*, strategy_key: str, version: int, event_type: str
     ensure_research_strategy_schema_v1()
     with connect() as db:
         db.execute("""INSERT INTO pg_v2_research_strategy_events(
-                        strategy_key, version, event_type, verdict, title, body, observed_at
-                      ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                   (str(strategy_key), int(version), str(event_type), str(verdict),
+                        id, strategy_key, version, event_type, verdict, title, body, observed_at
+                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (str(uuid4()), str(strategy_key), int(version), str(event_type), str(verdict),
                     str(title).strip(), str(body).strip(), _utc(observed_at)))
 
 def load_research_events_v1(strategy_key: str) -> tuple[ResearchEventV1, ...]:
@@ -58,7 +59,7 @@ def load_research_events_v1(strategy_key: str) -> tuple[ResearchEventV1, ...]:
                              WHERE strategy_key = ? ORDER BY observed_at ASC, id ASC""",
                           (str(strategy_key),)).fetchall()
     return tuple(ResearchEventV1(
-        id=int(row["id"]), strategy_key=str(row["strategy_key"]), version=int(row["version"]),
+        id=str(row["id"]), strategy_key=str(row["strategy_key"]), version=int(row["version"]),
         event_type=str(row["event_type"]), verdict=str(row["verdict"]), title=str(row["title"]),
         body=str(row["body"]), observed_at=_utc(row["observed_at"]),
     ) for row in rows)
