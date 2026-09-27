@@ -34,7 +34,8 @@ def answer_strategy_discussion_v1(strategy_key: str, messages: Sequence[Mapping[
         "trade_plans":[{
             "plan_id":p.plan_id,"version":p.hypothesis_version,"status":p.status,
             "instrument":p.instrument_label,"direction":p.direction,
-            "probability_pct":p.probability_pct,"capital_pct":p.capital_pct,\n            "budget_nok":p.budget_nok,"exposure_pct":p.exposure_pct,
+            "probability_pct":p.probability_pct,"capital_pct":p.capital_pct,
+            "budget_nok":p.budget_nok,"exposure_pct":p.exposure_pct,
             "stop_loss_pct":p.stop_loss_pct,"trail_activation_pct":p.trail_activation_pct,
             "trailing_distance_pct":p.trailing_distance_pct,"event_policy":p.event_policy,
             "rationale":p.rationale
