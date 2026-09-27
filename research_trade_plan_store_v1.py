@@ -78,10 +78,10 @@ def create_research_trade_plan_v1(*, strategy_key: str, hypothesis_version: int,
     direction = str(direction).upper()
     if direction not in VALID_DIRECTIONS:
         raise ValueError("direction must be LONG or SHORT")
-    for label, value in (("probability_pct", probability_pct), ("capital_pct", capital_pct)):
+    for label, value in (("probability_pct", probability_pct), ("capital_pct", capital_pct), ("exposure_pct", exposure_pct)):
         if not 0 < float(value) <= 100:
             raise ValueError(f"{label} must be in (0, 100]")
-    for label, value in (("stop_loss_pct", stop_loss_pct), ("trail_activation_pct", trail_activation_pct),
+    if float(budget_nok) <= 0:\n        raise ValueError("budget_nok must be positive")\n    for label, value in (("stop_loss_pct", stop_loss_pct), ("trail_activation_pct", trail_activation_pct),
                          ("trailing_distance_pct", trailing_distance_pct)):
         if float(value) <= 0:
             raise ValueError(f"{label} must be positive")
@@ -90,11 +90,11 @@ def create_research_trade_plan_v1(*, strategy_key: str, hypothesis_version: int,
     with connect() as db:
         db.execute("""INSERT INTO pg_v2_research_trade_plans(
             plan_id,strategy_key,hypothesis_version,status,instrument_label,direction,
-            probability_pct,capital_pct,stop_loss_pct,trail_activation_pct,
+            probability_pct,capital_pct,budget_nok,exposure_pct,stop_loss_pct,trail_activation_pct,
             trailing_distance_pct,event_policy,rationale,created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (plan_id,strategy_key,int(hypothesis_version),"DRAFT",instrument_label.strip(),direction,
-         float(probability_pct),float(capital_pct),float(stop_loss_pct),
+         float(probability_pct),float(capital_pct),float(budget_nok),float(exposure_pct),float(stop_loss_pct),
          float(trail_activation_pct),float(trailing_distance_pct),event_policy.strip(),
          rationale.strip(),datetime.now(timezone.utc)))
     return plan_id
@@ -124,7 +124,7 @@ def approve_research_trade_plan_v1(plan_id: str) -> str:
             raise ValueError("only DRAFT plans can be approved")
         payload={k: plan[k] for k in (
             "plan_id","strategy_key","hypothesis_version","instrument_label","direction",
-            "probability_pct","capital_pct","stop_loss_pct","trail_activation_pct",
+            "probability_pct","capital_pct","budget_nok","exposure_pct","stop_loss_pct","trail_activation_pct",
             "trailing_distance_pct","event_policy","rationale"
         )}
         handoff_id=str(uuid4())
