@@ -72,9 +72,9 @@ def load_scoped_open_status_v1(scope_id: str) -> tuple[str, str | None]:
             JOIN pg_v2_autotrader_execution_requests r ON r.request_id=p.request_id
             WHERE p.scope_id=?""", (scope_id,)).fetchone()
     if row is None:
-        # The OPEN adapter is deliberately closed until fill-level budget policy
-        # has been validated. Do not display an approved plan as ready to trade.
-        return "BLOCKED(BUDGET_POLICY_UNVERIFIED)", None
+        # This only means the plan is ready for an explicit pilot selection;
+        # queueing still validates all canonical authority and broker gates.
+        return "READY(FOR_PILOT_SELECTION)", None
     data = dict(row)
     status = str(data["status"]).upper()
     if status == "RECONCILED":

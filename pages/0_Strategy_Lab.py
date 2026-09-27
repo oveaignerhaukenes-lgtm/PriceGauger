@@ -208,7 +208,9 @@ if plans:
                         key=f"scoped-live-confirm:{plan.plan_id}")
                     capability = live_open_budget_supported_v1(None)
                     if not capability:
-                        st.caption("LIVE OPEN er sperret inntil budsjett, Saxo-precheck og avstemming er testet ende til ende.")
+                        st.caption("LIVE OPEN er sperret fordi budsjettkontrollen ikke er tilgjengelig.")
+                    else:
+                        st.caption("Maksbeløpet gjelder estimert posisjonsverdi i NOK ved siste Saxo-precheck før ordre. Faktisk fill og senere valutakurs kan avvike. Ordren sendes bare hvis alle LIVE-porter passerer.")
                     if st.button("Send godkjent plan til LIVE OPEN", key=f"scoped-open:{plan.plan_id}",
                         disabled=not confirmed or not capability):
                         try:

@@ -73,3 +73,21 @@ def test_precheck_under_cap_uses_existing_durable_broker_path(monkeypatch):
     assert ("durable",) in events
     assert ("broker_post", "trade/v2/orders") in events
     assert result.submitted == 1
+
+
+def test_scoped_open_requires_side_quote_for_nok_precheck(monkeypatch):
+    events = _worker_with_capped_request(monkeypatch, final_notional=980, budget_cap=1000)
+    # Both sizing and final precheck must refuse a midpoint fallback for a
+    # scoped order; unscoped legacy orders retain their previous behavior.
+    original_sizing = worker.find_largest_legal_entry_v2
+    original_final = worker.precheck_entry_amount_v2
+    def check_sizing(*args, **kwargs):
+        assert kwargs["require_side_price"] is True
+        return original_sizing(*args, **kwargs)
+    def check_final(*args, **kwargs):
+        assert kwargs["require_side_price"] is True
+        return original_final(*args, **kwargs)
+    monkeypatch.setattr(worker, "find_largest_legal_entry_v2", check_sizing)
+    monkeypatch.setattr(worker, "precheck_entry_amount_v2", check_final)
+    assert worker.run_live_open_cycle_v2().submitted == 1
+    assert any(event[0] == "broker_post" for event in events)

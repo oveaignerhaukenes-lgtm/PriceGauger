@@ -8,6 +8,7 @@ import autotrader_open_sizing_v2 as sizing
 import autotrader_manage_control_v1 as manage
 import autotrader_strategy_enrollment_v2 as enrollments
 import strategy_execution_budget_v1 as budget
+from autotrader_open_sizing_v2 import EntrySizingError, _extract_price
 import strategy_execution_adapter_v1 as adapter
 from strategy_execution_scope_v1 import ExecutionAdapterScopeV1, assert_adapter_scope_match_v1
 
@@ -24,6 +25,15 @@ def test_budget_change_is_an_identity_mismatch():
         assert_adapter_scope_match_v1(original, modified)
     with pytest.raises(ValueError, match="finite"):
         ExecutionAdapterScopeV1(**{**asdict(original), "budget_nok": float("inf")})
+
+
+def test_scoped_precheck_refuses_midpoint_without_executable_side():
+    info = {"Quote": {"Mid": 100.0}}
+    with pytest.raises(EntrySizingError, match="executable side price"):
+        _extract_price(info, "Buy", require_side_price=True)
+    with pytest.raises(EntrySizingError, match="executable side price"):
+        _extract_price(info, "Sell", require_side_price=True)
+    assert _extract_price(info, "Buy") == 100.0
 
 
 def test_adapter_rejects_budget_not_in_approved_snapshot(monkeypatch):

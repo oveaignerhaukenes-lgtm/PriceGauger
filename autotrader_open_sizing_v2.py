@@ -213,13 +213,15 @@ def minimum_legal_amount_v2(rules: EntryInstrumentRulesV2) -> float:
     return _quantized_amount(rules.minimum_amount, rules, upward=True)
 
 
-def _extract_price(payload: dict[str, Any], side: str) -> float:
+def _extract_price(payload: dict[str, Any], side: str, *, require_side_price: bool = False) -> float:
     quote = payload.get("Quote") if isinstance(payload.get("Quote"), dict) else {}
     price_info = payload.get("PriceInfo") if isinstance(payload.get("PriceInfo"), dict) else {}
     if side == "Buy":
-        candidates = (quote.get("Ask"), price_info.get("Ask"), quote.get("Mid"), price_info.get("Mid"))
+        candidates = (quote.get("Ask"), price_info.get("Ask"))
     else:
-        candidates = (quote.get("Bid"), price_info.get("Bid"), quote.get("Mid"), price_info.get("Mid"))
+        candidates = (quote.get("Bid"), price_info.get("Bid"))
+    if not require_side_price:
+        candidates += (quote.get("Mid"), price_info.get("Mid"))
     price = _positive(*candidates)
     if price is None:
         raise EntrySizingError("InfoPrice did not return an executable side price")
@@ -401,6 +403,7 @@ def precheck_entry_amount_v2(
     envelope: AutoTraderMarginEnvelopeV2,
     controlled_capital: float,
     external_reference: str,
+    require_side_price: bool = False,
 ) -> EntryPrecheckV2:
     side = _normalize_side(direction)
     amount = _quantized_amount(amount, rules, upward=False)
@@ -414,7 +417,7 @@ def precheck_entry_amount_v2(
         amount=amount,
         side=side,
     )
-    price = _extract_price(info, side)
+    price = _extract_price(info, side, require_side_price=require_side_price)
 
     payload = _open_payload(
         account_key=account_key,
@@ -512,6 +515,7 @@ def find_largest_legal_entry_v2(
     external_reference_prefix: str,
     max_prechecks: int = 20,
     max_notional_account: float | None = None,
+    require_side_price: bool = False,
 ) -> EntrySizingResultV2:
     if max_notional_account is not None and (not math.isfinite(float(max_notional_account)) or max_notional_account <= 0):
         raise EntrySizingError("entry notional cap must be finite and positive")
@@ -551,6 +555,7 @@ def find_largest_legal_entry_v2(
             envelope=envelope,
             controlled_capital=controlled_capital,
             external_reference=f"{external_reference_prefix}-pc{count}",
+            require_side_price=require_side_price,
         )
         if item is None or not item.allowed:
             return None
