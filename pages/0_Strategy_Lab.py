@@ -190,21 +190,21 @@ if plans:
             st.caption("Alle handlinger blir durable management-intents og må konsumeres av den herdede execution-adapteren.")
             cc1,cc2=st.columns(2)
             if cc1.button("Avslutt posisjon",key=f"close:{plan.plan_id}"):
-                request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=key,scope_id=handoff.scope_id,action="CLOSE")
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="CLOSE")
                 st.rerun()
             trail=cc2.number_input("Trailing-avstand (%)",min_value=0.1,value=float(plan.trailing_distance_pct),step=0.25,key=f"trailv:{plan.plan_id}")
             if cc2.button("Iverksett trailing",key=f"trail:{plan.plan_id}"):
-                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="TRAILING_PROFIT",value_pct=trail)
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="TRAILING_PROFIT",value_pct=trail)
                 st.rerun()
             scale=st.slider("Scale down – reduser nåværende eksponering (%)",1,100,25,key=f"scalev:{plan.plan_id}")
             if st.button("Scale down",key=f"scale:{plan.plan_id}"):
-                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="SCALE_DOWN",value_pct=scale)
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="SCALE_DOWN",value_pct=scale)
                 st.rerun()
             stop=st.number_input("Stop-loss (%)",min_value=0.1,value=float(plan.stop_loss_pct),step=0.5,key=f"stopv:{plan.plan_id}")
             if st.button("Aktiver / oppdater stop-loss",key=f"stop:{plan.plan_id}"):
-                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="STOP_LOSS",value_pct=stop)
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="STOP_LOSS",value_pct=stop)
                 st.rerun()
-            controls=load_strategy_execution_controls_v1(plan_id=plan.plan_id,strategy_key=key,scope_id=handoff.scope_id)
+            controls=load_strategy_execution_controls_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id)
             if controls:
                 latest=controls[0]
                 st.caption(f"Siste kontroll: {latest.action} · {latest.value_pct if latest.value_pct is not None else '—'} · {latest.status}")
