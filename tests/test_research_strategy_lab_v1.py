@@ -10,7 +10,7 @@ def test_gold_fed_research_strategy_is_navigation_visible() -> None:
 
 def test_gold_fed_page_keeps_research_separate_from_execution() -> None:
     source = (ROOT / "pages/0_Strategy_Lab.py").read_text(encoding="utf-8")
-    assert STRATEGY_KEY_GOLD_FED in source
+    assert "STRATEGY_KEY_GOLD_FED" in source
     assert "ingen execution authority" in source
     assert "Hypotesetidslinje" in source
     assert "Revider hypotesen" in source
