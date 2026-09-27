@@ -5,6 +5,7 @@ from config import openai_api_key
 from strategy_discussion_ai_v1 import answer_strategy_discussion_v1
 from strategy_discussion_store_v1 import append_strategy_message_v1, load_strategy_messages_v1
 from strategy_factor_store_v1 import load_strategy_factors_v1, set_strategy_factor_enabled_v1
+from strategy_execution_control_v1 import request_strategy_execution_control_v1, load_strategy_execution_controls_v1
 from research_trade_plan_store_v1 import (\n    approve_research_trade_plan_v1, create_research_trade_plan_v1,\n    load_research_execution_handoff_v1, load_research_trade_plans_v1,\n)
 from research_strategy_store_v1 import (
     STRATEGY_KEY_GOLD_FED, STRATEGY_KEY_SILVER_MACRO, STRATEGY_KEY_OIL_BALANCE,
@@ -121,7 +122,10 @@ with st.expander("Ny Trade Plan", expanded=not bool(plans)):
         instrument_label = st.text_input("Instrument", value=profile["instrument"])
         direction = st.selectbox("Retning", ("LONG", "SHORT"))
         probability_pct = st.slider("Hypotesesannsynlighet (%)", 1, 99, 60)
+        budget_nok = st.number_input("Execution-budsjett (NOK)", min_value=100.0, value=2000.0, step=100.0)
+        exposure_pct = st.slider("Eksponering av tilkjent kapital (%)", 0, 100, 100)
         capital_pct = st.number_input("Tillatt strategikapital (%)", min_value=0.1, max_value=100.0, value=20.0, step=1.0)
+        st.caption(f"Aktivt eksponeringstak: {budget_nok * exposure_pct / 100:,.0f} NOK")
         stop_loss_pct = st.number_input("Hard stop-loss (%)", min_value=0.1, value=5.0, step=0.5)
         trail_activation_pct = st.number_input("Aktiver trailing etter gevinst (%)", min_value=0.1, value=2.0, step=0.5)
         trailing_distance_pct = st.number_input("Trailing-avstand (%)", min_value=0.1, value=1.0, step=0.25)
@@ -155,7 +159,8 @@ if plans:
         st.markdown(
             f"**{plan.status} · {plan.instrument_label} {plan.direction} · "
             f"P={plan.probability_pct:.0f}% · v{plan.hypothesis_version}**  \\n"
-            f"Kapital {plan.capital_pct:g}% · SL {plan.stop_loss_pct:g}% · "
+            f"Budsjett {plan.budget_nok:,.0f} NOK · eksponering {plan.exposure_pct:g}% "
+            f"(maks {plan.budget_nok * plan.exposure_pct / 100:,.0f} NOK) · SL {plan.stop_loss_pct:g}% · "
             f"trail fra +{plan.trail_activation_pct:g}% / avstand {plan.trailing_distance_pct:g}% · "
             f"event: {plan.event_policy}"
         )
@@ -180,6 +185,29 @@ if plans:
                 f"Execution handoff: {handoff.status}. Planen er frosset og auditert; "
                 "ingen brokerordre sendes fra Strategy Lab."
             )
+
+            st.markdown("**Execution Control**")
+            st.caption("Alle handlinger blir durable management-intents og må konsumeres av den herdede execution-adapteren.")
+            cc1,cc2=st.columns(2)
+            if cc1.button("Avslutt posisjon",key=f"close:{plan.plan_id}"):
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="CLOSE")
+                st.rerun()
+            trail=cc2.number_input("Trailing-avstand (%)",min_value=0.1,value=float(plan.trailing_distance_pct),step=0.25,key=f"trailv:{plan.plan_id}")
+            if cc2.button("Iverksett trailing",key=f"trail:{plan.plan_id}"):
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="TRAILING_PROFIT",value_pct=trail)
+                st.rerun()
+            scale=st.slider("Scale down – reduser nåværende eksponering (%)",1,100,25,key=f"scalev:{plan.plan_id}")
+            if st.button("Scale down",key=f"scale:{plan.plan_id}"):
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="SCALE_DOWN",value_pct=scale)
+                st.rerun()
+            stop=st.number_input("Stop-loss (%)",min_value=0.1,value=float(plan.stop_loss_pct),step=0.5,key=f"stopv:{plan.plan_id}")
+            if st.button("Aktiver / oppdater stop-loss",key=f"stop:{plan.plan_id}"):
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="STOP_LOSS",value_pct=stop)
+                st.rerun()
+            controls=load_strategy_execution_controls_v1(plan.plan_id)
+            if controls:
+                latest=controls[0]
+                st.caption(f"Siste kontroll: {latest.action} · {latest.value_pct if latest.value_pct is not None else '—'} · {latest.status}")
 
 st.info(
     "Execution Plan administreres her. DRAFT kan redigeres ved å opprette en ny plan; "
