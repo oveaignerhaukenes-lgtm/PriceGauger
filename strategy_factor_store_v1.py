@@ -19,6 +19,13 @@ GOLD_FACTOR_DEFAULTS=(
  ("inflation","Inflasjon / breakevens",True,"Makro","Inflasjon og forventet realavkastning."),
  ("oil_inflation","Olje / energipress",True,"Kryssmarked","Olje som input til energidrevet inflasjonspress."),
  ("gold_relative","Relativ gullstyrke",True,"Metaller","Gull som holder seg sterkt/svakt relativt til makrodriverne."),
+ ("credit_spreads","Kredittspreader / stress",True,"Likviditet","IG/HY OAS og kredittstress som tidlig regimesignal."),
+ ("equity_buybacks","Aksje-buybacks",True,"Likviditet","Størrelse og timing på buybacks som mulig kanal for likviditetsrotasjon."),
+ ("equity_flows","Aksjeflows / margin debt",True,"Likviditet","ETF-flows, posisjonering og margin debt som mål på kapitalrotasjon."),
+ ("market_liquidity","Systemlikviditet",True,"Likviditet","Sentralbankbalanser, reserve-/repo-forhold og annen systemlikviditet."),
+ ("volatility_skew","VIX / opsjonsskew",True,"Marked","Volatilitet og skew som mål på risk-on/risk-off og haleetterspørsel."),
+ ("funding_repo","Funding / repo-stress",True,"Likviditet","Funding- og repo-stress som signal om finansiell friksjon."),
+ ("metal_flows","GLD/SLV / CFTC-flows",True,"Metaller","ETF-flows og futuresposisjonering som bekreftelse på metallrotasjon."),
 )
 
 SILVER_FACTOR_DEFAULTS=(
