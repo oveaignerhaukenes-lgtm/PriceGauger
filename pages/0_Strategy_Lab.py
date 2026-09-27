@@ -190,7 +190,7 @@ if plans:
             st.caption("Alle handlinger blir durable management-intents og må konsumeres av den herdede execution-adapteren.")
             cc1,cc2=st.columns(2)
             if cc1.button("Avslutt posisjon",key=f"close:{plan.plan_id}"):
-                request_strategy_execution_control_v1(plan_id=plan.plan_id,action="CLOSE")
+                request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=key,scope_id=handoff.scope_id,action="CLOSE")
                 st.rerun()
             trail=cc2.number_input("Trailing-avstand (%)",min_value=0.1,value=float(plan.trailing_distance_pct),step=0.25,key=f"trailv:{plan.plan_id}")
             if cc2.button("Iverksett trailing",key=f"trail:{plan.plan_id}"):
@@ -204,7 +204,7 @@ if plans:
             if st.button("Aktiver / oppdater stop-loss",key=f"stop:{plan.plan_id}"):
                 request_strategy_execution_control_v1(plan_id=plan.plan_id,action="STOP_LOSS",value_pct=stop)
                 st.rerun()
-            controls=load_strategy_execution_controls_v1(plan.plan_id)
+            controls=load_strategy_execution_controls_v1(plan_id=plan.plan_id,strategy_key=key,scope_id=handoff.scope_id)
             if controls:
                 latest=controls[0]
                 st.caption(f"Siste kontroll: {latest.action} · {latest.value_pct if latest.value_pct is not None else '—'} · {latest.status}")
