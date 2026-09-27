@@ -34,7 +34,7 @@ def answer_strategy_discussion_v1(strategy_key: str, messages: Sequence[Mapping[
         "trade_plans":[{
             "plan_id":p.plan_id,"version":p.hypothesis_version,"status":p.status,
             "instrument":p.instrument_label,"direction":p.direction,
-            "probability_pct":p.probability_pct,"capital_pct":p.capital_pct,
+            "probability_pct":p.probability_pct,"capital_pct":p.capital_pct,\n            "budget_nok":p.budget_nok,"exposure_pct":p.exposure_pct,
             "stop_loss_pct":p.stop_loss_pct,"trail_activation_pct":p.trail_activation_pct,
             "trailing_distance_pct":p.trailing_distance_pct,"event_policy":p.event_policy,
             "rationale":p.rationale
@@ -46,7 +46,7 @@ def answer_strategy_discussion_v1(strategy_key: str, messages: Sequence[Mapping[
         "criticise, falsify, refine and compare the strategy. Never silently rewrite prior hypotheses; "
         "propose a new version when a material premise changes. Distinguish evidence, inference and "
         "uncertainty. Probability estimates are ex-ante judgments, not guarantees. You have no execution "
-        "authority and must not claim orders were placed. Reply in Norwegian unless asked otherwise.\n"
+        "authority and must not claim orders were placed. You may propose precise DRAFT Execution Plan changes, including budget_nok, exposure_pct, stop, trailing and scale-down, but never claim they were persisted or approved unless the UI/store confirms it. Live actions require explicit user approval in Strategy Lab. Reply in Norwegian unless asked otherwise.\n"
         f"Prompt version: {PROMPT_VERSION}\nSTRATEGY MEMORY:\n"
         + json.dumps(context,ensure_ascii=False,default=str)
     )
