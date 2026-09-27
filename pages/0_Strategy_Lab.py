@@ -1,5 +1,6 @@
 from __future__ import annotations
 import streamlit as st
+from research_trade_plan_store_v1 import create_research_trade_plan_v1, load_research_trade_plans_v1
 from research_strategy_store_v1 import (
     STRATEGY_KEY_GOLD_FED, append_research_event_v1,
     load_research_events_v1, seed_gold_fed_hypothesis_v1,
@@ -91,3 +92,57 @@ with st.expander("Revider hypotesen → ny versjon"):
                 append_research_event_v1(strategy_key=STRATEGY_KEY_GOLD_FED, version=latest_version + 1,
                     event_type="hypothesis", verdict="revision", title=title, body=body)
                 st.rerun()
+
+
+st.divider()
+st.subheader("Trade Plan")
+st.caption("Planen er deterministisk og research-only. Den sender ingen ordre til Saxo eller AutoTrader.")
+
+plans = load_research_trade_plans_v1(STRATEGY_KEY_GOLD_FED)
+with st.expander("Ny Trade Plan", expanded=not bool(plans)):
+    with st.form("gold-fed-trade-plan"):
+        instrument_label = st.text_input("Instrument", value="Gold")
+        direction = st.selectbox("Retning", ("LONG", "SHORT"))
+        probability_pct = st.slider("Hypotesesannsynlighet (%)", 1, 99, 60)
+        capital_pct = st.number_input("Tillatt strategikapital (%)", min_value=0.1, max_value=100.0, value=20.0, step=1.0)
+        stop_loss_pct = st.number_input("Hard stop-loss (%)", min_value=0.1, value=5.0, step=0.5)
+        trail_activation_pct = st.number_input("Aktiver trailing etter gevinst (%)", min_value=0.1, value=2.0, step=0.5)
+        trailing_distance_pct = st.number_input("Trailing-avstand (%)", min_value=0.1, value=1.0, step=0.25)
+        event_policy = st.selectbox("Makro-event policy", (
+            "MANUAL_REVIEW",
+            "FLAT_BEFORE_HIGH_RISK",
+            "REDUCE_BEFORE_HIGH_RISK",
+            "KEEP",
+        ))
+        rationale = st.text_area("Begrunnelse / entry-betingelser")
+        submitted = st.form_submit_button("Opprett DRAFT-plan")
+        if submitted:
+            create_research_trade_plan_v1(
+                strategy_key=STRATEGY_KEY_GOLD_FED,
+                hypothesis_version=latest_version,
+                instrument_label=instrument_label,
+                direction=direction,
+                probability_pct=probability_pct,
+                capital_pct=capital_pct,
+                stop_loss_pct=stop_loss_pct,
+                trail_activation_pct=trail_activation_pct,
+                trailing_distance_pct=trailing_distance_pct,
+                event_policy=event_policy,
+                rationale=rationale,
+            )
+            st.rerun()
+
+if plans:
+    st.markdown("**Ordrebok / planer**")
+    for plan in plans:
+        st.markdown(
+            f"**{plan.status} · {plan.instrument_label} {plan.direction} · "
+            f"P={plan.probability_pct:.0f}% · v{plan.hypothesis_version}**  \\n"
+            f"Kapital {plan.capital_pct:g}% · SL {plan.stop_loss_pct:g}% · "
+            f"trail fra +{plan.trail_activation_pct:g}% / avstand {plan.trailing_distance_pct:g}% · "
+            f"event: {plan.event_policy}"
+        )
+        if plan.rationale:
+            st.caption(plan.rationale)
+
+st.info("Neste execution-steg blir en eksplisitt godkjenning som oversetter en DRAFT-plan til den eksisterende durable execution-livssyklusen. Denne versjonen kan ikke handle.")
