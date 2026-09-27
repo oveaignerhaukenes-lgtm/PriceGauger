@@ -22,6 +22,14 @@ and later FX valuation may differ. This change does not itself submit an order:
 the account owner must explicitly use the Strategy Lab UI and satisfy existing
 LIVE gates. No production fill through this path has been observed yet.
 
+**2026-09-28 partial-fill recovery hardening:** OPEN reconciliation now keeps
+the submitted amount as immutable audit data and persists the actual reconciled
+fill amount separately. A partial Saxo position is not adopted while a working
+remainder still exists; after the remainder is gone, the actual fill amount
+becomes the managed/provenance basis used by scoped CLOSE. Overfills remain
+fail-closed and are not silently adopted. PR #532 added regression coverage for
+working partials, completed partial fills and overfill behavior.
+
 The requested SCALE_DOWN and per-scope
 TRAILING_PROFIT/STOP_LOSS motor paths are not implemented and their UI buttons are
 disabled. The 100% precheck notional ceiling is based on the current quote;
