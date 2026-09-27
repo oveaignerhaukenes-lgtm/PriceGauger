@@ -22,7 +22,6 @@ def test_approved_plan_queues_exact_budget_and_product_with_no_broker_post(monke
     calls = []
     monkeypatch.setattr(opening, "validate_strategy_execution_binding_v1", lambda **k:
         SimpleNamespace(scope=scope,execution_strategy_key="macd"))
-    monkeypatch.setattr(opening, "require_live_open_budget_support_v1", lambda b: None)
     monkeypatch.setattr(opening, "assert_research_scope_v1", lambda **k:
         SimpleNamespace(payload_json=json.dumps({"direction":"LONG"})))
     monkeypatch.setattr(opening, "load_strategy_enrollment_v2", lambda k: enrollment)

@@ -32,9 +32,13 @@ def validate_strategy_execution_binding_v1(*,scope_id:str,strategy_key:str,plan_
     return StrategyExecutionBindingV1(scope=scope,execution_strategy_key=enrollment.strategy_key)
 
 def live_open_budget_supported_v1(binding:StrategyExecutionBindingV1)->bool:
-    """False until Strategy Lab budget is carried into the canonical OPEN sizing/precheck path."""
-    return False
+    """OPEN uses the last Saxo precheck's NOK notional as the entry budget gate.
+
+    This is a submission-time limit, not a guarantee of the eventual fill price
+    or subsequent NOK valuation. Identity and broker gates remain mandatory.
+    """
+    return True
 
 def require_live_open_budget_support_v1(binding:StrategyExecutionBindingV1)->None:
     if not live_open_budget_supported_v1(binding):
-        raise ValueError("STRATEGY_LAB_LIVE_OPEN_BLOCKED_BUDGET_NOT_END_TO_END")
+        raise ValueError("STRATEGY_LAB_LIVE_OPEN_BLOCKED_PRECHECK_BUDGET_UNAVAILABLE")

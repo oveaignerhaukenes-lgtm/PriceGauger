@@ -739,6 +739,7 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 controlled_capital=budget,
                 external_reference_prefix=f"pg-size-{request_id.replace('-', '')[:24]}",
                 max_notional_account=scoped_cap,
+                require_side_price=scoped_cap is not None,
             )
 
             final = precheck_entry_amount_v2(
@@ -752,6 +753,7 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 envelope=envelope,
                 controlled_capital=budget,
                 external_reference=f"pg-final-{request_id.replace('-', '')[:28]}",
+                require_side_price=scoped_cap is not None,
             )
             if not final.allowed:
                 _update_request(

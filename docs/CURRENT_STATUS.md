@@ -11,13 +11,22 @@ after its final Saxo precheck. Scoped CLOSE intents are bound to the resulting
 reconciled position and ordinary durable CLOSE request; their status tracks the
 canonical request. Cross-scope or changed-position attempts fail closed.
 
-**LIVE promotion is still blocked.** `live_open_budget_supported_v1` remains false,
-so Strategy Lab cannot yet queue a real OPEN. The requested SCALE_DOWN and per-scope
+**2026-09-28 Strategy Lab budget policy:** The user chose a submission-time
+NOK notional ceiling: `budget_nok × exposure_pct / 100`. An explicitly confirmed
+approved plan may queue an OPEN only through the exact LIVE pilot/product and
+canonical worker gates. The worker limits sizing to this ceiling, obtains an
+executable-side quote and Saxo account-currency precheck, then checks the
+precheck notional against the frozen ceiling again before durable submission.
+The ceiling applies to the estimate at order submission; actual market fill
+and later FX valuation may differ. This change does not itself submit an order:
+the account owner must explicitly use the Strategy Lab UI and satisfy existing
+LIVE gates. No production fill through this path has been observed yet.
+
+The requested SCALE_DOWN and per-scope
 TRAILING_PROFIT/STOP_LOSS motor paths are not implemented and their UI buttons are
-disabled. The 100% precheck notional ceiling is based on the current quote; a
-market-order fill can slip beyond that quote. An execution-price bound or explicit
-slippage policy is needed before claiming a strict fill-level exposure ceiling.
-Never infer LIVE authority solely from a deployed adapter or a green CI run.
+disabled. The 100% precheck notional ceiling is based on the current quote;
+it is not a strict fill-level exposure ceiling. Never infer actual broker
+execution solely from a deployed adapter or a green CI run.
 
 
 **Status date:** 2026-08-30  
