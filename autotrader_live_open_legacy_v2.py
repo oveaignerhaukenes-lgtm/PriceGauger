@@ -34,6 +34,7 @@ from autotrader_strategy_enrollment_v2 import (
 from autotrader_strategy_switch_provenance_v2 import has_unconsumed_settled_flat_handoff_v2
 from database import connect, using_postgres
 from saxo_provider import SaxoError, SaxoInstrument
+from strategy_execution_budget_v1 import scoped_open_cap_v1
 
 
 LOGGER = logging.getLogger("pricegauger.autotrader.live_open_v2")
@@ -710,6 +711,12 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 _update_request(request_id, status=STATUS_BLOCKED, block_reason="PILOT_EQUITY_EXHAUSTED")
                 blocked += 1
                 continue
+            # An approved Strategy Lab plan is a strict notional ceiling, not
+            # permission to spend the pilot's full equity. Recheck its frozen
+            # provenance on every candidate, including immediately before POST.
+            scoped_cap = scoped_open_cap_v1(request, account_currency=account_currency)
+            if scoped_cap is not None:
+                budget = min(budget, scoped_cap)
 
             _, _, envelope = require_entry_policy_v2(
                 enrollment,
@@ -731,6 +738,7 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 envelope=envelope,
                 controlled_capital=budget,
                 external_reference_prefix=f"pg-size-{request_id.replace('-', '')[:24]}",
+                max_notional_account=scoped_cap,
             )
 
             final = precheck_entry_amount_v2(
@@ -753,6 +761,10 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
                 )
                 blocked += 1
                 continue
+            if scoped_cap is not None and final.notional_account > scoped_cap + 1e-8:
+                _update_request(request_id, status=STATUS_BLOCKED, block_reason="STRATEGY_LAB_NOTIONAL_CAP_EXCEEDED")
+                blocked += 1
+                continue
 
             # Close the control-plane race immediately before durable SUBMITTING.
             # Re-read global/pilot/request authority, actual Saxo exposure and working
@@ -761,6 +773,10 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
             if not (load_live_open_config_v2().armed and code_gate_enabled_v2()):
                 continue
             if not _submit_authority_still_current(request):
+                continue
+            if scoped_cap is not None and scoped_open_cap_v1(request, account_currency=account_currency) != scoped_cap:
+                _update_request(request_id, status=STATUS_BLOCKED, block_reason="STRATEGY_LAB_SCOPE_CHANGED")
+                blocked += 1
                 continue
             fresh_positions = _product_positions(
                 _position_observations_v2(client),

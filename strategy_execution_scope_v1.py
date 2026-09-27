@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from math import isfinite
 
 @dataclass(frozen=True,slots=True)
 class ExecutionAdapterScopeV1:
@@ -21,8 +22,8 @@ class ExecutionAdapterScopeV1:
                            ("pilot_key",self.pilot_key),("account_id",self.account_id),("asset_type",self.asset_type)):
             if not str(value).strip(): raise ValueError(f"{name} is required")
         if int(self.uic)<=0: raise ValueError("uic must be positive")
-        if float(self.budget_nok)<=0: raise ValueError("budget_nok must be positive")
-        if not 0<=float(self.exposure_pct)<=100: raise ValueError("exposure_pct must be in [0,100]")
+        if not isfinite(float(self.budget_nok)) or float(self.budget_nok)<=0: raise ValueError("budget_nok must be finite and positive")
+        if not isfinite(float(self.exposure_pct)) or not 0<=float(self.exposure_pct)<=100: raise ValueError("exposure_pct must be finite and in [0,100]")
 
     @property
     def max_exposure_nok(self)->float:
@@ -30,6 +31,6 @@ class ExecutionAdapterScopeV1:
 
 def assert_adapter_scope_match_v1(expected:ExecutionAdapterScopeV1,actual:ExecutionAdapterScopeV1)->None:
     """Every identity dimension must match; no fallback by market name or strategy family."""
-    fields=("scope_id","strategy_key","plan_id","handoff_id","pilot_key","account_id","uic","asset_type")
+    fields=("scope_id","strategy_key","plan_id","handoff_id","pilot_key","account_id","uic","asset_type","budget_nok","exposure_pct")
     mismatched=[f for f in fields if getattr(expected,f)!=getattr(actual,f)]
     if mismatched: raise ValueError("EXECUTION_ADAPTER_SCOPE_MISMATCH:"+",".join(mismatched))

@@ -511,7 +511,10 @@ def find_largest_legal_entry_v2(
     controlled_capital: float,
     external_reference_prefix: str,
     max_prechecks: int = 20,
+    max_notional_account: float | None = None,
 ) -> EntrySizingResultV2:
+    if max_notional_account is not None and (not math.isfinite(float(max_notional_account)) or max_notional_account <= 0):
+        raise EntrySizingError("entry notional cap must be finite and positive")
     rules = load_entry_instrument_rules_v2(
         client,
         account_key=account_key,
@@ -550,6 +553,8 @@ def find_largest_legal_entry_v2(
             external_reference=f"{external_reference_prefix}-pc{count}",
         )
         if item is None or not item.allowed:
+            return None
+        if max_notional_account is not None and item.notional_account > max_notional_account + 1e-8:
             return None
         return item
 

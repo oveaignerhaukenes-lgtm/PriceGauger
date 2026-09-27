@@ -39,6 +39,7 @@ from autotrader_take_profit_modifier_v1 import (
 )
 from database import using_postgres
 from saxo_provider import configured_client
+from strategy_execution_control_consumer_v1 import consume_strategy_execution_controls_v1
 
 LOGGER = logging.getLogger("pricegauger.autotrader.automanage_dispatch_v2")
 FAST_LIVE_STRATEGIES = {STRONG_COCKTAIL_STRATEGY_V2}
@@ -72,6 +73,10 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
     if client is None:
         raise RuntimeError("Saxo client is not configured")
     observations = _position_observations_v2(client)
+    try:
+        consume_strategy_execution_controls_v1(observations=observations)
+    except Exception as exc:
+        LOGGER.warning("Strategy Lab control consumer failed: %s", exc, exc_info=True)
     evaluated = failed = 0
     for enrollment in enrollments:
         try:

@@ -11,6 +11,7 @@ VALID_ACTIONS={"CLOSE","TRAILING_PROFIT","SCALE_DOWN","STOP_LOSS"}
 class StrategyExecutionControlV1:
     control_id:str; plan_id:str; strategy_key:str; scope_id:str
     action:str; value_pct:float|None; status:str; created_at:datetime
+    request_id:str|None=None; block_reason:str|None=None
 
 def ensure_strategy_execution_control_schema_v1()->None:
     with connect() as db:
@@ -19,6 +20,8 @@ def ensure_strategy_execution_control_schema_v1()->None:
           action TEXT NOT NULL,value_pct DOUBLE PRECISION,status TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL)""")
         db.execute("ALTER TABLE pg_v2_strategy_execution_controls ADD COLUMN IF NOT EXISTS strategy_key TEXT")
         db.execute("ALTER TABLE pg_v2_strategy_execution_controls ADD COLUMN IF NOT EXISTS scope_id TEXT")
+        db.execute("ALTER TABLE pg_v2_strategy_execution_controls ADD COLUMN IF NOT EXISTS request_id UUID")
+        db.execute("ALTER TABLE pg_v2_strategy_execution_controls ADD COLUMN IF NOT EXISTS block_reason TEXT")
 
 def request_strategy_execution_control_v1(*,plan_id:str,strategy_key:str,scope_id:str,action:str,value_pct:float|None=None)->str:
     """Persist only an intent whose complete Strategy Lab scope still matches."""
@@ -40,4 +43,4 @@ def load_strategy_execution_controls_v1(*,plan_id:str,strategy_key:str,scope_id:
     with connect() as db:
         rows=db.execute("""SELECT * FROM pg_v2_strategy_execution_controls
           WHERE plan_id=? AND strategy_key=? AND scope_id=? ORDER BY created_at DESC""",(plan_id,strategy_key,scope_id)).fetchall()
-    return tuple(StrategyExecutionControlV1(**dict(r)) for r in rows)
+    return tuple(StrategyExecutionControlV1(**{k:dict(r)[k] for k in StrategyExecutionControlV1.__dataclass_fields__ if k in dict(r)}) for r in rows)
