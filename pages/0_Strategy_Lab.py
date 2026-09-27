@@ -4,6 +4,7 @@ from uuid import uuid4
 from config import openai_api_key
 from strategy_discussion_ai_v1 import answer_strategy_discussion_v1
 from strategy_discussion_store_v1 import append_strategy_message_v1, load_strategy_messages_v1
+from strategy_factor_store_v1 import load_strategy_factors_v1, set_strategy_factor_enabled_v1
 from research_trade_plan_store_v1 import create_research_trade_plan_v1, load_research_trade_plans_v1
 from research_strategy_store_v1 import (
     STRATEGY_KEY_GOLD_FED, append_research_event_v1,
@@ -151,6 +152,19 @@ if plans:
 
 st.info("Neste execution-steg blir en eksplisitt godkjenning som oversetter en DRAFT-plan til den eksisterende durable execution-livssyklusen. Denne versjonen kan ikke handle.")
 
+
+st.divider()
+st.subheader("Vurderingsfaktorer")
+st.caption("Slå faktorer av/på for å endre hva strategien skal vurdere. Valgene lagres per strategi; de er konfigurasjon, ikke observerte signaler.")
+
+factors=load_strategy_factors_v1(STRATEGY_KEY_GOLD_FED)
+for factor in factors:
+    cols=st.columns([1,3])
+    value=cols[0].toggle(factor.label,value=factor.enabled,key=f"factor:{factor.factor_key}")
+    cols[1].caption(f"**{factor.category}** · {factor.rationale}")
+    if value != factor.enabled:
+        set_strategy_factor_enabled_v1(STRATEGY_KEY_GOLD_FED,factor.factor_key,value)
+        st.rerun()
 
 st.divider()
 st.subheader("Strategidiskusjon")
