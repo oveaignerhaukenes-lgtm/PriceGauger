@@ -1,5 +1,9 @@
 from __future__ import annotations
 import streamlit as st
+from uuid import uuid4
+from config import openai_api_key
+from strategy_discussion_ai_v1 import answer_strategy_discussion_v1
+from strategy_discussion_store_v1 import append_strategy_message_v1, load_strategy_messages_v1
 from research_trade_plan_store_v1 import create_research_trade_plan_v1, load_research_trade_plans_v1
 from research_strategy_store_v1 import (
     STRATEGY_KEY_GOLD_FED, append_research_event_v1,
@@ -146,3 +150,37 @@ if plans:
             st.caption(plan.rationale)
 
 st.info("Neste execution-steg blir en eksplisitt godkjenning som oversetter en DRAFT-plan til den eksisterende durable execution-livssyklusen. Denne versjonen kan ikke handle.")
+
+
+st.divider()
+st.subheader("Strategidiskusjon")
+st.caption("Delt PG-minne: samtalen lagres per strategi og følger strategien mellom sesjoner.")
+
+discussion = list(load_strategy_messages_v1(STRATEGY_KEY_GOLD_FED))
+for message in discussion:
+    with st.chat_message(str(message["role"])):
+        st.markdown(str(message["content"]))
+
+if not openai_api_key():
+    st.info("OPENAI_API_KEY mangler; strategidiskusjon er ikke tilgjengelig ennå.")
+else:
+    prompt = st.chat_input("Diskuter, kritiser eller korriger strategien …", key="gold-fed-strategy-chat")
+    if prompt:
+        append_strategy_message_v1(
+            message_id=str(uuid4()), strategy_key=STRATEGY_KEY_GOLD_FED, role="user",
+            content=str(prompt), hypothesis_version=latest_version,
+        )
+        messages=list(load_strategy_messages_v1(STRATEGY_KEY_GOLD_FED))
+        with st.chat_message("assistant"):
+            with st.spinner("Leser hypotesetidslinje, Trade Plans og tidligere diskusjon …"):
+                try:
+                    answer=answer_strategy_discussion_v1(STRATEGY_KEY_GOLD_FED, messages)
+                except Exception as exc:
+                    st.error(f"Strategidiskusjon kunne ikke svare: {exc}")
+                    st.stop()
+            st.markdown(answer)
+        append_strategy_message_v1(
+            message_id=str(uuid4()), strategy_key=STRATEGY_KEY_GOLD_FED, role="assistant",
+            content=answer, hypothesis_version=latest_version,
+        )
+        st.rerun()
