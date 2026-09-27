@@ -62,8 +62,8 @@ def create_research_trade_plan_v1(*, strategy_key: str, hypothesis_version: int,
         if float(value) <= 0:
             raise ValueError(f"{label} must be positive")
     plan_id = str(uuid4())
+    ensure_research_trade_plan_schema_v1()
     with connect() as db:
-        ensure_research_trade_plan_schema_v1()
         db.execute("""INSERT INTO pg_v2_research_trade_plans(
             plan_id,strategy_key,hypothesis_version,status,instrument_label,direction,
             probability_pct,capital_pct,stop_loss_pct,trail_activation_pct,
