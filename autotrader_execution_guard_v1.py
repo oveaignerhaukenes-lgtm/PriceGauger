@@ -143,7 +143,7 @@ def _request_by_ref(reference: str) -> dict[str, Any] | None:
             SELECT req.request_id, req.pilot_key, req.strategy_key, req.action,
                    req.desired_direction, req.signal_at, req.signal, req.account_id,
                    req.uic, req.asset_type, req.status, req.created_at,
-                   att.status AS attempt_status, att.order_id, att.amount,
+                   att.status AS attempt_status, att.order_id, att.amount, att.filled_amount,
                    att.external_reference
             FROM pg_v2_autotrader_live_open_attempts att
             JOIN pg_v2_autotrader_execution_requests req ON req.request_id=att.request_id
@@ -326,7 +326,7 @@ def _request_for_position(enrollment: StrategyEnrollmentV2, observation: Positio
             SELECT req.request_id, req.pilot_key, req.strategy_key, req.action,
                    req.desired_direction, req.signal_at, req.signal, req.account_id,
                    req.uic, req.asset_type, req.status, req.created_at,
-                   att.status AS attempt_status, att.order_id, att.amount, att.external_reference
+                   att.status AS attempt_status, att.order_id, att.amount, att.filled_amount, att.external_reference
             FROM pg_v2_autotrader_live_open_attempts att
             JOIN pg_v2_autotrader_execution_requests req ON req.request_id=att.request_id
             WHERE req.pilot_key=? AND req.account_id=? AND req.uic=? AND req.asset_type=?
@@ -337,7 +337,8 @@ def _request_for_position(enrollment: StrategyEnrollmentV2, observation: Positio
         ).fetchall()
     for row in rows:
         request = _dict(row)
-        if abs(float(request.get("amount") or 0) - float(observation.amount)) <= 1e-9 and (
+        expected_amount = request.get("filled_amount") if str(request.get("attempt_status")) == "RECONCILED" else request.get("amount")
+        if abs(float(expected_amount or 0) - abs(float(observation.amount))) <= 1e-9 and (
             str(request.get("attempt_status")) == "RECONCILED" or _request_current(request)
         ):
             return request

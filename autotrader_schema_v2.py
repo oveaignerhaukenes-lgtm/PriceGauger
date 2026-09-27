@@ -434,6 +434,7 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
             desired_direction TEXT NOT NULL CHECK (desired_direction IN ('LONG', 'SHORT')),
             buy_sell TEXT NOT NULL,
             amount DOUBLE PRECISION NOT NULL,
+            filled_amount DOUBLE PRECISION,
             budget_amount DOUBLE PRECISION NOT NULL,
             currency TEXT NOT NULL,
             external_reference TEXT NOT NULL,
@@ -448,6 +449,7 @@ def _ensure_autotrader_schema_v2_unlocked() -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """,
+        "ALTER TABLE pg_v2_autotrader_live_open_attempts ADD COLUMN IF NOT EXISTS filled_amount DOUBLE PRECISION",
         """
         CREATE INDEX IF NOT EXISTS pg_v2_autotrader_live_open_status_idx
         ON pg_v2_autotrader_live_open_attempts(status, updated_at ASC)

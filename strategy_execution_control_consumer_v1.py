@@ -65,7 +65,8 @@ def consume_strategy_execution_controls_v1(*, observations: tuple) -> int:
                 continue
             with connect() as db:
                 row = db.execute("""SELECT p.*, r.status AS open_status, r.strategy_key AS execution_strategy_key,
-                    r.budget_amount, r.budget_currency, r.signal, a.amount AS open_amount
+                    r.budget_amount, r.budget_currency, r.signal,
+                    COALESCE(a.filled_amount, a.amount) AS open_amount
                     FROM pg_v2_strategy_open_provenance p
                     JOIN pg_v2_autotrader_execution_requests r ON r.request_id=p.request_id
                     LEFT JOIN pg_v2_autotrader_live_open_attempts a ON a.request_id=r.request_id
