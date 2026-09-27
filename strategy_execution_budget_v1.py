@@ -68,15 +68,28 @@ def load_scoped_open_status_v1(scope_id: str) -> tuple[str, str | None]:
     """Read-only UI summary of the one OPEN request owned by a plan scope."""
     ensure_strategy_open_provenance_schema_v1()
     with connect() as db:
-        row = db.execute("""SELECT r.status, r.request_id FROM pg_v2_strategy_open_provenance p
+        row = db.execute("""SELECT r.status, r.request_id, r.block_reason FROM pg_v2_strategy_open_provenance p
             JOIN pg_v2_autotrader_execution_requests r ON r.request_id=p.request_id
             WHERE p.scope_id=?""", (scope_id,)).fetchone()
     if row is None:
-        return "BLOCKED(NO_QUEUED_OPEN)", None
+        # The OPEN adapter is deliberately closed until fill-level budget policy
+        # has been validated. Do not display an approved plan as ready to trade.
+        return "BLOCKED(BUDGET_POLICY_UNVERIFIED)", None
     data = dict(row)
     status = str(data["status"]).upper()
+    if status == "RECONCILED":
+        from strategy_execution_control_v1 import ensure_strategy_execution_control_schema_v1
+        ensure_strategy_execution_control_schema_v1()
+        with connect() as db:
+            closed = db.execute("""SELECT control_id FROM pg_v2_strategy_execution_controls
+                WHERE scope_id=? AND action='CLOSE' AND status='EXECUTED' LIMIT 1""",
+                (scope_id,)).fetchone()
+        if closed is not None:
+            return "CLOSED", str(data["request_id"])
     display = {"PENDING":"QUEUED", "APPROVED":"QUEUED", "SUBMITTING":"QUEUED",
         "ORDER_ACCEPTED":"QUEUED", "RECONCILED":"LIVE", "REJECTED":"BLOCKED(REJECTED)",
         "BLOCKED":"BLOCKED(ORDER)", "SUPERSEDED":"BLOCKED(SUPERSEDED)",
         "UNCERTAIN":"BLOCKED(UNCERTAIN)"}.get(status, f"BLOCKED({status})")
+    if status in {"REJECTED", "BLOCKED", "UNCERTAIN"} and data.get("block_reason"):
+        display += f": {data['block_reason']}"
     return display, str(data["request_id"])

@@ -62,6 +62,20 @@ def test_strategy_lab_signal_without_provenance_cannot_fall_back_to_uncapped(mon
         budget.scoped_open_cap_v1({"request_id": "r1", "signal": "STRATEGY_LAB_APPROVED_OPEN"}, account_currency="NOK")
 
 
+def test_scoped_status_reports_block_reason_and_confirmed_close(monkeypatch):
+    import strategy_execution_control_v1 as controls
+    rows = [{"status": "BLOCKED", "request_id": "r1", "block_reason": "MARKET_CLOSED"}]
+    @contextmanager
+    def connection():
+        yield SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchone=lambda: rows.pop(0)))
+    monkeypatch.setattr(budget, "ensure_strategy_open_provenance_schema_v1", lambda: None)
+    monkeypatch.setattr(controls, "ensure_strategy_execution_control_schema_v1", lambda: None)
+    monkeypatch.setattr(budget, "connect", connection)
+    assert budget.load_scoped_open_status_v1("gold:p1") == ("BLOCKED(ORDER): MARKET_CLOSED", "r1")
+    rows.extend([{"status": "RECONCILED", "request_id": "r1", "block_reason": None}, {"control_id": "c1"}])
+    assert budget.load_scoped_open_status_v1("gold:p1") == ("CLOSED", "r1")
+
+
 def test_scoped_request_rejects_budget_mutation(monkeypatch):
     scope = _scope()
     provenance = {**asdict(scope), "max_notional_nok": 1000}
