@@ -13,17 +13,43 @@ class StrategyFactorV1:
     rationale: str
     updated_at: datetime
 
+GOLD_FACTOR_DEFAULTS=(
+ ("fed_real_rates","Fed / realrenter",True,"Makro","Front-end, realrenter og policyforventninger."),
+ ("usd","USD / DXY",True,"Makro","Dollarstyrke og finansielle flows."),
+ ("inflation","Inflasjon / breakevens",True,"Makro","Inflasjon og forventet realavkastning."),
+ ("oil_inflation","Olje / energipress",True,"Kryssmarked","Olje som input til energidrevet inflasjonspress."),
+ ("gold_relative","Relativ gullstyrke",True,"Metaller","Gull som holder seg sterkt/svakt relativt til makrodriverne."),
+)
+
 SILVER_FACTOR_DEFAULTS=(
- ("fed_real_rates","Fed / realrenter",True,"Macro","Front-end, realrenter og policyforventninger."),
- ("usd","USD / DXY",True,"Macro","Dollarstyrke påvirker metallprising og finansielle flows."),
+ ("fed_real_rates","Fed / realrenter",True,"Makro","Front-end, realrenter og policyforventninger."),
+ ("usd","USD / DXY",True,"Makro","Dollarstyrke påvirker metallprising og finansielle flows."),
  ("gold_relative","Gull / relativ metallstyrke",True,"Metaller","Skiller felles edelmetallregime fra sølvspesifikk bevegelse."),
  ("industrial_demand","Industriell etterspørsel",True,"Fundamentalt","Etterspørsel fra industri og elektrifisering/sol m.m."),
  ("mine_supply","Gruveproduksjon / tilbud",True,"Fundamentalt","Tilbud, prosjektpipeline og produksjonsforventninger."),
- ("byproduct_supply","Biprodukt-eksponering",True,"Fundamentalt","Mye sølvtilbud bestemmes av økonomien i andre metallgruver, ikke sølvpris alene."),
+ ("byproduct_supply","Biprodukt-eksponering",True,"Fundamentalt","Sølvtilbud påvirkes av økonomien i andre metallgruver, ikke sølvpris alene."),
  ("inventories_flows","Lagre / fysiske flows",True,"Fundamentalt","Lagerutvikling og fysisk stramhet når datagrunnlaget finnes."),
+ ("oil_inflation","Olje / energipress",True,"Kryssmarked","Olje som input til inflasjon, kostnader og realrenteforventninger."),
  ("growth_copper","Vekst / kobber-proxy",False,"Kryssmarked","Mulig proxy for industriell konjunktur; av som standard for å unngå dobbeltelling."),
  ("gold_silver_ratio","Gull/sølv-ratio",True,"Kryssmarked","Relativ prising mellom gull og sølv."),
 )
+
+OIL_FACTOR_DEFAULTS=(
+ ("demand_growth","Global etterspørsel / vekst",True,"Etterspørsel","Aktivitet, transport og forventet forbruksvekst."),
+ ("commercial_inventories","Kommersielle lagre",True,"Balanse","Lagerbygg/-trekk som signal om fysisk balanse."),
+ ("strategic_reserves","Strategiske lagre",True,"Balanse","Trekk, refill/resupply og forventet offentlig lageretterspørsel."),
+ ("supply_growth","Produksjon / tilbudsvekst",True,"Tilbud","Produksjonsrespons og forventet ny kapasitet."),
+ ("opec_policy","OPEC+ / tilbudspolitikk",True,"Tilbud","Kommuniserte og realiserte produksjonsendringer."),
+ ("curve_spreads","Terminkurve / spreads",True,"Marked","Backwardation/contango og nærliggende spreads som balansesignal."),
+ ("geopolitical_risk","Geopolitisk risikopremie",True,"Marked","Forsyningsrisiko og transportforstyrrelser."),
+ ("usd","USD / DXY",False,"Makro","Finansiell motvind/medvind; av som standard for å begrense dobbeltelling."),
+)
+
+FACTOR_DEFAULTS_BY_STRATEGY={
+ "gold-fed-rates": GOLD_FACTOR_DEFAULTS,
+ "silver-fed-industry-supply": SILVER_FACTOR_DEFAULTS,
+ "oil-balance-resupply": OIL_FACTOR_DEFAULTS,
+}
 
 def ensure_strategy_factor_schema_v1()->None:
     with connect() as db:
@@ -35,7 +61,8 @@ def ensure_strategy_factor_schema_v1()->None:
 def seed_strategy_factors_v1(strategy_key:str)->None:
     ensure_strategy_factor_schema_v1()
     with connect() as db:
-        for key,label,enabled,category,rationale in SILVER_FACTOR_DEFAULTS:
+        defaults=FACTOR_DEFAULTS_BY_STRATEGY.get(strategy_key, ())
+        for key,label,enabled,category,rationale in defaults:
             db.execute("""INSERT INTO pg_v2_strategy_factors
               (strategy_key,factor_key,label,enabled,category,rationale,updated_at)
               VALUES (?,?,?,?,?,?,?) ON CONFLICT(strategy_key,factor_key) DO NOTHING""",
