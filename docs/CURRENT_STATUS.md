@@ -1,5 +1,25 @@
 # PriceGauger — Current Status / Stable Checkpoint
 
+## 2026-09-27 Strategy Lab execution update
+
+The original 2026-08-30 checkpoint below is historical. Strategy Lab plan creation
+and its discussion module have been repaired (PR #527). Approved research plans now
+carry an immutable budget/exposure snapshot. A scoped canonical OPEN request can be
+associated atomically with its plan, handoff, pilot and exact Saxo product; the
+existing OPEN worker checks the resulting NOK notional ceiling during sizing and
+after its final Saxo precheck. Scoped CLOSE intents are bound to the resulting
+reconciled position and ordinary durable CLOSE request; their status tracks the
+canonical request. Cross-scope or changed-position attempts fail closed.
+
+**LIVE promotion is still blocked.** `live_open_budget_supported_v1` remains false,
+so Strategy Lab cannot yet queue a real OPEN. The requested SCALE_DOWN and per-scope
+TRAILING_PROFIT/STOP_LOSS motor paths are not implemented and their UI buttons are
+disabled. The 100% precheck notional ceiling is based on the current quote; a
+market-order fill can slip beyond that quote. An execution-price bound or explicit
+slippage policy is needed before claiming a strict fill-level exposure ceiling.
+Never infer LIVE authority solely from a deployed adapter or a green CI run.
+
+
 **Status date:** 2026-08-30  
 **Stable checkpoint runtime baseline reviewed:** `fe0949437cf967ef526465ae8044131b87d1cb22`  
 **Latest post-checkpoint production cleanup verified:** `95b4c64cf00851caf06e2c9ccb3a2505e978e424`  

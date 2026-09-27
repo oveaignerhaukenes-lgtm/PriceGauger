@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from autotrader_fast_live_runtime_v2 import (
     DIRECTION_FLAT,
@@ -24,6 +24,7 @@ class ManualCloseResultV1:
     observed_direction: str
     request_created: bool
     already_flat: bool
+    request_id: str | None = None
 
 
 def request_manual_close_v1(
@@ -31,6 +32,7 @@ def request_manual_close_v1(
     *,
     observation: PositionObservationV2 | None,
     now: datetime | None = None,
+    intent_event_id: str | None = None,
 ) -> ManualCloseResultV1:
     """Request FLAT through the existing durable execution-request lifecycle.
 
@@ -68,7 +70,7 @@ def request_manual_close_v1(
         desired_direction=DIRECTION_FLAT,
         last_action_at=requested_at,
         pending_target_direction=DIRECTION_FLAT,
-        intent_event_id=str(uuid4()),
+        intent_event_id=str(intent_event_id or uuid4()),
         intent_signal_at=requested_at,
         intent_signal="USER_CLOSE_POSITION",
     )
@@ -80,13 +82,14 @@ def request_manual_close_v1(
         observed_direction=observed_direction,
         budget_amount=equity.entry_budget,
         budget_currency=equity.currency,
-        supersede_prior=True,
+        supersede_prior=intent_event_id is None,
     )
     return ManualCloseResultV1(
         enrollment.pilot_key,
         observed_direction,
         bool(created),
         False,
+        str(uuid5(NAMESPACE_URL, f"fast-live-execution|{state.intent_event_id}|CLOSE|FLAT")) if created else None,
     )
 
 

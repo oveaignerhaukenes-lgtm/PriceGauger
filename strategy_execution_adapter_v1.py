@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import json
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE,load_strategy_enrollment_v2
 from research_trade_plan_store_v1 import assert_research_scope_v1
 from strategy_execution_scope_v1 import ExecutionAdapterScopeV1
@@ -15,6 +16,11 @@ def validate_strategy_execution_binding_v1(*,scope_id:str,strategy_key:str,plan_
     handoff=assert_research_scope_v1(plan_id=plan_id,strategy_key=strategy_key,scope_id=scope_id)
     if handoff.handoff_id!=handoff_id or handoff.status not in {"APPROVED","QUEUED"}:
         raise ValueError("EXECUTION_HANDOFF_IDENTITY_MISMATCH")
+    payload=json.loads(handoff.payload_json)
+    if (payload.get("plan_id")!=plan_id or payload.get("strategy_key")!=strategy_key
+        or payload.get("scope_id")!=scope_id or float(payload.get("budget_nok",-1))!=float(budget_nok)
+        or float(payload.get("exposure_pct",-1))!=float(exposure_pct)):
+        raise ValueError("EXECUTION_HANDOFF_SNAPSHOT_MISMATCH")
     enrollment=load_strategy_enrollment_v2(pilot_key)
     if enrollment is None or not enrollment.enabled or enrollment.execution_mode!=EXECUTION_MODE_LIVE:
         raise ValueError("EXECUTION_PILOT_NOT_ACTIVE_LIVE")

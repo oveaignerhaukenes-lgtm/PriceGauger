@@ -414,6 +414,7 @@ def _persist_intent_and_request_v2(
     budget_amount: float,
     budget_currency: str,
     supersede_prior: bool,
+    execution_scope=None,
 ) -> bool:
     if state.intent_event_id is None or state.intent_signal_at is None or state.intent_signal is None:
         return False
@@ -441,6 +442,19 @@ def _persist_intent_and_request_v2(
                 f"fast-live-execution|{state.intent_event_id}|{request_action}|{desired}",
             )
         )
+
+    if execution_scope is not None:
+        from strategy_execution_budget_v1 import ensure_strategy_open_provenance_schema_v1
+        if request_action != "OPEN" or request_id is None or state.intent_signal != "STRATEGY_LAB_APPROVED_OPEN":
+            raise ValueError("STRATEGY_LAB_REQUIRES_EXACT_OPEN_INTENT")
+        if (execution_scope.pilot_key != enrollment.pilot_key
+            or execution_scope.account_id != enrollment.account_id
+            or execution_scope.uic != enrollment.uic
+            or execution_scope.asset_type != enrollment.asset_type
+            or budget_currency.upper() != "NOK"
+            or abs(float(budget_amount) - execution_scope.max_exposure_nok) > 1e-8):
+            raise ValueError("STRATEGY_LAB_OPEN_SCOPE_MISMATCH")
+        ensure_strategy_open_provenance_schema_v1()
 
     with connect() as db:
         if supersede_prior:
@@ -493,6 +507,17 @@ def _persist_intent_and_request_v2(
                     REQUEST_PENDING,
                 ),
             )
+            if execution_scope is not None:
+                db.execute("""INSERT INTO pg_v2_strategy_open_provenance(
+                  request_id,scope_id,strategy_key,plan_id,handoff_id,pilot_key,
+                  account_id,uic,asset_type,budget_nok,exposure_pct,max_notional_nok
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",(
+                  request_id,execution_scope.scope_id,execution_scope.strategy_key,
+                  execution_scope.plan_id,execution_scope.handoff_id,execution_scope.pilot_key,
+                  execution_scope.account_id,execution_scope.uic,execution_scope.asset_type,
+                  execution_scope.budget_nok,execution_scope.exposure_pct,
+                  execution_scope.max_exposure_nok,
+                ))
     return request_id is not None
 
 

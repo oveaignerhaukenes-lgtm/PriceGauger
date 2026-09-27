@@ -6,6 +6,10 @@ from strategy_discussion_ai_v1 import answer_strategy_discussion_v1
 from strategy_discussion_store_v1 import append_strategy_message_v1, load_strategy_messages_v1
 from strategy_factor_store_v1 import load_strategy_factors_v1, set_strategy_factor_enabled_v1
 from strategy_execution_control_v1 import request_strategy_execution_control_v1, load_strategy_execution_controls_v1
+from strategy_execution_adapter_v1 import live_open_budget_supported_v1
+from strategy_execution_budget_v1 import load_scoped_open_status_v1
+from strategy_execution_open_v1 import queue_strategy_lab_open_v1
+from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
 from research_trade_plan_store_v1 import (
     approve_research_trade_plan_v1, create_research_trade_plan_v1,
     load_research_execution_handoff_v1, load_research_trade_plans_v1,
@@ -191,28 +195,59 @@ if plans:
                 "ingen brokerordre sendes fra Strategy Lab."
             )
 
+            scoped_state, scoped_request_id = load_scoped_open_status_v1(handoff.scope_id)
+            st.caption(f"LIVE execution: {scoped_state}" + (f" · ordreforespørsel {scoped_request_id}" if scoped_request_id else ""))
+            if scoped_request_id is None:
+                candidates = tuple(e for e in load_active_strategy_enrollments_v2()
+                    if e.execution_mode == EXECUTION_MODE_LIVE and e.enabled)
+                if candidates:
+                    selected = st.selectbox("Eksakt LIVE-pilot for planen", candidates,
+                        format_func=lambda e: f"{e.market_name} · konto {e.account_id} · UIC {e.uic} · {e.asset_type} · pilot {e.pilot_key}",
+                        key=f"scoped-live-pilot:{plan.plan_id}")
+                    confirmed = st.checkbox("Jeg har kontrollert konto, UIC, produkttype, retning og budsjett for denne planen",
+                        key=f"scoped-live-confirm:{plan.plan_id}")
+                    capability = live_open_budget_supported_v1(None)
+                    if not capability:
+                        st.caption("LIVE OPEN er sperret inntil budsjett, Saxo-precheck og avstemming er testet ende til ende.")
+                    if st.button("Send godkjent plan til LIVE OPEN", key=f"scoped-open:{plan.plan_id}",
+                        disabled=not confirmed or not capability):
+                        try:
+                            result = queue_strategy_lab_open_v1(scope_id=handoff.scope_id,
+                                strategy_key=strategy, plan_id=plan.plan_id, handoff_id=handoff.handoff_id,
+                                pilot_key=selected.pilot_key, account_id=selected.account_id, uic=selected.uic,
+                                asset_type=selected.asset_type, budget_nok=plan.budget_nok,
+                                exposure_pct=plan.exposure_pct)
+                            st.success(f"Ordreforespørsel {result.request_id} lagt i execution-kø.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"LIVE OPEN blokkert: {exc}")
+                else:
+                    st.caption("BLOCKED: Ingen aktiv LIVE-pilot å knytte til denne planen.")
+
             st.markdown("**Execution Control**")
-            st.caption("Alle handlinger blir durable management-intents og må konsumeres av den herdede execution-adapteren.")
+            st.caption("CLOSE bruker kanonisk ordrebehandling for posisjonen som ble åpnet under denne planen. Andre kontrolltyper venter på egne scope-isolerte motorbaner.")
             cc1,cc2=st.columns(2)
-            if cc1.button("Avslutt posisjon",key=f"close:{plan.plan_id}"):
+            if cc1.button("Avslutt posisjon",key=f"close:{plan.plan_id}",disabled=scoped_state!="LIVE"):
                 request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="CLOSE")
                 st.rerun()
             trail=cc2.number_input("Trailing-avstand (%)",min_value=0.1,value=float(plan.trailing_distance_pct),step=0.25,key=f"trailv:{plan.plan_id}")
-            if cc2.button("Iverksett trailing",key=f"trail:{plan.plan_id}"):
+            if cc2.button("Iverksett trailing",key=f"trail:{plan.plan_id}",disabled=True):
                 request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="TRAILING_PROFIT",value_pct=trail)
                 st.rerun()
             scale=st.slider("Scale down – reduser nåværende eksponering (%)",1,100,25,key=f"scalev:{plan.plan_id}")
-            if st.button("Scale down",key=f"scale:{plan.plan_id}"):
+            if st.button("Scale down",key=f"scale:{plan.plan_id}",disabled=True):
                 request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="SCALE_DOWN",value_pct=scale)
                 st.rerun()
             stop=st.number_input("Stop-loss (%)",min_value=0.1,value=float(plan.stop_loss_pct),step=0.5,key=f"stopv:{plan.plan_id}")
-            if st.button("Aktiver / oppdater stop-loss",key=f"stop:{plan.plan_id}"):
+            if st.button("Aktiver / oppdater stop-loss",key=f"stop:{plan.plan_id}",disabled=True):
                 request_strategy_execution_control_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id,action="STOP_LOSS",value_pct=stop)
                 st.rerun()
             controls=load_strategy_execution_controls_v1(plan_id=plan.plan_id,strategy_key=strategy,scope_id=handoff.scope_id)
             if controls:
                 latest=controls[0]
-                st.caption(f"Siste kontroll: {latest.action} · {latest.value_pct if latest.value_pct is not None else '—'} · {latest.status}")
+                st.caption(f"Siste kontroll: {latest.action} · {latest.value_pct if latest.value_pct is not None else '—'} · {latest.status}"
+                    + (f" · årsak {latest.block_reason}" if latest.block_reason else "")
+                    + (f" · ordre {latest.request_id}" if latest.request_id else ""))
 
 st.info(
     "Execution Plan administreres her. DRAFT kan redigeres ved å opprette en ny plan; "
