@@ -465,7 +465,7 @@ def _accepted_attempts() -> tuple[dict[str, Any], ...]:
         rows = db.execute(
             """
             SELECT request_id, account_id, uic, asset_type, desired_direction,
-                   amount, order_id
+                   amount, filled_amount, order_id
             FROM pg_v2_autotrader_live_open_attempts
             WHERE status = ?
             ORDER BY updated_at ASC
@@ -521,10 +521,26 @@ def reconcile_live_open_attempts_v2(client) -> int:
         current = matches[0]
         if _direction_of(current) != str(attempt["desired_direction"]):
             continue
-        if abs(float(current.amount) - float(attempt["amount"])) > 1e-9:
+        observed_amount = abs(float(current.amount))
+        requested_amount = abs(float(attempt["amount"]))
+        if observed_amount <= 1e-12 or observed_amount > requested_amount + 1e-9:
+            continue
+        # Saxo may expose a partial position while the remainder is still a
+        # working order. Never adopt that transient basis. Once no remainder is
+        # working, the observed amount is the durable fill, even when smaller
+        # than the submitted market amount.
+        account_key, _ = _account_info(client, str(attempt["account_id"]))
+        if observed_amount < requested_amount - 1e-9 and _open_orders_exist(
+            client, account_key=account_key, uic=int(attempt["uic"])
+        ):
             continue
         request_id = str(attempt["request_id"])
         _rotate_managed_basis_and_anchor(request_id, current)
+        with connect() as db:
+            db.execute(
+                "UPDATE pg_v2_autotrader_live_open_attempts SET filled_amount=?, updated_at=now() WHERE request_id=?",
+                (observed_amount, request_id),
+            )
         _update_attempt(request_id, status=STATUS_RECONCILED)
         _update_request(
             request_id,
