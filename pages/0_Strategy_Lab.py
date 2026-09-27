@@ -39,11 +39,14 @@ PROFILES = {
 if strategy not in PROFILES:
     st.subheader("Strategier")
     for key, profile in PROFILES.items():
-        st.markdown(f"**{profile['title']}** · research · {profile['horizon']}")
-        st.caption(profile["summary"])
-        if st.button(f"Åpne {profile['title']}", key=f"open:{key}", use_container_width=True):
+        if st.button(
+            f"{profile['title']} · research · {profile['horizon']}",
+            key=f"open:{key}",
+            use_container_width=True,
+        ):
             st.query_params["strategy"] = key
             st.rerun()
+        st.caption(profile["summary"])
     st.info("AutoTrader-strategier fortsetter i sine simulator- og execution-flater. Research-strategiene har ingen execution authority.")
     st.stop()
 
