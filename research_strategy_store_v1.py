@@ -5,6 +5,8 @@ from uuid import uuid4
 from database import connect
 
 STRATEGY_KEY_GOLD_FED = "gold-fed-rates"
+STRATEGY_KEY_SILVER_MACRO = "silver-fed-industry-supply"
+STRATEGY_KEY_OIL_BALANCE = "oil-balance-resupply"
 
 @dataclass(frozen=True, slots=True)
 class ResearchEventV1:
@@ -79,3 +81,40 @@ def seed_gold_fed_hypothesis_v1() -> None:
               "økonomien tåler innstrammingen og realrentene forblir høye."),
         observed_at="2026-09-27T16:00:00+00:00",
     )
+
+
+def _seed_hypothesis_once_v1(*, strategy_key: str, title: str, body: str, observed_at: str) -> None:
+    if load_research_events_v1(strategy_key):
+        return
+    append_research_event_v1(
+        strategy_key=strategy_key, version=1, event_type="hypothesis",
+        verdict="baseline", title=title, body=body, observed_at=observed_at,
+    )
+
+def seed_silver_macro_hypothesis_v1() -> None:
+    _seed_hypothesis_once_v1(
+        strategy_key=STRATEGY_KEY_SILVER_MACRO, title="Starthypotese v1",
+        body=("Sølv deler gulls monetære drivere, men utfallet avhenger også av industriell "
+              "etterspørsel og et tilbud som delvis bestemmes av produksjonen av andre metaller. "
+              "Strategien vurderer derfor Fed/realrenter og USD sammen med industri, gruve- og "
+              "biprodukttilbud, fysiske flows og gull/sølv-relativprising. En monetær medvind er "
+              "ikke alene tilstrekkelig dersom industri- eller tilbudssiden utvikler seg klart negativt."),
+        observed_at="2026-09-27T18:30:00+00:00",
+    )
+
+def seed_oil_balance_hypothesis_v1() -> None:
+    _seed_hypothesis_once_v1(
+        strategy_key=STRATEGY_KEY_OIL_BALANCE, title="Starthypotese v1",
+        body=("Oljestrategien følger balansen mellom etterspørsel, produksjon, kommersielle og "
+              "strategiske lagerbevegelser, resupply/refill, geopolitisk risikopremie og terminkurve. "
+              "Arbeidshypotesen er at vedvarende lagerstramhet eller framtidig refill/resupply kan "
+              "skape asymmetrisk oppside når tilbudsresponsen ikke holder tritt. Hypotesen skal "
+              "falsifiseres eller nedvekstes dersom lager bygges, etterspørselen svekkes eller "
+              "produksjonsresponsen gir varig overskudd."),
+        observed_at="2026-09-27T18:30:00+00:00",
+    )
+
+def seed_research_strategies_v1() -> None:
+    seed_gold_fed_hypothesis_v1()
+    seed_silver_macro_hypothesis_v1()
+    seed_oil_balance_hypothesis_v1()
