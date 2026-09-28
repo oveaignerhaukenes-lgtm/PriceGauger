@@ -541,6 +541,15 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
         )
 
 
+@st.fragment(run_every="1000ms")
+def _refresh_live_chart_data() -> None:
+    """Independent clock, matching the known-good standalone Live Chart page.
+
+    TradingDesk's workspace auto-refresh toggle must not gate market-data ticks.
+    """
+    _render_live_chart(refresh_only=True)
+
+
 def _render_automanager_workspace() -> None:
     context = _load_active_context()
     st.divider()
@@ -573,7 +582,5 @@ with chart_column:
     # The visible Lightweight chart must live outside the timed fragment. A fragment
     # rerun replaces its own elements, which otherwise unmounts the chart every tick.
     _render_live_chart()
-    st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(
-        lambda: _render_live_chart(refresh_only=True)
-    )()
+    _refresh_live_chart_data()
     _render_automanager_workspace()
