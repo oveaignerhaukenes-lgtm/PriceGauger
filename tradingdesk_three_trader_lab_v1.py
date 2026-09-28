@@ -310,8 +310,8 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         for name in ("Hunter · tick shadow", "Rabid Dog · tick shadow"):
             if name in visible:
                 st.markdown(f"**{name}**")
-                st.caption("Saxo bid/ask shadow er aktiv i stream-workeren. Ingen historisk tickreplay eller P/L-kurve er tilgjengelig i SIM ennå; ingen LIVE-ordreautoritet.")
-        st.caption("Hunter og Rabid Dog kjører foreløpig som tickbaserte shadow-strategier i Saxo-strømmen. Historiske bid/ask-ticks lagres ikke som et komplett replaygrunnlag her, så de får ingen oppdiktet 1m-avkastningskurve. MACD-A-variantene nedenfor bruker canonical closed bars; pyramidekurvene viser mål-eksponering, ikke brokerfills.")
+                st.caption("Bid/ask shadow er aktiv i stream-workeren. Ingen historisk tickreplay eller P/L-kurve er tilgjengelig i SIM ennå; ingen LIVE-ordreautoritet.")
+        st.caption("Hunter og Rabid Dog kjører foreløpig som tickbaserte shadow-strategier i markedsstrømmen. Historiske bid/ask-ticks lagres ikke som et komplett replaygrunnlag her, så de får ingen oppdiktet 1m-avkastningskurve. MACD-A-variantene nedenfor bruker canonical closed bars; pyramidekurvene viser mål-eksponering, ikke brokerfills.")
         for name in EXPERIMENTAL_NAMES:
             if name in visible:
                 if "PYR" in name:
