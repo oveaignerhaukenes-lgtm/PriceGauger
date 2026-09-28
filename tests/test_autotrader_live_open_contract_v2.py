@@ -52,3 +52,10 @@ def test_simple_core_reentry_waits_for_execution_certainty_not_realized_pnl_sett
     product_block_index = legacy.index('block_reason="PRODUCT_NOT_CONFIRMED_FLAT"', loop_start)
     sizing_index = legacy.index("find_largest_legal_entry_v2(", product_block_index)
     assert product_block_index < sizing_index
+
+
+def test_http_429_is_terminal_retryable_not_uncertain() -> None:
+    source = _legacy_source()
+    assert 'status_code", 0) or 0) == 429' in source
+    assert "not rate_limited" in source
+    assert "strategy may re-arm after full precheck" in source
