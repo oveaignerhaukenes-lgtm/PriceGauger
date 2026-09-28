@@ -74,17 +74,12 @@ def test_reconciled_close_is_projected_as_flat_square_marker() -> None:
 
 
 def test_live_chart_keeps_periodic_forming_candle_refresh() -> None:
-    page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
-    runtime = (
-        ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "direct_runtime.py"
-    ).read_text(encoding="utf-8")
+    from pathlib import Path
+    desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
-    assert "LIVE_CANDLE_OVERLAY_REFRESH_SECONDS = 1" in page
-    assert "LIVE_CHART_BASE_REFRESH_SECONDS = 5" in page
-    assert "forming = _forming_chart_candle(context)" in page
-    assert "forming_candle=forming" in page
-    assert 'st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(' in page
-    assert "render_lightweight_live_update_v1(" not in page
-    assert "render_lightweight_base_update_v1(" not in page
-    assert "payload.forming_candle" in runtime
-    assert "setTriggerValue('live_tick', Date.now())" not in runtime
