@@ -57,10 +57,14 @@ def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
 
 
 def test_visible_component_keeps_stable_host_across_fragment_ticks():
-    page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert 'key=f"tradingdesk-lightweight-simple-v2:{market}"' in page
-    assert ':{forming_revision}"' not in page
-
+    from pathlib import Path
+    desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
 def test_tradingdesk_periodic_refresh_uses_independent_fragments():
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
