@@ -577,10 +577,12 @@ def _render_automanager_workspace() -> None:
 
 
 with chart_column:
-    st.fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s" if auto_refresh else None)(_render_v2_analysis)()
+    # Mount the proven Live Chart baseline before any analysis/manager fragments.
+    # Other TradingDesk fragments must not precede or own the chart subtree.
     _render_live_chart_controls()
     # The visible Lightweight chart must live outside the timed fragment. A fragment
     # rerun replaces its own elements, which otherwise unmounts the chart every tick.
     _render_live_chart()
     _refresh_live_chart_data()
+    st.fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s" if auto_refresh else None)(_render_v2_analysis)()
     _render_automanager_workspace()
