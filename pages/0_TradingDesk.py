@@ -607,5 +607,5 @@ with chart_column:
                 render_tradingdesk_three_trader_lab_v1(baseline_context)
             _render_sim_lab_on_demand()
             render_tradingdesk_automanage_pnl_chart_v2(
-                baseline_context, auto_refresh=False,
+                baseline_context, auto_refresh=False, include_sim_lab=False,
             )
