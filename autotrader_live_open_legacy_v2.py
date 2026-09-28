@@ -830,17 +830,28 @@ def run_live_open_cycle_v2() -> LiveOpenCycleV2:
             try:
                 response = _post_once(client, "trade/v2/orders", order_payload)
             except SaxoError as exc:
-                uncertain = str(getattr(exc, "status", "")).upper() in {
-                    "TIMEOUT",
-                    "CONNECTION_FAILED",
-                    "REQUEST_FAILED",
-                    "INVALID_RESPONSE",
-                }
+                # HTTP 429 is a known broker rejection before order acceptance, not
+                # an ambiguous submit. Keep it terminal/retryable so the strategy
+                # runtime can re-arm the same still-current intent through its
+                # normal hardened prechecks. Network/response failures remain
+                # UNCERTAIN because the broker may have accepted the order.
+                rate_limited = int(getattr(exc, "status_code", 0) or 0) == 429
+                uncertain = (
+                    not rate_limited
+                    and str(getattr(exc, "status", "")).upper() in {
+                        "TIMEOUT",
+                        "CONNECTION_FAILED",
+                        "REQUEST_FAILED",
+                        "INVALID_RESPONSE",
+                    }
+                )
                 status = STATUS_UNCERTAIN if uncertain else STATUS_REJECTED
                 _update_attempt(request_id, status=status, error=str(exc))
                 _update_request(request_id, status=status, block_reason=str(exc))
                 if uncertain:
                     LOGGER.error("LIVE OPEN uncertain request=%s; blind retry blocked", request_id)
+                elif rate_limited:
+                    LOGGER.warning("LIVE OPEN rate-limited request=%s; strategy may re-arm after full precheck: %s", request_id, exc)
                 else:
                     LOGGER.warning("LIVE OPEN rejected request=%s: %s", request_id, exc)
                 failed += 1
