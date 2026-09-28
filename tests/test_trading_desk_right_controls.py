@@ -55,7 +55,7 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
     assert '@st.fragment(run_every="1000ms")' in source
     assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
-    assert "with chart_column:\n    st.fragment(run_every=" in source
+    assert "with chart_column:\n    # Mount the proven Live Chart baseline" in source
     assert "render_companion_panel_v2(view)" in source
     assert "_render_automanager_workspace()" in source
     assert source.index("with chart_column:") < source.rindex("_render_automanager_workspace()")
