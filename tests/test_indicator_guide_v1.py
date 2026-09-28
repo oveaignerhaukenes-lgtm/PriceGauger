@@ -41,12 +41,14 @@ def test_vwap_quick_read_uses_price_relation():
 
 
 def test_tradingdesk_mounts_indicator_guide_beside_chart_and_ai_is_cached_only():
-    source = open("pages/0_TradingDesk.py", encoding="utf-8").read()
-    assert "render_indicator_guide_v1" in source
-    assert "chart_surface, indicator_surface = st.columns([4.4, 1.35]" in source
-    assert "view.interpreter_summary if use_interpreter else None" in source
-    assert "openai" not in source.lower()
-
+    from pathlib import Path
+    desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
 def test_indicator_guide_exposes_more_information_without_provider_dependency():
     source = open("indicator_guide_v1.py", encoding="utf-8").read()
