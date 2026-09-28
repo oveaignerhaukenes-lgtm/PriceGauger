@@ -41,7 +41,7 @@ def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_de
     assert 'requested_market = str(st.query_params.get("market", "")' in source
     assert 'st.query_params["market"] = selected' in source
     assert 'st.session_state[AUTO_REFRESH_STATE_KEY] = True' in source
-    assert 'st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(' in source
+    assert '@st.fragment(run_every="1000ms")' in source
     assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
 
@@ -54,7 +54,7 @@ def test_tradingdesk_updates_recent_forming_candle_directly_in_lightweight_brows
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_plotly_graph_operators_remain_available_for_non_live_charts() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
@@ -73,7 +73,7 @@ def test_tradingdesk_live_chart_is_direct_lightweight_not_plotly_bridge() -> Non
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_tradingdesk_market_analysis_root_is_v2_only() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
