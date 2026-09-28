@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import streamlit as st
 
+from autotrader_experimental_sim_replay_v1 import replay_macd_a_variants
 from autotrader_ai_baseline_v1 import STRATEGY_KEY as HOLISTIC_AI_STRATEGY_KEY
 from autotrader_hybrid_replay_v1 import replay_hybrid_models_v1
 from autotrader_macd_supervisor_normalized_replay_v1 import replay_normalized_macd_supervisor_v1
@@ -29,6 +30,7 @@ NORMALIZED_MANAGED_NAME = "MACD norm + manager"
 PRICE_STOCH_NAME = "Price + Stoch"
 TAKE_PROFIT_NAME = "X + TakeProfit"
 FAMILY_SIM_NAME = "Familie SIM"
+EXPERIMENTAL_NAMES = ("MACD-A", "MACD-A-PYR", "MACD-A(1-30)", "MACD-A-PYR(1-30)")
 ALL_MODELS = (
     RULE_NAME,
     ADAPTIVE_NAME,
@@ -39,6 +41,7 @@ ALL_MODELS = (
     PRICE_STOCH_NAME,
     TAKE_PROFIT_NAME,
     FAMILY_SIM_NAME,
+    *EXPERIMENTAL_NAMES,
 )
 
 
@@ -211,6 +214,7 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
                 normalized_full[["PRICE", "TARGET", "AUTHORITATIVE_CROSS"]]
             )
             price_stoch_full = replay_price_stoch_v1(bars)
+            experimental_full = replay_macd_a_variants(bars)
             family_sim_full = (
                 replay_strategy_family_v1(
                     bars,
@@ -258,6 +262,8 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
         }
         if family_sim_frame is not None:
             base_frames[FAMILY_SIM_NAME] = family_sim_frame
+        for name, frame in experimental_full.items():
+            base_frames[name] = frame[frame.index >= visible_since][["PRICE", "TARGET"]].copy()
         take_profit_frame = apply_take_profit_replay_v1(
             base_frames[tp_base],
             giveback_pct=tp_giveback,
@@ -295,8 +301,17 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             PRICE_STOCH_NAME: price_stoch_events,
             TAKE_PROFIT_NAME: take_profit_events,
             FAMILY_SIM_NAME: family_sim_events,
+            **{name: _events_from_target(base_frames[name], include_flat=True) for name in EXPERIMENTAL_NAMES},
         }
 
+        st.caption("Hunter og Rabid Dog kjører foreløpig som tickbaserte shadow-strategier i Saxo-strømmen. Historiske bid/ask-ticks lagres ikke som et komplett replaygrunnlag her, så de får ingen oppdiktet 1m-avkastningskurve. MACD-A-variantene nedenfor bruker canonical closed bars; pyramidekurvene viser mål-eksponering, ikke brokerfills.")
+        for name in EXPERIMENTAL_NAMES:
+            if name in visible:
+                if "PYR" in name:
+                    st.markdown(f"**{name} · shadow**")
+                    st.caption("Mål-eksponering plottes som markører; ingen fill-/gebyrjustert avkastningsrangering.")
+                else:
+                    _render_metrics(name, base_frames[name], cost_bps=cost_bps)
         if RULE_NAME in visible:
             _render_metrics(RULE_NAME, rule_frame, cost_bps=cost_bps)
         if MANAGED_NAME in visible:
