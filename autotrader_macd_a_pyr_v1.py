@@ -101,8 +101,8 @@ def plan_macd_a_pyramid(
         return result("HOLD", FLAT, 0.0, PyramidState(seen_events=state.seen_events), "external flat requires fresh signal")
     ordered = sorted(crosses, key=lambda c: (c.closed_at, c.timeframe_minutes))
     eligible = [c for c in ordered if c.timeframe_minutes in enabled_timeframes and c.direction == macd_a_direction and c.event_id not in state.seen_events]
-    # Consume every delivered event, including opposite/duplicate crosses.
-    seen = state.seen_events | frozenset(c.event_id for c in crosses)
+    # Keep unconsumed simultaneous events eligible for a later evaluation.
+    seen = state.seen_events
     if not eligible:
         next_state = PyramidState(state.direction, state.tranches, seen)
         return result("HOLD", state.direction, 0.0, next_state, "no fresh aligned cross")
@@ -113,7 +113,6 @@ def plan_macd_a_pyramid(
     # One order per evaluation; remaining simultaneous crosses must be replayed
     # by the durable event queue after the first fill is reconciled.
     selected = eligible[0]
-    seen = state.seen_events | frozenset(c.event_id for c in crosses if c.event_id != selected.event_id)
-    seen = seen | {selected.event_id}
+    seen = state.seen_events | {selected.event_id}
     next_state = PyramidState(macd_a_direction, state.tranches + 1, frozenset(seen))
     return result("OPEN" if state.tranches == 0 else "ADD", macd_a_direction, tranche_amount, next_state, selected.event_id)
