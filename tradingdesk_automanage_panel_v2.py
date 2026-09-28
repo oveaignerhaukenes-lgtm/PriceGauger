@@ -61,6 +61,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(
     *,
     observations: tuple | None = None,
     auto_refresh: bool = True,
+    include_sim_lab: bool = True,
 ) -> None:
     """Render persisted benchmark strategy history with a normalized percentage chart."""
 
@@ -123,7 +124,8 @@ def render_tradingdesk_automanage_pnl_chart_v2(
                     "av denne visningen."
                 )
 
-        render_tradingdesk_three_trader_lab_v1(context)
+        if include_sim_lab:
+            render_tradingdesk_three_trader_lab_v1(context)
         # These historical replays read and recompute much larger windows. Running
         # them on every page open can hold the Streamlit session long enough for
         # the live chart's WebSocket to disconnect. Keep the two TV charts above

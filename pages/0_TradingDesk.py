@@ -37,6 +37,7 @@ from tradingdesk_ui.charts.lightweight.direct_contract import (
     build_lightweight_direct_live_payload_v1,
 )
 from tradingdesk_ui.charts.lightweight.live_test_snapshot_v1 import load_live_test_snapshot_v1
+from tradingdesk_three_trader_lab_v1 import render_tradingdesk_three_trader_lab_v1
 from tradingdesk_ui.charts.lightweight.simple_live_v2 import render_lightweight_simple_live_v2
 from tradingdesk_ui.charts.lightweight.toolbar import (
     LIGHTWEIGHT_TIMEFRAMES_V1,
@@ -586,3 +587,25 @@ with chart_column:
     _refresh_live_chart_data()
     st.fragment(run_every=f"{V2_ANALYSIS_REFRESH_SECONDS}s" if auto_refresh else None)(_render_v2_analysis)()
     _render_automanager_workspace()
+    # The historical SIM / Strategy Lab panel was dropped when the live chart
+    # moved ahead of all timed fragments. Keep it explicitly opt-in: replaying
+    # large windows during initial page load can starve the chart WebSocket.
+    st.divider()
+    with st.expander("SIM · Strategy Lab og P/L", expanded=False):
+        st.caption(
+            "Simulering og historisk P/L lastes først når panelet åpnes. "
+            "Livegrafens ettsekundsoppdatering er uavhengig."
+        )
+        if st.toggle(
+            "Last SIM-panel",
+            key=f"tradingdesk-load-sim:{market}",
+            help="Laster historisk simulering separat fra livegrafen.",
+        ):
+            # SIM replay remains accessible even before a live pilot exists.
+            @st.fragment
+            def _render_sim_lab_on_demand():
+                render_tradingdesk_three_trader_lab_v1(baseline_context)
+            _render_sim_lab_on_demand()
+            render_tradingdesk_automanage_pnl_chart_v2(
+                baseline_context, auto_refresh=False, include_sim_lab=False,
+            )
