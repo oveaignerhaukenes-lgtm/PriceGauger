@@ -42,6 +42,8 @@ ALL_MODELS = (
     TAKE_PROFIT_NAME,
     FAMILY_SIM_NAME,
     *EXPERIMENTAL_NAMES,
+    "Hunter · tick shadow",
+    "Rabid Dog · tick shadow",
 )
 
 
@@ -301,9 +303,14 @@ def render_tradingdesk_three_trader_lab_v1(context: TradingDeskV2Context) -> Non
             PRICE_STOCH_NAME: price_stoch_events,
             TAKE_PROFIT_NAME: take_profit_events,
             FAMILY_SIM_NAME: family_sim_events,
-            **{name: _events_from_target(base_frames[name], include_flat=True) for name in EXPERIMENTAL_NAMES},
+            **{name: _events_from_target(base_frames[name], include_flat=True) for name in EXPERIMENTAL_NAMES if "PYR" not in name},
+            **{name: _events_from_target(base_frames[name].assign(TARGET=base_frames[name]["TARGET"].map(lambda x: 1 if x > 0 else -1 if x < 0 else 0)), include_flat=True) for name in EXPERIMENTAL_NAMES if "PYR" in name},
         }
 
+        for name in ("Hunter · tick shadow", "Rabid Dog · tick shadow"):
+            if name in visible:
+                st.markdown(f"**{name}**")
+                st.caption("Saxo bid/ask shadow er aktiv i stream-workeren. Ingen historisk tickreplay eller P/L-kurve er tilgjengelig i SIM ennå; ingen LIVE-ordreautoritet.")
         st.caption("Hunter og Rabid Dog kjører foreløpig som tickbaserte shadow-strategier i Saxo-strømmen. Historiske bid/ask-ticks lagres ikke som et komplett replaygrunnlag her, så de får ingen oppdiktet 1m-avkastningskurve. MACD-A-variantene nedenfor bruker canonical closed bars; pyramidekurvene viser mål-eksponering, ikke brokerfills.")
         for name in EXPERIMENTAL_NAMES:
             if name in visible:
