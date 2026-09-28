@@ -355,7 +355,11 @@ def _bootstrap_candidate_v1(
         if int(item.uic) == expected_uic and item.asset_type == expected_asset
     )
     if len(matches) > 1:
-        raise RuntimeError("multiple Saxo positions matched first AutoManager bootstrap")
+        account_ids = ", ".join(sorted({str(item.account_id) for item in matches}))
+        raise RuntimeError(
+            "multiple Saxo accounts hold this product; AutoManager bootstrap refuses "
+            f"implicit account selection ({account_ids})"
+        )
     return matches[0] if matches else None
 
 
@@ -582,7 +586,7 @@ def render_tradingdesk_automanager_simple_v1(
     strategy_pending_key = f"{strategy_selector_key}:pending"
     strategy_error_key = f"{strategy_selector_key}:error"
     family_primary_keys = {FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1, FAMILY_PRICE_MACD_STRATEGY_V1}
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if item.key not in family_primary_keys)
+    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
     if strategy_selector_key not in st.session_state or not pending_strategy_key:
         if str(st.session_state.get(strategy_selector_key) or "") != enrollment.strategy_key:
@@ -596,7 +600,7 @@ def render_tradingdesk_automanager_simple_v1(
         st.caption(f"LIVE {authority} · {family_label or strategy_spec_v2(enrollment.strategy_key).label}")
     with settings_col:
         with st.popover("⚙", width="stretch"):
-            st.markdown("**Legacy / enkeltstrategi**")
+            st.markdown("**Strategi · backend-authoritativ**")
             st.selectbox("Strategi", strategy_keys, index=None, format_func=lambda key: strategy_spec_v2(key).label, key=strategy_selector_key, on_change=_queue_strategy_switch_v1, args=(strategy_selector_key, strategy_pending_key), label_visibility="collapsed")
             st.divider()
             st.markdown("**Valgfritt**")
