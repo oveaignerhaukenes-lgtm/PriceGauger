@@ -240,14 +240,14 @@ def test_custom_price_macd_timeframe_reaches_both_sim_and_live_cores() -> None:
     assert "return replay_price_macd_v1(items, timeframe_minutes=minutes)" in replay
 
 
-def test_family_ui_supports_sim_live_or_both_without_hidden_activation() -> None:
+def test_family_ui_is_configuration_only_and_preserves_live_authority() -> None:
     source = Path("tradingdesk_strategy_family_ui_v1.py").read_text(encoding="utf-8")
-    assert 'RUN_MODES_V1 = (SIM_MODE_V1, LIVE_MODE_V1)' in source
-    assert 'st.multiselect(' in source
-    assert '"Aktiver i"' in source
-    assert "if SIM_MODE_V1 in modes:" in source
-    assert "if LIVE_MODE_V1 in modes:" in source
-    assert "Ingen endring skjer før du trykker Bruk." in source
+    assert '"Bruk også i SIM"' in source
+    assert '"Aktiver i"' not in source
+    assert "live_was_enabled = bool(" in source
+    assert "set_position_management_enabled_v1(target_enrollment, live_was_enabled)" in source
+    assert "set_auto_manage_enabled_v1(target_enrollment, live_was_enabled)" in source
+    assert "LIVE slås bare av/på i Posisjon og AutoTrade over." in source
 
 
 def test_family_timeframe_change_cannot_mutate_ambiguous_execution() -> None:
