@@ -84,6 +84,85 @@ _STRATEGY_LAB_SIMPLE_JS = _replace_required(
     label="persist legend visibility",
 )
 
+# Interactive TV-series inspection and double-click legend isolation. Keep all
+# visibility mutations in the existing addLegend closure so chart and persisted
+# view state always agree after rerenders.
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """        function addLegend(api, label, color, defaultVisible = true) {""",
+    """        const legendItems = new Map();
+        let isolatedSeries = null;
+        const selectionInfo = document.createElement('div');
+        Object.assign(selectionInfo.style, {
+            color: colors.text, font: '500 12px/1.4 system-ui,-apple-system,sans-serif',
+            padding: '4px 0 8px 0', minHeight: '18px',
+        });
+        selectionInfo.textContent = 'Klikk på en kurve for navn og verdi. Dobbeltklikk i tegnforklaringen for å isolere.';
+        legend.parentElement?.appendChild(selectionInfo);
+        function selectSeries(api, value) {
+            const name = labels.get(api) || 'Ukjent strategi';
+            const number = Number(value);
+            selectionInfo.textContent = Number.isFinite(number)
+                ? `${name} · ${number >= 0 ? '+' : ''}${number.toFixed(3)} %`
+                : name;
+            for (const [series, item] of legendItems) {
+                item.style.fontWeight = series === api ? '800' : '500';
+                item.style.textDecoration = series === api ? 'underline' : 'none';
+            }
+        }
+        chart.subscribeClick((param) => {
+            if (!param?.seriesData) return;
+            let picked = param.hoveredSeries && visible.get(param.hoveredSeries)
+                ? param.hoveredSeries : null;
+            let value = picked ? param.seriesData.get(picked)?.value : null;
+            if (!picked && param.point) {
+                let distance = Infinity;
+                for (const [api, point] of param.seriesData) {
+                    if (!labels.has(api) || !visible.get(api)) continue;
+                    const number = Number(point?.value);
+                    if (!Number.isFinite(number)) continue;
+                    const y = api.priceToCoordinate?.(number);
+                    const delta = Math.abs(Number(y) - Number(param.point.y));
+                    if (Number.isFinite(delta) && delta < distance) {
+                        distance = delta; picked = api; value = number;
+                    }
+                }
+                if (distance > 18) picked = null;
+            }
+            if (picked) selectSeries(picked, value);
+        });
+
+        function addLegend(api, label, color, defaultVisible = true) {""",
+    label="TV chart series selection",
+)
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """            legend.appendChild(item);
+        }
+
+        const marketData""",
+    """            legendItems.set(api, item);
+            item.title = 'Klikk: vis/skjul · dobbeltklikk: vis bare denne';
+            item.addEventListener('dblclick', (event) => {
+                event.preventDefault();
+                const restoreAll = isolatedSeries === api;
+                isolatedSeries = restoreAll ? null : api;
+                for (const [series, legendItem] of legendItems) {
+                    const show = restoreAll || series === api;
+                    visible.set(series, show);
+                    savedView.visibleByLabel[labels.get(series)] = show;
+                    try { series.applyOptions({ visible: show }); } catch (_) {}
+                    legendItem.style.opacity = show ? '1' : '.45';
+                }
+                selectSeries(api, null);
+            });
+            legend.appendChild(item);
+        }
+
+        const marketData""",
+    label="TV legend double-click isolation",
+)
+
 # Legend belongs below the plot and must be fully visible: wrap over as many lines as
 # necessary instead of creating a private horizontal scroller.
 _STRATEGY_LAB_SIMPLE_JS = _replace_required(
