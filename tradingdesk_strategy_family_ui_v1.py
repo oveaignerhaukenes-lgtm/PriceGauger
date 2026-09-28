@@ -141,8 +141,8 @@ def render_strategy_family_builder_v1(
     base_key = f"td-family-builder-v1:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"
     st.markdown("**Strategifamilie**")
     st.caption(
-        "Familie + tidsperiode er strategien. SIM kjører samme policy i Strategy Lab; "
-        "LIVE bruker den herdede AutoManager/execution-kjeden."
+        "Familie + tidsperiode er strategikonfigurasjonen. LIVE-authority styres bare av "
+        "Posisjon og AutoTrade over; SIM kan velges separat her."
     )
 
     family_options = (FAMILY_MACD_V1, FAMILY_MACD_HIST_V1, FAMILY_PRICE_MACD_V1, FAMILY_PRICE_STOCH_V1)
@@ -182,12 +182,11 @@ def render_strategy_family_builder_v1(
     if not default_modes:
         default_modes = [SIM_MODE_V1]
 
-    modes = st.multiselect(
-        "Aktiver i",
-        RUN_MODES_V1,
-        default=default_modes,
-        key=f"{base_key}:modes:{family}:{minutes}",
-        help="Velg SIM, LIVE eller begge. Ingen endring skjer før du trykker Bruk. Uten LIVE endres ikke en allerede aktiv LIVE-controller.",
+    sim_enabled = st.checkbox(
+        "Bruk også i SIM",
+        value=current_sim_matches,
+        key=f"{base_key}:sim:{family}:{minutes}",
+        help="SIM er separat fra broker-authority. LIVE slås bare av/på i Posisjon og AutoTrade over.",
     )
 
     target_label = family_display_label_v1(family, minutes)
@@ -197,7 +196,7 @@ def render_strategy_family_builder_v1(
         type="primary",
         width="stretch",
     ):
-        if SIM_MODE_V1 in modes:
+        if sim_enabled:
             save_family_sim_config_v1(
                 instrument_id=int(instrument_id),
                 family=family,
@@ -212,54 +211,53 @@ def render_strategy_family_builder_v1(
             disable_family_sim_v1(int(instrument_id))
             st.session_state.pop(sim_family_session_key_v1(instrument_id), None)
 
-        if LIVE_MODE_V1 in modes:
-            target_strategy_key = family_strategy_key_v1(family)
-            try:
-                if enrollment.strategy_key != target_strategy_key:
-                    take_profit_config = load_take_profit_config_v1(enrollment.pilot_key)
-                    switched = switch_live_strategy_v2(
-                        pilot_key=enrollment.pilot_key,
-                        target_strategy_key=target_strategy_key,
-                    )
-                    target_enrollment = load_strategy_enrollment_v2(switched.to_pilot_key)
-                    if target_enrollment is None:
-                        raise RuntimeError("family strategy switch did not persist target enrollment")
+        # Strategy family/timeframe is configuration only. Preserve the current
+        # LIVE authority state across a switch/reconfiguration; this panel must
+        # never arm or disarm broker authority.
+        live_was_enabled = bool(
+            position_management_enabled_v1(enrollment)
+            and auto_manage_enabled_v1(enrollment)
+        )
+        target_strategy_key = family_strategy_key_v1(family)
+        try:
+            if enrollment.strategy_key != target_strategy_key:
+                take_profit_config = load_take_profit_config_v1(enrollment.pilot_key)
+                switched = switch_live_strategy_v2(
+                    pilot_key=enrollment.pilot_key,
+                    target_strategy_key=target_strategy_key,
+                )
+                target_enrollment = load_strategy_enrollment_v2(switched.to_pilot_key)
+                if target_enrollment is None:
+                    raise RuntimeError("family strategy switch did not persist target enrollment")
+                reconfigure_live_family_v1(
+                    pilot_key=target_enrollment.pilot_key,
+                    family=family,
+                    timeframe_minutes=minutes,
+                )
+                save_take_profit_config_v1(
+                    target_enrollment.pilot_key,
+                    take_profit_config,
+                )
+                set_position_management_enabled_v1(target_enrollment, live_was_enabled)
+                set_auto_manage_enabled_v1(target_enrollment, live_was_enabled)
+            else:
+                live_config = load_strategy_family_config_v1(
+                    enrollment.pilot_key,
+                    strategy_key=enrollment.strategy_key,
+                )
+                if (
+                    live_config is None
+                    or live_config.family != family
+                    or int(live_config.timeframe_minutes) != int(minutes)
+                ):
                     reconfigure_live_family_v1(
-                        pilot_key=target_enrollment.pilot_key,
+                        pilot_key=enrollment.pilot_key,
                         family=family,
                         timeframe_minutes=minutes,
                     )
-                    save_take_profit_config_v1(
-                        target_enrollment.pilot_key,
-                        take_profit_config,
-                    )
-                    # LIVE is the user-facing authority switch. The legacy two-gate
-                    # controller remains an internal safety invariant.
-                    set_position_management_enabled_v1(target_enrollment, True)
-                    set_auto_manage_enabled_v1(target_enrollment, True)
-                else:
-                    live_config = load_strategy_family_config_v1(
-                        enrollment.pilot_key,
-                        strategy_key=enrollment.strategy_key,
-                    )
-                    if (
-                        live_config is None
-                        or live_config.family != family
-                        or int(live_config.timeframe_minutes) != int(minutes)
-                    ):
-                        reconfigure_live_family_v1(
-                            pilot_key=enrollment.pilot_key,
-                            family=family,
-                            timeframe_minutes=minutes,
-                        )
-                set_position_management_enabled_v1(enrollment, True)
-                set_auto_manage_enabled_v1(enrollment, True)
-            except Exception as exc:
-                st.error(f"Familie/LIVE kunne ikke aktiveres: {exc}")
-                return
-
-        if not modes:
-            st.info("Ingen kjøremodus valgt; SIM-selection er fjernet og LIVE er ikke endret.")
+        except Exception as exc:
+            st.error(f"Familie/tidsperiode kunne ikke lagres: {exc}")
+            return
         st.rerun()
 
     sim_text = (
