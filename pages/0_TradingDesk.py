@@ -482,216 +482,63 @@ def _forming_chart_candle(context: TradingDeskV2Context | None) -> FormingCandle
     )
 
 
-def _render_live_chart(*, refresh_only: bool = False) -> None:
-    # The standalone chart uses the already resolved instrument identity. Reloading
-    # full forecast/workspace context every second blocks the TradingDesk chart.
-    context = baseline_contexts.get(market) if refresh_only else _load_active_context()
+def _load_standalone_chart_payload():
+    """Use the exact standalone Live Chart snapshot and payload contract.
+
+    Intentionally exclude TradingDesk studies, trade history and forecast from
+    the one-second path until the basic chart has passed a browser smoke test.
+    """
+    context = baseline_contexts.get(market)
     if context is None or context.instrument is None:
-        if not refresh_only:
-            st.info("Live chart venter på eksplisitt aktiv v2-instrumentidentitet.")
-        return
-
-    if refresh_only:
-        # Same small candle snapshot and one-second clock as the working Live Chart.
-        # Indicator warmup, overlay loads and forecast reads must not block ticks.
-        closed, forming = load_live_test_snapshot_v1(
-            market=market, timeframe=timeframe, window_hours=window_hours,
-            instrument=context.instrument,
-        )
-        payload = build_lightweight_direct_live_payload_v1(
-            market=market, timeframe=timeframe, primary=closed,
-            overlays={}, overlay_mode=overlay_mode, indicators=None,
-            indicator_names=(), indicator_timeframes={}, chart_height=chart_height,
-            price_panel_share=price_panel_pct / 100.0,
-            trade_markers=_load_trade_markers(), forming_candle=forming,
-            rollover_events=(),
-        )
-        # Refresh optional TradingDesk studies at a slower cadence so indicator
-        # warmup and cross-market overlays cannot hold up every forming candle.
-        extras_key = f"tradingdesk-chart-extras:{market}:{timeframe}"
-        last_extras = st.session_state.get(extras_key)
-        if (indicator_names or overlays) and (
-            last_extras is None or (datetime.now(timezone.utc) - last_extras).total_seconds() >= 15
-        ):
-            try:
-                start = datetime.now(timezone.utc) - timedelta(hours=int(window_hours))
-                end = datetime.now(timezone.utc)
-                extra_overlays = {
-                    name: _load(name, range_start=start, range_end=end)
-                    for name in overlays
-                    if baseline_contexts.get(name) is not None
-                }
-                technical = None
-                if indicator_names and closed:
-                    warmup = TIMEFRAME_MINUTES[timeframe] * INDICATOR_WARMUP_PERIODS
-                    source = _load(market, range_start=start - timedelta(minutes=warmup),
-                                   range_end=end, limit=20000)
-                    technical = clip_indicators(
-                        calculate_indicators(source), start=closed[0].bar_time,
-                        end=closed[-1].bar_time,
-                    )
-                    if INDICATOR_VWAP in indicator_names:
-                        technical = replace(technical, vwap=calculate_indicators(closed).vwap)
-                extras = build_lightweight_direct_live_payload_v1(
-                    market=market, timeframe=timeframe, primary=closed,
-                    overlays=extra_overlays, overlay_mode=overlay_mode,
-                    indicators=technical, indicator_names=indicator_names,
-                    indicator_timeframes={INDICATOR_MACD: timeframe},
-                    chart_height=chart_height, price_panel_share=price_panel_pct / 100.0,
-                    forming_candle=forming, rollover_events=(),
-                )
-                payload["lines"] = extras["lines"]
-                payload["histograms"] = extras["histograms"]
-                st.session_state[f"tradingdesk-chart-extra-series:{market}:{timeframe}"] = (
-                    extras["lines"], extras["histograms"],
-                )
-                st.session_state[extras_key] = datetime.now(timezone.utc)
-            except ValueError:
-                pass
-        # Preserve slower studies across one-second candle-only ticks.
-        cached_extras = st.session_state.get(f"tradingdesk-chart-extra-series:{market}:{timeframe}")
-        if cached_extras and not payload.get("lines") and not payload.get("histograms"):
-            payload["lines"], payload["histograms"] = cached_extras
-        payload["update_revision"] = datetime.now(timezone.utc).timestamp()
-        payload["signature"] = st.session_state.get(f"tradingdesk-chart-signature:{market}", "")
-        render_lightweight_simple_live_v2(
-            payload, key=f"tradingdesk-lightweight-simple-v2:{market}", refresh_only=True,
-        )
-        return
-
-    now = datetime.now(timezone.utc)
-    resolved_start = now - timedelta(hours=int(window_hours))
-    resolved_end = now
-
-    try:
-        primary, forming = load_live_test_snapshot_v1(
-            market=market, timeframe=timeframe, window_hours=window_hours,
-            instrument=context.instrument,
-        )
-    except ValueError as exc:
-        st.error(f"Ugyldig canonical barserie for {market}: {exc}")
-        primary = ()
-        forming = None
-
-    showing_last_available = False
-    if not primary:
-        latest_primary = store.load_latest_bar(market=market)
-        if latest_primary is not None:
-            resolved_start, resolved_end = last_available_window(latest_primary.bar_time, window_hours=int(window_hours))
-            try:
-                primary = _load(market, range_start=resolved_start, range_end=resolved_end)
-                showing_last_available = bool(primary)
-            except ValueError as exc:
-                st.error(f"Ugyldig canonical barserie for {market}: {exc}")
-                primary = ()
-
-    if showing_last_available and not refresh_only:
-        latest_label = resolved_end - timedelta(minutes=1)
-        st.caption(
-            f"Markedet har ingen bars i siste {window_hours}t fra nå. Viser siste tilgjengelige "
-            f"{window_hours}t frem til {oslo_label(latest_label)}."
-        )
-
-    loaded_overlays: dict[str, tuple] = {}
-    for overlay_market in overlays:
-        overlay_context = baseline_contexts.get(overlay_market)
-        if overlay_context is None or overlay_context.instrument is None:
-            st.warning(f"Hopper over {overlay_market}: mangler aktiv v2-instrumentidentitet.")
-            continue
-        try:
-            overlay_bars = _load(overlay_market, range_start=resolved_start, range_end=resolved_end)
-        except ValueError as exc:
-            st.warning(f"Hopper over {overlay_market}: {exc}")
-            continue
-        if not overlay_bars:
-            st.warning(f"Ingen bars for {overlay_market} i vist tidsvindu.")
-            continue
-        loaded_overlays[overlay_market] = overlay_bars
-
-    technical = None
-    if primary and indicator_names:
-        warmup_minutes = TIMEFRAME_MINUTES[timeframe] * INDICATOR_WARMUP_PERIODS
-        warmup_start = resolved_start - timedelta(minutes=warmup_minutes)
-        try:
-            indicator_source = _load(market, range_start=warmup_start, range_end=resolved_end, limit=20000)
-            technical = calculate_indicators(indicator_source)
-            technical = clip_indicators(technical, start=primary[0].bar_time, end=primary[-1].bar_time)
-            if INDICATOR_VWAP in indicator_names:
-                technical = replace(technical, vwap=calculate_indicators(primary).vwap)
-        except ValueError as exc:
-            st.warning(f"Kunne ikke beregne tekniske indikatorer for {market}: {exc}")
-
-    latest_display = "ingen data"
-    if primary:
-        latest_display = f"{primary[-1].close:g} @ {oslo_label(primary[-1].bar_time)}"
-
-    if not refresh_only:
-        st.caption(f"**{market}** · v2 instrument_id {context.instrument.instrument_id}")
-        st.caption(f"{timeframe} · {window_hours}t · siste close {latest_display}")
-
-    # Canonical storage contains CLOSED 1m bars only.  A timed rerun cannot make the
-    # current 5m candle move unless we also project the presentation-only forming
-    # candle from the live Saxo stream into the selected timeframe.
-    if forming is None:
-        forming = _forming_chart_candle(context)
-
+        return None, (), None
+    closed, forming = load_live_test_snapshot_v1(
+        market=market, timeframe=timeframe, window_hours=window_hours,
+        instrument=context.instrument,
+    )
     payload = build_lightweight_direct_live_payload_v1(
         market=market,
         timeframe=timeframe,
-        primary=primary,
-        overlays=loaded_overlays,
-        overlay_mode=overlay_mode,
-        indicators=technical,
-        indicator_names=indicator_names,
-        indicator_timeframes={INDICATOR_MACD: timeframe},
-        chart_height=chart_height,
-        price_panel_share=price_panel_pct / 100.0,
-        # Reload marker projection on every live fragment tick.  The adapter cache is
-        # intentionally short, so newly reconciled AutoTrader OPEN/CLOSE and manual
-        # Saxo fills become visible without a full-page reload.
-        trade_markers=_load_trade_markers(),
+        primary=closed,
+        overlays={},
+        overlay_mode="Normalisert %",
+        indicators=None,
+        indicator_names=(),
+        indicator_timeframes={},
+        chart_height=760,
+        price_panel_share=1.0,
+        trade_markers=(),
         forming_candle=forming,
     )
-    payload["update_revision"] = datetime.now(timezone.utc).timestamp()
-    st.session_state[f"tradingdesk-chart-signature:{market}"] = payload["signature"]
+    return payload, closed, forming
 
-    if indicator_names:
-        chart_surface, indicator_surface = st.columns([4.4, 1.35], gap="small")
-    else:
-        chart_surface, indicator_surface = st.container(), None
-    with chart_surface:
-        render_lightweight_simple_live_v2(
-            payload,
-            key=f"tradingdesk-lightweight-simple-v2:{market}",
-        )
-        st.caption(
-            "Lightweight Charts · canonical closed bars + live forming candle, valgte indikatorer og AutoTrader-markører. "
-            "Dra for pan og bruk pinch/hjul for zoom."
-        )
-    if indicator_surface is not None:
-        with indicator_surface:
-            view = context.forecast
-            render_indicator_guide_v1(
-                st,
-                indicator_names=indicator_names,
-                technical=technical,
-                latest_close=None if not primary else float(primary[-1].close),
-                trend_state=view.trend_state,
-                momentum_state=view.momentum_state,
-                volatility_state=view.volatility_state,
-                structure_state=view.structure_state,
-                ai_summary=(view.interpreter_summary if use_interpreter else None),
-            )
 
-    if not primary:
-        st.info(f"Fant ingen canonical 1m-bars for {market}, heller ikke rundt siste registrerte bar.")
-    else:
-        volume_points = sum(item.volume is not None for item in primary)
-        if volume_points < len(primary):
+def _render_live_chart(*, refresh_only: bool = False) -> None:
+    # Keep this integration identical to pages/0_Live_Chart.py. In particular,
+    # the visible chart stays outside the fragment and is never remounted on ticks.
+    payload, closed, forming = _load_standalone_chart_payload()
+    if payload is None:
+        if not refresh_only:
+            st.info("Live chart venter på eksplisitt aktiv v2-instrumentidentitet.")
+        return
+    chart_key = f"standalone-live-chart-v1:{market}:{timeframe}"
+    render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)
+    if refresh_only:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Lukkede bars", len(closed))
+        c2.metric("Forming", "LIVE" if forming is not None else "ingen")
+        c3.metric("Refresh", "1 s")
+        if forming is not None:
             st.caption(
-                "Volum og VWAP bruker bare bars der canonical bar har ekte Saxo chart-volume. "
-                "Bars bygget kun fra quote-stream har foreløpig ikke markedsvolum; sample_count brukes aldri som volum."
+                f"Saxo forming: {forming.close:g} · source {forming.source_event_at} "
+                f"· bucket {forming.bar_time}"
             )
+        elif closed:
+            st.caption(f"Siste lukkede candle: {closed[-1].close:g} · {closed[-1].bar_time}")
+    else:
+        st.caption(
+            "Live Chart-baseline: canonical closed bars + live forming. "
+            "Indikatorer og handelsmarkører legges tilbake etter verifisert live-oppdatering."
+        )
 
 
 def _render_automanager_workspace() -> None:
