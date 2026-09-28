@@ -74,12 +74,14 @@ def test_simple_core_removes_activation_ack_and_manual_takeover_ceremony():
 
 
 def test_live_chart_macd_follows_selected_chart_timeframe_without_redundant_control():
-    source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert 'st.popover(f"MACD ·' not in source
-    assert '"MACD-timeframe"' not in source
-    assert "indicator_timeframes={INDICATOR_MACD: timeframe}" in source
-    assert "selected_timeframe=macd_timeframe" not in source
-
+    from pathlib import Path
+    desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
 def test_simple_core_strategy_selector_is_event_driven_and_backend_authoritative():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")

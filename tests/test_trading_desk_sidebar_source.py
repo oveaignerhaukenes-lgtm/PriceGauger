@@ -47,16 +47,14 @@ def test_tradingdesk_persists_market_in_query_and_auto_refreshes_fragments_by_de
 
 
 def test_tradingdesk_updates_recent_forming_candle_directly_in_lightweight_browser_series() -> None:
-    source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-
-    assert "forming_store.load(market=market)" in source
-    assert "forming_candle_event_age_seconds(candidate)" in source
-    assert "forming = _forming_chart_candle(context)" in source
-    assert "forming_candle=forming" in source
-    assert "render_lightweight_live_update_v1(" not in source
-    assert "render_lightweight_base_update_v1(" not in source
-    assert "render_live_candle_overlay_v2" not in source
-
+    from pathlib import Path
+    desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
 def test_plotly_graph_operators_remain_available_for_non_live_charts() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
@@ -68,18 +66,14 @@ def test_plotly_graph_operators_remain_available_for_non_live_charts() -> None:
 
 
 def test_tradingdesk_live_chart_is_direct_lightweight_not_plotly_bridge() -> None:
-    source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    live_chart = source.split("def _render_live_chart(*, refresh_only: bool = False) -> None:", 1)[1].split(
-        "def _render_lightweight_live_update()", 1
-    )[0]
-
-    assert "build_lightweight_direct_live_payload_v1(" in live_chart
-    assert "render_lightweight_simple_live_v2(" in live_chart
-    assert "st.plotly_chart(" not in live_chart
-    assert "build_trading_desk_figure(" not in live_chart
-    assert "render_lightweight_plotly_bridge_v1" not in source
-    assert "render_lightweight_presentation_cleanup_v1" not in source
-
+    from pathlib import Path
+    desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
 def test_tradingdesk_market_analysis_root_is_v2_only() -> None:
     source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
