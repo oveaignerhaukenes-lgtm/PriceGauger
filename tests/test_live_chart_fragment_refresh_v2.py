@@ -51,7 +51,7 @@ def test_direct_chart_uses_one_fragment_clock_without_component_heartbeat():
     assert "setTriggerValue('live_tick', Date.now())" not in source
     assert "setTriggerValue(\'live_tick\', Date.now())" not in source
     assert "on_live_tick_change" not in oslo
-    assert 'st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(' in page
+    assert '@st.fragment(run_every="1000ms")' in page
     assert 'chart_fragment(run_every=' not in page
 
 
@@ -64,7 +64,7 @@ def test_visible_component_keeps_stable_host_across_fragment_ticks():
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_tradingdesk_periodic_refresh_uses_independent_fragments():
     page = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
@@ -73,6 +73,6 @@ def test_tradingdesk_periodic_refresh_uses_independent_fragments():
     assert "st.fragment(run_every=" in page
     assert "st.fragment(run_every=" in page
     main = page.split("with chart_column:", 1)[1]
-    assert "lambda: _render_live_chart(refresh_only=True)" in main
+    assert "_refresh_live_chart_data()" in main
     assert "_render_automanager_workspace()" in main
     assert "(_render_v2_analysis)()" in main
