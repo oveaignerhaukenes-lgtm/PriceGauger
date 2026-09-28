@@ -228,7 +228,7 @@ def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> Non
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_lightweight_timeframe_toolbar_exposes_intraday_workline() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "toolbar.py").read_text(encoding="utf-8")

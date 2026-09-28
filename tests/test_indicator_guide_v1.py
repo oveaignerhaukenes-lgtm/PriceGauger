@@ -48,7 +48,7 @@ def test_tradingdesk_mounts_indicator_guide_beside_chart_and_ai_is_cached_only()
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_indicator_guide_exposes_more_information_without_provider_dependency():
     source = open("indicator_guide_v1.py", encoding="utf-8").read()

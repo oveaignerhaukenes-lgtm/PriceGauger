@@ -52,7 +52,7 @@ def test_tradingdesk_renders_v2_analysis_live_chart_and_automanager_in_main_colu
 
     assert "with chart_column:" in source
     assert "if auto_refresh else None" in source
-    assert 'st.fragment(run_every=f"{TRADINGDESK_CHART_REFRESH_SECONDS}s" if auto_refresh else None)(' in source
+    assert '@st.fragment(run_every="1000ms")' in source
     assert 'chart_fragment(run_every=' not in source
     assert "overlay_fragment" not in source
     assert "with chart_column:\n    st.fragment(run_every=" in source

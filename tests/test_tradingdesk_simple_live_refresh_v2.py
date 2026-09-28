@@ -50,7 +50,7 @@ def test_visible_chart_stays_outside_timed_fragments():
     desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
     renderer = Path("tradingdesk_ui/charts/lightweight/simple_live_v2.py").read_text(encoding="utf-8")
-    assert desk.index("    _render_live_chart()\n") < desk.index("lambda: _render_live_chart(refresh_only=True)")
+    assert desk.index("    _render_live_chart()\n") < desk.rindex("    _refresh_live_chart_data()")
     assert standalone.index("render_lightweight_simple_live_v2(payload") < standalone.index("@st.fragment(run_every=")
     assert "st_autorefresh" not in standalone
     assert "if not refresh_only:" in renderer
@@ -65,7 +65,7 @@ def test_tradingdesk_refresh_uses_the_live_test_snapshot_before_indicator_work()
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_trade_and_rollover_markers_are_sorted_and_keep_their_shapes():
     from pathlib import Path
