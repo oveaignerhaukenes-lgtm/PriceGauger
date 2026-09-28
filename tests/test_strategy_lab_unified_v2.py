@@ -54,11 +54,13 @@ def test_strategy_lab_is_always_normalized_to_visible_window_start() -> None:
     assert "comparableSeries.push({ api, data: modelData" in rendered
 
 
-def test_strategy_lab_legend_wraps_below_chart_without_private_scroll() -> None:
+def test_strategy_lab_legend_wraps_in_independent_scroll_panel() -> None:
     rendered = _STRATEGY_LAB_SIMPLE_JS
 
     assert "flexWrap: 'wrap'" in rendered
-    assert "overflow: 'visible'" in rendered
+    assert "overflowY: 'auto'" in rendered
+    assert "overscrollBehavior: 'contain'" in rendered
+    assert "resize: 'vertical'" in rendered
     assert "whiteSpace: 'normal'" in rendered
     assert "flex: '0 1 auto'" in rendered
     assert "headerRow.append(headerInfo, legend)" not in rendered

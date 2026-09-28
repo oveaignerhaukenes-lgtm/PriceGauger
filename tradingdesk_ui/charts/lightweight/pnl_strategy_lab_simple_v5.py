@@ -180,6 +180,64 @@ _STRATEGY_LAB_SIMPLE_JS = _replace_required(
     label="wrappable legend items",
 )
 
+# Compact, independently resizable comparison workspace. The chart stays visible
+# while the legend scrolls inside its own bordered panel on narrow screens.
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """        Object.assign(shell.style, { width: '100%', minWidth: '0' });""",
+    """        Object.assign(shell.style, {
+            width: '100%', minWidth: '280px', maxWidth: '100%', boxSizing: 'border-box',
+            border: `1px solid ${colors.border}`, borderRadius: '9px',
+            padding: '8px', overflow: 'auto', resize: 'both',
+            height: 'min(78vh, 680px)', minHeight: '380px',
+        });""",
+    label="resizable bordered workspace",
+)
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """            width: '100%', height: mode === 'baseline' ? '560px' : '620px',
+            position: 'relative', minWidth: '0', overflow: 'hidden', touchAction: 'pan-y',""",
+    """            width: '100%', height: 'min(48vh, 420px)', minHeight: '240px',
+            maxHeight: 'min(50vh, 480px)', resize: 'vertical',
+            border: `1px solid ${colors.border}`, borderRadius: '7px',
+            boxSizing: 'border-box', position: 'relative', minWidth: '0',
+            overflow: 'hidden', touchAction: 'pan-y',""",
+    label="half-screen resizable plot",
+)
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """            display: 'flex', gap: '8px 14px', alignItems: 'center', flexWrap: 'wrap',
+            overflow: 'visible', whiteSpace: 'normal', width: '100%', minWidth: '0',
+            padding: '8px 0 4px 0', color: colors.text,
+            font: '500 11px/1.3 system-ui,-apple-system,sans-serif',""",
+    """            display: 'flex', gap: '8px 14px', alignItems: 'center', alignContent: 'start',
+            flexWrap: 'wrap', overflowX: 'hidden', overflowY: 'auto',
+            overscrollBehavior: 'contain', touchAction: 'pan-y',
+            whiteSpace: 'normal', width: '100%', minWidth: '0',
+            height: 'min(19vh, 145px)', minHeight: '70px', resize: 'vertical',
+            boxSizing: 'border-box', border: `1px solid ${colors.border}`,
+            borderRadius: '7px', padding: '8px', color: colors.text,
+            font: '500 11px/1.3 system-ui,-apple-system,sans-serif',
+            scrollbarWidth: 'thin',""",
+    label="independent scrolling legend",
+)
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """            display: 'flex', gap: '5px', alignItems: 'center', overflowX: 'auto',
+            padding: '1px 0 7px 0', scrollbarWidth: 'thin',""",
+    """            display: 'flex', gap: '5px', alignItems: 'center', overflowX: 'auto',
+            border: `1px solid ${colors.border}`, borderRadius: '7px',
+            padding: '5px', scrollbarWidth: 'thin',""",
+    label="bordered range toolbar",
+)
+_STRATEGY_LAB_SIMPLE_JS = _replace_required(
+    _STRATEGY_LAB_SIMPLE_JS,
+    """            hoveredSeriesOnTop: true,""",
+    """            hoveredSeriesOnTop: true,
+            autoSize: true,""",
+    label="responsive chart dimensions",
+)
+
 # Make the benchmark heading a normal full-width block. There is no desktop header grid,
 # so titles cannot be squeezed into a narrow left column.
 _STRATEGY_LAB_SIMPLE_JS = _replace_required(
@@ -210,7 +268,7 @@ def render_strategy_lab_pnl_v5(comparison, *, key: str) -> None:
     _strategy_lab_simple_component(
         key=chart_data_revision_key_v1("pg-strategy-lab-v5", key, payload),
         data={"payload": payload, "mode": "baseline"},
-        height=690,
+        height=720,
     )
 
 
