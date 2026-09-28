@@ -84,9 +84,9 @@ export default function(component) {{
             const isFlat = direction === 'FLAT';
             return {{
                 ...marker,
-                position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
-                shape: isFlat ? 'circle' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                color: isFlat ? '#ef4444' : marker.color,
+                position: isFlat ? 'aboveBar' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
+                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#64748b' : marker.color,
             }};
         }});
     }}
@@ -245,11 +245,15 @@ export default function(component) {{
             parent: parentElement, root, chart, candles, series, markers, selection,
             signature: String(payload.signature || ''),
             closedRevision: JSON.stringify(candleData), formingTime: null,
+            lastRevision: Number(payload.update_revision || 0),
         }};
     }}
 
     function update(entry) {{
         entry.parent.style.height = `${{Math.max(360, Number(payload.height || 780))}}px`;
+        const incomingRevision = Number(payload.update_revision || 0);
+        if (incomingRevision < Number(entry.lastRevision || 0)) return;
+        entry.lastRevision = incomingRevision;
         const candles = Array.from(payload.candles || []);
         const forming = payload.forming_candle || null;
         const revision = JSON.stringify(candles);
@@ -265,6 +269,7 @@ export default function(component) {{
             }});
         }}
         entry.formingTime = forming ? Number(forming.time) : null;
+        // A fast candle-only refresh must not erase studies from the slower refresh.
         for (const item of Array.from(payload.lines || [])) {{
             entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
         }}
@@ -323,6 +328,9 @@ export default function(component) {
         if (!entry || !document.body.contains(entry.root) ||
             entry.signature !== String(payload.signature || '')) return false;
 
+        const incomingRevision = Number(payload.update_revision || 0);
+        if (incomingRevision < Number(entry.lastRevision || 0)) return true;
+        entry.lastRevision = incomingRevision;
         const candles = Array.from(payload.candles || []);
         const revision = JSON.stringify(candles);
         const forming = payload.forming_candle;
@@ -352,9 +360,9 @@ export default function(component) {
             const isFlat = direction === 'FLAT';
             return {
                 ...marker,
-                position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
-                shape: isFlat ? 'circle' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                color: isFlat ? '#ef4444' : marker.color,
+                position: isFlat ? 'aboveBar' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
+                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#64748b' : marker.color,
             };
         }));
         return true;
