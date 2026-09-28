@@ -84,9 +84,9 @@ export default function(component) {{
             const isFlat = direction === 'FLAT';
             return {{
                 ...marker,
-                position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
-                shape: isFlat ? 'circle' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                color: isFlat ? '#ef4444' : marker.color,
+                position: isFlat ? 'aboveBar' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
+                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#64748b' : marker.color,
             }};
         }});
     }}
@@ -360,9 +360,9 @@ export default function(component) {
             const isFlat = direction === 'FLAT';
             return {
                 ...marker,
-                position: isFlat ? 'atPriceMiddle' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
-                shape: isFlat ? 'circle' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                color: isFlat ? '#ef4444' : marker.color,
+                position: isFlat ? 'aboveBar' : (direction === 'LONG' ? 'belowBar' : 'aboveBar'),
+                shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                color: isFlat ? '#64748b' : marker.color,
             };
         }));
         return true;
