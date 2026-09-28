@@ -6,6 +6,7 @@ from minute OHLC candles. Only MACD-A variants are replayed here.
 from __future__ import annotations
 
 from collections import deque
+from math import isfinite
 import pandas as pd
 
 from autotrader_hybrid_replay_v1 import _timeframe_spread
@@ -47,12 +48,12 @@ def replay_macd_a_variants(bars) -> dict[str, pd.DataFrame]:
         spread = float(spreads[selected].iloc[i])
         direction = "LONG" if spread > 0 else "SHORT" if spread < 0 else "FLAT"
         extended_decision = select_extended_macd_a(
-            {m: float(s.iloc[i]) for m, s in spreads.items()},
+            {m: float(series.iloc[i]) for m, series in spreads.items() if isfinite(float(series.iloc[i]))},
             micro_edge=edge, noise=noise,
         )
         current_crosses = tuple(
             Cross(m, at, float(s.iloc[i-1]), float(s.iloc[i]))
-            for m, s in spreads.items() if i and float(s.iloc[i]) != float(s.iloc[i-1])
+            for m, s in spreads.items() if i and isfinite(float(s.iloc[i])) and isfinite(float(s.iloc[i-1])) and float(s.iloc[i]) != float(s.iloc[i-1])
             and (float(s.iloc[i-1]) <= 0 < float(s.iloc[i]) or float(s.iloc[i-1]) >= 0 > float(s.iloc[i]))
         )
         for name, chosen, state, enabled in (
