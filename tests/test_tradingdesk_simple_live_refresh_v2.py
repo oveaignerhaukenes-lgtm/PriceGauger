@@ -59,16 +59,13 @@ def test_visible_chart_stays_outside_timed_fragments():
 
 def test_tradingdesk_refresh_uses_the_live_test_snapshot_before_indicator_work():
     from pathlib import Path
-
     desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    test_chart = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
-    assert "load_live_test_snapshot_v1(" in desk
-    assert "load_live_test_snapshot_v1(" in test_chart
-    refresh = desk.split("def _render_live_chart(*, refresh_only: bool = False) -> None:", 1)[1]
-    assert refresh.index("if refresh_only:") < refresh.index("calculate_indicators(indicator_source)")
-    assert 'payload["signature"] = st.session_state.get(' in refresh
-    assert 'rollover_events=(),' in refresh
-
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
 def test_trade_and_rollover_markers_are_sorted_and_keep_their_shapes():
     from pathlib import Path
