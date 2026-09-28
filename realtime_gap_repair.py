@@ -204,6 +204,8 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
         self._stale_repair_thread: threading.Thread | None = None
         self._last_stale_repair_started = 0.0
         self._stale_auth_retry_after: dict[str, float] = {}
+        # Invalid/expired UICs must not reconnect the entire healthy stream.
+        self._invalid_instrument_retry_after: dict[str, float] = {}
         self._forming_store = FormingCandleStore(self.store.path)
         self._chart_reference_to_market: dict[str, str] = {}
         self._chart_delays: dict[str, float | None] = {}
@@ -335,6 +337,8 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                     candle is not None,
                 )
             except Exception as exc:
+                if "404" in str(exc) and ("not valid" in str(exc).lower() or "invalid" in str(exc).lower()):
+                    self._invalid_instrument_retry_after[market] = time.monotonic() + STALE_AUTH_RETRY_SECONDS
                 self._save_chart_status(
                     market=market,
                     reference_id=reference_id,
@@ -438,6 +442,8 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
             return ()
         stale: list[str] = []
         for market in self.instruments:
+            if time.monotonic() < self._invalid_instrument_retry_after.get(market, 0.0):
+                continue
             snapshot = self._price_snapshot_for_market(market)
             if _snapshot_is_closed_or_old_indicative(snapshot):
                 continue
@@ -489,6 +495,7 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                 market
                 for market in self.instruments
                 if self._market_quote_is_stale(market, now=now)
+                and now_mono >= self._invalid_instrument_retry_after.get(market, 0.0)
                 and not self._stale_repair_auth_blocked(market, now_mono=now_mono)
             )
             if not stale_markets:
@@ -513,6 +520,10 @@ class GapRepairingSaxoRealtimeService(SaxoRealtimeService):
                     total += saved
                     repaired.append(f"{market}:{saved}")
                 except SaxoError as exc:
+                    if exc.status_code == 404 and ("not valid" in str(exc).lower() or "invalid" in str(exc).lower()):
+                        self._invalid_instrument_retry_after[market] = time.monotonic() + STALE_AUTH_RETRY_SECONDS
+                        LOGGER.warning("Saxo invalid instrument quarantined market=%s retry_minutes=%.0f", market, STALE_AUTH_RETRY_SECONDS / 60.0)
+                        continue
                     if exc.status == "AUTH_FAILED" or exc.status_code in {401, 403}:
                         self._stale_auth_retry_after[market] = time.monotonic() + STALE_AUTH_RETRY_SECONDS
                         LOGGER.warning(
