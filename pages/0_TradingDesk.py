@@ -542,9 +542,17 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
                 )
                 payload["lines"] = extras["lines"]
                 payload["histograms"] = extras["histograms"]
+                st.session_state[f"tradingdesk-chart-extra-series:{market}:{timeframe}"] = (
+                    extras["lines"], extras["histograms"],
+                )
                 st.session_state[extras_key] = datetime.now(timezone.utc)
             except ValueError:
                 pass
+        # Preserve slower studies across one-second candle-only ticks.
+        cached_extras = st.session_state.get(f"tradingdesk-chart-extra-series:{market}:{timeframe}")
+        if cached_extras and not payload.get("lines") and not payload.get("histograms"):
+            payload["lines"], payload["histograms"] = cached_extras
+        payload["update_revision"] = datetime.now(timezone.utc).timestamp()
         payload["signature"] = st.session_state.get(f"tradingdesk-chart-signature:{market}", "")
         render_lightweight_simple_live_v2(
             payload, key=f"tradingdesk-lightweight-simple-v2:{market}", refresh_only=True,
@@ -644,6 +652,7 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
         trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
+    payload["update_revision"] = datetime.now(timezone.utc).timestamp()
     st.session_state[f"tradingdesk-chart-signature:{market}"] = payload["signature"]
 
     if indicator_names:
