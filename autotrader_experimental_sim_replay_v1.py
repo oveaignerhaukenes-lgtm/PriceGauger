@@ -44,6 +44,10 @@ def replay_macd_a_variants(bars) -> dict[str, pd.DataFrame]:
                 outcomes.append(move * crosses[origin] > 0)
         edge = sum(outcomes) / len(outcomes) if len(outcomes) >= 3 else .5
         noise = 1 - edge
+        if any(not isfinite(float(spreads[m].iloc[i])) for m in (1, 2, 5)):
+            for values in targets.values():
+                values.append(0.0)
+            continue
         selected = adaptive_timeframe_v1(micro_edge=edge, noise=noise)
         spread = float(spreads[selected].iloc[i])
         direction = "LONG" if spread > 0 else "SHORT" if spread < 0 else "FLAT"
