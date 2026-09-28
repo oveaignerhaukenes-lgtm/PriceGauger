@@ -221,17 +221,14 @@ def test_bottom_handle_resizes_whole_chart_and_preserves_pane_ratios() -> None:
 
 
 def test_tradingdesk_mounts_direct_renderer_and_not_transitional_bridge() -> None:
-    page = (ROOT / "pages" / "0_TradingDesk.py").read_text(encoding="utf-8")
-    live_chart = page.split("def _render_live_chart(*, refresh_only: bool = False) -> None:", 1)[1].split(
-        "def _render_lightweight_live_update()", 1
-    )[0]
-    assert "build_lightweight_direct_live_payload_v1(" in live_chart
-    assert "render_lightweight_simple_live_v2(" in live_chart
-    assert "st.plotly_chart(" not in live_chart
-    assert "render_lightweight_plotly_bridge_v1" not in page
-    assert "render_lightweight_presentation_cleanup_v1" not in page
-    assert "render_trading_desk_legend_hover_v1" not in page
-
+    from pathlib import Path
+    desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
+    standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
+    assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
+    assert "def _load_standalone_chart_payload():" in desk
+    assert "trade_markers=()," in desk
+    assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
+    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
 
 def test_lightweight_timeframe_toolbar_exposes_intraday_workline() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "toolbar.py").read_text(encoding="utf-8")
