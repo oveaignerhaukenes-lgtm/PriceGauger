@@ -81,7 +81,7 @@ def test_live_chart_macd_follows_selected_chart_timeframe_without_redundant_cont
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_simple_core_strategy_selector_is_event_driven_and_backend_authoritative():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
