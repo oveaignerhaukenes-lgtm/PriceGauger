@@ -140,3 +140,12 @@ def test_bootstrap_fails_closed_when_same_product_exists_on_multiple_saxo_accoun
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert "multiple Saxo accounts hold this product" in source
     assert "implicit account selection" in source
+
+
+def test_tradingdesk_v2_no_longer_exposes_v3_engine_authority_switch():
+    source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
+    assert '"AutoTrader-motor"' not in source
+    assert "set_live_authority_v3" not in source
+    assert "set_sim_authority_v3" not in source
+    assert 'engine_label = "ENGINE V2 · LIVE"' in source
+    assert "V2 overtar ikke automatisk" in source
