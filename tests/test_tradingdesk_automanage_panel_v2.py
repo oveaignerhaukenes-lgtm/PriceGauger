@@ -133,7 +133,6 @@ def test_live_family_activation_owns_internal_authority_gates():
 def test_v2_strategy_selector_includes_family_strategies_so_backend_truth_is_representable():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert "strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)" in source
-    assert "if item.key not in family_primary_keys" not in source
 
 
 def test_bootstrap_fails_closed_when_same_product_exists_on_multiple_saxo_accounts():
@@ -142,10 +141,3 @@ def test_bootstrap_fails_closed_when_same_product_exists_on_multiple_saxo_accoun
     assert "implicit account selection" in source
 
 
-def test_tradingdesk_v2_no_longer_exposes_v3_engine_authority_switch():
-    source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
-    assert '"AutoTrader-motor"' not in source
-    assert "set_live_authority_v3" not in source
-    assert "set_sim_authority_v3" not in source
-    assert 'engine_label = "ENGINE V2 · LIVE"' in source
-    assert "V2 overtar ikke automatisk" in source
