@@ -12,7 +12,7 @@ def test_fast_chart_refresh_preserves_slow_studies():
     assert "def _load_standalone_chart_payload():" in desk
     assert "trade_markers=()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
-    assert 'lambda: _render_live_chart(refresh_only=True)' in desk
+    assert '_refresh_live_chart_data()' in desk
 
 def test_visible_and_hidden_chart_ignore_older_payloads():
     renderer = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "simple_live_v2.py").read_text()
