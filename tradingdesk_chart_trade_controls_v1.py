@@ -3,6 +3,8 @@ from __future__ import annotations
 import streamlit as st
 
 from autotrader_manual_target_v2 import load_manual_target_quote_v2, request_manual_target_v2
+from autotrader_manual_close_v1 import request_manual_close_v1
+from autotrader_manage_control_v1 import set_auto_manage_enabled_v1
 from autotrader_risk_control_v2 import _position_observations_v2
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
@@ -23,7 +25,7 @@ export default function(component) {
     parentElement.style.overflow = 'visible';
 
     const chartId = String(data.chart_id || '');
-    const registry = window.__pricegaugerLightweightCharts;
+    const registry = window.__pricegaugerSimpleLiveCharts;
     const entry = registry?.get?.(chartId);
     if (!entry?.root) return;
 
@@ -31,7 +33,6 @@ export default function(component) {
 
     // A gesture that starts inside the chart belongs to the chart until it ends.
     // Page scrolling remains available outside the chart.
-    root.style.touchAction = 'none';
     root.style.overscrollBehavior = 'contain';
     entry.chart?.applyOptions?.({
         handleScroll: {
@@ -90,19 +91,20 @@ export default function(component) {
                 event.stopPropagation();
                 if (node.disabled) return;
                 node.disabled = true;
-                setTriggerValue('trade_action', kind === 'BUY' ? 'LONG' : 'SHORT');
+                setTriggerValue('trade_action', kind === 'BUY' ? 'LONG' : kind === 'SELL' ? 'SHORT' : 'FLAT');
             };
             controls.appendChild(node);
         }
         node.textContent = label;
         node.disabled = Boolean(disabled);
-        node.style.background = kind === 'BUY' ? 'rgba(220,38,38,.92)' : 'rgba(37,99,235,.92)';
+        node.style.background = kind === 'BUY' ? 'rgba(22,163,74,.92)' : kind === 'SELL' ? 'rgba(220,38,38,.92)' : 'rgba(71,85,105,.92)';
         node.style.opacity = node.disabled ? '.45' : '1';
         node.style.cursor = node.disabled ? 'default' : 'pointer';
     }
 
     button('BUY', String(data.buy_label || 'BUY'), Boolean(data.buy_disabled));
     button('SELL', String(data.sell_label || 'SELL'), Boolean(data.sell_disabled));
+    button('CLOSE', 'CLOSE', Boolean(data.close_disabled));
 }
 """
 
@@ -160,24 +162,33 @@ def render_tradingdesk_chart_trade_controls_v1(
             "sell_label": _format_quote_label_v1("SELL", None if quote is None else quote.bid),
             "buy_disabled": quote is None or observed_direction == "LONG",
             "sell_disabled": quote is None or observed_direction == "SHORT",
+            "close_disabled": observed_direction in {"FLAT", "UNKNOWN"},
         },
         height=0,
         on_trade_action_change=lambda: None,
     )
 
     action = getattr(result, "trade_action", None)
-    if action not in {"LONG", "SHORT"}:
+    if action not in {"LONG", "SHORT", "FLAT"}:
         if quote_error:
             st.caption(f"Chart BUY/SELL venter på Saxo-pris: {quote_error}")
         return
 
     try:
         enrollment = _ensure_execution_ready_v1(enrollment)
-        request_manual_target_v2(enrollment, target_direction=str(action))
+        if action == "FLAT":
+            if observation is None:
+                st.error("CLOSE krever bekreftet posisjon på riktig konto.")
+                return
+            set_auto_manage_enabled_v1(enrollment, False)
+            st.session_state[f"td-simple-autotrade:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}"] = False
+            request_manual_close_v1(enrollment, observation=observation)
+        else:
+            request_manual_target_v2(enrollment, target_direction=str(action))
     except Exception as exc:
         st.error(f"Chart {action}-mål kunne ikke settes: {exc}")
     else:
-        st.toast(f"Chart-mål satt: {action}")
+        st.toast(f"Chart-mål satt: {action}" + (" · AutoTrade pauset" if action == "FLAT" else ""))
         st.rerun(scope="fragment")
 
 

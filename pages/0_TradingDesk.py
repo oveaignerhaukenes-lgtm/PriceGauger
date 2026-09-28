@@ -355,9 +355,14 @@ def _load_active_context() -> TradingDeskV2Context | None:
     return contexts.get(market)
 
 
+@st.cache_data(ttl=10, show_spinner=False)
+def _load_trade_markers_cached(market_name: str) -> tuple:
+    return tuple(load_lightweight_trade_markers_v1(market_name))
+
+
 def _load_trade_markers() -> tuple:
     try:
-        return tuple(load_lightweight_trade_markers_v1(market))
+        return _load_trade_markers_cached(market)
     except Exception:
         return ()
 
@@ -507,7 +512,7 @@ def _load_standalone_chart_payload():
         indicator_timeframes={},
         chart_height=760,
         price_panel_share=1.0,
-        trade_markers=(),
+        trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
     return payload, closed, forming
@@ -538,7 +543,7 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
     else:
         st.caption(
             "Live Chart-baseline: canonical closed bars + live forming. "
-            "Indikatorer og handelsmarkører legges tilbake etter verifisert live-oppdatering."
+            "Handelspiler viser bekreftede AutoTrader- og manuelle handler, ikke uutførte signaler."
         )
 
 
