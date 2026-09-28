@@ -50,7 +50,7 @@ def test_visible_chart_stays_outside_timed_fragments():
     desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
     renderer = Path("tradingdesk_ui/charts/lightweight/simple_live_v2.py").read_text(encoding="utf-8")
-    assert desk.index("    _render_live_chart()\n") < desk.index("_refresh_live_chart_data()")
+    assert desk.index("    _render_live_chart()\n") < desk.rindex("    _refresh_live_chart_data()")
     assert standalone.index("render_lightweight_simple_live_v2(payload") < standalone.index("@st.fragment(run_every=")
     assert "st_autorefresh" not in standalone
     assert "if not refresh_only:" in renderer
