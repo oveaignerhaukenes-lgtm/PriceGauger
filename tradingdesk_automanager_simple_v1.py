@@ -369,13 +369,12 @@ def _bootstrap_candidate_v1(
 def render_tradingdesk_automanager_simple_v1(
     context: TradingDeskV2Context,
 ) -> tuple[PositionObservationV2, ...] | None:
-    """Simple control plane: BUY, SELL and one LIVE strategy authority."""
+    """Render independent account-bound V2/V3 panels, never a motor switch."""
     client = configured_client()
     if client is None or client.base_url.rstrip("/").lower() != LIVE_BASE_URL.lower():
         st.info("Saxo LIVE er ikke tilgjengelig.")
         return None
-
-    st.markdown("**Posisjon og AutoTrade**")
+    st.markdown("**Posisjon og AutoTrade · separate motorer**")
     try:
         accounts_payload = client._get("port/v1/accounts/me")
         accounts = tuple(
@@ -385,34 +384,49 @@ def render_tradingdesk_automanager_simple_v1(
         )
         if not accounts:
             raise RuntimeError("Saxo returnerte ingen tilgjengelige kontoer")
-        selected_account = st.selectbox(
-            "Saxo-konto for denne AutoTraderen",
-            [account_id for account_id, _ in accounts],
-            format_func=lambda account_id: (
-                f"{account_id} · {next((currency for aid, currency in accounts if aid == account_id), '')}"
-            ),
-            key=f"td-autotrader-account:{context.market_id}:{context.instrument_id}",
-            help="V2 og V3 kan styre forskjellige kontoer. Valget flytter ingen eksisterende posisjon eller strategi.",
-        )
         observations = _position_observations_v2(client)
-        enrollment = _active_live_for_context_v1(context, account_id=selected_account)
+        enrollments = {
+            account_id: _active_live_for_context_v1(context, account_id=account_id)
+            for account_id, _ in accounts
+        }
     except Exception as exc:
         st.warning(f"AutoManager kunne ikke lese LIVE-state: {exc}")
         return None
-    st.caption(f"Valgt konto: {selected_account}. Alle kontroller nedenfor gjelder bare denne kontoen.")
 
+    for account_id, currency in accounts:
+        enrollment = enrollments[account_id]
+        engine = "V3" if enrollment is not None and enrollment.strategy_key == STRATEGY_KEY_V3 else "V2"
+        with st.container(border=True):
+            st.markdown(f"### Saxo {account_id} · {currency}")
+            if enrollment is None:
+                st.caption("Ingen LIVE-motor er knyttet til denne kontoen.")
+            else:
+                st.caption(f"Kontobundet motor: {engine} · pilot {enrollment.pilot_key}")
+            _render_account_autotrader_v1(
+                context=context, client=client, observations=observations,
+                selected_account=account_id, enrollment=enrollment,
+            )
+    st.caption("Hver konto har sin egen motor og authority. Ingen motorbytteknapp eller automatisk posisjonsoverføring.")
+    return observations
+
+
+def _render_account_autotrader_v1(
+    *, context: TradingDeskV2Context, client, observations: tuple[PositionObservationV2, ...],
+    selected_account: str, enrollment: StrategyEnrollmentV2 | None,
+) -> None:
+    """A single Saxo account's existing controller, isolated from other panels."""
     if enrollment is None:
         bootstrap = _bootstrap_candidate_v1(context, observations, account_id=selected_account)
         selected = st.selectbox(
-            "Strategi",
-            AUTOTRADER_STRATEGIES_V2,
+            "Strategi (V2-bootstrap)",
+            tuple(item for item in AUTOTRADER_STRATEGIES_V2 if item.key != STRATEGY_KEY_V3),
             format_func=lambda item: item.label,
             key=f"td-simple-bootstrap-strategy:{context.market_id}:{selected_account}",
         )
-        st.caption("Ingen aktiv LIVE-controller på dette produktet.")
+        st.caption("Ingen aktiv LIVE-controller. V3 opprettes i den dedikerte V3-kontrollflaten; ingen automatisk motoroverføring.")
         if bootstrap is None:
             st.info("Første bootstrap trenger foreløpig en eksisterende Saxo-posisjon. Etter bootstrap kan BUY/SELL brukes direkte fra PriceGauger.")
-            return observations
+            return
         start = st.button("Start · Manage + AutoTrade", type="primary", key=f"td-simple-bootstrap:{context.market_id}:{selected_account}", width="stretch")
         if start:
             try:
@@ -434,60 +448,18 @@ def render_tradingdesk_automanager_simple_v1(
                 st.error(f"LIVE-controller kunne ikke startes: {exc}")
             else:
                 st.rerun()
-        return observations
+        return
 
     observation = _exact_observation_v1(enrollment, observations)
     observed_direction = _direction_v1(observation)
     auto_trade_enabled = auto_manage_enabled_v1(enrollment)
     position_manage_enabled = position_management_enabled_v1(enrollment)
 
-    # Engine selection is a first-class operator choice, separate from ON/OFF.
+    # Engine identity is persisted in the enrollment. Never switch engines from
+    # a shared radio while an OPEN/CLOSE request may still be in flight.
     engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3
-    engine_choice = st.radio(
-        "AutoTrader-motor",
-        ("V2", "V3"),
-        index=1 if engine_v3 else 0,
-        horizontal=True,
-        key=f"td-engine-select:{enrollment.account_id}:{enrollment.uic}:{enrollment.asset_type}",
-        help="Velg hvilken motor som eier AutoTraderen. ON/OFF under gjelder den valgte motoren.",
-    )
-    requested_v3 = engine_choice == "V3"
-    if requested_v3 != engine_v3:
-        try:
-            source_key = enrollment.pilot_key
-            result = switch_live_strategy_v2(
-                pilot_key=source_key,
-                target_strategy_key=STRATEGY_KEY_V3 if requested_v3 else FAMILY_MACD_STRATEGY_V1,
-            )
-            switched = load_strategy_enrollment_v2(result.to_pilot_key)
-            if switched is None:
-                raise RuntimeError("engine switch did not persist target enrollment")
-            # Transfer operator authority to the selected engine; never leave both engines armed.
-            if requested_v3:
-                set_position_management_enabled_v1(switched, False)
-                set_auto_manage_enabled_v1(switched, False)
-                set_sim_authority_v3(source_key, False)
-                set_live_authority_v3(source_key, False)
-                set_sim_authority_v3(switched.pilot_key, False)
-                set_live_authority_v3(switched.pilot_key, True)
-            else:
-                set_live_authority_v3(source_key, False)
-                set_sim_authority_v3(source_key, False)
-                set_live_authority_v3(switched.pilot_key, False)
-                _ensure_execution_ready_v1(switched)
-                set_position_management_enabled_v1(switched, True)
-                set_auto_manage_enabled_v1(switched, True)
-        except Exception as exc:
-            st.error(f"Motorbytte kunne ikke fullføres: {exc}")
-        else:
-            st.rerun()
-
-    # The radio is an operator request; the persisted enrollment is the source of truth.
-    # Display it explicitly so a selected V3 radio cannot be mistaken for V3 authority.
-    st.caption(
-        f"Backend-motor: {'V3' if engine_v3 else 'V2'} · "
-        f"pilot {enrollment.pilot_key}"
-    )
+    st.markdown(f"**AutoTrader {'V3' if engine_v3 else 'V2'} · konto {selected_account}**")
+    st.caption(f"Backend-motor: {'V3' if engine_v3 else 'V2'} · pilot {enrollment.pilot_key}")
     if engine_v3:
         runtime_state = _v3_runtime_state_v1(enrollment.pilot_key)
         if runtime_state is None:
@@ -611,7 +583,7 @@ def render_tradingdesk_automanager_simple_v1(
             else:
                 st.warning(f"LIVE {runtime[0]} · {runtime[1]} · heartbeat {runtime[2]}")
             st.caption("Strategi, periode, modifiers, SIM-Adapt, Overseer og God Mode styres i den dedikerte V3-kontrollflaten.")
-        return observations
+        return
 
     strategy_col, settings_col = st.columns([3.55, 0.45], gap="small")
     strategy_selector_key = (
@@ -620,7 +592,7 @@ def render_tradingdesk_automanager_simple_v1(
     strategy_pending_key = f"{strategy_selector_key}:pending"
     strategy_error_key = f"{strategy_selector_key}:error"
     family_primary_keys = {FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1, FAMILY_PRICE_MACD_STRATEGY_V1}
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
+    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if item.key != STRATEGY_KEY_V3)
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
     if strategy_selector_key not in st.session_state or not pending_strategy_key:
         if str(st.session_state.get(strategy_selector_key) or "") != enrollment.strategy_key:
@@ -716,7 +688,7 @@ def render_tradingdesk_automanager_simple_v1(
                     else runtime_state.intent_signal_at.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M:%S UTC")
                 )
                 st.caption(f"Siste target-skifte: {signal_at} · {intent}")
-    return observations
+    return
 
 
 __all__ = [

@@ -134,7 +134,7 @@ def test_live_family_activation_owns_internal_authority_gates():
 
 def test_v2_strategy_selector_includes_family_strategies_so_backend_truth_is_representable():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
-    assert "strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)" in source
+    assert "strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if item.key != STRATEGY_KEY_V3)" in source
 
 
 def test_bootstrap_fails_closed_when_same_product_exists_on_multiple_saxo_accounts():

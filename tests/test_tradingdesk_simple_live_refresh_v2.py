@@ -76,11 +76,12 @@ def test_trade_and_rollover_markers_are_sorted_and_keep_their_shapes():
     assert renderer.count("if (!['LONG', 'SHORT', 'FLAT'].includes(direction)) return marker;") == 2
 
 
-def test_v3_radio_is_distinguished_from_persisted_engine_and_runtime_status():
+def test_v3_account_panel_is_distinguished_from_persisted_engine_and_runtime_status():
     from pathlib import Path
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert 'engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3' in source
-    assert 'set_live_authority_v3(switched.pilot_key, True)' in source
+    assert 'td-engine-select:' not in source
+    assert 'for account_id, currency in accounts:' in source
     assert 'Backend-motor:' in source
     assert 'V3-runtime:' in source
     assert 'ARMED betyr ikke at ordre blir utført.' in source
