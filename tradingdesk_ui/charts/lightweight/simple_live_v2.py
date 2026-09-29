@@ -123,7 +123,7 @@ export default function(component) {{
         parentElement.style.minWidth = '0';
 
         const root = document.createElement('div');
-        Object.assign(root.style, {{ width: '100%', height: '100%', minWidth: '0', position: 'relative' }});
+        Object.assign(root.style, {{ width: '100%', height: '100%', minWidth: '0', position: 'relative', touchAction: 'none' }});
         parentElement.appendChild(root);
 
         const selection = document.createElement('div');
@@ -160,7 +160,7 @@ export default function(component) {{
                 minBarSpacing: 2,
             }},
             crosshair: {{ mode: LWC.CrosshairMode.Normal }},
-            handleScroll: {{ mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false }},
+            handleScroll: {{ mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true }},
             handleScale: {{
                 mouseWheel: true,
                 pinch: true,
