@@ -5,7 +5,7 @@ SOURCE = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8"
 
 def test_independent_account_panels_replace_motor_switch():
     assert "for tab, engine_key in zip(tabs, ("V2", "V3")):" in SOURCE
-    assert "with st.container(border=True):" in SOURCE
+    assert "tabs = st.tabs([" in SOURCE
     assert "def _render_account_autotrader_v1(" in SOURCE
     assert "selected_account=selected_account, enrollment=enrollment" in SOURCE
     assert 'key=f"td-engine-select:' not in SOURCE
