@@ -23,7 +23,8 @@ class SaxoLivePilotClientV3:
             base=row.get("NetPositionBase") if isinstance(row.get("NetPositionBase"),dict) else {}
             if int(base.get("Uic") or -1)!=int(uic) or str(base.get("AssetType") or "")!=str(asset_type): continue
             aid=str(base.get("PositionsAccount") or base.get("AccountId") or "")
-            if aid and aid!=str(account_id): continue
+            if not aid: raise SaxoTradingSafetyError("v3 LIVE position missing exact account identity")
+            if aid!=str(account_id): continue
             matches.append(row)
         if len(matches)>1: raise SaxoTradingSafetyError("ambiguous v3 LIVE exact-boundary position state")
         return tuple(matches)
