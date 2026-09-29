@@ -505,7 +505,7 @@ def _load_standalone_chart_payload():
         indicators=None,
         indicator_names=(),
         indicator_timeframes={},
-        chart_height=420,
+        chart_height=260,
         price_panel_share=1.0,
         trade_markers=(),
         forming_candle=forming,
