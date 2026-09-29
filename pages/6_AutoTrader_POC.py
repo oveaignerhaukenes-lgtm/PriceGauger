@@ -79,6 +79,7 @@ v3_tab, main_tab, runtime_tab = st.tabs(("V3 Fleet", "AutoManage v2", "Runtime /
 
 with v3_tab:
     st.subheader("ENGINE V3 · Target Inventory")
+    st.page_link("pages/0_AutoTrader_V3.py", label="Åpne V3 strategioppsett og modifiers", icon="⚙️")
     st.caption("V3 Fleet · simulator eller LIVE. Alle kontroller i denne fanen tilhører ENGINE V3. LIVE authority = ON betyr at v3-workeren faktisk forvalter den eksakte Saxo-boundaryen.")
     st.info("V3 · MACD-Trailing 5m ligger nå i simulatoren: 0,01-trinn, target inventory og hard-reversal FLAT. SIM-authority nedenfor starter bare den automatiske simulator-driveren; den kan ikke åpne, lukke eller overta en Saxo-posisjon.")
     try:
@@ -127,13 +128,51 @@ with v3_tab:
                 int(enrollment.instrument_id),
             )
             live_groups.setdefault(key, []).append(enrollment)
-        for key, group in live_groups.items():
-            try:
-                comparison = load_automanager_pnl_comparison_v2(tuple(group))
-            except Exception as exc:
-                st.caption(f"UIC {key[1]} · v3-regimegraf venter: {exc}")
-                continue
-            render_v3_regime_return_chart(comparison)
+
+        st.markdown("#### Grafvisning")
+        st.caption("Velg marked og strategikurver. Valgene huskes mens du bruker siden; dette endrer ikke SIM eller LIVE.")
+        graph_groups = tuple(live_groups)
+        graph_labels = {
+            key: f"{next((item.market_name for item in live_groups[key] if item.market_name), 'Marked')} · "
+                 f"{key[0]} · UIC {key[1]}"
+            for key in graph_groups
+        }
+        with st.container(border=True):
+            show_graphs = st.toggle(
+                "Vis avkastningsgrafer", value=False, key="v3-fleet-show-graphs",
+                help="Skjul tunge grafer når du bare vil se traderstatus og kontrollene.",
+            )
+            selected_groups = st.multiselect(
+                "Grafer / markeder", options=graph_groups,
+                default=graph_groups[:1], format_func=lambda key: graph_labels[key],
+                key="v3-fleet-graph-groups", disabled=not show_graphs,
+            )
+            st.caption("Strategifilteret for hvert marked vises under når grafene er aktivert.")
+
+        if show_graphs:
+            for key in selected_groups:
+                group = live_groups[key]
+                try:
+                    comparison = load_automanager_pnl_comparison_v2(tuple(group))
+                except Exception as exc:
+                    st.caption(f"UIC {key[1]} · v3-regimegraf venter: {exc}")
+                    continue
+                strategies = tuple(dict.fromkeys(
+                    str(item.strategy_key) for item in comparison.paper_series
+                ))
+                with st.container(border=True):
+                    st.markdown(f"**{graph_labels[key]}**")
+                    selected = st.multiselect(
+                        "Strategikurver", options=strategies, default=strategies,
+                        key=f"v3-fleet-strategies:{key[0]}:{key[1]}:{key[2]}:{key[3]}",
+                        help="Velg hvilke kurver som skal vises i akkurat denne grafen.",
+                    )
+                    if selected:
+                        render_v3_regime_return_chart(
+                            comparison, selected_strategies=tuple(selected),
+                        )
+                    else:
+                        st.info("Velg minst én strategi for å vise grafen.")
     except Exception as exc:
         st.warning(f"V3-preview kunne ikke bygges: {exc}")
 
