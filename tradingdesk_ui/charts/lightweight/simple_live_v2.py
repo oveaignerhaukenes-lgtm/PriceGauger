@@ -112,7 +112,7 @@ export default function(component) {{
         parentElement.replaceChildren();
         parentElement.style.width = '100%';
         const savedLayout = readLayout();
-        parentElement.style.height = `${{boundedHeight(savedLayout.height, Math.max(360, Number(payload.height || 420)))}}px`;
+        parentElement.style.height = `${{boundedHeight(savedLayout.height, Math.max(260, Number(payload.height || 260)))}}px`;
         parentElement.style.boxSizing = 'border-box';
         parentElement.style.border = '1px solid ' + theme.border;
         parentElement.style.borderRadius = '8px';
@@ -453,7 +453,7 @@ def render_lightweight_simple_live_v2(
     """Keep the visible chart mounted while a fragment delivers new chart data."""
 
     if not refresh_only:
-        height = max(360, int(payload.get("height", 780)))
+        height = max(260, int(payload.get("height", 260)))
         chart_key = _payload_key(
             "pg-simple-chart", {"key": key, "signature": payload.get("signature")},
         )
