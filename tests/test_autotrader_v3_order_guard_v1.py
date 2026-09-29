@@ -1,5 +1,5 @@
 import pytest
-from autotrader_v3_order_guard_v1 import reserve,mark,unresolved,UNRESOLVED
+from autotrader_v3_order_guard_v1 import reserve,mark,unresolved,pending_order,UNRESOLVED
 
 def test_unresolved_states_are_fail_closed():
     assert {'RESERVED','SUBMITTING','SUBMITTED','UNKNOWN'} == set(UNRESOLVED)
@@ -20,3 +20,18 @@ def test_independent_accounts_can_reserve(tmp_path):
     db=str(tmp_path/'guard.sqlite')
     reserve(request_key='a',trader_id='one',account_id='a',uic=4912,asset_type='CfdOnIndex',db_path=db)
     reserve(request_key='b',trader_id='two',account_id='b',uic=4912,asset_type='CfdOnIndex',db_path=db)
+
+
+def test_expected_post_order_inventory_is_durable(tmp_path):
+    db=str(tmp_path/'guard.sqlite')
+    scope=dict(account_id='a',uic=4912,asset_type='CfdOnIndex',db_path=db)
+    reserve(request_key='buy-1',trader_id='pilot',expected_inventory=0.3,
+            submitted_amount=0.1,submitted_side='Buy',**scope)
+    mark(request_key='buy-1',state='SUBMITTING',db_path=db)
+    mark(request_key='buy-1',state='SUBMITTED',broker_order_id='saxo-123',db_path=db)
+    stored=pending_order(**scope)
+    assert stored['broker_order_id']=='saxo-123'
+    assert stored['expected_inventory']==0.3
+    assert stored['submitted_amount']==0.1
+    assert stored['submitted_side']=='Buy'
+    assert stored['state']=='SUBMITTED'
