@@ -10,7 +10,7 @@ from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from database import connect
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
-from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
+from autotrader_v3_strategy_registry_v1 import strategy_capability_v3
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoInstrument
@@ -36,18 +36,20 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     active=tuple(e for e in load_active_strategy_enrollments_v2()
         if e.execution_mode==EXECUTION_MODE_LIVE
         and live_authority_armed_v3(e.pilot_key,db_path=db_path))
-    # TradingDesk arms macd-trailing-v1, but this execution runtime currently
-    # implements the histogram driver. Never silently substitute that strategy.
-    from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY_V3
+    # All V3 strategies pass through the same registry and closed-bar pipeline.
+    # Only strategies with independently validated LIVE reconciliation may submit.
+    enrollments=[]
     for e in active:
-        if e.strategy_key == TRAILING_KEY_V3:
+        capability=strategy_capability_v3(e.strategy_key)
+        if capability is None or not capability.closed_bar_driver:
             _record_runtime(e.pilot_key,"BLOCKED",
-                "Trailing planner now has a dedicated closed-bar route, but LIVE execution/reconciliation is not yet validated. No orders sent.",
-                db_path=db_path)
-        elif e.strategy_key != STRATEGY_KEY_V3:
+                f"Unsupported V3 strategy {e.strategy_key}; no orders sent.",db_path=db_path)
+        elif not capability.live_execution_validated:
             _record_runtime(e.pilot_key,"BLOCKED",
-                f"Unsupported V3 LIVE strategy {e.strategy_key}; no orders sent.",db_path=db_path)
-    enrollments=tuple(e for e in active if e.strategy_key==STRATEGY_KEY_V3)
+                f"{e.strategy_key} closed-bar strategy is registered, but LIVE execution/reconciliation is not validated. No orders sent.",db_path=db_path)
+        else:
+            enrollments.append(e)
+    enrollments=tuple(enrollments)
     if not enrollments: return 0
     # Record the heartbeat before any external dependency. If setup fails after
     # authority is armed, the UI must show the failure instead of "no heartbeat".
@@ -76,8 +78,8 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     for e in enrollments:
         actual=_actual(e,observations)
         bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
-        closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,timeframe_minutes=5) if bars else ()
-        obs=macd_observations_v2(closed,timeframe_minutes=5) if closed else ()
+        closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,timeframe_minutes=strategy_capability_v3(e.strategy_key).timeframe_minutes) if bars else ()
+        obs=macd_observations_v2(closed,timeframe_minutes=strategy_capability_v3(e.strategy_key).timeframe_minutes) if closed else ()
         if not obs:
             _record_runtime(e.pilot_key,"DEGRADED","no closed 5m MACD observation",db_path=db_path)
             continue
