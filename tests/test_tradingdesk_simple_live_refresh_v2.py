@@ -81,7 +81,7 @@ def test_v3_account_panel_is_distinguished_from_persisted_engine_and_runtime_sta
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert 'engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3' in source
     assert 'td-engine-select:' not in source
-    assert 'for account_id, currency in accounts:' in source
+    assert 'for tab, engine_key in zip(tabs, ("V2", "V3")):' in source
     assert 'Backend-motor:' in source
     assert 'V3-runtime:' in source
     assert 'ARMED betyr ikke at ordre blir utført.' in source
