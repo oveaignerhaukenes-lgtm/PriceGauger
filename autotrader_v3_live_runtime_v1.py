@@ -144,8 +144,14 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
             _record_runtime(e.pilot_key,'BLOCKED','Saxo order result unknown; reconcile before retry',db_path=db_path)
             raise
+        broker_order_id=str(result.get('OrderId') or '').strip() if isinstance(result,dict) else ''
+        if not broker_order_id:
+            mark_order_v3(request_key=decision.decision_key,state='UNKNOWN',
+                detail='Saxo accepted request but response lacks a verifiable OrderId',db_path=db_path)
+            _record_runtime(e.pilot_key,'BLOCKED','Saxo response lacks OrderId; manual reconciliation required',db_path=db_path)
+            continue
         mark_order_v3(request_key=decision.decision_key,state='SUBMITTED',
-            broker_order_id=str(result.get('OrderId') or ''),db_path=db_path)
+            broker_order_id=broker_order_id,db_path=db_path)
         executed+=1
         _record_runtime(e.pilot_key,"MANAGING",f"executed {mutation.action} {side} {mutation.amount:g}",db_path=db_path)
         LOGGER.warning("v3 LIVE executed trader=%s step=%s side=%s amount=%s",e.pilot_key,mutation.action,side,mutation.amount)
