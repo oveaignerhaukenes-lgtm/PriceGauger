@@ -73,6 +73,8 @@ with control_tab:
             with st.popover("⚙", disabled=not on, help=f"Innstillinger for {spec.label}"):
                 settings = load_modifier_settings_v3(trader_id, spec.key)
                 edited = dict(settings)
+                if not settings:
+                    st.caption("Ingen justerbare parametere for denne modifieren ennå. Bryteren kan lagres, men dette panelet gir ikke modifieren ordreautoritet.")
                 if spec.key == "impulse":
                     edited["sensitivity"] = st.number_input("Sensitivitet", 0.1, 5.0, float(settings["sensitivity"]), 0.1, key=f"v3-set-imp-s:{trader_id}")
                     edited["max_boost"] = st.number_input("Maks target-multiplikator", 1.0, 5.0, float(settings["max_boost"]), 0.1, key=f"v3-set-imp-b:{trader_id}")
