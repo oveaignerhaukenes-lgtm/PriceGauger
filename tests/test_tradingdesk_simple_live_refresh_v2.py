@@ -63,7 +63,7 @@ def test_tradingdesk_refresh_uses_the_live_test_snapshot_before_indicator_work()
     standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
     assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
     assert "def _load_standalone_chart_payload():" in desk
-    assert "trade_markers=()," in desk
+    assert "trade_markers=_load_trade_markers()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
     assert '_refresh_live_chart_data()' in desk
 
@@ -74,3 +74,13 @@ def test_trade_and_rollover_markers_are_sorted_and_keep_their_shapes():
     renderer = Path("tradingdesk_ui/charts/lightweight/simple_live_v2.py").read_text(encoding="utf-8")
     assert 'payload["markers"].sort(key=lambda marker: int(marker["time"]))' in contract
     assert renderer.count("if (!['LONG', 'SHORT', 'FLAT'].includes(direction)) return marker;") == 2
+
+
+def test_v3_radio_is_distinguished_from_persisted_engine_and_runtime_status():
+    from pathlib import Path
+    source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
+    assert 'engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3' in source
+    assert 'set_live_authority_v3(switched.pilot_key, True)' in source
+    assert 'Backend-motor:' in source
+    assert 'V3-runtime:' in source
+    assert 'ARMED betyr ikke at ordre blir utført.' in source

@@ -6,7 +6,7 @@ def test_chart_prefers_canonical_refresh_without_forming_overlay():
     standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
     assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
     assert "def _load_standalone_chart_payload():" in desk
-    assert "trade_markers=()," in desk
+    assert "trade_markers=_load_trade_markers()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
     assert '_refresh_live_chart_data()' in desk
 
