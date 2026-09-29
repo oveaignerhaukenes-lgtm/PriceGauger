@@ -12,7 +12,7 @@ def test_v3_registry_routes_both_strategies_through_same_decision_contract():
 
 
 def test_trailing_remains_blocked_from_live_until_durable_execution_is_validated():
-    assert strategy_adapter_v3(TRAILING_KEY).live_execution_validated is False
+    assert strategy_adapter_v3(TRAILING_KEY).live_route_enabled is False
     with pytest.raises(ValueError, match="Unregistered"):
         strategy_adapter_v3("unknown-strategy")
 
@@ -21,7 +21,7 @@ def test_runtime_uses_registry_and_never_substitutes_histogram_for_trailing():
     source = Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
     assert "STRATEGIES_V3.get(e.strategy_key)" in source
     assert "evaluate_strategy_bar_v3(" in source
-    assert "adapter.live_execution_validated" in source
+    assert "adapter.live_route_enabled" in source
     assert "e.strategy_key==STRATEGY_KEY_V3" not in source
 
 
