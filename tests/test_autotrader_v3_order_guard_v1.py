@@ -35,3 +35,21 @@ def test_expected_post_order_inventory_is_durable(tmp_path):
     assert stored['submitted_amount']==0.1
     assert stored['submitted_side']=='Buy'
     assert stored['state']=='SUBMITTED'
+
+
+def test_concurrent_workers_cannot_reserve_same_boundary(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from autotrader_v3_order_guard_v1 import ensure_schema
+    db=str(tmp_path/'concurrent.sqlite')
+    ensure_schema(db)
+    def reserve_worker(index):
+        try:
+            reserve(request_key=f'order-{index}',trader_id=f'worker-{index}',
+                account_id='shared',uic=4912,asset_type='CfdOnIndex',db_path=db)
+            return True
+        except Exception:
+            return False
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results=list(executor.map(reserve_worker,(1,2)))
+    assert results.count(True)==1
+    assert results.count(False)==1
