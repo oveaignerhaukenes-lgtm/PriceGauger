@@ -51,3 +51,28 @@ def test_distinct_partial_fills_require_complete_amount_and_exact_position():
     assert not verify(rows=[first,{**second,'LogId':'log-a'}])
     assert not verify(rows=[first,{**second,'AccountId':'other'}])
     assert not verify(rows=[first,{**second,'FilledAmount':0.07}])
+
+
+def test_reconciliation_failure_phase_is_sanitized_and_does_not_release_lock(monkeypatch):
+    import pytest
+    import autotrader_v3_order_reconciliation_v1 as module
+    from autotrader_v3_order_reconciliation_v1 import V3ReconciliationPhaseError
+    class Broker:
+        client=object()
+    marked=[]
+    kwargs=dict(broker=Broker(),pending=PENDING,**SCOPE,
+        account_key='secret-account-key',client_key='secret-client-key',
+        mark_reconciled=lambda **kw:marked.append(kw),db_path='unused')
+    def broken_audit(*a,**kw):
+        raise RuntimeError('sensitive Saxo payload secret-account-key')
+    monkeypatch.setattr(module,'fetch_exact_order_audit_v3',broken_audit)
+    with pytest.raises(V3ReconciliationPhaseError,match='audit_fetch: RuntimeError') as caught:
+        reconcile_pending_v3(read_positions=lambda client:[POSITION],**kwargs)
+    assert 'secret' not in str(caught.value)
+    assert not marked
+    monkeypatch.setattr(module,'fetch_exact_order_audit_v3',lambda *a,**kw:[FILL])
+    def broken_positions(client):
+        raise ValueError('sensitive position data')
+    with pytest.raises(V3ReconciliationPhaseError,match='fresh_position_read: ValueError'):
+        reconcile_pending_v3(read_positions=broken_positions,**kwargs)
+    assert not marked
