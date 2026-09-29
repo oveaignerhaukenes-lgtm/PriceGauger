@@ -99,8 +99,17 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                         read_positions=_position_observations_v2,
                         mark_reconciled=mark_order_v3,db_path=db_path)
                 except Exception as exc:
+                    # Persist only a bounded phase/type. The chained exception is
+                    # available to server logs without exposing broker payloads in UI.
+                    from autotrader_v3_order_reconciliation_v1 import V3ReconciliationPhaseError
+                    if isinstance(exc, V3ReconciliationPhaseError):
+                        safe_detail = str(exc)
+                    else:
+                        safe_detail = f'unknown_phase: {type(exc).__name__}'
+                    LOGGER.error('v3 reconciliation blocked pilot=%s phase_error=%s',
+                        e.pilot_key, safe_detail)
                     _record_runtime(e.pilot_key,'BLOCKED',
-                        f'Order reconciliation unavailable: {type(exc).__name__}',db_path=db_path)
+                        f'Order reconciliation unavailable: {safe_detail}',db_path=db_path)
                     continue
             _record_runtime(e.pilot_key,'RECONCILED' if reconciled else 'BLOCKED',
                 'Saxo FinalFill and exact inventory confirmed; next cycle may trade'
