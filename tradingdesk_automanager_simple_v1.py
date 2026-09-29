@@ -81,12 +81,13 @@ def _account_info(client, account_id: str) -> tuple[str, str]:
     raise RuntimeError("could not resolve Saxo account")
 
 
-def _active_live_for_context_v1(context: TradingDeskV2Context) -> StrategyEnrollmentV2 | None:
+def _active_live_for_context_v1(context: TradingDeskV2Context, *, account_id: str | None = None) -> StrategyEnrollmentV2 | None:
     matches = tuple(
         item
         for item in load_active_strategy_enrollments_v2()
         if item.execution_mode == EXECUTION_MODE_LIVE
         and item.enabled
+        and (account_id is None or item.account_id == account_id)
         and int(item.market_id) == int(context.market_id)
         and (context.instrument_id is None or int(item.instrument_id) == int(context.instrument_id))
     )
@@ -345,6 +346,7 @@ def _render_take_profit_settings_v1(enrollment: StrategyEnrollmentV2) -> None:
 def _bootstrap_candidate_v1(
     context: TradingDeskV2Context,
     observations: tuple[PositionObservationV2, ...],
+    *, account_id: str | None = None,
 ) -> PositionObservationV2 | None:
     if context.instrument is None:
         return None
@@ -353,6 +355,7 @@ def _bootstrap_candidate_v1(
     matches = tuple(
         item for item in observations
         if int(item.uic) == expected_uic and item.asset_type == expected_asset
+        and (account_id is None or item.account_id == account_id)
     )
     if len(matches) > 1:
         account_ids = ", ".join(sorted({str(item.account_id) for item in matches}))
@@ -372,28 +375,45 @@ def render_tradingdesk_automanager_simple_v1(
         st.info("Saxo LIVE er ikke tilgjengelig.")
         return None
 
+    st.markdown("**Posisjon og AutoTrade**")
     try:
+        accounts_payload = client._get("port/v1/accounts/me")
+        accounts = tuple(
+            (str(row.get("AccountId") or "").strip(), str(row.get("Currency") or "").strip())
+            for row in (accounts_payload.get("Data") or ())
+            if isinstance(row, dict) and str(row.get("AccountId") or "").strip()
+        )
+        if not accounts:
+            raise RuntimeError("Saxo returnerte ingen tilgjengelige kontoer")
+        selected_account = st.selectbox(
+            "Saxo-konto for denne AutoTraderen",
+            [account_id for account_id, _ in accounts],
+            format_func=lambda account_id: (
+                f"{account_id} · {next((currency for aid, currency in accounts if aid == account_id), '')}"
+            ),
+            key=f"td-autotrader-account:{context.market_id}:{context.instrument_id}",
+            help="V2 og V3 kan styre forskjellige kontoer. Valget flytter ingen eksisterende posisjon eller strategi.",
+        )
         observations = _position_observations_v2(client)
-        enrollment = _active_live_for_context_v1(context)
+        enrollment = _active_live_for_context_v1(context, account_id=selected_account)
     except Exception as exc:
         st.warning(f"AutoManager kunne ikke lese LIVE-state: {exc}")
         return None
-
-    st.markdown("**Posisjon og AutoTrade**")
+    st.caption(f"Valgt konto: {selected_account}. Alle kontroller nedenfor gjelder bare denne kontoen.")
 
     if enrollment is None:
-        bootstrap = _bootstrap_candidate_v1(context, observations)
+        bootstrap = _bootstrap_candidate_v1(context, observations, account_id=selected_account)
         selected = st.selectbox(
             "Strategi",
             AUTOTRADER_STRATEGIES_V2,
             format_func=lambda item: item.label,
-            key=f"td-simple-bootstrap-strategy:{context.market_id}",
+            key=f"td-simple-bootstrap-strategy:{context.market_id}:{selected_account}",
         )
         st.caption("Ingen aktiv LIVE-controller på dette produktet.")
         if bootstrap is None:
             st.info("Første bootstrap trenger foreløpig en eksisterende Saxo-posisjon. Etter bootstrap kan BUY/SELL brukes direkte fra PriceGauger.")
             return observations
-        start = st.button("Start · Manage + AutoTrade", type="primary", key=f"td-simple-bootstrap:{context.market_id}", width="stretch")
+        start = st.button("Start · Manage + AutoTrade", type="primary", key=f"td-simple-bootstrap:{context.market_id}:{selected_account}", width="stretch")
         if start:
             try:
                 _, currency = _account_info(client, bootstrap.account_id)
