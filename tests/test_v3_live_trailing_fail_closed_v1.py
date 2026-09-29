@@ -8,7 +8,7 @@ DRIVER = Path("autotrader_v3_closed_bar_driver_v1.py").read_text(encoding="utf-8
 def test_tradingdesk_trailing_strategy_cannot_silently_run_histogram_live():
     assert "from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3" in DESK
     assert "from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3" in RUNTIME
-    assert "macd_histogram_target_v3 as macd_trailing_target_v3" in DRIVER
+    assert "decide = macd_trailing_target_v3 if strategy_key == TRAILING_KEY else macd_histogram_target_v3" in DRIVER
     assert 'if e.strategy_key == TRAILING_KEY_V3:' in RUNTIME
     assert '_record_runtime(e.pilot_key,"BLOCKED"' in RUNTIME
     assert "No orders sent." in RUNTIME
