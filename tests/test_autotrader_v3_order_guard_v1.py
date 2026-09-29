@@ -53,3 +53,23 @@ def test_concurrent_workers_cannot_reserve_same_boundary(tmp_path):
         results=list(executor.map(reserve_worker,(1,2)))
     assert results.count(True)==1
     assert results.count(False)==1
+
+def test_existing_guard_table_is_migrated_in_place(tmp_path):
+    import sqlite3
+    from autotrader_v3_order_guard_v1 import pending_order
+    db=str(tmp_path/'legacy.sqlite')
+    with sqlite3.connect(db) as con:
+        con.execute("""CREATE TABLE autotrader_v3_order_guard (
+            request_key TEXT PRIMARY KEY,trader_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,uic INTEGER NOT NULL,asset_type TEXT NOT NULL,
+            state TEXT NOT NULL,broker_order_id TEXT,detail TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        con.execute("""INSERT INTO autotrader_v3_order_guard
+            (request_key,trader_id,account_id,uic,asset_type,state)
+            VALUES('legacy','trader','a',4912,'CfdOnIndex','UNKNOWN')""")
+    pending=pending_order(account_id='a',uic=4912,asset_type='CfdOnIndex',db_path=db)
+    assert pending['request_key']=='legacy'
+    assert pending['expected_inventory'] is None
+    with pytest.raises(Exception):
+        reserve(request_key='new',trader_id='new',account_id='a',uic=4912,
+                asset_type='CfdOnIndex',db_path=db)
