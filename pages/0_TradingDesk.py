@@ -524,6 +524,29 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
     chart_key = f"standalone-live-chart-v1:{market}:{timeframe}"
     render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)
     if refresh_only:
+        # Markers are loaded on every 1s fragment tick (adapter TTL: 3s).
+        # Surface ingestion status rather than silently presenting old arrows.
+        try:
+            from database import connect, using_postgres
+            if using_postgres():
+                with connect() as db:
+                    rows = db.execute("""
+                        SELECT last_success_at, last_error
+                        FROM pg_v2_saxo_manual_trade_marker_sync
+                        ORDER BY last_success_at DESC NULLS LAST LIMIT 1
+                    """).fetchall()
+                if rows:
+                    latest = rows[0]
+                    success = latest["last_success_at"] if isinstance(latest, dict) else latest[0]
+                    error = latest["last_error"] if isinstance(latest, dict) else latest[1]
+                    if error:
+                        st.warning(f"Saxo-handelspiler: synkroniseringsfeil · {error}")
+                    else:
+                        st.caption(f"Saxo-handelspiler: sist synkronisert {success} · oppdateres automatisk")
+                else:
+                    st.caption("Saxo-handelspiler: ingen synkroniseringsstatus ennå")
+        except Exception:
+            pass
         c1, c2, c3 = st.columns(3)
         c1.metric("Lukkede bars", len(closed))
         c2.metric("Forming", "LIVE" if forming is not None else "ingen")
