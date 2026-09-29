@@ -507,7 +507,7 @@ def _load_standalone_chart_payload():
         indicator_timeframes={},
         chart_height=260,
         price_panel_share=1.0,
-        trade_markers=(),
+        trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
     return payload, closed, forming
@@ -538,7 +538,7 @@ def _render_live_chart(*, refresh_only: bool = False) -> None:
     else:
         st.caption(
             "Live Chart-baseline: canonical closed bars + live forming. "
-            "Indikatorer og handelsmarkører legges tilbake etter verifisert live-oppdatering."
+            "Handelspiler viser bekreftede AutoTrader- og manuelle handler, ikke uutførte signaler."
         )
 
 
