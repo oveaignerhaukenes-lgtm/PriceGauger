@@ -33,9 +33,21 @@ def _actual(e,observations):
 
 def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     """Normal v3 LIVE runtime. The LIVE toggle is the user authority boundary."""
-    enrollments=tuple(e for e in load_active_strategy_enrollments_v2()
-        if e.strategy_key==STRATEGY_KEY_V3 and e.execution_mode==EXECUTION_MODE_LIVE
+    active=tuple(e for e in load_active_strategy_enrollments_v2()
+        if e.execution_mode==EXECUTION_MODE_LIVE
         and live_authority_armed_v3(e.pilot_key,db_path=db_path))
+    # TradingDesk arms macd-trailing-v1, but this execution runtime currently
+    # implements the histogram driver. Never silently substitute that strategy.
+    from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY_V3
+    for e in active:
+        if e.strategy_key == TRAILING_KEY_V3:
+            _record_runtime(e.pilot_key,"BLOCKED",
+                "Trailing LIVE not implemented by this worker: current V3 closed-bar driver uses histogram. No orders sent.",
+                db_path=db_path)
+        elif e.strategy_key != STRATEGY_KEY_V3:
+            _record_runtime(e.pilot_key,"BLOCKED",
+                f"Unsupported V3 LIVE strategy {e.strategy_key}; no orders sent.",db_path=db_path)
+    enrollments=tuple(e for e in active if e.strategy_key==STRATEGY_KEY_V3)
     if not enrollments: return 0
     # Record the heartbeat before any external dependency. If setup fails after
     # authority is armed, the UI must show the failure instead of "no heartbeat".
