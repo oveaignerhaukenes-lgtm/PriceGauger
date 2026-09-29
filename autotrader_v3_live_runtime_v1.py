@@ -9,6 +9,7 @@ from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inve
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3
+from autotrader_v3_order_audit_v1 import fetch_exact_order_audit_v3, verified_final_fill_v3
 from database import connect
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
@@ -69,6 +70,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     # Saxo account endpoint returns JSON dictionaries, not account objects.
     # Treating them as attributes made every armed v3 cycle fail before execution.
     accounts={}
+    account_contexts={}
     for row in broker.accounts():
         if not isinstance(row,dict):
             continue
@@ -76,6 +78,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         account_key=str(row.get("AccountKey") or "").strip()
         if account_id and account_key:
             accounts[account_id]=account_key
+            account_contexts[account_id]=(account_key,str(row.get('ClientKey') or ''))
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
         actual=_actual(e,observations)
@@ -100,8 +103,26 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
             external_reference=("pgv3-"+decision.decision_key)[-50:])
-        if unresolved_order_v3(account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,db_path=db_path):
-            _record_runtime(e.pilot_key,'BLOCKED','Unresolved Saxo order: independent reconciliation required',db_path=db_path)
+        pending=unresolved_order_v3(account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,db_path=db_path)
+        if pending:
+            # Audit is diagnostic only: FinalFill alone cannot prove exact target inventory.
+            # UNKNOWN without a broker order ID remains locked even if audit is empty.
+            with connect(db_path) as db:
+                detail=db.execute("SELECT broker_order_id FROM autotrader_v3_order_guard WHERE request_key=?",
+                    (pending["request_key"] if isinstance(pending,dict) else pending[0],)).fetchone()
+            broker_id=(detail["broker_order_id"] if isinstance(detail,dict) else detail[0]) if detail else None
+            context=account_contexts.get(e.account_id)
+            status='Unresolved Saxo order: independent reconciliation required'
+            if broker_id and context and context[1]:
+                try:
+                    rows=fetch_exact_order_audit_v3(broker,account_key=context[0],client_key=context[1])
+                    fill=verified_final_fill_v3(rows,account_id=e.account_id,uic=e.uic,
+                        asset_type=e.asset_type,order_id=broker_id)
+                    if fill is not None:
+                        status='Saxo FinalFill verified; target inventory reconciliation still required'
+                except Exception as exc:
+                    status=f'Saxo audit unavailable: {type(exc).__name__}; order remains locked'
+            _record_runtime(e.pilot_key,'BLOCKED',status,db_path=db_path)
             continue
         pre=broker.precheck(order)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
