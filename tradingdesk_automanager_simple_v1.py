@@ -378,35 +378,64 @@ def render_tradingdesk_automanager_simple_v1(
     try:
         accounts_payload = client._get("port/v1/accounts/me")
         accounts = tuple(
-            (str(row.get("AccountId") or "").strip(), str(row.get("Currency") or "").strip())
+            (str(row.get("AccountId") or "").strip(), str(row.get("Currency") or "").strip(),
+             str(row.get("DisplayName") or row.get("AccountName") or row.get("Name") or row.get("AccountId") or "").strip())
             for row in (accounts_payload.get("Data") or ())
             if isinstance(row, dict) and str(row.get("AccountId") or "").strip()
         )
         if not accounts:
             raise RuntimeError("Saxo returnerte ingen tilgjengelige kontoer")
         observations = _position_observations_v2(client)
-        enrollments = {
-            account_id: _active_live_for_context_v1(context, account_id=account_id)
-            for account_id, _ in accounts
-        }
+        active_enrollments = tuple(item for item in load_active_strategy_enrollments_v2()
+                                   if item.execution_mode == EXECUTION_MODE_LIVE and item.enabled)
+        enrollments = {account_id: _active_live_for_context_v1(context, account_id=account_id)
+                       for account_id, _, _ in accounts}
     except Exception as exc:
         st.warning(f"AutoManager kunne ikke lese LIVE-state: {exc}")
         return None
 
-    for account_id, currency in accounts:
-        enrollment = enrollments[account_id]
-        engine = "V3" if enrollment is not None and enrollment.strategy_key == STRATEGY_KEY_V3 else "V2"
-        with st.container(border=True):
-            st.markdown(f"### Saxo {account_id} · {currency}")
-            if enrollment is None:
-                st.caption("Ingen LIVE-motor er knyttet til denne kontoen.")
-            else:
-                st.caption(f"Kontobundet motor: {engine} · pilot {enrollment.pilot_key}")
-            _render_account_autotrader_v1(
-                context=context, client=client, observations=observations,
-                selected_account=account_id, enrollment=enrollment,
+    # Both tabs remain visible. A Saxo account already bound to one engine is
+    # unavailable to the other, including enrollments on other instruments.
+    tabs = st.tabs(["AutoTrader V2", "AutoTrader V3"])
+    for tab, engine_key in zip(tabs, ("V2", "V3")):
+        with tab:
+            claimed_by_other = {
+                item.account_id for item in active_enrollments
+                if ("V3" if item.strategy_key == STRATEGY_KEY_V3 else "V2") != engine_key
+            }
+            eligible = tuple(row for row in accounts if row[0] not in claimed_by_other)
+            if not eligible:
+                st.info(f"Ingen ledige Saxo-kontoer for {engine_key}. En konto kan bare tilhøre én motor.")
+                continue
+            selected_account = st.selectbox(
+                f"Saxo-konto · {engine_key}",
+                [row[0] for row in eligible],
+                format_func=lambda account_id: next(
+                    f"{name} · {currency} ({account_id})"
+                    for aid, currency, name in eligible if aid == account_id
+                ),
+                key=f"td-account-tab:{engine_key}:{context.market_id}",
             )
-    st.caption("Hver konto har sin egen motor og authority. Ingen motorbytteknapp eller automatisk posisjonsoverføring.")
+            enrollment = enrollments[selected_account]
+            account_name = next(name for aid, _, name in eligible if aid == selected_account)
+            st.caption(f"Konto: {account_name} · {selected_account}")
+            if enrollment is not None:
+                actual_engine = "V3" if enrollment.strategy_key == STRATEGY_KEY_V3 else "V2"
+                if actual_engine != engine_key:
+                    st.error("Kontoen tilhører en annen motor. Ingen ordre kan sendes her.")
+                    continue
+                _render_account_autotrader_v1(
+                    context=context, client=client, observations=observations,
+                    selected_account=selected_account, enrollment=enrollment,
+                )
+            elif engine_key == "V2":
+                _render_account_autotrader_v1(
+                    context=context, client=client, observations=observations,
+                    selected_account=selected_account, enrollment=None,
+                )
+            else:
+                st.info("Kontoen er ledig. Opprett V3-piloten med denne kontoen i den dedikerte V3-kontrollflaten; LIVE forblir sperret til ordrebanen er validert.")
+    st.caption("Kontoer som er knyttet til én motor, skjules i den andre fanen. Ingen automatisk overtakelse av posisjoner.")
     return observations
 
 
