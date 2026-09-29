@@ -14,6 +14,7 @@ from autotrader_v3_order_reconciliation_v1 import reconcile_pending_v3
 from database import connect
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
+from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoInstrument
@@ -121,6 +122,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation is None:
             _record_runtime(e.pilot_key,"MANAGING",f"target={snapshot.risk_approved_target.amount:g} actual={actual.amount:g}",db_path=db_path)
             continue
+        # Manual-seeded trailing pilot: only reduce an existing position.
+        # Keep the durable guard and Saxo precheck for any reduction.
+        if e.strategy_key == TRAILING_KEY:
+            if mutation.action not in {"REDUCE", "CLOSE"}:
+                _record_runtime(e.pilot_key, "MANAGING",
+                    "Trailing manual pilot: waiting for manual position or reduction signal",
+                    db_path=db_path)
+                continue
+            if actual.amount == 0 or mutation.amount > abs(actual.amount) + 1e-9:
+                _record_runtime(e.pilot_key, "BLOCKED",
+                    "Trailing manual pilot: reduction exceeds exact current position",
+                    db_path=db_path)
+                continue
         account=accounts.get(e.account_id)
         if account is None: raise RuntimeError(f"v3 LIVE account unavailable: {e.account_id}")
         side=("Buy" if mutation.direction=="LONG" else "Sell")

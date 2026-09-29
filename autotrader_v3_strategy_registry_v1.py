@@ -22,7 +22,7 @@ class StrategyAdapterV3:
 
 STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
     key: StrategyAdapterV3(key=key, evaluate_closed_bar=evaluate_closed_bar_once_v3,
-                           live_route_enabled=(key == HISTOGRAM_KEY))
+                           live_route_enabled=True)
     for key in (HISTOGRAM_KEY, TRAILING_KEY)
 }
 
