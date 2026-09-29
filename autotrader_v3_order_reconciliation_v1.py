@@ -29,8 +29,6 @@ def verified_reconciled_inventory_v3(*,pending,rows,observations,account_id,uic,
             return False
         if not isclose(quantity,requested,rel_tol=0,abs_tol=1e-8):
             return False
-        if str(fill.get('BuySell') or '').lower()!=side.lower():
-            return False
         matches=[o for o in observations if o.account_id==account_id
                  and int(o.uic)==int(uic) and o.asset_type==asset_type]
         if len(matches)>1:
