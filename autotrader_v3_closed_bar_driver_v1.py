@@ -6,14 +6,21 @@ from typing import Sequence
 
 from autotrader_macd_dry_run_v2 import MacdObservationV2
 from autotrader_v3_domain import TargetInventoryV3
-from autotrader_v3_macd_histogram_v1 import MacdHistogramConfigV3 as MacdTrailingConfigV3, MacdHistogramDecisionV3 as MacdTrailingDecisionV3, macd_histogram_target_v3 as macd_trailing_target_v3
+from autotrader_v3_macd_histogram_v1 import (
+    STRATEGY_KEY_V3 as HISTOGRAM_KEY, MacdHistogramConfigV3,
+    MacdHistogramDecisionV3, macd_histogram_target_v3,
+)
+from autotrader_v3_macd_trailing_v1 import (
+    STRATEGY_KEY_V3 as TRAILING_KEY, MacdTrailingConfigV3,
+    MacdTrailingDecisionV3, macd_trailing_target_v3,
+)
 from database import connect
 
 
 @dataclass(frozen=True, slots=True)
 class ClosedBarDecisionV3:
     decision_key: str
-    decision: MacdTrailingDecisionV3
+    decision: MacdTrailingDecisionV3 | MacdHistogramDecisionV3
     is_new: bool
 
 
@@ -29,12 +36,22 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
 
 
 def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV2,
-                                config: MacdTrailingConfigV3 = MacdTrailingConfigV3(),
+                                strategy_key: str = HISTOGRAM_KEY,
+                                config: MacdTrailingConfigV3 | MacdHistogramConfigV3 | None = None,
                                 db_path: str = "pricegauger.db") -> ClosedBarDecisionV3:
     """Persistently reduce one *new* closed MACD bar into one target transition.
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
+    if strategy_key not in {HISTOGRAM_KEY, TRAILING_KEY}:
+        raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
+    if config is None:
+        config = MacdTrailingConfigV3() if strategy_key == TRAILING_KEY else MacdHistogramConfigV3()
+    if strategy_key == TRAILING_KEY and not isinstance(config, MacdTrailingConfigV3):
+        raise TypeError("trailing requires MacdTrailingConfigV3")
+    if strategy_key == HISTOGRAM_KEY and not isinstance(config, MacdHistogramConfigV3):
+        raise TypeError("histogram requires MacdHistogramConfigV3")
+    decide = macd_trailing_target_v3 if strategy_key == TRAILING_KEY else macd_histogram_target_v3
     ensure_closed_bar_driver_schema_v3(db_path)
     bar_time = observation.bar_time.isoformat()
     with connect(db_path) as db:
@@ -45,7 +62,8 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             target = float(row["target_amount"] if isinstance(row,dict) else row[1])
             prev_spread = row["previous_spread"] if isinstance(row,dict) else row[2]
             if bar_time <= last:
-                hold=MacdTrailingDecisionV3(TargetInventoryV3(target),"HOLD_DUPLICATE",
+                hold=(MacdTrailingDecisionV3 if strategy_key == TRAILING_KEY else MacdHistogramDecisionV3)(
+                    TargetInventoryV3(target),"HOLD_DUPLICATE",
                     f"closed bar {bar_time} already evaluated",float(observation.spread))
                 return ClosedBarDecisionV3(f"{trader_id}|{bar_time}",hold,False)
             previous = None
@@ -53,7 +71,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
                 previous = MacdObservationV2(bar_time=observation.bar_time, macd=float(prev_spread), signal=0.0)
         else:
             target=0.0; previous=None
-        decision=macd_trailing_target_v3(current_target=TargetInventoryV3(target),
+        decision=decide(current_target=TargetInventoryV3(target),
                                          observation=observation,previous_observation=previous,config=config)
         now=datetime.utcnow().isoformat()
         db.execute("""INSERT INTO autotrader_v3_closed_bar_state(trader_id,last_bar_time,target_amount,previous_spread,updated_at)
