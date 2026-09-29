@@ -462,6 +462,20 @@ def render_tradingdesk_automanager_simple_v1(
         else:
             st.rerun()
 
+    # The radio is an operator request; the persisted enrollment is the source of truth.
+    # Display it explicitly so a selected V3 radio cannot be mistaken for V3 authority.
+    st.caption(
+        f"Backend-motor: {'V3' if engine_v3 else 'V2'} · "
+        f"pilot {enrollment.pilot_key}"
+    )
+    if engine_v3:
+        runtime_state = _v3_runtime_state_v1(enrollment.pilot_key)
+        if runtime_state is None:
+            st.warning("V3-runtime har ingen rapportert status. ARMED betyr ikke at ordre blir utført.")
+        else:
+            status, detail, updated_at = runtime_state
+            st.caption(f"V3-runtime: {status} · {updated_at}" + (f" · {detail}" if detail else ""))
+
     # One obvious master authority control. Engine identity is explicit so V2 and V3
     # can coexist without an ARMED badge from one engine being mistaken for the other.
     if engine_v3:
