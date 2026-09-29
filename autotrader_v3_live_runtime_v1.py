@@ -135,6 +135,23 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     "Trailing manual pilot: reduction exceeds exact current position",
                     db_path=db_path)
                 continue
+        # Saxo fractional CFD quantities are accepted at two decimal places for this
+        # small Tech100 pilot. Never round up a reduce-only order, and never send
+        # a zero/sub-minimum order to precheck in a retry loop.
+        if e.strategy_key == TRAILING_KEY:
+            from decimal import Decimal, ROUND_DOWN
+            requested = Decimal(str(mutation.amount))
+            permitted = requested.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            if permitted < Decimal("0.01"):
+                _record_runtime(e.pilot_key, "BLOCKED",
+                    "Trailing manual pilot: reduction below 0.01 Saxo order step",
+                    db_path=db_path)
+                continue
+            if permitted != requested:
+                from autotrader_v3_execution_plan_v1 import ExecutionStepV3
+                mutation = ExecutionStepV3(mutation.action, float(permitted),
+                    mutation.direction, mutation.requires_flat_confirmation,
+                    mutation.reason + "; floored to 0.01 Saxo order step")
         account=accounts.get(e.account_id)
         if account is None: raise RuntimeError(f"v3 LIVE account unavailable: {e.account_id}")
         side=("Buy" if mutation.direction=="LONG" else "Sell")
