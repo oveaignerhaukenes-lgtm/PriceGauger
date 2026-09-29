@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import math
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from autotrader_pnl_comparison_v2 import AutoManagerPnlComparisonV2
@@ -45,6 +46,34 @@ def _svg_chart(pivot: pd.DataFrame) -> str:
 </svg></div>"""
 
 
+def _interactive_regime_chart(pivot: pd.DataFrame) -> go.Figure:
+    """Plotly enables independent X/Y axis drag zoom, pan and double-click reset."""
+    fig = go.Figure()
+    for strategy in pivot.columns:
+        fig.add_trace(go.Scatter(
+            x=pivot.index, y=pivot[strategy], name=str(strategy),
+            mode="lines", connectgaps=False,
+            hovertemplate="%{x|%d.%m %H:%M}<br>%{y:+.2f}%<extra>%{fullData.name}</extra>",
+        ))
+    fig.add_hline(y=0, line_dash="dot", line_color="rgba(148,163,184,.55)")
+    fig.update_layout(
+        height=340, margin=dict(l=8, r=8, t=12, b=12),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#cbd5e1"), dragmode="pan", hovermode="x unified",
+        showlegend=True, legend=dict(orientation="h", y=-0.24),
+        uirevision="v3-fleet-axis-v1",
+    )
+    fig.update_xaxes(
+        title_text="Tid", showgrid=True, gridcolor="rgba(148,163,184,.16)",
+        fixedrange=False, showspikes=True,
+    )
+    fig.update_yaxes(
+        title_text="Avkastning (%)", ticksuffix="%", showgrid=True,
+        gridcolor="rgba(148,163,184,.16)", fixedrange=False, zeroline=False,
+    )
+    return fig
+
+
 def render_v3_regime_return_chart(
     comparison: AutoManagerPnlComparisonV2, *, bucket_count: int = 12,
     selected_strategies: tuple[str, ...] | None = None,
@@ -63,11 +92,17 @@ def render_v3_regime_return_chart(
     if pivot.empty or not len(pivot.columns):
         st.info("Ingen valgte strategikurver å vise.")
         return
-    chart=_svg_chart(pivot)
-    if chart:
-        st.markdown(chart, unsafe_allow_html=True)
-    else:
-        st.info("Venter på gyldige datapunkter til v3-grafen.")
+    st.caption("Dra langs X- eller Y-aksen for å zoome den aksen. Dra i grafen for å panorere; dobbelttrykk nullstiller visningen.")
+    st.plotly_chart(
+        _interactive_regime_chart(pivot), use_container_width=True,
+        key=f"v3-fleet-interactive:{comparison.product_key}",
+        config={
+            "scrollZoom": True,
+            "doubleClick": "reset+autosize",
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+        },
+    )
 
     strategies=tuple(str(item) for item in pivot.columns)
     selected=st.selectbox("Strategiinfo",("Velg strategi …",)+strategies,key=f"v3_strategy_line_info_{comparison.product_key}")
