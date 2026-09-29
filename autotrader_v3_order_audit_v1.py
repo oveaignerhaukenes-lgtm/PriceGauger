@@ -38,6 +38,7 @@ def verified_order_fills_v3(rows, *, account_id, uic, asset_type, order_id, side
     if not order_id or side not in ('Buy','Sell'):
         return None
     matches=[]
+    final_seen=False
     for row in rows:
         if not isinstance(row,dict) or str(row.get('OrderId') or '')!=str(order_id):
             continue
@@ -53,6 +54,8 @@ def verified_order_fills_v3(rows, *, account_id, uic, asset_type, order_id, side
         status=str(row.get('Status') or '')
         if status not in ('FinalFill','PartialFill') or str(row.get('SubStatus') or '') not in ('','Confirmed'):
             return None
+        if status=='FinalFill':
+            final_seen=True
         log_id=str(row.get('LogId') or '').strip()
         if not log_id:
             return None
@@ -63,7 +66,7 @@ def verified_order_fills_v3(rows, *, account_id, uic, asset_type, order_id, side
         if not isfinite(qty) or qty<=0:
             return None
         matches.append((log_id,qty))
-    if not matches or len({key for key,_ in matches})!=len(matches):
+    if not matches or not final_seen or len({key for key,_ in matches})!=len(matches):
         return None
     return sum(qty for _,qty in matches)
 
