@@ -7,11 +7,11 @@ RENDERER=Path("tradingdesk_ui/charts/lightweight/simple_live_v2.py").read_text(e
 
 
 def test_account_selection_is_applied_to_controller_and_bootstrap():
-    assert '"Saxo-konto for denne AutoTraderen"' in DESK
-    assert "enrollment = _active_live_for_context_v1(context, account_id=selected_account)" in DESK
+    assert "for account_id, currency in accounts:" in DESK
+    assert "_active_live_for_context_v1(context, account_id=account_id)" in DESK
     assert "bootstrap = _bootstrap_candidate_v1(context, observations, account_id=selected_account)" in DESK
     assert "and (account_id is None or item.account_id == account_id)" in DESK
-    assert "Valget flytter ingen eksisterende posisjon" in DESK
+    assert "ingen motorbytteknapp eller automatisk posisjonsoverføring" in DESK
 
 
 def test_trade_markers_are_refreshed_not_one_time_drawings():
