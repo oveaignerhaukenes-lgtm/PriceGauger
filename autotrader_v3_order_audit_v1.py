@@ -32,6 +32,41 @@ def verified_final_fill_v3(rows, *, account_id, uic, asset_type, order_id):
     return matches[0] if len(matches)==1 else None
 
 
+def verified_order_fills_v3(rows, *, account_id, uic, asset_type, order_id, side):
+    """Sum uniquely identified confirmed fills; duplicates/ambiguous audit fail closed."""
+    from math import isfinite
+    if not order_id or side not in ('Buy','Sell'):
+        return None
+    matches=[]
+    for row in rows:
+        if not isinstance(row,dict) or str(row.get('OrderId') or '')!=str(order_id):
+            continue
+        if (str(row.get('AccountId') or '')!=str(account_id)
+            or str(row.get('AssetType') or '')!=str(asset_type)
+            or str(row.get('BuySell') or '').lower()!=side.lower()):
+            return None
+        try:
+            if int(row.get('Uic'))!=int(uic):
+                return None
+        except (TypeError,ValueError):
+            return None
+        status=str(row.get('Status') or '')
+        if status not in ('FinalFill','PartialFill') or str(row.get('SubStatus') or '') not in ('','Confirmed'):
+            return None
+        log_id=str(row.get('LogId') or '').strip()
+        if not log_id:
+            return None
+        try:
+            qty=float(row.get('FilledAmount'))
+        except (TypeError,ValueError):
+            return None
+        if not isfinite(qty) or qty<=0:
+            return None
+        matches.append((log_id,qty))
+    if not matches or len({key for key,_ in matches})!=len(matches):
+        return None
+    return sum(qty for _,qty in matches)
+
 def fetch_exact_order_audit_v3(broker, *, account_key, client_key, since=None, now=None):
     """Read-only audit fetch; never treat missing/truncated pages as confirmation."""
     end=now or datetime.now(timezone.utc)
