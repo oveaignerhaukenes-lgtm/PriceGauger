@@ -7,7 +7,7 @@ RENDERER=Path("tradingdesk_ui/charts/lightweight/simple_live_v2.py").read_text(e
 
 
 def test_account_selection_is_applied_to_controller_and_bootstrap():
-    assert "for account_id, currency in accounts:" in DESK
+    assert "for tab, engine_key in zip(tabs, ("V2", "V3")):" in DESK
     assert "_active_live_for_context_v1(context, account_id=account_id)" in DESK
     assert "bootstrap = _bootstrap_candidate_v1(context, observations, account_id=selected_account)" in DESK
     assert "and (account_id is None or item.account_id == account_id)" in DESK
