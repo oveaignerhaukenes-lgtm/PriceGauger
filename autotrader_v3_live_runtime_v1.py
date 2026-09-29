@@ -8,6 +8,7 @@ from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_
 from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3
 from database import connect
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
@@ -99,10 +100,26 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
             external_reference=("pgv3-"+decision.decision_key)[-50:])
+        if unresolved_order_v3(account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,db_path=db_path):
+            _record_runtime(e.pilot_key,'BLOCKED','Unresolved Saxo order: independent reconciliation required',db_path=db_path)
+            continue
         pre=broker.precheck(order)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
             raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
-        broker.place_order(order,confirm_live=True); executed+=1
+        # Persist before the external POST; a timeout is UNKNOWN, never a retry.
+        reserve_order_v3(request_key=decision.decision_key,trader_id=e.pilot_key,
+            account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,db_path=db_path)
+        mark_order_v3(request_key=decision.decision_key,state='SUBMITTING',db_path=db_path)
+        try:
+            result=broker.place_order(order,confirm_live=True)
+        except Exception as exc:
+            mark_order_v3(request_key=decision.decision_key,state='UNKNOWN',
+                detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
+            _record_runtime(e.pilot_key,'BLOCKED','Saxo order result unknown; reconcile before retry',db_path=db_path)
+            raise
+        mark_order_v3(request_key=decision.decision_key,state='SUBMITTED',
+            broker_order_id=str(result.get('OrderId') or ''),db_path=db_path)
+        executed+=1
         _record_runtime(e.pilot_key,"MANAGING",f"executed {mutation.action} {side} {mutation.amount:g}",db_path=db_path)
         LOGGER.warning("v3 LIVE executed trader=%s step=%s side=%s amount=%s",e.pilot_key,mutation.action,side,mutation.amount)
     return executed
