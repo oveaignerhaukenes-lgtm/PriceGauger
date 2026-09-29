@@ -683,7 +683,11 @@ def _render_account_autotrader_v1(
         if live_status != "AKTIV":
             st.caption("LIVE runtime: AV — ingen strategi har ordreautoritet.")
         elif runtime_state is None:
-            st.warning("LIVE runtime: ingen persistert strategi-evaluering ennå.")
+            st.warning(
+                "LIVE runtime: ingen persistert strategi-evaluering ennå. "
+                "Dette er ikke bekreftelse på at worker kjører: kontroller worker-logger, "
+                "aktiv enrollment og datatilgang før du forventer LIVE-ordrer."
+            )
         else:
             evaluated_at = runtime_state.last_action_at
             if evaluated_at is None:
