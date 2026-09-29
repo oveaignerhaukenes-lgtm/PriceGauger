@@ -1,7 +1,7 @@
 """Conservative V3 order reconciliation: confirmed fill AND fresh exact inventory."""
 from __future__ import annotations
 from math import isclose,isfinite
-from autotrader_v3_order_audit_v1 import verified_final_fill_v3,fetch_exact_order_audit_v3
+from autotrader_v3_order_audit_v1 import verified_order_fills_v3,fetch_exact_order_audit_v3
 from autotrader_v3_domain import signed_inventory_v3
 
 
@@ -17,12 +17,12 @@ def verified_reconciled_inventory_v3(*,pending,rows,observations,account_id,uic,
     side=pending.get('submitted_side')
     if not broker_id or expected is None or requested is None or side not in ('Buy','Sell'):
         return False
-    fill=verified_final_fill_v3(rows,account_id=account_id,uic=uic,
-                                asset_type=asset_type,order_id=broker_id)
-    if fill is None:
+    filled=verified_order_fills_v3(rows,account_id=account_id,uic=uic,
+                                asset_type=asset_type,order_id=broker_id,side=side)
+    if filled is None:
         return False
     try:
-        quantity=float(fill.get('FilledAmount') or fill.get('Amount'))
+        quantity=float(filled)
         requested=float(requested)
         expected=float(expected)
         if not all(isfinite(x) for x in (quantity,requested,expected)) or requested<=0:
