@@ -386,7 +386,10 @@ def render_tradingdesk_automanager_simple_v1(
         if not accounts:
             raise RuntimeError("Saxo returnerte ingen tilgjengelige kontoer")
         observations = _position_observations_v2(client)
-        active_enrollments = tuple(item for item in load_active_strategy_enrollments_v2()\n                                   if item.execution_mode == EXECUTION_MODE_LIVE and item.enabled)\n        enrollments = {account_id: _active_live_for_context_v1(context, account_id=account_id)\n                       for account_id, _, _ in accounts}
+        active_enrollments = tuple(item for item in load_active_strategy_enrollments_v2()
+                                   if item.execution_mode == EXECUTION_MODE_LIVE and item.enabled)
+        enrollments = {account_id: _active_live_for_context_v1(context, account_id=account_id)
+                       for account_id, _, _ in accounts}
     except Exception as exc:
         st.warning(f"AutoManager kunne ikke lese LIVE-state: {exc}")
         return None
