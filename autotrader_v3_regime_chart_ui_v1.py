@@ -45,7 +45,10 @@ def _svg_chart(pivot: pd.DataFrame) -> str:
 </svg></div>"""
 
 
-def render_v3_regime_return_chart(comparison: AutoManagerPnlComparisonV2, *, bucket_count: int = 12) -> None:
+def render_v3_regime_return_chart(
+    comparison: AutoManagerPnlComparisonV2, *, bucket_count: int = 12,
+    selected_strategies: tuple[str, ...] | None = None,
+) -> None:
     st.markdown("**V3 · relativ strategiavkastning**")
     st.caption("Hver strategi nullstilles ved hvert regime. Linjen viser gevinst eller tap siden starten av gjeldende regime, slik at et nytt regime vurderes uavhengig av tidligere gevinst eller tap.")
     points = build_regime_reset_return_lines_v3(comparison, bucket_count=bucket_count)
@@ -54,6 +57,12 @@ def render_v3_regime_return_chart(comparison: AutoManagerPnlComparisonV2, *, buc
         return
     frame=pd.DataFrame({"Tid":[p.closed_at for p in points],"Strategi":[p.strategy_key for p in points],"Avkastning %":[p.return_pct for p in points]})
     pivot=frame.pivot_table(index="Tid",columns="Strategi",values="Avkastning %",aggfunc="last").sort_index()
+    if selected_strategies is not None:
+        visible = [key for key in selected_strategies if key in pivot.columns]
+        pivot = pivot[visible]
+    if pivot.empty or not len(pivot.columns):
+        st.info("Ingen valgte strategikurver å vise.")
+        return
     chart=_svg_chart(pivot)
     if chart:
         st.markdown(chart, unsafe_allow_html=True)
