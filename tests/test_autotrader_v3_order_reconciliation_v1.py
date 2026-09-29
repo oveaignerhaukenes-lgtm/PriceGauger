@@ -6,7 +6,7 @@ SCOPE=dict(account_id='a',uic=4912,asset_type='CfdOnIndex')
 PENDING=dict(request_key='r1',broker_order_id='o1',expected_inventory=0.2,
              submitted_amount=0.1,submitted_side='Buy')
 FILL=dict(OrderId='o1',AccountId='a',Uic=4912,AssetType='CfdOnIndex',
-          Status='FinalFill',SubStatus='Confirmed',FilledAmount=0.1,BuySell='Buy')
+          Status='FinalFill',SubStatus='Confirmed',FilledAmount=0.1,BuySell='Buy',LogId='log1')
 POSITION=SimpleNamespace(account_id='a',uic=4912,asset_type='CfdOnIndex',
                          direction='LONG',amount=0.2)
 
@@ -42,3 +42,12 @@ def test_reconciliation_never_releases_without_both_evidences(monkeypatch):
     assert reconcile_pending_v3(read_positions=lambda client:[POSITION],**kwargs)
     assert marked[0]['request_key']=='r1'
     assert marked[0]['state']=='RECONCILED'
+
+def test_distinct_partial_fills_require_complete_amount_and_exact_position():
+    first={**FILL,'Status':'PartialFill','FilledAmount':0.04,'LogId':'log-a'}
+    second={**FILL,'Status':'FinalFill','FilledAmount':0.06,'LogId':'log-b'}
+    assert verify(rows=[first,second])
+    assert not verify(rows=[first])
+    assert not verify(rows=[first,{**second,'LogId':'log-a'}])
+    assert not verify(rows=[first,{**second,'AccountId':'other'}])
+    assert not verify(rows=[first,{**second,'FilledAmount':0.07}])
