@@ -8,6 +8,8 @@ from database import connect
 
 
 DEFAULTS_V3: dict[str, dict[str, Any]] = {
+    "normalize": {},  # No tunable parameters yet; preserve the registry key.
+    "mtf-confirmation": {},  # Configuration-free until MTF runtime is implemented.
     "impulse": {"sensitivity": 1.0, "max_boost": 1.5},
     "reversal": {"confirmation_bars": 2, "strength": 1.0},
     "take-profit": {"giveback_pct": 10.0, "min_peak_profit_pct": 0.20, "reentry_cooldown_seconds": 30},
