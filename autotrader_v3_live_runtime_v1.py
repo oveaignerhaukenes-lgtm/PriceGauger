@@ -36,7 +36,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     active=tuple(e for e in load_active_strategy_enrollments_v2()
         if e.execution_mode==EXECUTION_MODE_LIVE
         and live_authority_armed_v3(e.pilot_key,db_path=db_path))
-    # Strategy selection is registry-driven. LIVE eligibility is intentionally
+    # Strategy selection is registry-driven. LIVE route availability is intentionally
     # separate: trailing has a planner but lacks durable Saxo reconciliation.
     # Do not substitute another strategy when the selected one is blocked.
     for e in active:
@@ -44,13 +44,13 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if adapter is None:
             _record_runtime(e.pilot_key, "BLOCKED",
                 f"Unregistered V3 strategy {e.strategy_key}; no orders sent.", db_path=db_path)
-        elif not adapter.live_execution_validated:
+        elif not adapter.live_route_enabled:
             _record_runtime(e.pilot_key, "BLOCKED",
                 f"{e.strategy_key}: LIVE execution/reconciliation not validated. No orders sent.",
                 db_path=db_path)
     enrollments=tuple(e for e in active if
         (adapter := STRATEGIES_V3.get(e.strategy_key)) is not None
-        and adapter.live_execution_validated)
+        and adapter.live_route_enabled)
     if not enrollments: return 0
     # Record the heartbeat before any external dependency. If setup fails after
     # authority is armed, the UI must show the failure instead of "no heartbeat".
