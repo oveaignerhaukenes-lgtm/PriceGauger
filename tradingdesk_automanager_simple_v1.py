@@ -592,7 +592,7 @@ def _render_account_autotrader_v1(
     strategy_pending_key = f"{strategy_selector_key}:pending"
     strategy_error_key = f"{strategy_selector_key}:error"
     family_primary_keys = {FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1, FAMILY_PRICE_MACD_STRATEGY_V1}
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2)
+    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if item.key != STRATEGY_KEY_V3)
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
     if strategy_selector_key not in st.session_state or not pending_strategy_key:
         if str(st.session_state.get(strategy_selector_key) or "") != enrollment.strategy_key:
