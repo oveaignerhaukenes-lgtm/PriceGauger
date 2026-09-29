@@ -1,5 +1,5 @@
 """Durable, fail-closed V3 order-intent reservation per Saxo account/product."""
-from database import connect
+from database import connect, using_postgres
 
 UNRESOLVED = ("RESERVED", "SUBMITTING", "SUBMITTED", "UNKNOWN")
 
@@ -11,6 +11,20 @@ def ensure_schema(db_path="pricegauger.db"):
             state TEXT NOT NULL, broker_order_id TEXT, detail TEXT,
             expected_inventory REAL, submitted_amount REAL, submitted_side TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        # Existing pilot databases predate the reconciliation evidence columns.
+        # Add them in place before any SELECT or INSERT references them.
+        columns=("expected_inventory","submitted_amount","submitted_side")
+        if using_postgres():
+            for name,kind in (("expected_inventory","DOUBLE PRECISION"),
+                              ("submitted_amount","DOUBLE PRECISION"),
+                              ("submitted_side","TEXT")):
+                db.execute(f"ALTER TABLE autotrader_v3_order_guard ADD COLUMN IF NOT EXISTS {name} {kind}")
+        else:
+            existing={row[1] for row in db.execute("PRAGMA table_info(autotrader_v3_order_guard)").fetchall()}
+            for name,kind in (("expected_inventory","REAL"),("submitted_amount","REAL"),
+                              ("submitted_side","TEXT")):
+                if name not in existing:
+                    db.execute(f"ALTER TABLE autotrader_v3_order_guard ADD COLUMN {name} {kind}")
         db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS uq_v3_unresolved_boundary
             ON autotrader_v3_order_guard(account_id,uic,asset_type)
             WHERE state IN ('RESERVED','SUBMITTING','SUBMITTED','UNKNOWN')""")
