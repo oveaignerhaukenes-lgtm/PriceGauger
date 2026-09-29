@@ -21,6 +21,22 @@ export default function(component) {{
     const payload = data.payload || {{}};
     const chartId = String(payload.chart_id || 'TradingDeskSimple:unknown');
     const registry = window.__pricegaugerSimpleLiveCharts ||= new Map();
+    const layoutKey = 'pg:tradingdesk:chart-layout:v1:' + chartId;
+    function readLayout() {{
+        try {{
+            const stored = JSON.parse(window.localStorage.getItem(layoutKey) || '{{}}');
+            return stored && typeof stored === 'object' ? stored : {{}};
+        }} catch (_) {{ return {{}}; }}
+    }}
+    function saveLayout(patch) {{
+        try {{
+            window.localStorage.setItem(layoutKey, JSON.stringify({{ ...readLayout(), ...patch }}));
+        }} catch (_) {{ /* Resizing still works without storage. */ }}
+    }}
+    function boundedHeight(value, fallback) {{
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.max(260, Math.min(900, Math.round(number))) : fallback;
+    }}
 
     function loadLibrary() {{
         if (window.LightweightCharts) return Promise.resolve(window.LightweightCharts);
@@ -95,7 +111,15 @@ export default function(component) {{
         const theme = colors();
         parentElement.replaceChildren();
         parentElement.style.width = '100%';
-        parentElement.style.height = `${{Math.max(360, Number(payload.height || 780))}}px`;
+        const savedLayout = readLayout();
+        parentElement.style.height = `${{boundedHeight(savedLayout.height, Math.max(360, Number(payload.height || 420)))}}px`;
+        parentElement.style.boxSizing = 'border-box';
+        parentElement.style.border = '1px solid ' + theme.border;
+        parentElement.style.borderRadius = '8px';
+        parentElement.style.resize = 'vertical';
+        parentElement.style.overflow = 'hidden';
+        parentElement.style.minHeight = '260px';
+        parentElement.style.maxHeight = '900px';
         parentElement.style.minWidth = '0';
 
         const root = document.createElement('div');
@@ -207,14 +231,37 @@ export default function(component) {{
         }}
 
         const panes = chart.panes();
+        const savedPaneShares = Array.isArray(savedLayout.panes) ? savedLayout.panes : null;
         const priceShare = Math.max(.4, Math.min(.7, Number(payload.price_panel_share || .5)));
-        if (panes.length === 1) {{
+        if (savedPaneShares?.length === panes.length && savedPaneShares.every(x => Number.isFinite(Number(x)) && Number(x) > 0)) {{
+            panes.forEach((pane, index) => pane?.setStretchFactor?.(Number(savedPaneShares[index])));
+        }} else if (panes.length === 1) {{
             panes[pricePane]?.setStretchFactor?.(1);
         }} else {{
             const remainder = (1 - priceShare) / Math.max(1, panes.length - 1);
             panes.forEach((pane, index) => pane?.setStretchFactor?.(index === pricePane ? priceShare : remainder));
         }}
 
+        // LWC owns the draggable separators between indicator panes.
+        let lastFrameHeight = parentElement.getBoundingClientRect().height;
+        const resizeObserver = new ResizeObserver(() => {{
+            const height = Math.round(parentElement.getBoundingClientRect().height);
+            if (height !== Math.round(lastFrameHeight) && height >= 260) {{
+                lastFrameHeight = height;
+                saveLayout({{ height }});
+                chart.resize(parentElement.clientWidth, parentElement.clientHeight);
+            }}
+        }});
+        resizeObserver.observe(parentElement);
+        const savePaneSizes = () => {{
+            const active = chart.panes();
+            if (active.length > 1) {{
+                const heights = active.map(pane => Number(pane.getHeight?.() || 0));
+                if (heights.every(height => height > 0)) saveLayout({{ panes: heights }});
+            }}
+        }};
+        root.addEventListener('pointerup', savePaneSizes);
+        root.addEventListener('touchend', savePaneSizes, {{ passive: true }});
         chart.subscribeClick?.((param) => {{
             let picked = null;
             if (param?.seriesData) {{
@@ -242,7 +289,7 @@ export default function(component) {{
         if (candleData.length) chart.timeScale().fitContent();
 
         return {{
-            parent: parentElement, root, chart, candles, series, markers, selection,
+            parent: parentElement, root, chart, candles, series, markers, selection, resizeObserver,
             signature: String(payload.signature || ''),
             closedRevision: JSON.stringify(candleData), formingTime: null,
             lastRevision: Number(payload.update_revision || 0),
@@ -250,7 +297,7 @@ export default function(component) {{
     }}
 
     function update(entry) {{
-        entry.parent.style.height = `${{Math.max(360, Number(payload.height || 780))}}px`;
+        // Data refresh must not reset user-resized frame.
         const incomingRevision = Number(payload.update_revision || 0);
         if (incomingRevision < Number(entry.lastRevision || 0)) return;
         entry.lastRevision = incomingRevision;
@@ -293,6 +340,7 @@ export default function(component) {{
         const sameSignature = valid && entry.signature === String(payload.signature || '');
         if (!valid || !sameSignature) {{
             if (entry) {{
+                try {{ entry.resizeObserver?.disconnect(); }} catch (_) {{}}
                 try {{ entry.chart.remove(); }} catch (_) {{}}
                 registry.delete(chartId);
             }}
