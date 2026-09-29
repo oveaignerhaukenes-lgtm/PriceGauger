@@ -11,7 +11,7 @@ def test_account_selection_is_applied_to_controller_and_bootstrap():
     assert "_active_live_for_context_v1(context, account_id=account_id)" in DESK
     assert "bootstrap = _bootstrap_candidate_v1(context, observations, account_id=selected_account)" in DESK
     assert "and (account_id is None or item.account_id == account_id)" in DESK
-    assert "Ingen motorbytteknapp eller automatisk posisjonsoverføring" in DESK
+    assert "Ingen automatisk overtakelse av posisjoner" in DESK
 
 
 def test_trade_markers_are_refreshed_not_one_time_drawings():
