@@ -42,7 +42,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     for e in active:
         if e.strategy_key == TRAILING_KEY_V3:
             _record_runtime(e.pilot_key,"BLOCKED",
-                "Trailing LIVE not implemented by this worker: current V3 closed-bar driver uses histogram. No orders sent.",
+                "Trailing planner now has a dedicated closed-bar route, but LIVE execution/reconciliation is not yet validated. No orders sent.",
                 db_path=db_path)
         elif e.strategy_key != STRATEGY_KEY_V3:
             _record_runtime(e.pilot_key,"BLOCKED",
@@ -81,7 +81,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if not obs:
             _record_runtime(e.pilot_key,"DEGRADED","no closed 5m MACD observation",db_path=db_path)
             continue
-        decision=evaluate_closed_bar_once_v3(trader_id=e.pilot_key,observation=obs[-1],db_path=db_path)
+        decision=evaluate_closed_bar_once_v3(trader_id=e.pilot_key,observation=obs[-1],strategy_key=e.strategy_key,db_path=db_path)
         trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual).snapshot
         plan=plan_execution_v3(snapshot)
