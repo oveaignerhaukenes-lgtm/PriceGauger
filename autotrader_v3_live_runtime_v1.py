@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+from uuid import uuid5, NAMESPACE_URL
 from datetime import datetime,timedelta,timezone
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
 from autotrader_risk_control_v2 import _position_observations_v2
@@ -125,18 +126,23 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         side=("Buy" if mutation.direction=="LONG" else "Sell")
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
+        # CLOSE and OPEN of one reversal must have distinct durable identities.
+        # A retry of the same mutation retains its original identity.
+        signed_delta=mutation.amount if side=='Buy' else -mutation.amount
+        request_key=str(uuid5(NAMESPACE_URL,
+            f'{e.pilot_key}:{decision.decision_key}:{mutation.action}:{side}:'
+            f'{actual.amount:.10g}:{mutation.amount:.10g}'))
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
-            external_reference=("pgv3-"+decision.decision_key)[-50:])
+            external_reference=('pgv3-'+request_key)[-50:])
         pre=broker.precheck(order)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
             raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
         # Persist before the external POST; a timeout is UNKNOWN, never a retry.
-        signed_delta=mutation.amount if side=='Buy' else -mutation.amount
-        reserve_order_v3(request_key=decision.decision_key,trader_id=e.pilot_key,
+        reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
             account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,
             expected_inventory=actual.amount+signed_delta,
             submitted_amount=mutation.amount,submitted_side=side,db_path=db_path)
-        mark_order_v3(request_key=decision.decision_key,state='SUBMITTING',db_path=db_path)
+        mark_order_v3(request_key=request_key,state='SUBMITTING',db_path=db_path)
         try:
             result=broker.place_order(order,confirm_live=True)
         except Exception as exc:
