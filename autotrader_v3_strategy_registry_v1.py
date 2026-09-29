@@ -17,12 +17,12 @@ from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
 class StrategyAdapterV3:
     key: str
     evaluate_closed_bar: Callable
-    live_execution_validated: bool = False
+    live_route_enabled: bool = False  # Existing route availability; not proof of durable reconciliation.
 
 
 STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
     key: StrategyAdapterV3(key=key, evaluate_closed_bar=evaluate_closed_bar_once_v3,
-                           live_execution_validated=(key == HISTOGRAM_KEY))
+                           live_route_enabled=(key == HISTOGRAM_KEY))
     for key in (HISTOGRAM_KEY, TRAILING_KEY)
 }
 
