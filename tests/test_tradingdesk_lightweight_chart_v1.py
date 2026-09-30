@@ -199,8 +199,9 @@ def test_trade_markers_keep_pg_and_manual_saxo_colors_distinct() -> None:
     assert "source === 'SAXO_MANUAL_FILL'" in source
     assert "direction === 'LONG' ? '#0ea5e9' : '#f59e0b'" in source
     assert "direction === 'LONG' ? '#16a34a' : '#dc2626'" in source
-    assert "SAXO BUY" in source
-    assert "SAXO SELL" in source
+    assert "text: manualSaxo ? '(MANUAL)' : ''" in source
+    assert "SAXO BUY" not in source
+    assert "SAXO SELL" not in source
 
 
 def test_bottom_handle_resizes_whole_chart_and_preserves_pane_ratios() -> None:
