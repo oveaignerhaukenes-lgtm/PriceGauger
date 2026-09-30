@@ -90,6 +90,25 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if pending:
             context=account_contexts.get(e.account_id)
             reconciled=False
+            # These are state/phase diagnostics only: never log broker payloads,
+            # account keys, client keys or raw order identifiers.
+            LOGGER.warning('v3 pending reconciliation pilot=%s state=%s has_order_id=%s '
+                'has_account_context=%s has_client_key=%s has_expected_inventory=%s',
+                e.pilot_key, pending.get('state'), bool(pending.get('broker_order_id')),
+                bool(context), bool(context and context[1]),
+                pending.get('expected_inventory') is not None)
+            if not context:
+                _record_runtime(e.pilot_key, 'BLOCKED',
+                    'Order reconciliation unavailable: account_context_missing', db_path=db_path)
+                continue
+            if not context[1]:
+                _record_runtime(e.pilot_key, 'BLOCKED',
+                    'Order reconciliation unavailable: client_key_missing', db_path=db_path)
+                continue
+            if not pending.get('broker_order_id'):
+                _record_runtime(e.pilot_key, 'BLOCKED',
+                    'Order reconciliation unavailable: broker_order_id_missing', db_path=db_path)
+                continue
             if context:
                 try:
                     reconciled=reconcile_pending_v3(
