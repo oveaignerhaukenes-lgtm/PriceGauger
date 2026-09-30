@@ -195,8 +195,12 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     side=side,requested_amount=mutation.amount,policy=policy,
                     current_same_side_amount=abs(actual.amount) if mutation.action=='ADD' else 0.0)
             except Exception as exc:
-                LOGGER.error('v3 OPEN/ADD sizing blocked pilot=%s error_type=%s',e.pilot_key,type(exc).__name__)
-                _record_runtime(e.pilot_key,'BLOCKED',f'OPEN/ADD sizing unavailable: {type(exc).__name__}',db_path=db_path)
+                reason=str(exc).strip() if isinstance(exc,ValueError) else ''
+                LOGGER.error('v3 OPEN/ADD sizing blocked pilot=%s error_type=%s reason=%s',e.pilot_key,type(exc).__name__,reason or 'unavailable')
+                detail=f'OPEN/ADD sizing unavailable: {type(exc).__name__}'
+                if reason:
+                    detail += f' ({reason})'
+                _record_runtime(e.pilot_key,'BLOCKED',detail,db_path=db_path)
                 continue
             if capped.permitted_amount + 1e-9 < mutation.amount:
                 from autotrader_v3_execution_plan_v1 import ExecutionStepV3
