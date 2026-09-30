@@ -15,7 +15,7 @@ class CappedMutationV3:
 
 
 def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrument,side:str,
-                           requested_amount:float,policy:ExecutionPolicyV3)->CappedMutationV3:
+                           requested_amount:float,policy:ExecutionPolicyV3,current_same_side_amount:float=0.0)->CappedMutationV3:
     if str(account_currency).upper()!='NOK':
         raise ValueError('V3 NOK exposure policy requires a NOK Saxo account')
     rules=load_entry_instrument_rules_v2(broker.client,account_key=account_key,instrument=instrument)
@@ -28,8 +28,11 @@ def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrum
     if unit<=0: raise ValueError('invalid V3 unit notional')
     step=Decimal(str(rules.increment_size))
     raw=Decimal(str(policy.max_notional_nok))/Decimal(str(unit))
-    permitted=(raw/step).to_integral_value(rounding=ROUND_DOWN)*step
-    permitted=min(Decimal(str(requested_amount)),permitted)
+    max_total=(raw/step).to_integral_value(rounding=ROUND_DOWN)*step
+    current=Decimal(str(abs(float(current_same_side_amount))))
+    room=max(Decimal(0),max_total-current)
+    permitted=min(Decimal(str(requested_amount)),room)
+    permitted=(permitted/step).to_integral_value(rounding=ROUND_DOWN)*step
     if permitted < Decimal(str(rules.minimum_amount)):
-        raise ValueError('V3 exposure cap is below Saxo minimum order amount')
+        raise ValueError('V3 exposure cap leaves less than Saxo minimum order amount')
     return CappedMutationV3(float(requested_amount),float(permitted),unit,policy.max_notional_nok)
