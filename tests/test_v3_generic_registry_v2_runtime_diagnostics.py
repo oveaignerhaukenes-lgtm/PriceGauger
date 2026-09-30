@@ -11,10 +11,11 @@ def test_v3_registry_routes_both_strategies_through_same_decision_contract():
     assert strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar is strategy_adapter_v3(TRAILING_KEY).evaluate_closed_bar
 
 
-def test_trailing_manual_seeded_reduce_only_route_is_available():
+def test_trailing_live_route_uses_explicit_open_add_policy():
     assert strategy_adapter_v3(TRAILING_KEY).live_route_enabled is True
     runtime = Path('autotrader_v3_live_runtime_v1.py').read_text(encoding='utf-8')
-    assert 'mutation.action not in {"REDUCE", "CLOSE"}' in runtime
+    assert "mutation.action in {'OPEN','ADD'}" in runtime
+    assert 'load_execution_policy_v3' in runtime
     with pytest.raises(ValueError, match="Unregistered"):
         strategy_adapter_v3("unknown-strategy")
 
