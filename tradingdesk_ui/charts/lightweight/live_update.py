@@ -63,7 +63,7 @@ export default function(component) {
                 color: manualSaxo
                     ? (direction === 'LONG' ? '#16a34a' : '#dc2626')
                     : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
-                text: manualSaxo ? (direction === 'LONG' ? 'SAXO BUY' : 'SAXO SELL') : '',
+                text: manualSaxo ? '(MANUAL)' : '',
                 size: manualSaxo ? 0.95 : (marker.active ? 1.0 : 0.72),
                 id: `${source}:${marker.id || raw}:${index}`,
             }];
