@@ -174,7 +174,8 @@ def test_one_second_live_marker_update_preserves_manual_source_style() -> None:
     assert '"source": str(marker.source or "")' in source
     assert "source === 'SAXO_MANUAL_FILL'" in source
     assert "text: manualSaxo ? '(MANUAL)' : ''" in source
-    assert "SAXO BUY" not in source\n    assert "SAXO SELL" not in source
+    assert "SAXO BUY" not in source
+    assert "SAXO SELL" not in source
     assert "'#16a34a' : '#dc2626'" in source
 
 
