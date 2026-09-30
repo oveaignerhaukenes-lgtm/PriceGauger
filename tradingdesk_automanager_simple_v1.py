@@ -442,6 +442,11 @@ def render_tradingdesk_automanager_simple_v1(
             else:
                 st.info("Kontoen er ledig. Opprett V3-piloten med denne kontoen i den dedikerte V3-kontrollflaten; LIVE forblir sperret til ordrebanen er validert.")
     st.caption("Kontoer som er knyttet til én motor, skjules i den andre fanen. Ingen automatisk overtakelse av posisjoner.")
+    selected_by_engine = {
+        engine_key: st.session_state.get(f"td-account-tab:{engine_key}:{context.market_id}")
+        for engine_key in ("V2", "V3")
+    }
+    st.session_state[f"td-active-account:{context.market_id}"] = selected_by_engine.get("V3") or selected_by_engine.get("V2")
     return observations
 
 
