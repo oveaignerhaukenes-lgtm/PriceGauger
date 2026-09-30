@@ -43,3 +43,21 @@ def test_missing_account_currency_has_specific_fail_closed_reason():
         cap_open_add_amount_v3(broker=Broker(),account_key='k',account_currency='',
           instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex'),side='Buy',requested_amount=1,
           policy=ExecutionPolicyV3('t',1000,100))
+
+
+class LargeContractClient(Client):
+    def _get(self,path,params=None):
+        if path.startswith('ref/v1/instruments/details/'):
+            return {'AssetType':'CfdOnIndex','IsTradable':True,'NonTradableReason':'None','AmountDecimals':2,
+                    'ContractSize':100,'SupportedOrderTypes':['Market'],'CurrencyCode':'USD'}
+        return super()._get(path,params=params)
+
+class LargeContractBroker(Broker):
+    client=LargeContractClient()
+
+def test_index_cfd_contract_size_is_not_double_applied_to_exposure_unit():
+    instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex')
+    result=cap_open_add_amount_v3(broker=LargeContractBroker(),account_key='k',account_currency='NOK',
+        instrument=instrument,side='Buy',requested_amount=.01,policy=ExecutionPolicyV3('t',2000,100))
+    assert result.unit_notional_nok==pytest.approx(1000)
+    assert result.permitted_amount==pytest.approx(.01)
