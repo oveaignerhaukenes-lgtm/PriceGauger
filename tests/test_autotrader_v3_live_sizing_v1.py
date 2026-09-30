@@ -19,7 +19,7 @@ def test_cash_budget_does_not_cap_leveraged_gross_notional():
     policy=ExecutionPolicyV3('t',budget_nok=2500,exposure_pct=100)
     result=cap_open_add_amount_v3(broker=Broker(),account_key='k',account_currency='NOK',instrument=instrument,
         side='Buy',requested_amount=3.0,policy=policy)
-    assert result.unit_notional_nok==pytest.approx(1000)
+    assert result.unit_notional_nok==pytest.approx(100)
     assert result.permitted_amount==pytest.approx(3.0)
     assert result.max_notional_nok==pytest.approx(2500)
 
@@ -59,7 +59,7 @@ def test_index_cfd_contract_size_is_not_double_applied_to_exposure_unit():
     instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex')
     result=cap_open_add_amount_v3(broker=LargeContractBroker(),account_key='k',account_currency='NOK',
         instrument=instrument,side='Buy',requested_amount=.01,policy=ExecutionPolicyV3('t',2000,100))
-    assert result.unit_notional_nok==pytest.approx(1000)
+    assert result.unit_notional_nok==pytest.approx(100)
     assert result.permitted_amount==pytest.approx(.01)
 
 class Tech100LikeClient(Client):
@@ -77,5 +77,16 @@ def test_tech100_minimum_lot_is_not_blocked_by_gross_notional():
     instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex')
     result=cap_open_add_amount_v3(broker=Tech100LikeBroker(),account_key='k',account_currency='NOK',
         instrument=instrument,side='Buy',requested_amount=.01,policy=ExecutionPolicyV3('t',2000,100))
-    assert result.unit_notional_nok==pytest.approx(250000)
+    assert result.unit_notional_nok==pytest.approx(25000)
+    assert result.permitted_amount==pytest.approx(.01)
+
+
+class NoPrecheckBroker(Broker):
+    def precheck(self,order):
+        raise AssertionError("sizing must not consume Saxo order precheck")
+
+def test_sizing_does_not_consume_order_precheck_rate_limit():
+    result=cap_open_add_amount_v3(broker=NoPrecheckBroker(),account_key='k',account_currency='NOK',
+        instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex'),side='Buy',requested_amount=.01,
+        policy=ExecutionPolicyV3('t',2000,100))
     assert result.permitted_amount==pytest.approx(.01)
