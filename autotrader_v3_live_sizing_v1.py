@@ -6,15 +6,14 @@ as a broker-native metric, do not derive spend from price * CFD amount: doing so
 turns leverage into a false cash requirement and can block Saxo's minimum lot.
 
 This boundary still validates account currency, instrument rules, tradable step,
-market price/FX diagnostics and Saxo precheck.  Saxo remains the final authority
+market-price diagnostics. The runtime performs exactly one Saxo precheck after sizing; Saxo remains the final authority
 on whether the requested leveraged order is admissible.
 """
 from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
-from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2,_info_price,_extract_price,_conversion_factor
+from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2,_info_price,_extract_price
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3
-from saxo_trading import SaxoOrderRequest
 
 @dataclass(frozen=True, slots=True)
 class CappedMutationV3:
@@ -42,11 +41,7 @@ def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrum
 
     info=_info_price(broker.client,account_key=account_key,instrument=instrument,amount=float(permitted),side=side)
     price=_extract_price(info,side,require_side_price=True)
-    probe=SaxoOrderRequest(account_key=account_key,instrument=instrument,amount=float(permitted),buy_sell=side)
-    pre=broker.precheck(probe)
-    factor=_conversion_factor(pre,source_currency=rules.currency,account_currency='NOK')
-    unit=float(price)*float(factor)
-    if unit<=0:
+    # Diagnostic only: do not spend a Saxo precheck here merely to obtain FX.\n    # The runtime owns the single authoritative precheck immediately before POST.\n    unit=float(price)\n    if unit<=0:
         raise ValueError('invalid V3 unit notional')
 
     # Diagnostic only.  Gross leveraged notional is deliberately NOT compared
