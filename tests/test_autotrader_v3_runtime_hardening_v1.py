@@ -21,3 +21,22 @@ def test_exact_positions_reject_missing_account_identity():
     broker=SaxoLivePilotClientV3(Client())
     with pytest.raises(SaxoTradingSafetyError,match='missing exact account'):
         broker.net_positions_exact(account_id='a',uic=4912,asset_type='CfdOnIndex')
+
+
+def test_signed_inventory_exact_is_scoped_to_account_and_uses_gross_legs():
+    class Client:
+        base_url=LIVE_BASE_URL
+        def _get(self,*args,**kwargs):
+            return {'Data':[
+                {'NetPositionBase':{'PositionsAccount':'other','Uic':4912,'AssetType':'CfdOnIndex','AmountLong':0.19,'AmountShort':0.03}},
+                {'NetPositionBase':{'PositionsAccount':'v3','Uic':4912,'AssetType':'CfdOnIndex','AmountLong':0.00,'AmountShort':0.02}},
+            ]}
+    broker=SaxoLivePilotClientV3(Client())
+    assert broker.signed_inventory_exact(account_id='v3',uic=4912,asset_type='CfdOnIndex') == pytest.approx(-0.02)
+    assert broker.signed_inventory_exact(account_id='missing',uic=4912,asset_type='CfdOnIndex') == 0.0
+
+
+def test_live_runtime_uses_v3_exact_inventory_reader_not_v2_portfolio_reader():
+    source=Path('autotrader_v3_live_runtime_v1.py').read_text()
+    assert 'broker.signed_inventory_exact(' in source
+    assert '_position_observations_v2' not in source
