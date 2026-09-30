@@ -10,7 +10,6 @@ from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inve
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3
-from autotrader_v3_order_reconciliation_v1 import reconcile_pending_v3
 from database import connect
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
@@ -88,52 +87,37 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         pending=pending_order_v3(account_id=e.account_id,uic=e.uic,
                                  asset_type=e.asset_type,db_path=db_path)
         if pending:
-            context=account_contexts.get(e.account_id)
-            reconciled=False
-            # These are state/phase diagnostics only: never log broker payloads,
-            # account keys, client keys or raw order identifiers.
-            LOGGER.warning('v3 pending reconciliation pilot=%s state=%s has_order_id=%s '
-                'has_account_context=%s has_client_key=%s has_expected_inventory=%s',
-                e.pilot_key, pending.get('state'), bool(pending.get('broker_order_id')),
-                bool(context), bool(context and context[1]),
-                pending.get('expected_inventory') is not None)
-            if not context:
-                _record_runtime(e.pilot_key, 'BLOCKED',
-                    'Order reconciliation unavailable: account_context_missing', db_path=db_path)
+            # Keep reconciliation deliberately simple: Saxo's current exact
+            # account/product inventory is the source of truth.  The durable
+            # reservation records the inventory we expected after the POST.
+            # If current inventory equals it, the mutation happened. Otherwise
+            # keep the lock and wait; never resend an ambiguous order.
+            expected=pending.get('expected_inventory')
+            if expected is None:
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    'Pending order lacks expected inventory; no retry sent',db_path=db_path)
                 continue
-            if not context[1]:
-                _record_runtime(e.pilot_key, 'BLOCKED',
-                    'Order reconciliation unavailable: client_key_missing', db_path=db_path)
+            try:
+                fresh_observations=_position_observations_v2(broker.client)
+                fresh_actual=_actual(e,fresh_observations)
+                expected_amount=float(expected)
+            except Exception as exc:
+                LOGGER.error('v3 position verification unavailable pilot=%s error_type=%s',
+                    e.pilot_key,type(exc).__name__)
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    f'Position verification unavailable: {type(exc).__name__}',db_path=db_path)
                 continue
-            if not pending.get('broker_order_id'):
-                _record_runtime(e.pilot_key, 'BLOCKED',
-                    'Order reconciliation unavailable: broker_order_id_missing', db_path=db_path)
-                continue
-            if context:
-                try:
-                    reconciled=reconcile_pending_v3(
-                        broker=broker,pending=pending,account_id=e.account_id,
-                        uic=e.uic,asset_type=e.asset_type,
-                        account_key=context[0],client_key=context[1],
-                        read_positions=_position_observations_v2,
-                        mark_reconciled=mark_order_v3,db_path=db_path)
-                except Exception as exc:
-                    # Persist only a bounded phase/type. The chained exception is
-                    # available to server logs without exposing broker payloads in UI.
-                    from autotrader_v3_order_reconciliation_v1 import V3ReconciliationPhaseError
-                    if isinstance(exc, V3ReconciliationPhaseError):
-                        safe_detail = str(exc)
-                    else:
-                        safe_detail = f'unknown_phase: {type(exc).__name__}'
-                    LOGGER.error('v3 reconciliation blocked pilot=%s phase_error=%s',
-                        e.pilot_key, safe_detail)
-                    _record_runtime(e.pilot_key,'BLOCKED',
-                        f'Order reconciliation unavailable: {safe_detail}',db_path=db_path)
-                    continue
-            _record_runtime(e.pilot_key,'RECONCILED' if reconciled else 'BLOCKED',
-                'Saxo FinalFill and exact inventory confirmed; next cycle may trade'
-                if reconciled else 'Unresolved Saxo order: awaiting exact fill and inventory',
-                db_path=db_path)
+            if abs(fresh_actual.amount-expected_amount) <= 1e-9:
+                mark_order_v3(request_key=pending['request_key'],state='RECONCILED',
+                    detail='Exact Saxo inventory reached expected post-order position',
+                    db_path=db_path)
+                _record_runtime(e.pilot_key,'RECONCILED',
+                    f'Exact Saxo position confirmed at {fresh_actual.amount:g}; next cycle may trade',
+                    db_path=db_path)
+            else:
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    f'Awaiting Saxo position change: expected={expected_amount:g} actual={fresh_actual.amount:g}; no retry sent',
+                    db_path=db_path)
             continue
         actual=_actual(e,observations)
         bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
