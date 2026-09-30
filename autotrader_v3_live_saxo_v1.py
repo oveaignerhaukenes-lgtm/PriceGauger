@@ -16,17 +16,47 @@ class SaxoLivePilotClientV3:
     def place_order(self, order:SaxoOrderRequest, *, confirm_live:bool=False):
         if not confirm_live: raise SaxoTradingSafetyError("v3 LIVE order requires explicit confirm_live=True")
         return self._post("trade/v2/orders",order.payload())
+    def _account_context_exact(self, account_id:str):
+        matches=[]
+        for row in self.accounts():
+            if not isinstance(row,dict):
+                continue
+            if str(row.get("AccountId") or "").strip()!=str(account_id):
+                continue
+            account_key=str(row.get("AccountKey") or "").strip()
+            client_key=str(row.get("ClientKey") or "").strip()
+            if not account_key:
+                raise SaxoTradingSafetyError("v3 LIVE account lacks AccountKey")
+            matches.append((account_key,client_key))
+        if len(matches)!=1:
+            raise SaxoTradingSafetyError("v3 LIVE account identity is missing or ambiguous")
+        return matches[0]
     def net_positions_exact(self, *,account_id:str,uic:int,asset_type:str):
-        payload=self.client._get("port/v1/netpositions/me",params={"$top":1000}); matches=[]
-        for row in payload.get("Data") or []:
-            if not isinstance(row,dict): continue
+        # /netpositions/me is client-wide and can aggregate the same instrument
+        # across accounts. Ask Saxo to scope the calculation to AccountKey instead.
+        account_key,client_key=self._account_context_exact(account_id)
+        params={"$top":1000,"AccountKey":account_key,"AssetType":asset_type,"Uic":int(uic)}
+        if client_key:
+            params["ClientKey"]=client_key
+        payload=self.client._get("port/v1/netpositions",params=params)
+        rows=payload.get("Data") or []
+        if not isinstance(rows,list):
+            raise SaxoTradingSafetyError("v3 LIVE exact position response is invalid")
+        matches=[]
+        for row in rows:
+            if not isinstance(row,dict):
+                continue
             base=row.get("NetPositionBase") if isinstance(row.get("NetPositionBase"),dict) else {}
-            if int(base.get("Uic") or -1)!=int(uic) or str(base.get("AssetType") or "")!=str(asset_type): continue
-            aid=str(base.get("PositionsAccount") or base.get("AccountId") or "")
-            if not aid: raise SaxoTradingSafetyError("v3 LIVE position missing exact account identity")
-            if aid!=str(account_id): continue
+            if int(base.get("Uic") or -1)!=int(uic) or str(base.get("AssetType") or "")!=str(asset_type):
+                continue
+            # AccountKey in the request is the authority boundary. If Saxo also
+            # returns an account id, require it to agree with the enrollment.
+            returned_id=str(base.get("PositionsAccount") or base.get("AccountId") or "").strip()
+            if returned_id and returned_id!=str(account_id):
+                raise SaxoTradingSafetyError("v3 LIVE account-scoped position identity mismatch")
             matches.append(row)
-        if len(matches)>1: raise SaxoTradingSafetyError("ambiguous v3 LIVE exact-boundary position state")
+        if len(matches)>1:
+            raise SaxoTradingSafetyError("ambiguous v3 LIVE exact-boundary position state")
         return tuple(matches)
     def signed_inventory_exact(self, *,account_id:str,uic:int,asset_type:str)->float:
         """Return signed inventory for one exact V3 account/product boundary."""
