@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
+from decimal import Decimal, ROUND_HALF_UP
 
 
 class ControlModeV3(str, Enum):
@@ -28,29 +29,48 @@ class AccountBoundaryV3:
             raise ValueError("asset_type is required")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class TargetInventoryV3:
-    amount: float
+    """Canonical V3 inventory stored as integer centilots (1 unit = 0.01 lot)."""
 
-    def __post_init__(self) -> None:
-        value = float(self.amount)
-        if not isfinite(value):
+    units: int
+
+    def __init__(self, amount: float | Decimal | int = 0) -> None:
+        value = Decimal(str(amount))
+        if not value.is_finite():
             raise ValueError("target inventory must be finite")
-        object.__setattr__(self, "amount", value)
+        units = int((value * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        object.__setattr__(self, "units", units)
+
+    @classmethod
+    def from_units(cls, units: int) -> "TargetInventoryV3":
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "units", int(units))
+        return obj
+
+    @property
+    def amount_decimal(self) -> Decimal:
+        return Decimal(self.units) / Decimal("100")
+
+    @property
+    def amount(self) -> float:
+        # Compatibility/display boundary only. Arithmetic inside V3 uses units.
+        return float(self.amount_decimal)
 
     @property
     def direction(self) -> str:
-        if self.amount > 0:
+        if self.units > 0:
             return "LONG"
-        if self.amount < 0:
+        if self.units < 0:
             return "SHORT"
         return "FLAT"
 
+    def delta_units_from(self, actual: "TargetInventoryV3") -> int:
+        return self.units - actual.units
+
     def delta_from(self, actual_amount: float) -> float:
-        value = float(actual_amount)
-        if not isfinite(value):
-            raise ValueError("actual inventory must be finite")
-        return self.amount - value
+        actual = TargetInventoryV3(actual_amount)
+        return float(Decimal(self.units - actual.units) / Decimal("100"))
 
 
 @dataclass(frozen=True, slots=True)
