@@ -137,7 +137,7 @@ def render_tradingdesk_chart_trade_controls_v1(
         return
 
     try:
-        enrollment = _active_live_for_context_v1(context)
+        enrollment = _active_live_for_context_v1(context, account_id=account_id)
         if enrollment is None:
             return
         current_observations = tuple(observations) if observations is not None else _position_observations_v2(client)
