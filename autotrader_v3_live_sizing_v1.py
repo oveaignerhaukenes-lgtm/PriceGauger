@@ -41,7 +41,10 @@ def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrum
 
     info=_info_price(broker.client,account_key=account_key,instrument=instrument,amount=float(permitted),side=side)
     price=_extract_price(info,side,require_side_price=True)
-    # Diagnostic only: do not spend a Saxo precheck here merely to obtain FX.\n    # The runtime owns the single authoritative precheck immediately before POST.\n    unit=float(price)\n    if unit<=0:
+    # Diagnostic only: do not spend a Saxo precheck here merely to obtain FX.
+    # The runtime owns the single authoritative precheck immediately before POST.
+    unit=float(price)
+    if unit<=0:
         raise ValueError('invalid V3 unit notional')
 
     # Diagnostic only.  Gross leveraged notional is deliberately NOT compared
