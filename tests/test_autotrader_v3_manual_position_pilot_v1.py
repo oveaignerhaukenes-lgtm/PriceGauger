@@ -5,10 +5,12 @@ from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 def test_trailing_route_enabled_only_under_existing_user_authority():
     assert STRATEGIES_V3[TRAILING_KEY].live_route_enabled
 
-def test_trailing_pilot_cannot_open_or_add():
+def test_trailing_pilot_open_add_requires_explicit_exposure_policy():
     source = Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
     assert 'if e.strategy_key == TRAILING_KEY:' in source
-    assert 'mutation.action not in {"REDUCE", "CLOSE"}' in source
+    assert "mutation.action in {'OPEN','ADD'}" in source
+    assert 'load_execution_policy_v3' in source
+    assert 'cap_open_add_amount_v3' in source
     assert 'mutation.amount > abs(actual.amount) + 1e-9' in source
-    assert source.index('if e.strategy_key == TRAILING_KEY:') < source.index('broker.precheck(order)')
-    assert source.index('if e.strategy_key == TRAILING_KEY:') < source.index('reserve_order_v3(')
+    assert source.index("mutation.action in {'OPEN','ADD'}") < source.index('broker.precheck(order)')
+    assert source.index("mutation.action in {'OPEN','ADD'}") < source.index('reserve_order_v3(')
