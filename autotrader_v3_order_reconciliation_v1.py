@@ -9,9 +9,13 @@ class V3ReconciliationPhaseError(RuntimeError):
     def __init__(self, phase: str, original: Exception):
         self.phase = phase
         self.cause_type = type(original).__name__
-        super().__init__(f"{phase}: {self.cause_type}")
+        # Only our own enumerated audit reasons may be surfaced to runtime/UI.
+        self.reason = (str(original) if isinstance(original, V3AuditIncompleteError)
+                       and str(original) in ('invalid_data','page_limit','next_page') else '')
+        suffix = f': {self.reason}' if self.reason else ''
+        super().__init__(f"{phase}: {self.cause_type}{suffix}")
 
-from autotrader_v3_order_audit_v1 import verified_order_fills_v3,fetch_exact_order_audit_v3
+from autotrader_v3_order_audit_v1 import verified_order_fills_v3,fetch_exact_order_audit_v3,V3AuditIncompleteError
 from autotrader_v3_domain import signed_inventory_v3
 
 

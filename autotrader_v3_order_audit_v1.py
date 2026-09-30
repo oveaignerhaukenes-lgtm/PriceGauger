@@ -70,6 +70,10 @@ def verified_order_fills_v3(rows, *, account_id, uic, asset_type, order_id, side
         return None
     return sum(qty for _,qty in matches)
 
+class V3AuditIncompleteError(RuntimeError):
+    """Audit response cannot prove complete fills; carries no Saxo payload."""
+
+
 def fetch_exact_order_audit_v3(broker, *, account_key, client_key, since=None, now=None):
     """Read-only audit fetch; never treat missing/truncated pages as confirmation."""
     end=now or datetime.now(timezone.utc)
@@ -79,6 +83,10 @@ def fetch_exact_order_audit_v3(broker, *, account_key, client_key, since=None, n
         'FromDateTime':start.isoformat().replace('+00:00','Z'),
         'ToDateTime':end.isoformat().replace('+00:00','Z'),'$top':500})
     rows=payload.get('Data')
-    if not isinstance(rows,list) or len(rows)>=500 or payload.get('__next') or payload.get('Next'):
-        raise RuntimeError('Saxo audit incomplete: cannot reconcile order')
+    if not isinstance(rows,list):
+        raise V3AuditIncompleteError('invalid_data')
+    if len(rows)>=500:
+        raise V3AuditIncompleteError('page_limit')
+    if payload.get('__next') or payload.get('Next'):
+        raise V3AuditIncompleteError('next_page')
     return rows
