@@ -124,6 +124,7 @@ def render_tradingdesk_chart_trade_controls_v1(
     context: TradingDeskV2Context,
     *,
     observations: tuple | None = None,
+    account_id: str | None = None,
 ) -> None:
     """Mount chart BUY/SELL shortcuts onto the canonical Lightweight chart.
 
