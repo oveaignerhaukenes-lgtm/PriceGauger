@@ -35,39 +35,39 @@ def plan_execution_v3(snapshot: DecisionSnapshotV3, *, epsilon: float = 1e-9) ->
     Reversals are represented as CLOSE -> CONFIRM_FLAT -> OPEN, preserving the
     hardened v2 execution invariant before a future adapter is allowed to submit.
     """
-    actual = float(snapshot.actual_inventory.amount)
-    target = float(snapshot.risk_approved_target.amount)
-    if abs(target - actual) <= epsilon:
+    actual = snapshot.actual_inventory.units
+    target = snapshot.risk_approved_target.units
+    if target == actual:
         return ExecutionPlanV3(snapshot.trader_id, ())
 
-    actual_sign = 1 if actual > epsilon else -1 if actual < -epsilon else 0
-    target_sign = 1 if target > epsilon else -1 if target < -epsilon else 0
+    actual_sign = 1 if actual > 0 else -1 if actual < 0 else 0
+    target_sign = 1 if target > 0 else -1 if target < 0 else 0
     direction = lambda sign: "LONG" if sign > 0 else "SHORT"
 
     if target_sign == 0:
         return ExecutionPlanV3(snapshot.trader_id, (
-            ExecutionStepV3("CLOSE", abs(actual), direction(actual_sign), True, "approved target is FLAT"),
+            ExecutionStepV3("CLOSE", abs(actual) / 100, direction(actual_sign), True, "approved target is FLAT"),
         ))
 
     if actual_sign == 0:
         return ExecutionPlanV3(snapshot.trader_id, (
-            ExecutionStepV3("OPEN", abs(target), direction(target_sign), False, "Saxo is FLAT; open approved target"),
+            ExecutionStepV3("OPEN", abs(target) / 100, direction(target_sign), False, "Saxo is FLAT; open approved target"),
         ))
 
     if actual_sign != target_sign:
         return ExecutionPlanV3(snapshot.trader_id, (
             ExecutionStepV3("CLOSE", abs(actual), direction(actual_sign), True, "opposite exposure must close first"),
-            ExecutionStepV3("CONFIRM_FLAT", 0.0, "FLAT", True, "observe exact Saxo product FLAT before open"),
+            ExecutionStepV3("CONFIRM_FLAT", 0, "FLAT", True, "observe exact Saxo product FLAT before open"),
             ExecutionStepV3("OPEN", abs(target), direction(target_sign), False, "open approved opposite target only after FLAT"),
         ))
 
     delta = abs(target) - abs(actual)
-    if delta > epsilon:
+    if delta > 0:
         return ExecutionPlanV3(snapshot.trader_id, (
-            ExecutionStepV3("ADD", delta, direction(target_sign), False, "increase same-side inventory to approved target"),
+            ExecutionStepV3("ADD", delta / 100, direction(target_sign), False, "increase same-side inventory to approved target"),
         ))
     return ExecutionPlanV3(snapshot.trader_id, (
-        ExecutionStepV3("REDUCE", abs(delta), direction(actual_sign), False, "reduce same-side inventory to approved target"),
+        ExecutionStepV3("REDUCE", abs(delta) / 100, direction(actual_sign), False, "reduce same-side inventory to approved target"),
     ))
 
 
