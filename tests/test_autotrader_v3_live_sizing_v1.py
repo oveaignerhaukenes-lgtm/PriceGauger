@@ -28,3 +28,11 @@ def test_non_nok_account_fails_closed():
         cap_open_add_amount_v3(broker=Broker(),account_key='k',account_currency='USD',
           instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex'),side='Buy',requested_amount=1,
           policy=ExecutionPolicyV3('t',1000,100))
+
+
+def test_add_cap_counts_existing_same_side_inventory():
+    instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex')
+    policy=ExecutionPolicyV3('t',budget_nok=2500,exposure_pct=100)
+    result=cap_open_add_amount_v3(broker=Broker(),account_key='k',account_currency='NOK',instrument=instrument,
+        side='Buy',requested_amount=1.0,current_same_side_amount=2.0,policy=policy)
+    assert result.permitted_amount==pytest.approx(.5)
