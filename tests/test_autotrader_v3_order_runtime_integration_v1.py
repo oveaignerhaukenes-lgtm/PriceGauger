@@ -4,7 +4,7 @@ RUNTIME=Path('autotrader_v3_live_runtime_v1.py').read_text(encoding='utf-8')
 
 def test_pending_reconciliation_precedes_strategy_signal():
     assert RUNTIME.index('pending=pending_order_v3(')<RUNTIME.index('bars=CanonicalMarketBarStoreV2(')
-    assert RUNTIME.index("fresh_observations=_position_observations_v2(broker.client)")<RUNTIME.index('decision=evaluate_strategy_bar_v3(')
+    assert RUNTIME.index("fresh_actual=_actual(e,broker)")<RUNTIME.index('decision=evaluate_strategy_bar_v3(')
     assert RUNTIME.index("abs(fresh_actual.amount-expected_amount) <= 1e-9")<RUNTIME.index('decision=evaluate_strategy_bar_v3(')
     assert 'continue\n        actual=_actual(e,observations)' in RUNTIME
 
