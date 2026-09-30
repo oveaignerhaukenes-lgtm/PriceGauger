@@ -129,11 +129,14 @@ def _marker_payload(
             label = "FLAT"
             size = 1.2
         elif manual_saxo:
+            # Manual broker activity stays explicit on the chart.
             color = "#16a34a" if direction == "LONG" else "#dc2626"
-            label = "SAXO BUY" if direction == "LONG" else "SAXO SELL"
+            label = "(MANUAL)"
             size = 0.95
         else:
-            color = "#16a34a" if direction == "LONG" else "#dc2626"
+            # AutoTrader executions are intentionally arrows only.  Cyan/orange
+            # separates them visually from manual Saxo green/red markers.
+            color = "#06b6d4" if direction == "LONG" else "#f59e0b"
             label = ""
             size = 1.0 if marker.active else 0.72
         result.append(
