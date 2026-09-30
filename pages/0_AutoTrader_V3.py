@@ -7,6 +7,7 @@ from autotrader_v3_config_v1 import AutoTraderConfigV3, load_autotrader_config_v
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_modifier_settings_v1 import load_modifier_settings_v3, save_modifier_settings_v3
 from autotrader_v3_registry_v1 import CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3
+from database import connect
 
 
 st.set_page_config(page_title="AutoTrader V3 · PriceGauger", page_icon="🤖", layout="wide")
@@ -26,10 +27,28 @@ trader_id = st.selectbox("Trader", tuple(labels), format_func=lambda key: labels
 config = load_autotrader_config_v3(trader_id)
 armed = live_authority_armed_v3(trader_id)
 
+def _runtime_state(trader_id: str):
+    try:
+        with connect() as db:
+            row=db.execute("SELECT status,detail,updated_at FROM autotrader_v3_live_runtime_state WHERE trader_id=?",(trader_id,)).fetchone()
+        if row is None:
+            return None
+        get=lambda key,idx: row[key] if isinstance(row,dict) else row[idx]
+        return str(get('status',0)),str(get('detail',1) or ''),str(get('updated_at',2))
+    except Exception:
+        return None
+
+runtime_state=_runtime_state(trader_id)
+
 status_col, mode_col, authority_col = st.columns(3)
 status_col.metric("V3 config", "AKTIV")
 mode_col.metric("Kontrollmodus", config.control_mode)
 authority_col.metric("LIVE authority", "ON" if armed else "OFF")
+if runtime_state:
+    runtime_status,runtime_detail,runtime_updated=runtime_state
+    st.info(f"Runtime · {runtime_status} · {runtime_detail} · {runtime_updated}")
+else:
+    st.caption("Runtime · ingen heartbeat registrert ennå.")
 
 control_tab, chart_tab, sim_tab, audit_tab = st.tabs(("Kontroll", "Chart", "SIM / Adapt", "Audit"))
 
