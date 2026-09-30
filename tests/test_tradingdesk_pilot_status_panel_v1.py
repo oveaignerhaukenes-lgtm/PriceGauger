@@ -6,7 +6,7 @@ from pathlib import Path
 def test_automanager_facade_mounts_pilot_status_below_controls() -> None:
     source = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "observations = render_tradingdesk_automanager_simple_v1(context)" in source
-    assert "render_tradingdesk_pilot_status_panel_v1(context, observations=observations)" in source
+    assert "render_tradingdesk_pilot_status_panel_v1(context, observations=observations, account_id=selected_account)" in source
 
 
 def test_pilot_status_panel_has_no_execution_mutations() -> None:
