@@ -12,7 +12,8 @@ def test_pending_order_reconciliation_uses_exact_position_not_audit_history():
     text=Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
     assert "expected=pending.get('expected_inventory')" in text
     assert "fresh_actual=_actual(e,broker)" in text
-    assert "abs(fresh_actual.amount-expected_amount) <= 1e-9" in text
+    assert "reconcile_position_v3(" in text
+    assert "actual_inventory=fresh_actual.amount" in text
     assert "state='RECONCILED'" in text
     assert "no retry sent" in text
     assert "reconcile_pending_v3" not in text
