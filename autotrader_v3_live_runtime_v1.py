@@ -3,7 +3,6 @@ import logging
 from uuid import uuid5, NAMESPACE_URL
 from datetime import datetime,timedelta,timezone
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
-from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_strategy_enrollment_v2 import load_active_strategy_enrollments_v2,EXECUTION_MODE_LIVE
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
 from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inventory_v3
@@ -29,10 +28,9 @@ def _record_runtime(trader_id, status, detail="", *, db_path="pricegauger.db"):
           VALUES(?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(trader_id) DO UPDATE SET
           status=excluded.status,detail=excluded.detail,updated_at=excluded.updated_at""",(trader_id,status,detail))
 
-def _actual(e,observations):
-    matches=[o for o in observations if o.account_id==e.account_id and int(o.uic)==int(e.uic) and o.asset_type==e.asset_type]
-    if len(matches)>1: raise RuntimeError("ambiguous exact v3 Saxo boundary")
-    return TargetInventoryV3(0) if not matches else signed_inventory_v3(direction=matches[0].direction,amount=matches[0].amount)
+def _actual(e,broker):
+    return TargetInventoryV3(broker.signed_inventory_exact(
+        account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type))
 
 def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     """Normal v3 LIVE runtime. The LIVE toggle is the user authority boundary."""
@@ -63,7 +61,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         broker=configured_live_pilot_client_v3()
         if broker is None:
             raise RuntimeError("Saxo LIVE client unavailable")
-        observations=_position_observations_v2(broker.client)
     except Exception as exc:
         for e in enrollments:
             _record_runtime(e.pilot_key,"FAILED",f"{type(exc).__name__}: {exc}",db_path=db_path)
@@ -98,8 +95,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     'Pending order lacks expected inventory; no retry sent',db_path=db_path)
                 continue
             try:
-                fresh_observations=_position_observations_v2(broker.client)
-                fresh_actual=_actual(e,fresh_observations)
+                fresh_actual=_actual(e,broker)
                 expected_amount=float(expected)
             except Exception as exc:
                 LOGGER.error('v3 position verification unavailable pilot=%s error_type=%s',
@@ -119,7 +115,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     f'Awaiting Saxo position change: expected={expected_amount:g} actual={fresh_actual.amount:g}; no retry sent',
                     db_path=db_path)
             continue
-        actual=_actual(e,observations)
+        actual=_actual(e,broker)
         bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
         closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,timeframe_minutes=5) if bars else ()
         obs=macd_observations_v2(closed,timeframe_minutes=5) if closed else ()
