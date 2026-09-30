@@ -22,6 +22,7 @@ from saxo_trading import SaxoOrderRequest
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 
 def _record_runtime(trader_id, status, detail="", *, db_path="pricegauger.db"):
+    LOGGER.info("v3 runtime trader=%s status=%s detail=%s",trader_id,status,detail)
     with connect(db_path) as db:
         db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_live_runtime_state(
           trader_id TEXT PRIMARY KEY,status TEXT NOT NULL,detail TEXT,updated_at TEXT NOT NULL)""")
