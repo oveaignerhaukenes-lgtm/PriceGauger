@@ -28,6 +28,29 @@ class SaxoLivePilotClientV3:
             matches.append(row)
         if len(matches)>1: raise SaxoTradingSafetyError("ambiguous v3 LIVE exact-boundary position state")
         return tuple(matches)
+    def signed_inventory_exact(self, *,account_id:str,uic:int,asset_type:str)->float:
+        """Return signed inventory for one exact V3 account/product boundary."""
+        rows=self.net_positions_exact(account_id=account_id,uic=uic,asset_type=asset_type)
+        if not rows:
+            return 0.0
+        base=rows[0].get("NetPositionBase") or {}
+        has_long=base.get("AmountLong") is not None
+        has_short=base.get("AmountShort") is not None
+        if has_long or has_short:
+            long_amount=float(base.get("AmountLong") or 0.0)
+            short_amount=float(base.get("AmountShort") or 0.0)
+            if long_amount < 0 or short_amount < 0:
+                raise SaxoTradingSafetyError("v3 LIVE position has negative gross amount")
+            return long_amount-short_amount
+        amount=float(base.get("Amount") or 0.0)
+        direction=str(base.get("OpeningDirection") or "").strip().lower()
+        if abs(amount)<=1e-12:
+            return 0.0
+        if direction=="buy":
+            return abs(amount)
+        if direction=="sell":
+            return -abs(amount)
+        raise SaxoTradingSafetyError("v3 LIVE position lacks direction authority")
     def _post(self,path,payload):
         self.client._set_authorization()
         response=self.client.session.post(f"{self.client.base_url}/{path}",json=payload,timeout=self.client.timeout)
