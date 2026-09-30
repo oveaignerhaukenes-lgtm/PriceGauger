@@ -3,6 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
+from decimal import Decimal, ROUND_HALF_UP
+
+LOT_STEP_V3 = Decimal("0.01")
+
+
+def centilots_v3(amount: float | Decimal) -> int:
+    """Convert broker-facing lots to integer 0.01-lot units at the domain edge."""
+    value = Decimal(str(amount))
+    if not value.is_finite():
+        raise ValueError("inventory must be finite")
+    return int((value / LOT_STEP_V3).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def lots_v3(units: int) -> Decimal:
+    """Convert integer centilots to an exact broker-facing Decimal lot amount."""
+    return Decimal(int(units)) * LOT_STEP_V3
 
 
 class ControlModeV3(str, Enum):
@@ -33,10 +49,15 @@ class TargetInventoryV3:
     amount: float
 
     def __post_init__(self) -> None:
-        value = float(self.amount)
-        if not isfinite(value):
-            raise ValueError("target inventory must be finite")
-        object.__setattr__(self, "amount", value)
+        # Canonical inventory state is integer centilots. Keep the public amount
+        # compatibility property for the existing UI/strategy surface while all
+        # reconciliation arithmetic uses exact integer units.
+        units = centilots_v3(self.amount)
+        object.__setattr__(self, "amount", float(lots_v3(units)))
+
+    @property
+    def units(self) -> int:
+        return centilots_v3(self.amount)
 
     @property
     def direction(self) -> str:
@@ -50,7 +71,7 @@ class TargetInventoryV3:
         value = float(actual_amount)
         if not isfinite(value):
             raise ValueError("actual inventory must be finite")
-        return self.amount - value
+        return float(lots_v3(self.units - centilots_v3(value)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +129,9 @@ def signed_inventory_v3(*, direction: str, amount: float) -> TargetInventoryV3:
 
 
 __all__ = [
+    "LOT_STEP_V3",
+    "centilots_v3",
+    "lots_v3",
     "AccountBoundaryV3",
     "CapitalAllocationV3",
     "ControlModeV3",
