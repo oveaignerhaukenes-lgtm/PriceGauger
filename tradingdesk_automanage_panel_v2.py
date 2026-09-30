@@ -44,13 +44,14 @@ def render_tradingdesk_automanage_panel_v2(
     @st.fragment(run_every="10s" if auto_refresh else None)
     def _automanager_fragment_v2():
         observations = render_tradingdesk_automanager_simple_v1(context)
-        render_close_position_control_v1(context, observations=observations)
+        selected_account = st.session_state.get(f"td-active-account:{context.market_id}")
+        render_close_position_control_v1(context, observations=observations, account_id=selected_account)
         # The zero-height component lives in this isolated control fragment but mounts
         # its visual BUY/SELL shortcuts onto the already-rendered canonical chart root.
         # Clicks still reuse the existing durable manual-target execution lifecycle;
         # there is no browser-to-Saxo execution path.
-        render_tradingdesk_chart_trade_controls_v1(context, observations=observations)
-        render_tradingdesk_pilot_status_panel_v1(context, observations=observations)
+        render_tradingdesk_chart_trade_controls_v1(context, observations=observations, account_id=selected_account)
+        render_tradingdesk_pilot_status_panel_v1(context, observations=observations, account_id=selected_account)
         return observations
 
     return _automanager_fragment_v2()
