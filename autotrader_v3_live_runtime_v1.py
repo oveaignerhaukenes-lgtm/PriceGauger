@@ -14,6 +14,7 @@ from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
+from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -103,19 +104,34 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 _record_runtime(e.pilot_key,'BLOCKED',
                     f'Position verification unavailable: {type(exc).__name__}',db_path=db_path)
                 continue
-            if abs(fresh_actual.amount-expected_amount) <= 1e-9:
+            try:
+                reconciliation=reconcile_position_v3(
+                    expected_inventory=expected_amount,
+                    submitted_amount=pending.get('submitted_amount'),
+                    submitted_side=pending.get('submitted_side'),
+                    actual_inventory=fresh_actual.amount)
+            except (TypeError, ValueError):
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    'Pending order lacks valid mutation evidence; no retry sent',db_path=db_path)
+                continue
+            if reconciliation.state=='CONFIRMED':
                 mark_order_v3(request_key=pending['request_key'],state='RECONCILED',
                     detail='Exact Saxo inventory reached expected post-order position',
                     db_path=db_path)
                 _record_runtime(e.pilot_key,'RECONCILED',
-                    f'Exact Saxo position confirmed at {fresh_actual.amount:g}; next cycle may trade',
+                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=confirmed; next cycle may evaluate target',
+                    db_path=db_path)
+            elif reconciliation.state=='WAIT':
+                _record_runtime(e.pilot_key,'PENDING',
+                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=waiting; no retry sent',
                     db_path=db_path)
             else:
                 _record_runtime(e.pilot_key,'BLOCKED',
-                    f'Awaiting Saxo position change: expected={expected_amount:g} actual={fresh_actual.amount:g}; no retry sent',
+                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=conflict; manual/external inventory change requires acknowledgement',
                     db_path=db_path)
             continue
         actual=_actual(e,broker)
+        _record_runtime(e.pilot_key,'READY',f'actual={actual.amount:g} pending=none; evaluating target',db_path=db_path)
         bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
         closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,timeframe_minutes=5) if bars else ()
         obs=macd_observations_v2(closed,timeframe_minutes=5) if closed else ()
@@ -126,6 +142,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual).snapshot
         plan=plan_execution_v3(snapshot)
+        _record_runtime(e.pilot_key,'READY',
+            f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} delta={snapshot.pending_delta:g} pending=none',
+            db_path=db_path)
         mutation=next((s for s in plan.steps if s.action in {"OPEN","ADD","REDUCE","CLOSE"}),None)
         if mutation is None:
             _record_runtime(e.pilot_key,"MANAGING",f"target={snapshot.risk_approved_target.amount:g} actual={actual.amount:g}",db_path=db_path)
