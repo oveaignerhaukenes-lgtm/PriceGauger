@@ -17,7 +17,7 @@ def test_incomplete_audit_cannot_clear_order():
             return {'Data':[BASE]*500}
     class Broker:
         client=Client()
-    with pytest.raises(RuntimeError,match='incomplete'):
+    with pytest.raises(RuntimeError,match='page_limit'):
         fetch_exact_order_audit_v3(Broker(),account_key='key',client_key='client')
 
 
