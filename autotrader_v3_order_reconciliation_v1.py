@@ -12,6 +12,16 @@ class V3ReconciliationPhaseError(RuntimeError):
         # Only our own enumerated audit reasons may be surfaced to runtime/UI.
         self.reason = (str(original) if isinstance(original, V3AuditIncompleteError)
                        and str(original) in ('invalid_data','page_limit','next_page') else '')
+        # SaxoError status and HTTP code are bounded metadata; never include its
+        # message, which may contain a raw provider response.
+        if self.phase == 'audit_fetch' and self.cause_type == 'SaxoError':
+            status = getattr(original, 'status', '')
+            code = getattr(original, 'status_code', None)
+            if status in ('AUTH_FAILED','REQUEST_FAILED','TIMEOUT',
+                          'CONNECTION_FAILED','INVALID_RESPONSE'):
+                self.reason = status
+                if type(code) is int and 100 <= code <= 599:
+                    self.reason += f'_http_{code}'
         suffix = f': {self.reason}' if self.reason else ''
         super().__init__(f"{phase}: {self.cause_type}{suffix}")
 
