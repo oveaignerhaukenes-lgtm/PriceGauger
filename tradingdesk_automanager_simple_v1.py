@@ -92,7 +92,13 @@ def _active_live_for_context_v1(context: TradingDeskV2Context, *, account_id: st
         and (context.instrument_id is None or int(item.instrument_id) == int(context.instrument_id))
     )
     if len(matches) > 1:
-        raise RuntimeError("more than one active LIVE AutoManager controller matched this TradingDesk product")
+        # TradingDesk may host V2 and V3 controllers for the same product on
+        # different Saxo accounts.  Once the tab supplies an account boundary,
+        # ambiguity must be evaluated only inside that exact account.
+        account_ids={item.account_id for item in matches}
+        if account_id is None or len(account_ids) != 1:
+            raise RuntimeError("more than one active LIVE AutoManager controller matched this TradingDesk product")
+        raise RuntimeError("more than one active LIVE AutoManager controller matched this TradingDesk account/product")
     return matches[0] if matches else None
 
 
