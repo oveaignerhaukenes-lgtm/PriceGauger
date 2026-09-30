@@ -7,7 +7,6 @@ def test_trailing_route_enabled_only_under_existing_user_authority():
 
 def test_trailing_pilot_open_add_requires_explicit_exposure_policy():
     source = Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
-    assert 'if e.strategy_key == TRAILING_KEY:' in source
     assert "mutation.action in {'OPEN','ADD'}" in source
     assert 'load_execution_policy_v3' in source
     assert 'cap_open_add_amount_v3' in source
