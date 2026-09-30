@@ -158,27 +158,12 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         # REDUCE/CLOSE may only shrink the exact observed position. OPEN/ADD use
         # the persisted submission-time NOK exposure policy below.
         if mutation.action in {'REDUCE','CLOSE'}:
-            if actual.amount == 0 or mutation.amount > abs(actual.amount) + 1e-9:
+            if actual.units == 0 or mutation.units > abs(actual.units):
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction exceeds exact current position',db_path=db_path)
                 continue
-            from decimal import Decimal, ROUND_DOWN
-            step=Decimal('0.01')
-            # Planner inventory is float-backed, so e.g. -0.03 -> -0.02 may
-            # arrive as 0.009999999999999998. Snap near-step noise first;
-            # then floor genuine fractional excess to Saxo's 0.01 lot step.
-            requested=Decimal(str(mutation.amount))
-            nearest_steps=(requested / step).quantize(Decimal('1'))
-            nearest=nearest_steps * step
-            if abs(requested-nearest) <= Decimal('0.000000001'):
-                requested=nearest
-            permitted=(requested / step).to_integral_value(rounding=ROUND_DOWN) * step
-            if permitted < Decimal('0.01'):
+            if mutation.units < 1:
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction below 0.01 Saxo order step',db_path=db_path)
                 continue
-            if permitted != requested:
-                from autotrader_v3_execution_plan_v1 import ExecutionStepV3
-                mutation=ExecutionStepV3(mutation.action,float(permitted),mutation.direction,
-                    mutation.requires_flat_confirmation,mutation.reason+'; floored to 0.01 Saxo order step')
         account=accounts.get(e.account_id)
         if account is None: raise RuntimeError(f"v3 LIVE account unavailable: {e.account_id}")
         side=("Buy" if mutation.direction=="LONG" else "Sell")
@@ -206,7 +191,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} action={mutation.action} amount={mutation.amount:g} cap_nok={capped.max_notional_nok:g}',db_path=db_path)
         # CLOSE and OPEN of one reversal must have distinct durable identities.
         # A retry of the same mutation retains its original identity.
-        signed_delta=mutation.amount if side=='Buy' else -mutation.amount
+        signed_delta_units=mutation.units if side=='Buy' else -mutation.units
         request_key=str(uuid5(NAMESPACE_URL,
             f'{e.pilot_key}:{decision.decision_key}:{mutation.action}:{side}:'
             f'{actual.amount:.10g}:{mutation.amount:.10g}'))
@@ -218,7 +203,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         # Persist before the external POST; a timeout is UNKNOWN, never a retry.
         reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
             account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,
-            expected_inventory=actual.amount+signed_delta,
+            expected_inventory=TargetInventoryV3.from_units(actual.units+signed_delta_units).amount,
             submitted_amount=mutation.amount,submitted_side=side,db_path=db_path)
         mark_order_v3(request_key=request_key,state='SUBMITTING',db_path=db_path)
         try:
