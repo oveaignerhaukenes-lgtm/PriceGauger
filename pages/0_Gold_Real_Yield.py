@@ -64,6 +64,19 @@ df["real_yield_chg"] = df["real_yield"].diff()
 # Rolling beta: gold log return per +1 percentage-point move in 10Y real yield.
 df["beta_real"] = df["gold_ret"].rolling(reg_window).cov(df["real_yield_chg"]) / df["real_yield_chg"].rolling(reg_window).var()
 df["corr_real"] = df["gold_ret"].rolling(reg_window).corr(df["real_yield_chg"])
+
+def rolling_conditional_beta(frame: pd.DataFrame, direction: int) -> pd.Series:
+    values = pd.Series(index=frame.index, dtype=float)
+    for end in range(reg_window - 1, len(frame)):
+        sample = frame.iloc[end - reg_window + 1:end + 1]
+        sample = sample[sample["real_yield_chg"] * direction > 0].dropna(subset=["gold_ret", "real_yield_chg"])
+        if len(sample) < max(6, reg_window // 5) or sample["real_yield_chg"].var() == 0:
+            continue
+        values.iloc[end] = sample["gold_ret"].cov(sample["real_yield_chg"]) / sample["real_yield_chg"].var()
+    return values
+
+df["beta_yield_up"] = rolling_conditional_beta(df, 1)
+df["beta_yield_down"] = rolling_conditional_beta(df, -1)
 df["expected_ret"], df["residual"] = fit_model(df, include_dxy)
 df["residual_20d"] = df["residual"].rolling(20, min_periods=5).sum() * 100
 df["gold_norm"] = df["gold"] / df["gold"].iloc[0] * 100
@@ -73,12 +86,27 @@ df["real_inverse_norm"] = 100 - (df["real_yield"] - df["real_yield"].iloc[0]) * 
 latest = df.dropna(subset=["beta_real"]).iloc[-1] if df["beta_real"].notna().any() else df.iloc[-1]
 prev_beta = df["beta_real"].dropna().iloc[-min(21, df["beta_real"].notna().sum())] if df["beta_real"].notna().any() else np.nan
 compression = abs(latest["beta_real"]) < abs(prev_beta) if pd.notna(prev_beta) else False
+latest_up = df["beta_yield_up"].dropna().iloc[-1] if df["beta_yield_up"].notna().any() else np.nan
+latest_down = df["beta_yield_down"].dropna().iloc[-1] if df["beta_yield_down"].notna().any() else np.nan
+
+def regime_label(beta: float, previous: float) -> str:
+    if pd.isna(beta):
+        return "Utilstrekkelig data"
+    if beta > 0:
+        return "Inversjon"
+    if pd.notna(previous) and abs(beta) < abs(previous) * 0.75:
+        return "Kompresjon"
+    if abs(beta) < 0.03:
+        return "Nær dekobling"
+    return "Normal negativ beta"
+
+regime = regime_label(latest["beta_real"], prev_beta)
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("10Y realrente", f'{latest["real_yield"]:.2f}%')
 c2.metric("Rullerende realrente-beta", f'{latest["beta_real"]:.3f}' if pd.notna(latest["beta_real"]) else "—")
 c3.metric("Korrelasjon", f'{latest["corr_real"]:.2f}' if pd.notna(latest["corr_real"]) else "—")
-c4.metric("20d uforklart gullstyrke", f'{latest["residual_20d"]:+.2f}%' if pd.notna(latest["residual_20d"]) else "—")
+c4.metric(f"20d uforklart gullstyrke · {regime}",, f'{latest["residual_20d"]:+.2f}%' if pd.notna(latest["residual_20d"]) else "—")
 
 if pd.notna(prev_beta):
     if compression:
@@ -93,10 +121,29 @@ fig.update_layout(title="Gull mot invertert realrente", hovermode="x unified", h
 st.plotly_chart(fig, use_container_width=True)
 
 fig_beta = go.Figure()
+# Regime bands are descriptive visual guides, not statistical thresholds.
+fig_beta.add_hrect(y0=-10, y1=-0.10, fillcolor="rgba(255,80,80,0.07)", line_width=0, annotation_text="normal negativ følsomhet", annotation_position="top left")
+fig_beta.add_hrect(y0=-0.10, y1=-0.03, fillcolor="rgba(255,190,0,0.10)", line_width=0, annotation_text="kompresjon", annotation_position="top left")
+fig_beta.add_hrect(y0=-0.03, y1=0.03, fillcolor="rgba(80,160,255,0.10)", line_width=0, annotation_text="nær dekobling", annotation_position="top left")
+fig_beta.add_hrect(y0=0.03, y1=10, fillcolor="rgba(80,200,120,0.08)", line_width=0, annotation_text="inversjon", annotation_position="bottom left")
 fig_beta.add_trace(go.Scatter(x=df.index, y=df["beta_real"], name="Realrente-beta"))
 fig_beta.add_hline(y=0, line_dash="dot")
 fig_beta.update_layout(title=f"Rullerende {reg_window}d beta · mot null = kompresjon", height=340, yaxis_title="Beta")
 st.plotly_chart(fig_beta, use_container_width=True)
+
+fig_asym = go.Figure()
+fig_asym.add_trace(go.Scatter(x=df.index, y=df["beta_yield_up"], name="β · realrente stiger"))
+fig_asym.add_trace(go.Scatter(x=df.index, y=df["beta_yield_down"], name="β · realrente faller"))
+fig_asym.add_hline(y=0, line_dash="dot")
+fig_asym.update_layout(title="Asymmetrisk beta · reagerer gull ulikt på rente opp og rente ned?", height=360, yaxis_title="Beta", hovermode="x unified")
+st.plotly_chart(fig_asym, use_container_width=True)
+
+if pd.notna(latest_up) and pd.notna(latest_down):
+    asym = abs(latest_up) - abs(latest_down)
+    if abs(latest_up) < abs(latest_down):
+        st.caption(f"Asymmetri nå: gull er mindre følsomt når realrenten stiger enn når den faller (|β opp| − |β ned| = {asym:+.3f}).")
+    else:
+        st.caption(f"Asymmetri nå: ingen defensiv kompresjon på opp-rentedager (|β opp| − |β ned| = {asym:+.3f}).")
 
 fig_res = go.Figure()
 fig_res.add_trace(go.Scatter(x=df.index, y=df["residual_20d"], name="20d residual"))
