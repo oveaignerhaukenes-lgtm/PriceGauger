@@ -1,4 +1,14 @@
-"""LIVE V3 OPEN/ADD sizing against a submission-time NOK notional ceiling."""
+"""LIVE V3 OPEN/ADD broker validation.
+
+The persisted NOK budget is cash/capital allocated to the trader, not a ceiling
+on leveraged gross market notional.  Until Saxo margin/cash impact is wired in
+as a broker-native metric, do not derive spend from price * CFD amount: doing so
+turns leverage into a false cash requirement and can block Saxo's minimum lot.
+
+This boundary still validates account currency, instrument rules, tradable step,
+market price/FX diagnostics and Saxo precheck.  Saxo remains the final authority
+on whether the requested leveraged order is admissible.
+"""
 from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
@@ -20,26 +30,26 @@ def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrum
     if not currency:
         raise ValueError('V3 Saxo account currency unavailable')
     if currency!='NOK':
-        raise ValueError('V3 NOK exposure policy requires a NOK Saxo account')
+        raise ValueError('V3 NOK capital policy requires a NOK Saxo account')
     rules=load_entry_instrument_rules_v2(broker.client,account_key=account_key,instrument=instrument)
-    info=_info_price(broker.client,account_key=account_key,instrument=instrument,amount=requested_amount,side=side)
+    requested=Decimal(str(requested_amount))
+    if requested <= 0:
+        raise ValueError('V3 requested amount must be positive')
+    step=Decimal(str(rules.increment_size))
+    permitted=(requested/step).to_integral_value(rounding=ROUND_DOWN)*step
+    if permitted < Decimal(str(rules.minimum_amount)):
+        raise ValueError('V3 requested amount is below Saxo minimum order amount')
+
+    info=_info_price(broker.client,account_key=account_key,instrument=instrument,amount=float(permitted),side=side)
     price=_extract_price(info,side,require_side_price=True)
-    probe=SaxoOrderRequest(account_key=account_key,instrument=instrument,amount=requested_amount,buy_sell=side)
+    probe=SaxoOrderRequest(account_key=account_key,instrument=instrument,amount=float(permitted),buy_sell=side)
     pre=broker.precheck(probe)
     factor=_conversion_factor(pre,source_currency=rules.currency,account_currency='NOK')
-    # For Saxo index CFDs Amount is already the tradable exposure unit.  The
-    # reference-data ContractSize/PriceToContractFactor is not an extra amount
-    # multiplier here; multiplying by it can inflate one 0.01 ticket into a
-    # fictitious full-contract notional and make every legal minimum look over cap.
     unit=float(price)*float(factor)
-    if unit<=0: raise ValueError('invalid V3 unit notional')
-    step=Decimal(str(rules.increment_size))
-    raw=Decimal(str(policy.max_notional_nok))/Decimal(str(unit))
-    max_total=(raw/step).to_integral_value(rounding=ROUND_DOWN)*step
-    current=Decimal(str(abs(float(current_same_side_amount))))
-    room=max(Decimal(0),max_total-current)
-    permitted=min(Decimal(str(requested_amount)),room)
-    permitted=(permitted/step).to_integral_value(rounding=ROUND_DOWN)*step
-    if permitted < Decimal(str(rules.minimum_amount)):
-        raise ValueError('V3 exposure cap leaves less than Saxo minimum order amount')
+    if unit<=0:
+        raise ValueError('invalid V3 unit notional')
+
+    # Diagnostic only.  Gross leveraged notional is deliberately NOT compared
+    # with the cash allocation.  A future broker-native margin/cash-impact value
+    # can enforce policy.max_notional_nok without changing this public contract.
     return CappedMutationV3(float(requested_amount),float(permitted),unit,policy.max_notional_nok)
