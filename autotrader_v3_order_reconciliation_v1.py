@@ -1,6 +1,16 @@
 """Conservative V3 order reconciliation: confirmed fill AND fresh exact inventory."""
 from __future__ import annotations
 from math import isclose,isfinite
+
+
+class V3ReconciliationPhaseError(RuntimeError):
+    """Sanitized phase-only error; never persist broker payloads or credentials."""
+
+    def __init__(self, phase: str, original: Exception):
+        self.phase = phase
+        self.cause_type = type(original).__name__
+        super().__init__(f"{phase}: {self.cause_type}")
+
 from autotrader_v3_order_audit_v1 import verified_order_fills_v3,fetch_exact_order_audit_v3
 from autotrader_v3_domain import signed_inventory_v3
 
@@ -45,11 +55,24 @@ def reconcile_pending_v3(*,broker,pending,account_id,uic,asset_type,
     """Never mark terminal without independently refreshed Saxo positions."""
     if not client_key or not pending.get('broker_order_id'):
         return False
-    rows=fetch_exact_order_audit_v3(broker,account_key=account_key,client_key=client_key)
+    try:
+        rows=fetch_exact_order_audit_v3(broker,account_key=account_key,client_key=client_key)
+    except Exception as exc:
+        raise V3ReconciliationPhaseError('audit_fetch', exc) from exc
     # This must be a fresh broker read after audit, not a cached cycle snapshot.
-    observations=read_positions(broker.client)
-    if not verified_reconciled_inventory_v3(pending=pending,rows=rows,
-            observations=observations,account_id=account_id,uic=uic,asset_type=asset_type):
+    try:
+        observations=read_positions(broker.client)
+    except Exception as exc:
+        raise V3ReconciliationPhaseError('fresh_position_read', exc) from exc
+    try:
+        verified=verified_reconciled_inventory_v3(pending=pending,rows=rows,
+            observations=observations,account_id=account_id,uic=uic,asset_type=asset_type)
+    except Exception as exc:
+        raise V3ReconciliationPhaseError('fill_inventory_verify', exc) from exc
+    if not verified:
         return False
-    mark_reconciled(request_key=pending['request_key'],state='RECONCILED',db_path=db_path)
+    try:
+        mark_reconciled(request_key=pending['request_key'],state='RECONCILED',db_path=db_path)
+    except Exception as exc:
+        raise V3ReconciliationPhaseError('persist_reconciled', exc) from exc
     return True
