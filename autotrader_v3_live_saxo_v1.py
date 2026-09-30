@@ -12,7 +12,9 @@ class SaxoLivePilotClientV3:
     def accounts(self):
         payload=self.client._get("port/v1/accounts/me"); return tuple(payload.get("Data") or ())
     def precheck(self, order:SaxoOrderRequest):
-        return self._post("trade/v2/orders/precheck",order.payload())
+        payload=order.payload()
+        payload["FieldGroups"]=["MarginImpactBuySell","Costs"]
+        return self._post("trade/v2/orders/precheck",payload)
     def place_order(self, order:SaxoOrderRequest, *, confirm_live:bool=False):
         if not confirm_live: raise SaxoTradingSafetyError("v3 LIVE order requires explicit confirm_live=True")
         return self._post("trade/v2/orders",order.payload())
