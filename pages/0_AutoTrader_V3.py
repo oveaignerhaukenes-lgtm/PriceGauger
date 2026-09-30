@@ -4,7 +4,8 @@ import streamlit as st
 
 from autotrader_strategy_enrollment_v2 import load_active_strategy_enrollments_v2
 from autotrader_v3_config_v1 import AutoTraderConfigV3, load_autotrader_config_v3, save_autotrader_config_v3
-from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
+from autotrader_v3_order_guard_v1 import pending_order as pending_order_v3, mark as mark_order_v3
 from autotrader_v3_modifier_settings_v1 import load_modifier_settings_v3, save_modifier_settings_v3
 from autotrader_v3_registry_v1 import CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3
 from database import connect
@@ -40,6 +41,11 @@ def _runtime_state(trader_id: str):
         return None
 
 runtime_state=_runtime_state(trader_id)
+selected_enrollment=next((item for item in enrollments if item.pilot_key == trader_id),None)
+pending=None
+if selected_enrollment is not None:
+    pending=pending_order_v3(account_id=selected_enrollment.account_id,uic=selected_enrollment.uic,asset_type=selected_enrollment.asset_type)
+
 
 status_col, mode_col, authority_col = st.columns(3)
 status_col.metric("V3 config", "AKTIV")
@@ -50,6 +56,21 @@ if runtime_state:
     st.info(f"Runtime · {runtime_status} · {runtime_detail} · {runtime_updated}")
 else:
     st.caption("Runtime · ingen heartbeat registrert ennå.")
+
+if pending is not None:
+    st.warning("En uavklart tidligere LIVE-ordre holder denne Saxo-boundaryen låst. Workeren sender ikke samme ordre på nytt.")
+    if st.button("Frigi gammel pending-lock og slå LIVE av", key=f"v3-release-pending:{trader_id}"):
+        # Recovery is deliberately fail-safe: releasing an ambiguous historical
+        # mutation always removes LIVE authority first. The operator must arm
+        # LIVE again explicitly after checking current Saxo inventory.
+        set_live_authority_v3(trader_id, False)
+        mark_order_v3(
+            request_key=pending["request_key"],
+            state="REJECTED",
+            detail="Operator released stale pending lock; LIVE authority disarmed before release",
+        )
+        st.success("Pending-lock er frigitt og LIVE er slått AV. Kontroller Saxo-posisjonen før eventuell ny arming.")
+        st.rerun()
 
 control_tab, chart_tab, sim_tab, audit_tab = st.tabs(("Kontroll", "Chart", "SIM / Adapt", "Audit"))
 
