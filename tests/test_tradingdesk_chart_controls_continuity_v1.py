@@ -55,7 +55,7 @@ def test_automanager_facade_does_not_install_legacy_chart_continuity() -> None:
     source = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
     assert "install_chart_runtime_continuity_v1()" not in source
     assert "tradingdesk_chart_runtime_continuity_v1" not in source
-    assert "render_tradingdesk_chart_trade_controls_v1(context, observations=observations)" in source
+    assert "render_tradingdesk_chart_trade_controls_v1(context, observations=observations, account_id=selected_account)" in source
 
 
 def test_chart_continuity_patch_installs_against_current_direct_runtime() -> None:

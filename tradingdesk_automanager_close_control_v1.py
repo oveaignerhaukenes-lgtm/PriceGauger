@@ -16,12 +16,13 @@ def render_close_position_control_v1(
     context: TradingDeskV2Context,
     *,
     observations: tuple | None,
+    account_id: str | None = None,
 ) -> None:
     """Render an explicit user FLAT control without browser-to-Saxo authority."""
     if observations is None:
         return
     try:
-        enrollment = _active_live_for_context_v1(context)
+        enrollment = _active_live_for_context_v1(context, account_id=account_id)
     except Exception as exc:
         st.caption(f"Close position venter: {exc}")
         return

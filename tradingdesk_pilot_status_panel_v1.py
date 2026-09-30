@@ -17,13 +17,14 @@ def render_tradingdesk_pilot_status_panel_v1(
     context: TradingDeskV2Context,
     *,
     observations: tuple[PositionObservationV2, ...] | None = None,
+    account_id: str | None = None,
 ) -> None:
     """Show audited pilot capital/trade status without acquiring execution authority."""
     client = configured_client()
     if client is None:
         return
     try:
-        enrollment = _active_live_for_context_v1(context)
+        enrollment = _active_live_for_context_v1(context, account_id=account_id)
         if enrollment is None:
             return
         status = load_pilot_status_v1(enrollment.pilot_key)

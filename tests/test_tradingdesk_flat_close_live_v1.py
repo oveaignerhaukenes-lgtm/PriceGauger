@@ -54,7 +54,7 @@ def test_close_position_control_pauses_autotrade_after_request() -> None:
     assert '"Close position"' in source
     assert "request_manual_close_v1" in source
     assert "set_auto_manage_enabled_v1(enrollment, False)" in source
-    assert "render_close_position_control_v1(context, observations=observations)" in facade
+    assert "render_close_position_control_v1(context, observations=observations, account_id=selected_account)" in facade
 
 
 def test_reconciled_close_is_projected_as_flat_square_marker() -> None:

@@ -36,3 +36,10 @@ def test_add_cap_counts_existing_same_side_inventory():
     result=cap_open_add_amount_v3(broker=Broker(),account_key='k',account_currency='NOK',instrument=instrument,
         side='Buy',requested_amount=1.0,current_same_side_amount=2.0,policy=policy)
     assert result.permitted_amount==pytest.approx(.5)
+
+
+def test_missing_account_currency_has_specific_fail_closed_reason():
+    with pytest.raises(ValueError,match='account currency unavailable'):
+        cap_open_add_amount_v3(broker=Broker(),account_key='k',account_currency='',
+          instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex'),side='Buy',requested_amount=1,
+          policy=ExecutionPolicyV3('t',1000,100))
