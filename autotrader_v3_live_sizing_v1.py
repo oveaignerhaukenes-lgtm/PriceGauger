@@ -16,7 +16,10 @@ class CappedMutationV3:
 
 def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrument,side:str,
                            requested_amount:float,policy:ExecutionPolicyV3,current_same_side_amount:float=0.0)->CappedMutationV3:
-    if str(account_currency).upper()!='NOK':
+    currency=str(account_currency).strip().upper()
+    if not currency:
+        raise ValueError('V3 Saxo account currency unavailable')
+    if currency!='NOK':
         raise ValueError('V3 NOK exposure policy requires a NOK Saxo account')
     rules=load_entry_instrument_rules_v2(broker.client,account_key=account_key,instrument=instrument)
     info=_info_price(broker.client,account_key=account_key,instrument=instrument,amount=requested_amount,side=side)
