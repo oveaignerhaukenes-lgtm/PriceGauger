@@ -39,6 +39,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     active=tuple(e for e in load_active_strategy_enrollments_v2()
         if e.execution_mode==EXECUTION_MODE_LIVE
         and live_authority_armed_v3(e.pilot_key,db_path=db_path))
+    LOGGER.info("v3 LIVE active armed enrollments=%d",len(active))
     # Strategy selection is registry-driven. LIVE route availability is intentionally
     # separate: trailing has a planner but lacks durable Saxo reconciliation.
     # Do not substitute another strategy when the selected one is blocked.
