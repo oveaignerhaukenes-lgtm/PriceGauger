@@ -19,3 +19,13 @@ def test_incomplete_audit_cannot_clear_order():
         client=Client()
     with pytest.raises(RuntimeError,match='incomplete'):
         fetch_exact_order_audit_v3(Broker(),account_key='key',client_key='client')
+
+
+def test_incomplete_audit_next_page_has_bounded_reason():
+    from autotrader_v3_order_audit_v1 import V3AuditIncompleteError
+    class Client:
+        def _get(self,path,params): return {'Data':[BASE],'Next':'opaque'}
+    class Broker:
+        client=Client()
+    with pytest.raises(V3AuditIncompleteError,match='next_page'):
+        fetch_exact_order_audit_v3(Broker(),account_key='key',client_key='client')
