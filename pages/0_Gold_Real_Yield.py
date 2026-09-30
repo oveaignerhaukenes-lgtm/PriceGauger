@@ -106,7 +106,7 @@ c1, c2, c3, c4 = st.columns(4)
 c1.metric("10Y realrente", f'{latest["real_yield"]:.2f}%')
 c2.metric("Rullerende realrente-beta", f'{latest["beta_real"]:.3f}' if pd.notna(latest["beta_real"]) else "—")
 c3.metric("Korrelasjon", f'{latest["corr_real"]:.2f}' if pd.notna(latest["corr_real"]) else "—")
-c4.metric(f"20d uforklart gullstyrke · {regime}",, f'{latest["residual_20d"]:+.2f}%' if pd.notna(latest["residual_20d"]) else "—")
+c4.metric(f"20d uforklart gullstyrke · {regime}", f'{latest["residual_20d"]:+.2f}%' if pd.notna(latest["residual_20d"]) else "—")
 
 if pd.notna(prev_beta):
     if compression:
