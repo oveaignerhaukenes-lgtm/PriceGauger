@@ -162,7 +162,16 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction exceeds exact current position',db_path=db_path)
                 continue
             from decimal import Decimal, ROUND_DOWN
-            requested=Decimal(str(mutation.amount)); permitted=requested.quantize(Decimal('0.01'),rounding=ROUND_DOWN)
+            step=Decimal('0.01')
+            # Planner inventory is float-backed, so e.g. -0.03 -> -0.02 may
+            # arrive as 0.009999999999999998. Snap near-step noise first;
+            # then floor genuine fractional excess to Saxo's 0.01 lot step.
+            requested=Decimal(str(mutation.amount))
+            nearest_steps=(requested / step).quantize(Decimal('1'))
+            nearest=nearest_steps * step
+            if abs(requested-nearest) <= Decimal('0.000000001'):
+                requested=nearest
+            permitted=(requested / step).to_integral_value(rounding=ROUND_DOWN) * step
             if permitted < Decimal('0.01'):
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction below 0.01 Saxo order step',db_path=db_path)
                 continue
