@@ -8,6 +8,7 @@ from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_modifier_settings_v1 import load_modifier_settings_v3, save_modifier_settings_v3
 from autotrader_v3_registry_v1 import CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3
 from database import connect
+from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 
 
 st.set_page_config(page_title="AutoTrader V3 · PriceGauger", page_icon="🤖", layout="wide")
@@ -54,6 +55,17 @@ control_tab, chart_tab, sim_tab, audit_tab = st.tabs(("Kontroll", "Chart", "SIM 
 
 with control_tab:
     st.subheader("Beslutningskjede")
+    policy=load_execution_policy_v3(trader_id)
+    st.markdown("#### LIVE eksponeringsramme")
+    pc1,pc2=st.columns(2)
+    budget_nok=pc1.number_input("Budsjett (NOK)",min_value=100.0,value=float(policy.budget_nok if policy else 2000.0),step=100.0,key=f"v3-budget:{trader_id}")
+    exposure_pct=pc2.slider("Eksponering av budsjett (%)",1,100,int(policy.exposure_pct if policy else 100),key=f"v3-exposure:{trader_id}")
+    st.caption(f"Submission-time posisjonstak: {budget_nok*exposure_pct/100:,.0f} NOK. Senere pris/FX-bevegelse endrer ikke den opprinnelige grensen.")
+    desired_policy=ExecutionPolicyV3(trader_id,budget_nok,exposure_pct)
+    if policy != desired_policy and st.button("Lagre eksponeringsramme",key=f"v3-policy-save:{trader_id}"):
+        save_execution_policy_v3(desired_policy)
+        st.success("Eksponeringsramme lagret.")
+        st.rerun()
     st.caption("Velg grunnstrategien først. Periode og modifiers er separate lag og skaper ikke nye strategi-identiteter.")
 
     strategy_keys = tuple(item.key for item in STRATEGIES_V3)
