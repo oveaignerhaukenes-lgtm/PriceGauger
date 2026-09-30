@@ -27,7 +27,11 @@ def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrum
     probe=SaxoOrderRequest(account_key=account_key,instrument=instrument,amount=requested_amount,buy_sell=side)
     pre=broker.precheck(probe)
     factor=_conversion_factor(pre,source_currency=rules.currency,account_currency='NOK')
-    unit=float(price)*float(rules.contract_size)*float(factor)
+    # For Saxo index CFDs Amount is already the tradable exposure unit.  The
+    # reference-data ContractSize/PriceToContractFactor is not an extra amount
+    # multiplier here; multiplying by it can inflate one 0.01 ticket into a
+    # fictitious full-contract notional and make every legal minimum look over cap.
+    unit=float(price)*float(factor)
     if unit<=0: raise ValueError('invalid V3 unit notional')
     step=Decimal(str(rules.increment_size))
     raw=Decimal(str(policy.max_notional_nok))/Decimal(str(unit))
