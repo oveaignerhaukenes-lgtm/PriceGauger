@@ -15,6 +15,8 @@ from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
+from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
+from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -71,6 +73,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     # Saxo account endpoint returns JSON dictionaries, not account objects.
     # Treating them as attributes made every armed v3 cycle fail before execution.
     accounts={}
+    account_currencies={}
     account_contexts={}
     for row in broker.accounts():
         if not isinstance(row,dict):
@@ -79,6 +82,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         account_key=str(row.get("AccountKey") or "").strip()
         if account_id and account_key:
             accounts[account_id]=account_key
+            account_currencies[account_id]=str(row.get('Currency') or '').upper()
             account_contexts[account_id]=(account_key,str(row.get('ClientKey') or ''))
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
@@ -151,41 +155,46 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation is None:
             _record_runtime(e.pilot_key,"MANAGING",f"target={snapshot.risk_approved_target.amount:g} actual={actual.amount:g}",db_path=db_path)
             continue
-        # Manual-seeded trailing pilot: only reduce an existing position.
-        # Keep the durable guard and Saxo precheck for any reduction.
-        if e.strategy_key == TRAILING_KEY:
-            if mutation.action not in {"REDUCE", "CLOSE"}:
-                _record_runtime(e.pilot_key, "MANAGING",
-                    "Trailing manual pilot: waiting for manual position or reduction signal",
-                    db_path=db_path)
-                continue
+        # REDUCE/CLOSE may only shrink the exact observed position. OPEN/ADD use
+        # the persisted submission-time NOK exposure policy below.
+        if mutation.action in {'REDUCE','CLOSE'}:
             if actual.amount == 0 or mutation.amount > abs(actual.amount) + 1e-9:
-                _record_runtime(e.pilot_key, "BLOCKED",
-                    "Trailing manual pilot: reduction exceeds exact current position",
-                    db_path=db_path)
+                _record_runtime(e.pilot_key,'BLOCKED','Reduction exceeds exact current position',db_path=db_path)
                 continue
-        # Saxo fractional CFD quantities are accepted at two decimal places for this
-        # small Tech100 pilot. Never round up a reduce-only order, and never send
-        # a zero/sub-minimum order to precheck in a retry loop.
-        if e.strategy_key == TRAILING_KEY:
             from decimal import Decimal, ROUND_DOWN
-            requested = Decimal(str(mutation.amount))
-            permitted = requested.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-            if permitted < Decimal("0.01"):
-                _record_runtime(e.pilot_key, "BLOCKED",
-                    "Trailing manual pilot: reduction below 0.01 Saxo order step",
-                    db_path=db_path)
+            requested=Decimal(str(mutation.amount)); permitted=requested.quantize(Decimal('0.01'),rounding=ROUND_DOWN)
+            if permitted < Decimal('0.01'):
+                _record_runtime(e.pilot_key,'BLOCKED','Reduction below 0.01 Saxo order step',db_path=db_path)
                 continue
             if permitted != requested:
                 from autotrader_v3_execution_plan_v1 import ExecutionStepV3
-                mutation = ExecutionStepV3(mutation.action, float(permitted),
-                    mutation.direction, mutation.requires_flat_confirmation,
-                    mutation.reason + "; floored to 0.01 Saxo order step")
+                mutation=ExecutionStepV3(mutation.action,float(permitted),mutation.direction,
+                    mutation.requires_flat_confirmation,mutation.reason+'; floored to 0.01 Saxo order step')
         account=accounts.get(e.account_id)
         if account is None: raise RuntimeError(f"v3 LIVE account unavailable: {e.account_id}")
         side=("Buy" if mutation.direction=="LONG" else "Sell")
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
+        if mutation.action in {'OPEN','ADD'}:
+            policy=load_execution_policy_v3(e.pilot_key,db_path=db_path)
+            if policy is None:
+                _record_runtime(e.pilot_key,'BLOCKED','OPEN/ADD requires an explicit V3 NOK exposure policy',db_path=db_path)
+                continue
+            try:
+                capped=cap_open_add_amount_v3(broker=broker,account_key=account,
+                    account_currency=account_currencies.get(e.account_id,''),instrument=instrument,
+                    side=side,requested_amount=mutation.amount,policy=policy,
+                    current_same_side_amount=abs(actual.amount) if mutation.action=='ADD' else 0.0)
+            except Exception as exc:
+                LOGGER.error('v3 OPEN/ADD sizing blocked pilot=%s error_type=%s',e.pilot_key,type(exc).__name__)
+                _record_runtime(e.pilot_key,'BLOCKED',f'OPEN/ADD sizing unavailable: {type(exc).__name__}',db_path=db_path)
+                continue
+            if capped.permitted_amount + 1e-9 < mutation.amount:
+                from autotrader_v3_execution_plan_v1 import ExecutionStepV3
+                mutation=ExecutionStepV3(mutation.action,capped.permitted_amount,mutation.direction,
+                    mutation.requires_flat_confirmation,mutation.reason+'; clamped by V3 NOK exposure cap')
+            _record_runtime(e.pilot_key,'READY',
+                f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} action={mutation.action} amount={mutation.amount:g} cap_nok={capped.max_notional_nok:g}',db_path=db_path)
         # CLOSE and OPEN of one reversal must have distinct durable identities.
         # A retry of the same mutation retains its original identity.
         signed_delta=mutation.amount if side=='Buy' else -mutation.amount

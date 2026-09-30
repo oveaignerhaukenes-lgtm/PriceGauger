@@ -11,7 +11,9 @@ def test_tradingdesk_trailing_strategy_cannot_silently_run_histogram_live():
     assert "from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3" in DESK
     assert "decide = macd_trailing_target_v3 if strategy_key == TRAILING_KEY else macd_histogram_target_v3" in DRIVER
     assert STRATEGIES_V3[TRAILING_KEY].live_route_enabled is True
-    assert 'mutation.action not in {"REDUCE", "CLOSE"}' in RUNTIME
+    assert "mutation.action in {'OPEN','ADD'}" in RUNTIME
+    assert 'load_execution_policy_v3' in RUNTIME
+    assert 'cap_open_add_amount_v3' in RUNTIME
     assert 'mutation.amount > abs(actual.amount) + 1e-9' in RUNTIME
     assert "STRATEGIES_V3.get(e.strategy_key)" in RUNTIME
     assert "not adapter.live_route_enabled" in RUNTIME
