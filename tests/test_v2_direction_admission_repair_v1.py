@@ -10,8 +10,9 @@ def test_v2_missing_direction_admission_can_only_inherit_same_product_safety():
     assert "negative_balance_protection_verified=sibling.negative_balance_protection_verified" in source
 
 
-def test_v2_still_blocks_when_no_same_product_admission_exists():
+def test_v2_without_saved_admission_still_requires_margin_envelope():
     source=Path("autotrader_entry_policy_v2.py").read_text()
     start=source.index("def require_entry_policy_v2")
-    body=source[start:start+1800]
-    assert 'raise ValueError("NOT_IN_PG_PRODUCT_UNIVERSE")' in body
+    body=source[start:start+2600]
+    assert 'raise ValueError("NOT_IN_PG_PRODUCT_UNIVERSE")' not in body
+    assert 'raise ValueError("MARGIN_ENVELOPE_NOT_ACTIVE")' in body
