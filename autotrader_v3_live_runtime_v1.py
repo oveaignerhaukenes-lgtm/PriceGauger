@@ -151,12 +151,17 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
         modifiers=[]
         if 'reset-on-loss' in config.modifiers:
-            try:
-                open_pnl=broker.open_pnl_exact(account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type)
-            except Exception as exc:
-                _record_runtime(e.pilot_key,'BLOCKED',f'Reset on Loss P/L unavailable: {type(exc).__name__}',db_path=db_path)
-                continue
-            modifiers.append(ResetOnLossModifierV3(open_pnl=open_pnl,actual_inventory=actual.amount))
+            # FLAT has no open P/L by definition. Do not query Saxo for a
+            # non-existent position and do not let an inert modifier block entry.
+            if abs(actual.amount) <= 1e-12:
+                modifiers.append(ResetOnLossModifierV3(open_pnl=0.0,actual_inventory=actual.amount))
+            else:
+                try:
+                    open_pnl=broker.open_pnl_exact(account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type)
+                except Exception as exc:
+                    _record_runtime(e.pilot_key,'BLOCKED',f'Reset on Loss P/L unavailable: {type(exc).__name__}',db_path=db_path)
+                    continue
+                modifiers.append(ResetOnLossModifierV3(open_pnl=open_pnl,actual_inventory=actual.amount))
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
         plan=plan_execution_v3(snapshot)
         _record_runtime(e.pilot_key,'READY',
