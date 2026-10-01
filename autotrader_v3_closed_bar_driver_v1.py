@@ -10,7 +10,7 @@ from autotrader_v3_macd_histogram_v1 import (
     STRATEGY_KEY_V3 as HISTOGRAM_KEY, MacdHistogramConfigV3,
     MacdHistogramDecisionV3, macd_histogram_target_v3,
 )
-from autotrader_v3_macd_trailing_v1 import (
+from autotrader_v3_macd_stoch_v1 import (\n    STRATEGY_KEY_V3 as STOCH_KEY, MacdStochDecisionV3, macd_stoch_target_v3,\n)\nfrom autotrader_v3_macd_trailing_v1 import (
     STRATEGY_KEY_V3 as TRAILING_KEY, MacdTrailingConfigV3,
     MacdTrailingDecisionV3, macd_trailing_target_v3,
 )
@@ -20,7 +20,7 @@ from database import connect
 @dataclass(frozen=True, slots=True)
 class ClosedBarDecisionV3:
     decision_key: str
-    decision: MacdTrailingDecisionV3 | MacdHistogramDecisionV3
+    decision: MacdTrailingDecisionV3 | MacdHistogramDecisionV3 | MacdStochDecisionV3
     is_new: bool
 
 
@@ -43,15 +43,15 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, TRAILING_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, TRAILING_KEY, STOCH_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
-        config = MacdTrailingConfigV3() if strategy_key == TRAILING_KEY else MacdHistogramConfigV3()
-    if strategy_key == TRAILING_KEY and not isinstance(config, MacdTrailingConfigV3):
-        raise TypeError("trailing requires MacdTrailingConfigV3")
+        config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, STOCH_KEY} else MacdHistogramConfigV3()
+    if strategy_key in {TRAILING_KEY, STOCH_KEY} and not isinstance(config, MacdTrailingConfigV3):
+        raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
     if strategy_key == HISTOGRAM_KEY and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram requires MacdHistogramConfigV3")
-    decide = macd_trailing_target_v3 if strategy_key == TRAILING_KEY else macd_histogram_target_v3
+    decide = macd_stoch_target_v3 if strategy_key == STOCH_KEY else (macd_trailing_target_v3 if strategy_key == TRAILING_KEY else macd_histogram_target_v3)
     ensure_closed_bar_driver_schema_v3(db_path)
     bar_time = observation.bar_time.isoformat()
     with connect(db_path) as db:
