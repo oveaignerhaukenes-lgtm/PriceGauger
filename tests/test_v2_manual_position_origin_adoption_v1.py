@@ -12,5 +12,6 @@ def test_manual_position_provenance_is_exact_account_product_and_position():
     source=Path("manual_saxo_trade_markers_v1.py").read_text()
     assert "def manual_position_has_provenance_v1" in source
     assert "account_id = ? AND uic = ? AND asset_type = ?" in source
-    assert "AND position_id = ?" in source
+    assert "position_id = ?" in source
+    assert "INTERVAL '24 hours'" in source
     assert "autotrader_v3_order_guard" in source

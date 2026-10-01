@@ -485,14 +485,18 @@ def manual_position_has_provenance_v1(
             SELECT 1
             FROM pg_v2_saxo_manual_trade_markers
             WHERE account_id = ? AND uic = ? AND asset_type = ?
-              AND position_id = ?
+              AND (
+                  position_id = ?
+                  OR executed_at >= now() - INTERVAL '24 hours'
+              )
               AND NOT EXISTS (
                   SELECT 1 FROM autotrader_v3_order_guard AS guard
                   WHERE guard.broker_order_id = pg_v2_saxo_manual_trade_markers.order_id
               )
+            ORDER BY CASE WHEN position_id = ? THEN 0 ELSE 1 END, executed_at DESC
             LIMIT 1
             """,
-            (str(account_id), int(uic), str(asset_type), str(position_id)),
+            (str(account_id), int(uic), str(asset_type), str(position_id), str(position_id)),
         ).fetchone()
     return row is not None
 
