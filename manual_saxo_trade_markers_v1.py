@@ -467,6 +467,36 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
     return tuple(result)
 
 
+
+def manual_position_has_provenance_v1(
+    *,
+    account_id: str,
+    uic: int,
+    asset_type: str,
+    position_id: str,
+) -> bool:
+    """True only when Saxo audit already proved this exact position came from a foreign/manual fill."""
+    if not using_postgres() or not str(position_id or "").strip():
+        return False
+    ensure_manual_saxo_trade_marker_schema_v1()
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT 1
+            FROM pg_v2_saxo_manual_trade_markers
+            WHERE account_id = ? AND uic = ? AND asset_type = ?
+              AND position_id = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM autotrader_v3_order_guard AS guard
+                  WHERE guard.broker_order_id = pg_v2_saxo_manual_trade_markers.order_id
+              )
+            LIMIT 1
+            """,
+            (str(account_id), int(uic), str(asset_type), str(position_id)),
+        ).fetchone()
+    return row is not None
+
+
 def manual_fill_explains_inventory_change_v1(
     *,
     account_id: str,
@@ -506,6 +536,7 @@ __all__ = [
     "ensure_manual_saxo_trade_marker_schema_v1",
     "load_manual_saxo_trade_markers_v1",
     "manual_fill_explains_inventory_change_v1",
+    "manual_position_has_provenance_v1",
     "parse_manual_fill_v1",
     "run_manual_saxo_trade_markers_forever_v1",
     "sync_manual_saxo_trade_markers_cycle_v1",
