@@ -32,6 +32,8 @@ def ensure_manage_control_schema_v1() -> None:
                     asset_type TEXT NOT NULL,
                     auto_manage_enabled BOOLEAN NOT NULL DEFAULT TRUE,
                     position_management_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    guard_blocked BOOLEAN NOT NULL DEFAULT FALSE,
+                    guard_block_reason TEXT,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     PRIMARY KEY(account_id, uic, asset_type)
                 )
@@ -43,6 +45,8 @@ def ensure_manage_control_schema_v1() -> None:
                 ADD COLUMN IF NOT EXISTS position_management_enabled BOOLEAN NOT NULL DEFAULT TRUE
                 """
             )
+            db.execute("ALTER TABLE pg_v2_autotrader_product_manage_control ADD COLUMN IF NOT EXISTS guard_blocked BOOLEAN NOT NULL DEFAULT FALSE")
+            db.execute("ALTER TABLE pg_v2_autotrader_product_manage_control ADD COLUMN IF NOT EXISTS guard_block_reason TEXT")
         _SCHEMA_READY = True
 
 
@@ -51,7 +55,7 @@ def _control_row_v1(enrollment: StrategyEnrollmentV2):
     with connect() as db:
         return db.execute(
             """
-            SELECT auto_manage_enabled, position_management_enabled
+            SELECT auto_manage_enabled, position_management_enabled, guard_blocked, guard_block_reason
             FROM pg_v2_autotrader_product_manage_control
             WHERE account_id = ? AND uic = ? AND asset_type = ?
             """,
@@ -69,7 +73,8 @@ def auto_manage_enabled_v1(enrollment: StrategyEnrollmentV2) -> bool:
     if row is None:
         return True
     value = row.get("auto_manage_enabled") if isinstance(row, dict) else row[0]
-    return bool(value)
+    blocked = row.get("guard_blocked") if isinstance(row, dict) else row[2]
+    return bool(value) and not bool(blocked)
 
 
 def position_management_enabled_v1(enrollment: StrategyEnrollmentV2) -> bool:
@@ -100,6 +105,57 @@ def _reset_signal_runtime_v1(pilot_key: str) -> None:
             db.execute(f"DELETE FROM {table} WHERE pilot_key = ?", (str(pilot_key),))
 
 
+
+def guard_block_state_v1(enrollment: StrategyEnrollmentV2) -> tuple[bool, str | None]:
+    row = _control_row_v1(enrollment)
+    if row is None:
+        return False, None
+    blocked = bool(row.get("guard_blocked") if isinstance(row, dict) else row[2])
+    reason = row.get("guard_block_reason") if isinstance(row, dict) else row[3]
+    return blocked, (None if reason is None else str(reason))
+
+
+def set_guard_block_v1(enrollment: StrategyEnrollmentV2, reason: str) -> None:
+    """Runtime safety interlock. Never rewrites the user's AutoTrade preference."""
+    ensure_manage_control_schema_v1()
+    with connect() as db:
+        db.execute(
+            """
+            INSERT INTO pg_v2_autotrader_product_manage_control(
+                account_id,uic,asset_type,auto_manage_enabled,position_management_enabled,
+                guard_blocked,guard_block_reason,updated_at
+            ) VALUES (?,?,?,TRUE,TRUE,TRUE,?,now())
+            ON CONFLICT (account_id,uic,asset_type) DO UPDATE SET
+                guard_blocked=TRUE, guard_block_reason=EXCLUDED.guard_block_reason, updated_at=now()
+            """,
+            (enrollment.account_id,int(enrollment.uic),enrollment.asset_type,str(reason)),
+        )
+
+
+def clear_guard_block_v1(enrollment: StrategyEnrollmentV2, *, expected_reason: str | None = None) -> bool:
+    """Clear only the runtime interlock; user-selected AutoTrade OFF remains OFF."""
+    ensure_manage_control_schema_v1()
+    with connect() as db:
+        if expected_reason is None:
+            row=db.execute(
+                """UPDATE pg_v2_autotrader_product_manage_control
+                   SET guard_blocked=FALSE,guard_block_reason=NULL,updated_at=now()
+                   WHERE account_id=? AND uic=? AND asset_type=? AND guard_blocked=TRUE
+                   RETURNING 1""",
+                (enrollment.account_id,int(enrollment.uic),enrollment.asset_type),
+            ).fetchone()
+        else:
+            row=db.execute(
+                """UPDATE pg_v2_autotrader_product_manage_control
+                   SET guard_blocked=FALSE,guard_block_reason=NULL,updated_at=now()
+                   WHERE account_id=? AND uic=? AND asset_type=? AND guard_blocked=TRUE
+                     AND guard_block_reason=?
+                   RETURNING 1""",
+                (enrollment.account_id,int(enrollment.uic),enrollment.asset_type,str(expected_reason)),
+            ).fetchone()
+    return row is not None
+
+
 def set_auto_manage_enabled_v1(
     enrollment: StrategyEnrollmentV2,
     enabled: bool,
@@ -123,6 +179,8 @@ def set_auto_manage_enabled_v1(
             ) VALUES (?, ?, ?, ?, TRUE, now())
             ON CONFLICT (account_id, uic, asset_type) DO UPDATE SET
                 auto_manage_enabled=EXCLUDED.auto_manage_enabled,
+                guard_blocked=CASE WHEN EXCLUDED.auto_manage_enabled THEN FALSE ELSE guard_blocked END,
+                guard_block_reason=CASE WHEN EXCLUDED.auto_manage_enabled THEN NULL ELSE guard_block_reason END,
                 updated_at=now()
             """,
             (enrollment.account_id, int(enrollment.uic), enrollment.asset_type, value),
@@ -187,6 +245,9 @@ def set_position_management_enabled_v1(
 
 __all__ = [
     "auto_manage_enabled_v1",
+    "guard_block_state_v1",
+    "set_guard_block_v1",
+    "clear_guard_block_v1",
     "ensure_manage_control_schema_v1",
     "position_management_enabled_v1",
     "set_auto_manage_enabled_v1",
