@@ -12,7 +12,9 @@ from autotrader_managed_positions_v1 import is_position_managed_v1
 from autotrader_manual_entry_adoption_v2 import adopt_user_confirmed_position_v2
 from autotrader_manual_target_v2 import manual_target_pending_v2, run_manual_target_once_v2
 from autotrader_macd_hybrid_v1 import run_macd_hybrid_live_once_v1
-from autotrader_macd_models_live_v1 import MACD_MODEL_LIVE_STRATEGIES_V1, run_macd_model_live_once_v1\nfrom autotrader_macd_a_pyr_live_v1 import run_macd_a_pyr_extended_live_once_v1\nfrom autotrader_macd_a_extended_v1 import PYRAMID_STRATEGY_KEY as MACD_A_PYR_EXTENDED_LIVE_KEY
+from autotrader_macd_models_live_v1 import MACD_MODEL_LIVE_STRATEGIES_V1, run_macd_model_live_once_v1
+from autotrader_macd_a_pyr_live_v1 import run_macd_a_pyr_extended_live_once_v1
+from autotrader_macd_a_extended_v1 import PYRAMID_STRATEGY_KEY as MACD_A_PYR_EXTENDED_LIVE_KEY
 from autotrader_macd_normalized_live_v2 import MACD_NORMALIZED_LIVE_STRATEGIES_V1, run_macd_normalized_live_once_v1
 from autotrader_macd_timeframe_live_v1 import run_macd_timeframe_live_once_v1
 from autotrader_mtf_flip_live_runtime_v2 import run_mtf_flip_live_strategy_once_v2
@@ -131,7 +133,10 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 cycle = run_price_macd_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in SFL_LIVE_STRATEGIES:
                 cycle = run_sfl_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
-            elif enrollment.strategy_key == MACD_A_PYR_EXTENDED_LIVE_KEY:\n                result = run_macd_a_pyr_extended_live_once_v1(enrollment, db_path=db_path)\n                LOGGER.info(\"V2 PYR LIVE pilot=%s result=%s\", enrollment.pilot_key, result)\n            elif enrollment.strategy_key in MACD_MODEL_LIVE_STRATEGIES_V1:
+            elif enrollment.strategy_key == MACD_A_PYR_EXTENDED_LIVE_KEY:
+                result = run_macd_a_pyr_extended_live_once_v1(enrollment, db_path=db_path)
+                LOGGER.info(\"V2 PYR LIVE pilot=%s result=%s\", enrollment.pilot_key, result)
+            elif enrollment.strategy_key in MACD_MODEL_LIVE_STRATEGIES_V1:
                 cycle = run_macd_model_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in HYBRID_LIVE_STRATEGIES:
                 cycle = run_macd_hybrid_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
