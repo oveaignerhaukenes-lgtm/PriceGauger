@@ -10,7 +10,10 @@ from autotrader_v3_macd_histogram_v1 import (
     STRATEGY_KEY_V3 as HISTOGRAM_KEY, MacdHistogramConfigV3,
     MacdHistogramDecisionV3, macd_histogram_target_v3,
 )
-from autotrader_v3_macd_stoch_v1 import (\n    STRATEGY_KEY_V3 as STOCH_KEY, MacdStochDecisionV3, macd_stoch_target_v3,\n)\nfrom autotrader_v3_macd_trailing_v1 import (
+from autotrader_v3_macd_stoch_v1 import (
+    STRATEGY_KEY_V3 as STOCH_KEY, MacdStochDecisionV3, macd_stoch_target_v3,
+)
+from autotrader_v3_macd_trailing_v1 import (
     STRATEGY_KEY_V3 as TRAILING_KEY, MacdTrailingConfigV3,
     MacdTrailingDecisionV3, macd_trailing_target_v3,
 )
