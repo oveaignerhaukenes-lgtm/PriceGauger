@@ -361,7 +361,7 @@ def require_entry_policy_v2(
     direction: str,
     currency: str,
     controlled_capital: float,
-) -> tuple[ProductAdmissionV2, PilotMarginConfigV2, AutoTraderMarginEnvelopeV2]:
+) -> tuple[ProductAdmissionV2 | None, PilotMarginConfigV2, AutoTraderMarginEnvelopeV2]:
     normalized = _normalize_direction(direction)
     admission = load_product_admission_v2(
         account_id=enrollment.account_id,
@@ -374,9 +374,7 @@ def require_entry_policy_v2(
             enrollment,
             direction=normalized,
         )
-    if admission is None:
-        raise ValueError("NOT_IN_PG_PRODUCT_UNIVERSE")
-    if (
+    if admission is not None and (
         admission.market_id != enrollment.market_id
         or admission.instrument_id != enrollment.instrument_id
         or admission.market_name != enrollment.market_name
@@ -396,12 +394,16 @@ def require_entry_policy_v2(
         ),
         direction="Long" if normalized == DIRECTION_LONG else "Short",
     )
-    require_product_eligible_v2(
-        market=enrollment.market_name,
-        product=product,
-        universe=(admission.universe_entry,),
-        margin_envelope_active=True,
-    )
+    # Explicit LIVE enrollment is the product identity authority. A saved
+    # Product Admission remains an optional stronger control-plane assertion;
+    # broker sizing and final precheck are mandatory in the LIVE OPEN worker.
+    if admission is not None:
+        require_product_eligible_v2(
+            market=enrollment.market_name,
+            product=product,
+            universe=(admission.universe_entry,),
+            margin_envelope_active=True,
+        )
     require_breakeven_reentry_allowed_v1(
         pilot_key=enrollment.pilot_key,
         account_id=enrollment.account_id,
