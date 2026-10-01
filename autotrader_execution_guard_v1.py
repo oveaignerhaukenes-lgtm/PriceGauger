@@ -348,6 +348,16 @@ def _request_for_position(enrollment: StrategyEnrollmentV2, observation: Positio
 def auto_adoption_has_provenance_v1(enrollment: StrategyEnrollmentV2, observation: PositionObservationV2) -> bool:
     if _request_for_position(enrollment, observation) is not None:
         return True
+    # A broker-audit-proven manual fill is intentional human inventory. Adopt it
+    # immediately so an armed V2 manager can continue from the user's adjustment.
+    from manual_saxo_trade_markers_v1 import manual_position_has_provenance_v1
+    if manual_position_has_provenance_v1(
+        account_id=enrollment.account_id,
+        uic=int(enrollment.uic),
+        asset_type=enrollment.asset_type,
+        position_id=str(observation.net_position_id),
+    ):
+        return True
     _anomaly("UNEXPECTED_POSITION_ORIGIN", account_id=enrollment.account_id, uic=enrollment.uic, asset_type=enrollment.asset_type, net_position_id=observation.net_position_id, details="Unmanaged Saxo position has no current PG OPEN provenance", severity="CRITICAL")
     _pause(enrollment, "UNEXPECTED_POSITION_ORIGIN")
     return False
