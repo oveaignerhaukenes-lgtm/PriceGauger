@@ -135,7 +135,7 @@ def run_automanage_strategy_cycle_v2(*, db_path: str = "pricegauger.db") -> tupl
                 cycle = run_sfl_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key == MACD_A_PYR_EXTENDED_LIVE_KEY:
                 result = run_macd_a_pyr_extended_live_once_v1(enrollment, db_path=db_path)
-                LOGGER.info(\"V2 PYR LIVE pilot=%s result=%s\", enrollment.pilot_key, result)
+                LOGGER.info("V2 PYR LIVE pilot=%s result=%s", enrollment.pilot_key, result)
             elif enrollment.strategy_key in MACD_MODEL_LIVE_STRATEGIES_V1:
                 cycle = run_macd_model_live_once_v1(enrollment, db_path=db_path, observations=observations); _log_fast_cycle_if_changed_v2(cycle)
             elif enrollment.strategy_key in HYBRID_LIVE_STRATEGIES:
