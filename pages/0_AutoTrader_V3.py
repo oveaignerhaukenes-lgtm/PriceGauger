@@ -99,6 +99,10 @@ with control_tab:
     )
     strategy_spec = next(item for item in STRATEGIES_V3 if item.key == strategy_key)
     st.caption(strategy_spec.description)
+    if strategy_spec.runtime_ready:
+        st.success(f"V3 runtime-klar · {strategy_spec.runtime_key}")
+    else:
+        st.warning("Konfigurert i V3-katalogen, men har ikke V3 SIM/LIVE-runtime ennå. Den kan ikke styre ordre før en runtime-adapter er implementert.")
 
     timeframe = st.selectbox(
         "Periode",
