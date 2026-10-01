@@ -134,7 +134,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=waiting; no retry sent',
                     db_path=db_path)
             else:
-                # A proven non-PriceGauger FinalFill is an intentional human
+                # A proven non-PriceGauger manual broker fill is an intentional human
                 # adjustment. Adopt Saxo actual immediately and retire the old
                 # expectation; unexplained mismatches remain fail-closed.
                 from manual_saxo_trade_markers_v1 import manual_fill_explains_inventory_change_v1
@@ -151,7 +151,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     actual_inventory=fresh_actual.amount)
                 if proven_manual:
                     mark_order_v3(request_key=pending['request_key'],state='RECONCILED',
-                        detail='Manual Saxo FinalFill adopted; stale V3 expectation retired',
+                        detail='Manual Saxo fill adopted; stale V3 expectation retired',
                         db_path=db_path)
                     _record_runtime(e.pilot_key,'RECONCILED',
                         f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=manual-adopted; next cycle may manage actual',
