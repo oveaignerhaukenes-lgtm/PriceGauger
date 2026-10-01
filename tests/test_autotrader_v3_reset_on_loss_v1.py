@@ -42,3 +42,13 @@ def test_flat_inventory_does_not_block_reentry_same_direction():
 def test_reads_saxo_dynamic_open_pnl():
     row={"NetPositionDynamic":{"OpenProfitLoss":-12.5}}
     assert open_pnl_from_net_position_v3(row) == -12.5
+
+
+def test_reads_long_pnl_sign_from_saxo_price_view_when_dynamic_missing():
+    row={"NetPositionBase":{"AmountLong":0.01,"AmountShort":0.0},"NetPositionView":{"AverageOpenPriceIncludingCosts":100.0,"CurrentPrice":99.0}}
+    assert open_pnl_from_net_position_v3(row) < 0
+
+
+def test_reads_short_pnl_sign_from_saxo_price_view_when_dynamic_missing():
+    row={"NetPositionBase":{"AmountLong":0.0,"AmountShort":0.01},"NetPositionView":{"AverageOpenPriceIncludingCosts":100.0,"CurrentPrice":101.0}}
+    assert open_pnl_from_net_position_v3(row) < 0
