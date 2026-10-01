@@ -71,7 +71,10 @@ def _account_context(broker,account_id):
     raise RuntimeError("V2 LIVE Saxo account unavailable")
 
 def run_macd_a_pyr_extended_live_once_v1(e,*,db_path="pricegauger.db",now=None):
-    if not e.enabled or e.execution_mode!=EXECUTION_MODE_LIVE or e.strategy_key!=PYRAMID_STRATEGY_KEY:\n        raise ValueError("MACD-A-PYR(1-30) LIVE adapter received wrong enrollment")\n    if not e.live_open_armed:\n        return "DISARMED"
+    if not e.enabled or e.execution_mode!=EXECUTION_MODE_LIVE or e.strategy_key!=PYRAMID_STRATEGY_KEY:
+        raise ValueError("MACD-A-PYR(1-30) LIVE adapter received wrong enrollment")
+    if not e.live_open_armed:
+        return "DISARMED"
     broker=configured_live_pilot_client_v3()
     if broker is None: raise RuntimeError("Saxo LIVE client unavailable")
     actual=_actual(e,broker)
