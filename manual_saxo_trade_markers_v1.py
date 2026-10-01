@@ -459,11 +459,45 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
     return tuple(result)
 
 
+def manual_fill_explains_inventory_change_v1(
+    *,
+    account_id: str,
+    uic: int,
+    asset_type: str,
+    submitted_at,
+    before_inventory: float,
+    actual_inventory: float,
+    epsilon: float = 1e-9,
+) -> bool:
+    """Prove that foreign/manual FinalFill rows explain the inventory delta."""
+    if not using_postgres():
+        return False
+    start = _utc(submitted_at) - OVERLAP_V1
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT direction, amount
+            FROM pg_v2_saxo_manual_trade_markers
+            WHERE account_id = ? AND uic = ? AND asset_type = ?
+              AND executed_at >= ?
+            ORDER BY executed_at ASC
+            """,
+            (str(account_id), int(uic), str(asset_type), start),
+        ).fetchall()
+    delta = 0.0
+    for row in rows:
+        direction = str(row["direction"] if isinstance(row, dict) else row[0])
+        amount = float(row["amount"] if isinstance(row, dict) else row[1])
+        delta += amount if direction == "LONG" else -amount
+    return abs((float(before_inventory) + delta) - float(actual_inventory)) <= float(epsilon)
+
+
 __all__ = [
     "DEFAULT_POLL_SECONDS_V1",
     "ManualSaxoTradeMarkerV1",
     "ensure_manual_saxo_trade_marker_schema_v1",
     "load_manual_saxo_trade_markers_v1",
+    "manual_fill_explains_inventory_change_v1",
     "parse_manual_fill_v1",
     "run_manual_saxo_trade_markers_forever_v1",
     "sync_manual_saxo_trade_markers_cycle_v1",

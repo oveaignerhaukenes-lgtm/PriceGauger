@@ -67,7 +67,7 @@ def pending_order(*, account_id, uic, asset_type, db_path="pricegauger.db"):
     ensure_schema(db_path)
     with connect(db_path) as db:
         row=db.execute("""SELECT request_key,state,broker_order_id,
-            expected_inventory,submitted_amount,submitted_side
+            expected_inventory,submitted_amount,submitted_side,updated_at
             FROM autotrader_v3_order_guard
             WHERE account_id=? AND uic=? AND asset_type=?
             AND state IN ('RESERVED','SUBMITTING','SUBMITTED','UNKNOWN') LIMIT 1""",
@@ -77,4 +77,4 @@ def pending_order(*, account_id, uic, asset_type, db_path="pricegauger.db"):
     if isinstance(row,dict):
         return dict(row)
     return dict(zip(("request_key","state","broker_order_id","expected_inventory",
-                     "submitted_amount","submitted_side"),row))
+                     "submitted_amount","submitted_side","updated_at"),row))
