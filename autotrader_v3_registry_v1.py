@@ -8,6 +8,8 @@ class StrategySpecV3:
     key: str
     label: str
     description: str
+    runtime_key: str | None = None
+    runtime_ready: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,12 +21,12 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
-    StrategySpecV3("macd", "MACD", "Ren MACD-grunnstrategi."),
-    StrategySpecV3("macd-stoch-v1", "MACD-Stoch", "MACD bygger eksponering trinnvis; motsatt Stochastic K/D-rollover går FLAT uten å reversere."),
+    StrategySpecV3("macd", "MACD", "Ren MACD-grunnstrategi.", "macd-trailing-v1", True),
+    StrategySpecV3("macd-stoch-v1", "MACD-Stoch", "MACD bygger eksponering trinnvis; motsatt Stochastic K/D-rollover går FLAT uten å reversere.", "macd-stoch-v1", True),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
-    StrategySpecV3("macd-histogram", "MACD Histogram", "Histogramretning styrer target inventory direkte."),
+    StrategySpecV3("macd-histogram", "MACD Histogram", "Histogramretning styrer target inventory direkte.", "macd-histogram-v1", True),
 )
 
 MODIFIERS_V3 = (
