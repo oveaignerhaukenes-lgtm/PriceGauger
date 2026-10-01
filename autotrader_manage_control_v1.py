@@ -179,8 +179,6 @@ def set_auto_manage_enabled_v1(
             ) VALUES (?, ?, ?, ?, TRUE, now())
             ON CONFLICT (account_id, uic, asset_type) DO UPDATE SET
                 auto_manage_enabled=EXCLUDED.auto_manage_enabled,
-                guard_blocked=CASE WHEN EXCLUDED.auto_manage_enabled THEN FALSE ELSE guard_blocked END,
-                guard_block_reason=CASE WHEN EXCLUDED.auto_manage_enabled THEN NULL ELSE guard_block_reason END,
                 updated_at=now()
             """,
             (enrollment.account_id, int(enrollment.uic), enrollment.asset_type, value),
