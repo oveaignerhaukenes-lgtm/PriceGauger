@@ -128,8 +128,12 @@ def _known_pg_order_ids_v1(account_id: str) -> frozenset[str]:
             SELECT close_attempt.order_id
             FROM pg_v2_autotrader_live_close_attempts AS close_attempt
             WHERE close_attempt.account_id = ? AND close_attempt.order_id IS NOT NULL
+            UNION
+            SELECT guard.broker_order_id
+            FROM autotrader_v3_order_guard AS guard
+            WHERE guard.account_id = ? AND guard.broker_order_id IS NOT NULL
             """,
-            (account_id, account_id, account_id),
+            (account_id, account_id, account_id, account_id),
         ).fetchall()
     return frozenset(
         str(row["order_id"] if isinstance(row, dict) else row[0]).strip()
@@ -423,6 +427,10 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
                 FROM pg_v2_saxo_manual_trade_markers
                 WHERE market_name = ?
                   AND executed_at >= ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM autotrader_v3_order_guard AS guard
+                      WHERE guard.broker_order_id = pg_v2_saxo_manual_trade_markers.order_id
+                  )
                 ORDER BY executed_at ASC
                 LIMIT 500
                 """,
