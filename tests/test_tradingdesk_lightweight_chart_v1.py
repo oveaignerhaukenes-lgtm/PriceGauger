@@ -197,9 +197,9 @@ def test_trade_markers_keep_pg_and_manual_saxo_colors_distinct() -> None:
         encoding="utf-8"
     )
     assert "source === 'SAXO_MANUAL_FILL'" in source
-    assert "direction === 'LONG' ? '#0ea5e9' : '#f59e0b'" in source
+    assert "autoV3 ? '#a855f7' : '#0ea5e9'" in source
     assert "direction === 'LONG' ? '#16a34a' : '#dc2626'" in source
-    assert "text: manualSaxo ? '(MANUAL)' : ''" in source
+    assert "text: manualSaxo ? 'M' : ''" in source
     assert "SAXO BUY" not in source
     assert "SAXO SELL" not in source
 
