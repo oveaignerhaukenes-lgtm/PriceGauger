@@ -134,9 +134,32 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=waiting; no retry sent',
                     db_path=db_path)
             else:
-                _record_runtime(e.pilot_key,'BLOCKED',
-                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=conflict; manual/external inventory change requires acknowledgement',
-                    db_path=db_path)
+                # A proven non-PriceGauger FinalFill is an intentional human
+                # adjustment. Adopt Saxo actual immediately and retire the old
+                # expectation; unexplained mismatches remain fail-closed.
+                from manual_saxo_trade_markers_v1 import manual_fill_explains_inventory_change_v1
+                submitted_amount=float(pending.get('submitted_amount') or 0.0)
+                submitted_side=str(pending.get('submitted_side') or '').strip().lower()
+                before_amount=expected_amount
+                if submitted_side=='buy':
+                    before_amount-=submitted_amount
+                elif submitted_side=='sell':
+                    before_amount+=submitted_amount
+                proven_manual=manual_fill_explains_inventory_change_v1(
+                    account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type,
+                    submitted_at=pending.get('updated_at'),before_inventory=before_amount,
+                    actual_inventory=fresh_actual.amount)
+                if proven_manual:
+                    mark_order_v3(request_key=pending['request_key'],state='RECONCILED',
+                        detail='Manual Saxo FinalFill adopted; stale V3 expectation retired',
+                        db_path=db_path)
+                    _record_runtime(e.pilot_key,'RECONCILED',
+                        f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=manual-adopted; next cycle may manage actual',
+                        db_path=db_path)
+                else:
+                    _record_runtime(e.pilot_key,'BLOCKED',
+                        f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=conflict; unexplained inventory change',
+                        db_path=db_path)
             continue
         actual=_actual(e,broker)
         _record_runtime(e.pilot_key,'READY',f'actual={actual.amount:g} pending=none; evaluating target',db_path=db_path)
