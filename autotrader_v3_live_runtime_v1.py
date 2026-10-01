@@ -182,9 +182,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 try:
                     open_pnl=broker.open_pnl_exact(account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type)
                 except Exception as exc:
-                    _record_runtime(e.pilot_key,'BLOCKED',f'Reset on Loss P/L unavailable: {type(exc).__name__}',db_path=db_path)
-                    continue
-                modifiers.append(ResetOnLossModifierV3(open_pnl=open_pnl,actual_inventory=actual.amount))
+                    LOGGER.warning("v3 Reset on Loss skipped pilot=%s: P/L unavailable: %s", e.pilot_key, type(exc).__name__)
+                else:
+                    modifiers.append(ResetOnLossModifierV3(open_pnl=open_pnl,actual_inventory=actual.amount))
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
         plan=plan_execution_v3(snapshot)
         _record_runtime(e.pilot_key,'READY',
