@@ -20,6 +20,7 @@ class ModifierSpecV3:
 
 STRATEGIES_V3 = (
     StrategySpecV3("macd", "MACD", "Ren MACD-grunnstrategi."),
+    StrategySpecV3("macd-stoch-v1", "MACD-Stoch", "MACD bygger eksponering trinnvis; motsatt Stochastic K/D-rollover går FLAT uten å reversere."),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
