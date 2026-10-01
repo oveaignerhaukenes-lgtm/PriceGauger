@@ -41,6 +41,7 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
 def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV2,
                                 strategy_key: str = HISTOGRAM_KEY,
                                 config: MacdTrailingConfigV3 | MacdHistogramConfigV3 | None = None,
+                                bars: Sequence = (),
                                 db_path: str = "pricegauger.db") -> ClosedBarDecisionV3:
     """Persistently reduce one *new* closed MACD bar into one target transition.
 
@@ -65,7 +66,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             target = float(row["target_amount"] if isinstance(row,dict) else row[1])
             prev_spread = row["previous_spread"] if isinstance(row,dict) else row[2]
             if bar_time <= last:
-                hold=(MacdTrailingDecisionV3 if strategy_key == TRAILING_KEY else MacdHistogramDecisionV3)(
+                hold=(MacdTrailingDecisionV3 if strategy_key == TRAILING_KEY else (MacdStochDecisionV3 if strategy_key == STOCH_KEY else MacdHistogramDecisionV3))(
                     TargetInventoryV3(target),"HOLD_DUPLICATE",
                     f"closed bar {bar_time} already evaluated",float(observation.spread))
                 return ClosedBarDecisionV3(f"{trader_id}|{bar_time}",hold,False)
@@ -75,7 +76,8 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         else:
             target=0.0; previous=None
         decision=decide(current_target=TargetInventoryV3(target),
-                                         observation=observation,previous_observation=previous,config=config)
+            observation=observation,previous_observation=previous,config=config,
+            **({"bars": bars} if strategy_key == STOCH_KEY else {}))
         now=datetime.utcnow().isoformat()
         db.execute("""INSERT INTO autotrader_v3_closed_bar_state(trader_id,last_bar_time,target_amount,previous_spread,updated_at)
           VALUES(?,?,?,?,?) ON CONFLICT(trader_id) DO UPDATE SET last_bar_time=excluded.last_bar_time,
