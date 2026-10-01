@@ -14,6 +14,8 @@ from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
+from autotrader_v3_config_v1 import load_autotrader_config_v3
+from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
 from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3
@@ -146,7 +148,16 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             continue
         decision=evaluate_strategy_bar_v3(trader_id=e.pilot_key,observation=obs[-1],bars=closed,strategy_key=e.strategy_key,db_path=db_path)
         trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
-        snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual).snapshot
+        config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
+        modifiers=[]
+        if 'reset-on-loss' in config.modifiers:
+            try:
+                open_pnl=broker.open_pnl_exact(account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type)
+            except Exception as exc:
+                _record_runtime(e.pilot_key,'BLOCKED',f'Reset on Loss P/L unavailable: {type(exc).__name__}',db_path=db_path)
+                continue
+            modifiers.append(ResetOnLossModifierV3(open_pnl=open_pnl,actual_inventory=actual.amount))
+        snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
         plan=plan_execution_v3(snapshot)
         _record_runtime(e.pilot_key,'READY',
             f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} delta={snapshot.pending_delta:g} pending=none',
