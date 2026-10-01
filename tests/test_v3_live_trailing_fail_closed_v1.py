@@ -9,7 +9,7 @@ DRIVER = Path("autotrader_v3_closed_bar_driver_v1.py").read_text(encoding="utf-8
 
 def test_tradingdesk_trailing_strategy_cannot_silently_run_histogram_live():
     assert "from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3" in DESK
-    assert "decide = macd_trailing_target_v3 if strategy_key == TRAILING_KEY else macd_histogram_target_v3" in DRIVER
+    assert "strategy_key == STOCH_KEY" in DRIVER\n    assert "macd_stoch_target_v3" in DRIVER\n    assert "macd_trailing_target_v3" in DRIVER\n    assert "macd_histogram_target_v3" in DRIVER
     assert STRATEGIES_V3[TRAILING_KEY].live_route_enabled is True
     assert "mutation.action in {'OPEN','ADD'}" in RUNTIME
     assert 'load_execution_policy_v3' in RUNTIME
