@@ -48,7 +48,7 @@ def test_base_and_live_trade_markers_share_blue_gold_palette() -> None:
     source = (ROOT / "tradingdesk_chart_runtime_continuity_v1.py").read_text(encoding="utf-8")
     live = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(encoding="utf-8")
     assert '#0ea5e9' in source and '#f59e0b' in source
-    assert '#0ea5e9' in live and '#f59e0b' in live
+    assert '#0ea5e9' in live and '#a855f7' in live
 
 
 def test_automanager_facade_does_not_install_legacy_chart_continuity() -> None:
