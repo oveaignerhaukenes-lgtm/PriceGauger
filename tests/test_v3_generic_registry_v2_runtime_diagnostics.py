@@ -2,7 +2,8 @@ from pathlib import Path
 import pytest
 
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
-from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY\nfrom autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
+from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
+from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, strategy_adapter_v3
 
 
