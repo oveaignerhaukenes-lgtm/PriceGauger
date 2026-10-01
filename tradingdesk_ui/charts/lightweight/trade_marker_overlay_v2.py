@@ -44,13 +44,19 @@ export default function(component) {
             const time = nearestTime(times, raw);
             if (time == null) return [];
             const isFlat = direction === 'FLAT';
+            const source = String(marker.source || '');
+            const manualSaxo = source === 'SAXO_MANUAL_FILL';
+            const autoV3 = source === 'AUTOTRADER_V3';
             return [{
                 time,
                 price,
                 position: 'atPriceMiddle',
                 shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                color: isFlat ? '#64748b' : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
-                size: isFlat ? 1.0 : (marker.active ? 1.0 : 0.72),
+                color: isFlat ? '#64748b' : (manualSaxo
+                    ? (direction === 'LONG' ? '#16a34a' : '#dc2626')
+                    : (autoV3 ? '#a855f7' : '#0ea5e9')),
+                text: manualSaxo ? 'M' : '',
+                size: isFlat ? 1.0 : (manualSaxo ? 0.82 : (marker.active ? 1.0 : 0.72)),
                 id: `${marker.id || raw}:${index}`,
             }];
         });
