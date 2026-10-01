@@ -9,7 +9,11 @@ from typing import Any, Mapping
 
 import requests
 
-from autotrader_manage_control_v1 import auto_manage_enabled_v1, set_auto_manage_enabled_v1
+from autotrader_manage_control_v1 import (
+    auto_manage_enabled_v1,
+    clear_guard_block_v1,
+    set_guard_block_v1,
+)
 from autotrader_risk_control_v2 import PositionObservationV2
 from autotrader_strategy_enrollment_v2 import (
     ENTRY_MODE_MANUAL_ONLY,
@@ -195,9 +199,8 @@ def _request_current(request: Mapping[str, Any]) -> bool:
 
 
 def _pause(enrollment: StrategyEnrollmentV2, reason: str) -> None:
-    if auto_manage_enabled_v1(enrollment):
-        set_auto_manage_enabled_v1(enrollment, False)
-        LOGGER.error("AutoManager paused by execution guard pilot=%s reason=%s", enrollment.pilot_key, reason)
+    set_guard_block_v1(enrollment, reason)
+    LOGGER.error("AutoManager blocked by execution guard pilot=%s reason=%s", enrollment.pilot_key, reason)
 
 
 def _enrollment(account_id: str | None, uic: int | None, asset_type: str | None) -> StrategyEnrollmentV2 | None:
@@ -347,6 +350,7 @@ def _request_for_position(enrollment: StrategyEnrollmentV2, observation: Positio
 
 def auto_adoption_has_provenance_v1(enrollment: StrategyEnrollmentV2, observation: PositionObservationV2) -> bool:
     if _request_for_position(enrollment, observation) is not None:
+        clear_guard_block_v1(enrollment, expected_reason="UNEXPECTED_POSITION_ORIGIN")
         return True
     # A broker-audit-proven manual fill is intentional human inventory. Adopt it
     # immediately so an armed V2 manager can continue from the user's adjustment.
@@ -357,6 +361,7 @@ def auto_adoption_has_provenance_v1(enrollment: StrategyEnrollmentV2, observatio
         asset_type=enrollment.asset_type,
         position_id=str(observation.net_position_id),
     ):
+        clear_guard_block_v1(enrollment, expected_reason="UNEXPECTED_POSITION_ORIGIN")
         return True
     _anomaly("UNEXPECTED_POSITION_ORIGIN", account_id=enrollment.account_id, uic=enrollment.uic, asset_type=enrollment.asset_type, net_position_id=observation.net_position_id, details="Unmanaged Saxo position has no current PG OPEN provenance", severity="CRITICAL")
     _pause(enrollment, "UNEXPECTED_POSITION_ORIGIN")

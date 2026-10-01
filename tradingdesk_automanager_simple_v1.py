@@ -15,6 +15,7 @@ from autotrader_live_close_v1 import LiveCloseConfigV1, save_live_close_config_v
 from autotrader_live_open_v2 import LiveOpenConfigV2, save_live_open_config_v2
 from autotrader_manage_control_v1 import (
     auto_manage_enabled_v1,
+    guard_block_state_v1,
     position_management_enabled_v1,
     set_auto_manage_enabled_v1,
     set_position_management_enabled_v1,
@@ -494,6 +495,7 @@ def _render_account_autotrader_v1(
     observed_direction = _direction_v1(observation)
     auto_trade_enabled = auto_manage_enabled_v1(enrollment)
     position_manage_enabled = position_management_enabled_v1(enrollment)
+    guard_blocked, guard_reason = guard_block_state_v1(enrollment)
 
     # Engine identity is persisted in the enrollment. Never switch engines from
     # a shared radio while an OPEN/CLOSE request may still be in flight.
@@ -517,6 +519,8 @@ def _render_account_autotrader_v1(
         engine_on = bool(position_manage_enabled and auto_trade_enabled)
         engine_label = "ENGINE V2 · LIVE"
     needs_takeover = not engine_v3 and observation is not None and not is_position_managed_v1(observation)
+    if not engine_v3 and guard_blocked:
+        st.warning(f"V2 runtime-blokkert av execution guard: {guard_reason or 'ukjent årsak'}. LIVE-preferansen er bevart; blokken løses bare når årsaken er verifisert borte.")
     if needs_takeover:
         st.error("V2 er pauset: Saxo-posisjonen har ikke en bekreftet PriceGauger-basis. En omstart eller LIVE ON løser ikke dette.")
         st.caption(
