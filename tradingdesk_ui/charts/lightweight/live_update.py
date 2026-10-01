@@ -55,6 +55,7 @@ export default function(component) {
             if (direction !== 'LONG' && direction !== 'SHORT') return [];
             const source = String(marker.source || '');
             const manualSaxo = source === 'SAXO_MANUAL_FILL';
+            const autoV3 = source === 'AUTOTRADER_V3';
             return [{
                 time,
                 price,
@@ -62,9 +63,9 @@ export default function(component) {
                 shape: direction === 'LONG' ? 'arrowUp' : 'arrowDown',
                 color: manualSaxo
                     ? (direction === 'LONG' ? '#16a34a' : '#dc2626')
-                    : (direction === 'LONG' ? '#0ea5e9' : '#f59e0b'),
-                text: manualSaxo ? '(MANUAL)' : '',
-                size: manualSaxo ? 0.95 : (marker.active ? 1.0 : 0.72),
+                    : (autoV3 ? '#a855f7' : '#0ea5e9'),
+                text: manualSaxo ? 'M' : '',
+                size: manualSaxo ? 0.82 : (marker.active ? 1.0 : 0.72),
                 id: `${source}:${marker.id || raw}:${index}`,
             }];
         });
