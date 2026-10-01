@@ -144,7 +144,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if not obs:
             _record_runtime(e.pilot_key,"DEGRADED","no closed 5m MACD observation",db_path=db_path)
             continue
-        decision=evaluate_strategy_bar_v3(trader_id=e.pilot_key,observation=obs[-1],strategy_key=e.strategy_key,db_path=db_path)
+        decision=evaluate_strategy_bar_v3(trader_id=e.pilot_key,observation=obs[-1],bars=closed,strategy_key=e.strategy_key,db_path=db_path)
         trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual).snapshot
         plan=plan_execution_v3(snapshot)
