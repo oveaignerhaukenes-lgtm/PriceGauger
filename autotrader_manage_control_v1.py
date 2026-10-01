@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from threading import Lock
 
+from autotrader_entry_policy_v2 import load_pilot_margin_config_v2, save_pilot_margin_config_v2
 from autotrader_fast_live_runtime_v2 import ensure_fast_live_schema_v2
 from autotrader_mtf_flip_live_runtime_v2 import ensure_mtf_flip_live_schema_v2
 from autotrader_mtf_live_runtime_v2 import ensure_mtf_live_schema_v2
@@ -13,6 +14,8 @@ from database import connect
 
 _SCHEMA_LOCK = Lock()
 _SCHEMA_READY = False
+DEFAULT_LIVE_MAX_EFFECTIVE_LEVERAGE_V2 = 5.0
+DEFAULT_LIVE_MINIMUM_FREE_CAPITAL_V2 = 0.0
 
 
 def ensure_manage_control_schema_v1() -> None:
@@ -64,11 +67,7 @@ def _control_row_v1(enrollment: StrategyEnrollmentV2):
 
 
 def auto_manage_enabled_v1(enrollment: StrategyEnrollmentV2) -> bool:
-    """Return AutoTrade strategy-signal authority for one exact product.
-
-    Legacy rows default to ON so this migration never silently disables an already
-    active controller. Position-management authority is tracked separately.
-    """
+    """Return AutoTrade strategy-signal authority for one exact product."""
     row = _control_row_v1(enrollment)
     if row is None:
         return True
@@ -104,6 +103,25 @@ def _reset_signal_runtime_v1(pilot_key: str) -> None:
         ):
             db.execute(f"DELETE FROM {table} WHERE pilot_key = ?", (str(pilot_key),))
 
+
+def _ensure_live_margin_envelope_v1(enrollment: StrategyEnrollmentV2) -> None:
+    """Provision the execution envelope as part of the V2 LIVE lifecycle.
+
+    Absence is a lifecycle gap and is repaired with the product-wide V2 LIVE default.
+    An explicitly disabled existing envelope is *not* silently re-enabled: that remains
+    a deliberate fail-closed operator control.
+    """
+    config = load_pilot_margin_config_v2(enrollment.pilot_key)
+    if config is None:
+        save_pilot_margin_config_v2(
+            pilot_key=enrollment.pilot_key,
+            max_effective_leverage=DEFAULT_LIVE_MAX_EFFECTIVE_LEVERAGE_V2,
+            minimum_free_capital=DEFAULT_LIVE_MINIMUM_FREE_CAPITAL_V2,
+            enabled=True,
+        )
+        return
+    if not config.enabled:
+        raise ValueError("MARGIN_ENVELOPE_DISABLED")
 
 
 def guard_block_state_v1(enrollment: StrategyEnrollmentV2) -> tuple[bool, str | None]:
@@ -160,16 +178,14 @@ def set_auto_manage_enabled_v1(
     enrollment: StrategyEnrollmentV2,
     enabled: bool,
 ) -> bool:
-    """Toggle AutoTrade strategy authority while keeping manual BUY/SELL usable.
-
-    AutoTrade can only be enabled while position management is enabled. OFF supersedes
-    only unstarted strategy requests; accepted/uncertain broker work is never cancelled
-    or retried here. Runtime signal state is reset on both edges.
-    """
+    """Toggle AutoTrade authority; LIVE ON atomically provisions required envelope."""
     ensure_manage_control_schema_v1()
     value = bool(enabled)
     if value and not position_management_enabled_v1(enrollment):
         raise ValueError("AutoTrade requires Manage position to be ON")
+    # Do this before granting strategy authority. If provisioning fails, LIVE remains OFF.
+    if value:
+        _ensure_live_margin_envelope_v1(enrollment)
     with connect() as db:
         db.execute(
             """
@@ -201,12 +217,7 @@ def set_position_management_enabled_v1(
     enrollment: StrategyEnrollmentV2,
     enabled: bool,
 ) -> bool:
-    """Toggle exact-position management authority independently from AutoTrade.
-
-    Turning management OFF also turns AutoTrade OFF and supersedes only unstarted
-    strategy-origin requests. Manual target requests remain available so the user can
-    still explicitly command BUY/SELL through the normal execution lifecycle.
-    """
+    """Toggle exact-position management authority independently from AutoTrade."""
     ensure_manage_control_schema_v1()
     value = bool(enabled)
     with connect() as db:
@@ -242,6 +253,8 @@ def set_position_management_enabled_v1(
 
 
 __all__ = [
+    "DEFAULT_LIVE_MAX_EFFECTIVE_LEVERAGE_V2",
+    "DEFAULT_LIVE_MINIMUM_FREE_CAPITAL_V2",
     "auto_manage_enabled_v1",
     "guard_block_state_v1",
     "set_guard_block_v1",
