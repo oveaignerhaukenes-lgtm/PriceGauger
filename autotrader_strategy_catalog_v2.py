@@ -85,7 +85,7 @@ MACD2_S_SPEC_V2 = _spec(MACD2_S_STRATEGY_V1, "MACD2-S", "2m MACD with bounded st
 MACD_A_SPEC_V2 = _spec(MACD_A_STRATEGY_V1, "MACD-A", "Adaptive 1m/2m/5m MACD selected from follow-through versus noise.")
 MACD_A_PYR_SPEC_V1 = _spec(MACD_A_PYR_STRATEGY_V1, "MACD-A-PYR · shadow", "Adaptive MACD-A direction; +0.02 per fresh aligned 1/2/5m closed-bar MACD cross, bounded cap, close on reversal. Shadow only.")
 MACD_A_EXTENDED_SPEC_V1 = _spec(MACD_A_EXTENDED_STRATEGY_V1, "MACD-A(1-30) · shadow", "Adaptive 1/2/5m direction with closed 15/30m trend context; no manual timeframe. Shadow only.")
-MACD_A_PYR_EXTENDED_SPEC_V1 = _spec(MACD_A_PYR_EXTENDED_STRATEGY_V1, "MACD-A-PYR(1-30) · shadow", "Adaptive 1/2/5m direction with 15/30m context and optional 1/2/5/15/30m +0.02 tranches. Shadow only.")
+MACD_A_PYR_EXTENDED_SPEC_V1 = _spec(MACD_A_PYR_EXTENDED_STRATEGY_V1, "MACD-A-PYR(1-30)", "LIVE-capable adaptive 1/2/5m direction with 15/30m context and 1/2/5/15/30m +0.02 tranches; exact account/product reconciliation.")
 MACD_NORM_SPEC_V1 = _spec(
     MACD_NORM_STRATEGY_V1,
     "MACD norm",
