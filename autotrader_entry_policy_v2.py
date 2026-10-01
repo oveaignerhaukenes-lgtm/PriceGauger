@@ -312,6 +312,49 @@ def load_pilot_margin_config_v2(pilot_key: str) -> PilotMarginConfigV2 | None:
     )
 
 
+def _repair_direction_admission_from_same_product_v2(
+    enrollment: StrategyEnrollmentV2,
+    *,
+    direction: str,
+) -> ProductAdmissionV2 | None:
+    """Carry account/product safety admission across LONG/SHORT.
+
+    The safety facts are properties of the exact Saxo account/product, not of trade
+    direction. Direction-specific sizing is still revalidated by the mandatory
+    Saxo precheck immediately before every OPEN.
+    """
+    normalized = _normalize_direction(direction)
+    sibling_direction = DIRECTION_SHORT if normalized == DIRECTION_LONG else DIRECTION_LONG
+    sibling = load_product_admission_v2(
+        account_id=enrollment.account_id,
+        uic=enrollment.uic,
+        asset_type=enrollment.asset_type,
+        direction=sibling_direction,
+    )
+    if sibling is None or not sibling.enabled:
+        return None
+    if (
+        sibling.market_id != enrollment.market_id
+        or sibling.instrument_id != enrollment.instrument_id
+        or sibling.market_name != enrollment.market_name
+    ):
+        return None
+    return save_product_admission_v2(
+        enrollment,
+        direction=normalized,
+        transaction_costs_verified=sibling.transaction_costs_verified,
+        margin_product_allowed=sibling.margin_product_allowed,
+        negative_balance_protection_verified=sibling.negative_balance_protection_verified,
+        limited_loss_verified=sibling.limited_loss_verified,
+        no_margin_obligation_verified=sibling.no_margin_obligation_verified,
+        preflight_amount=sibling.preflight_amount,
+        preflight_cost_account=sibling.preflight_cost_account,
+        preflight_initial_margin_account=sibling.preflight_initial_margin_account,
+        preflight_notional_account=sibling.preflight_notional_account,
+        enabled=True,
+    )
+
+
 def require_entry_policy_v2(
     enrollment: StrategyEnrollmentV2,
     *,
@@ -326,6 +369,11 @@ def require_entry_policy_v2(
         asset_type=enrollment.asset_type,
         direction=normalized,
     )
+    if admission is None:
+        admission = _repair_direction_admission_from_same_product_v2(
+            enrollment,
+            direction=normalized,
+        )
     if admission is None:
         raise ValueError("NOT_IN_PG_PRODUCT_UNIVERSE")
     if (
