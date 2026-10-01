@@ -13,6 +13,7 @@ DEFAULTS_V3: dict[str, dict[str, Any]] = {
     "impulse": {"sensitivity": 1.0, "max_boost": 1.5},
     "reversal": {"confirmation_bars": 2, "strength": 1.0},
     "take-profit": {"giveback_pct": 10.0, "min_peak_profit_pct": 0.20, "reentry_cooldown_seconds": 30},
+    "reset-on-loss": {},  # Threshold is deliberately fixed at open P/L < 0 for v1.
     "whipsaw": {"lookback_bars": 12, "max_direction_changes": 4, "cooldown_bars": 3},
     "regime": {"lookback_bars": 30, "trend_threshold": 0.60},
 }

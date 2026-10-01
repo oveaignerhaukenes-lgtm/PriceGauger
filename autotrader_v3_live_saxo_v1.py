@@ -60,6 +60,13 @@ class SaxoLivePilotClientV3:
         if len(matches)>1:
             raise SaxoTradingSafetyError("ambiguous v3 LIVE exact-boundary position state")
         return tuple(matches)
+    def open_pnl_exact(self, *,account_id:str,uic:int,asset_type:str)->float:
+        """Current Saxo open P/L for one exact account/product boundary."""
+        rows=self.net_positions_exact(account_id=account_id,uic=uic,asset_type=asset_type)
+        if not rows:
+            return 0.0
+        from autotrader_v3_reset_on_loss_v1 import open_pnl_from_net_position_v3
+        return open_pnl_from_net_position_v3(rows[0])
     def signed_inventory_exact(self, *,account_id:str,uic:int,asset_type:str)->float:
         """Return signed inventory for one exact V3 account/product boundary."""
         rows=self.net_positions_exact(account_id=account_id,uic=uic,asset_type=asset_type)

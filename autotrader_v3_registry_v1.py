@@ -33,6 +33,7 @@ MODIFIERS_V3 = (
     ModifierSpecV3("impulse", "Impulse Detector", "Forsterker eller demper target ved endring i momentum."),
     ModifierSpecV3("reversal", "Reversal Detector", "Reduserer eller reverserer target ved bekreftet regimeskifte."),
     ModifierSpecV3("take-profit", "Take Profit", "Beskytter opparbeidet gevinst og kan sende target mot FLAT."),
+    ModifierSpecV3("reset-on-loss", "Reset on Loss", "Går umiddelbart FLAT når eksisterende posisjons åpne P/L blir negativ; strategien kan deretter bygge opp på nytt."),
     ModifierSpecV3("whipsaw", "Whipsaw Detector", "Demper handel i hakkete/retningsløse perioder."),
     ModifierSpecV3("regime", "Regime Detector", "Klassifiserer markedsregime for adaptive valg."),
 )
