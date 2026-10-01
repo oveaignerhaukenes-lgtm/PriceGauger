@@ -27,17 +27,32 @@ class ResetOnLossModifierV3:
 
 
 def open_pnl_from_net_position_v3(row: dict) -> float:
-    """Read Saxo's current open P/L from an exact account/product net position."""
+    """Read current P/L sign from an exact Saxo net position."""
     if not isinstance(row, dict):
         raise ValueError("net position must be an object")
     dynamic = row.get("NetPositionDynamic")
-    if not isinstance(dynamic, dict):
-        raise ValueError("Saxo net position lacks NetPositionDynamic")
-    for key in ("OpenProfitLoss", "ProfitLossOnTrade", "PositionValue"):
-        value = dynamic.get(key)
-        if key != "PositionValue" and value is not None:
-            return float(value)
-    raise ValueError("Saxo net position lacks current open P/L")
+    if isinstance(dynamic, dict):
+        for key in ("OpenProfitLoss", "ProfitLossOnTrade"):
+            value = dynamic.get(key)
+            if value is not None:
+                return float(value)
+    base = row.get("NetPositionBase") or {}
+    view = row.get("NetPositionView") or {}
+    opening = float(view.get("AverageOpenPriceIncludingCosts") or view.get("AverageOpenPrice") or 0.0)
+    current = float(view.get("CurrentPrice") or 0.0)
+    if opening <= 0.0 or current <= 0.0:
+        raise ValueError("Saxo net position lacks current P/L and usable prices")
+    signed = float(base.get("AmountLong") or 0.0) - float(base.get("AmountShort") or 0.0)
+    if abs(signed) <= 1e-12:
+        amount = abs(float(base.get("Amount") or 0.0))
+        direction = str(base.get("OpeningDirection") or "").strip().lower()
+        if direction == "buy":
+            signed = amount
+        elif direction == "sell":
+            signed = -amount
+    if abs(signed) <= 1e-12:
+        raise ValueError("Saxo net position lacks direction")
+    return (current - opening) * signed
 
 
 __all__ = ["ResetOnLossModifierV3", "open_pnl_from_net_position_v3"]
