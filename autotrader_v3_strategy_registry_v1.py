@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
-from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY\nfrom autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
+from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
+from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
 
 
