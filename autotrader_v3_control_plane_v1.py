@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from autotrader_engine_account_ownership_v1 import ENGINE_V3, claim_account_v1, release_account_v1
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3, set_sim_authority_v3
+
 
 @dataclass(frozen=True, slots=True)
 class V3AuthorityStateV1:
     trader_id: str
     live_armed: bool
     sim_armed: bool
+
 
 def authority_state_v3(trader_id: str, *, db_path: str = "pricegauger.db") -> V3AuthorityStateV1:
     return V3AuthorityStateV1(
@@ -20,11 +23,30 @@ def authority_state_v3(trader_id: str, *, db_path: str = "pricegauger.db") -> V3
         sim_armed=sim_authority_armed_v3(trader_id, db_path=db_path),
     )
 
-def set_live_enabled_v3(trader_id: str, enabled: bool, *, db_path: str = "pricegauger.db") -> V3AuthorityStateV1:
+
+def set_live_enabled_v3(
+    trader_id: str,
+    enabled: bool,
+    *,
+    account_id: str | None = None,
+    db_path: str = "pricegauger.db",
+) -> V3AuthorityStateV1:
     if enabled:
-        set_sim_authority_v3(trader_id, False, db_path=db_path)
-    set_live_authority_v3(trader_id, enabled, db_path=db_path)
+        if not account_id:
+            raise ValueError("V3 LIVE requires an explicit Saxo account ownership boundary")
+        claim_account_v1(account_id, ENGINE_V3, trader_id, db_path=db_path)
+        try:
+            set_sim_authority_v3(trader_id, False, db_path=db_path)
+            set_live_authority_v3(trader_id, True, db_path=db_path)
+        except Exception:
+            release_account_v1(account_id, ENGINE_V3, trader_id, db_path=db_path)
+            raise
+    else:
+        set_live_authority_v3(trader_id, False, db_path=db_path)
+        if account_id:
+            release_account_v1(account_id, ENGINE_V3, trader_id, db_path=db_path)
     return authority_state_v3(trader_id, db_path=db_path)
+
 
 def set_sim_enabled_v3(trader_id: str, enabled: bool, *, db_path: str = "pricegauger.db") -> V3AuthorityStateV1:
     if enabled:
