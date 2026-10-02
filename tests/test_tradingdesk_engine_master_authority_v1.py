@@ -5,4 +5,5 @@ def test_tradingdesk_has_explicit_engine_master_authority():
     assert "ENGINE V2 · LIVE" in text
     assert "ENGINE V3 · LIVE" in text
     assert "Master authority" in text
-    assert "set_live_authority_v3" in text
+    assert "set_live_enabled_v3" in text
+    assert "set_live_authority_v3" not in text
