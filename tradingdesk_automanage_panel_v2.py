@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-# Transitional facade: keep the persisted P/L/read-model implementation stable while
-# replacing the old confirmation-heavy control plane with Simple Core v1.
+# Canonical facade: live controls and persisted analysis use explicit modules.
 import streamlit as st
 
 from autotrader_pnl_comparison_v2 import load_automanager_pnl_comparison_v2
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE
 from database import using_postgres
 from trading_desk_v2_context import TradingDeskV2Context
-from tradingdesk_automanage_panel_legacy_v2 import (
-    AutoManagePanelSnapshotV2,
-    _pnl_enrollments_for_context_v2,
-    _render_automanager_activity_log_v2,
-)
+from tradingdesk_automanage_activity_ui_v2 import render_automanager_activity_log_v2
+from tradingdesk_automanage_read_model_v2 import AutoManagePanelSnapshotV2, pnl_enrollments_for_context_v2
 from tradingdesk_automanager_close_control_v1 import render_close_position_control_v1
 from tradingdesk_automanager_simple_v1 import render_tradingdesk_automanager_simple_v1
 from tradingdesk_chart_trade_controls_v1 import render_tradingdesk_chart_trade_controls_v1
@@ -34,10 +30,6 @@ def render_tradingdesk_automanage_panel_v2(
     *, auto_refresh: bool = True,
 ) -> tuple | None:
     """Render interactive Simple Core controls in their own rerun domain."""
-
-    # Transitional mount point for the new TradingDesk presentation boundary.
-    # LIVE chart rendering/gestures now mount with the Live Chart itself; this facade
-    # keeps only shared responsive/navigation support plus AutoManager controls.
     render_tradingdesk_responsive_runtime_v1()
     render_tradingdesk_navigation_sync_v1()
 
@@ -46,10 +38,6 @@ def render_tradingdesk_automanage_panel_v2(
         observations = render_tradingdesk_automanager_simple_v1(context)
         selected_account = st.session_state.get(f"td-active-account:{context.market_id}")
         render_close_position_control_v1(context, observations=observations, account_id=selected_account)
-        # The zero-height component lives in this isolated control fragment but mounts
-        # its visual BUY/SELL shortcuts onto the already-rendered canonical chart root.
-        # Clicks still reuse the existing durable manual-target execution lifecycle;
-        # there is no browser-to-Saxo execution path.
         render_tradingdesk_chart_trade_controls_v1(context, observations=observations, account_id=selected_account)
         render_tradingdesk_pilot_status_panel_v1(context, observations=observations, account_id=selected_account)
         return observations
@@ -66,14 +54,12 @@ def render_tradingdesk_automanage_pnl_chart_v2(
 ) -> None:
     """Render persisted benchmark strategy history with a normalized percentage chart."""
 
-    # Strategy Lab and the replay labs load substantially more history than the
-    # live candle. Keep their refresh clock slower so chart ticks can finish.
     @st.fragment(run_every="60s" if auto_refresh else None)
     def _pnl_fragment_v2() -> None:
         if not using_postgres():
             return
         try:
-            enrollments, historical_fallback = _pnl_enrollments_for_context_v2(context)
+            enrollments, historical_fallback = pnl_enrollments_for_context_v2(context)
         except Exception as exc:
             st.caption(f"P/L-grafen venter: {exc}")
             return
@@ -118,7 +104,7 @@ def render_tradingdesk_automanage_pnl_chart_v2(
                 None,
             )
             if live is not None and live.enabled:
-                _render_automanager_activity_log_v2(live, observations=observations)
+                render_automanager_activity_log_v2(live, observations=observations)
             elif live is not None:
                 st.caption(
                     "Denne pilotens P/L-logg er historisk; AutoManager er ikke aktivert "
@@ -127,10 +113,6 @@ def render_tradingdesk_automanage_pnl_chart_v2(
 
         if include_sim_lab:
             render_tradingdesk_three_trader_lab_v1(context)
-        # These historical replays read and recompute much larger windows. Running
-        # them on every page open can hold the Streamlit session long enough for
-        # the live chart's WebSocket to disconnect. Keep the two TV charts above
-        # available immediately and load these labs only when requested.
         if st.toggle(
             "Vis utvidede analyselaboratorier",
             key=f"tradingdesk-extended-labs:{context.instrument_id}",

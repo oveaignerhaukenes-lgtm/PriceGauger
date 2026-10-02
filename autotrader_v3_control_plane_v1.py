@@ -10,6 +10,7 @@ from autotrader_engine_account_ownership_v1 import (
     load_account_owner_v1,
     release_account_v1,
 )
+from autotrader_strategy_enrollment_v2 import load_strategy_enrollment_v2
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3, set_sim_authority_v3
 
@@ -29,6 +30,21 @@ def authority_state_v3(trader_id: str, *, db_path: str = "pricegauger.db") -> V3
     )
 
 
+def _canonical_account_id_v3(trader_id: str, account_id: str | None, *, db_path: str) -> str:
+    explicit = str(account_id or "").strip()
+    if explicit:
+        return explicit
+    if db_path != "pricegauger.db":
+        raise ValueError("V3 LIVE requires an explicit Saxo account ownership boundary")
+    # Transitional compatibility for the production TradingDesk cockpit only:
+    # recover identity from the durable enrollment, never presentation state.
+    enrollment = load_strategy_enrollment_v2(trader_id)
+    resolved = str(getattr(enrollment, "account_id", "") or "").strip()
+    if not resolved:
+        raise ValueError("V3 LIVE requires an explicit Saxo account ownership boundary")
+    return resolved
+
+
 def set_live_enabled_v3(
     trader_id: str,
     enabled: bool,
@@ -36,25 +52,24 @@ def set_live_enabled_v3(
     account_id: str | None = None,
     db_path: str = "pricegauger.db",
 ) -> V3AuthorityStateV1:
+    account = _canonical_account_id_v3(trader_id, account_id, db_path=db_path) if enabled else str(account_id or "").strip()
     if enabled:
-        if not account_id:
-            raise ValueError("V3 LIVE requires an explicit Saxo account ownership boundary")
-        previous_owner = load_account_owner_v1(account_id, db_path=db_path)
-        claim_account_v1(account_id, ENGINE_V3, trader_id, db_path=db_path)
+        previous_owner = load_account_owner_v1(account, db_path=db_path)
+        claim_account_v1(account, ENGINE_V3, trader_id, db_path=db_path)
         claim_created = previous_owner is None
         try:
             set_sim_authority_v3(trader_id, False, db_path=db_path)
             set_live_authority_v3(trader_id, True, db_path=db_path)
         except Exception:
             if claim_created:
-                release_account_v1(account_id, ENGINE_V3, trader_id, db_path=db_path)
+                release_account_v1(account, ENGINE_V3, trader_id, db_path=db_path)
             raise
     else:
         set_live_authority_v3(trader_id, False, db_path=db_path)
-        if account_id:
-            owner = load_account_owner_v1(account_id, db_path=db_path)
+        if account:
+            owner = load_account_owner_v1(account, db_path=db_path)
             if owner is not None:
-                release_account_v1(account_id, ENGINE_V3, trader_id, db_path=db_path)
+                release_account_v1(account, ENGINE_V3, trader_id, db_path=db_path)
     return authority_state_v3(trader_id, db_path=db_path)
 
 
@@ -67,9 +82,10 @@ def set_sim_enabled_v3(
 ) -> V3AuthorityStateV1:
     if enabled:
         set_live_authority_v3(trader_id, False, db_path=db_path)
-        if account_id:
-            owner = load_account_owner_v1(account_id, db_path=db_path)
+        account = str(account_id or "").strip()
+        if account:
+            owner = load_account_owner_v1(account, db_path=db_path)
             if owner is not None:
-                release_account_v1(account_id, ENGINE_V3, trader_id, db_path=db_path)
+                release_account_v1(account, ENGINE_V3, trader_id, db_path=db_path)
     set_sim_authority_v3(trader_id, enabled, db_path=db_path)
     return authority_state_v3(trader_id, db_path=db_path)

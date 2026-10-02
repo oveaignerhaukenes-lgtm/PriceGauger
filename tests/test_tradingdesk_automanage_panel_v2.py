@@ -54,12 +54,13 @@ def test_automanage_interactive_controls_remain_streamlit_fragment_scoped():
 
 
 def test_pnl_read_model_remains_persisted_and_separate_from_simple_control_plane():
-    legacy = Path("tradingdesk_automanage_panel_legacy_v2.py").read_text(encoding="utf-8")
+    comparison = Path("autotrader_pnl_comparison_v2.py").read_text(encoding="utf-8")
     facade = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-    assert "load_persisted_strategy_series_v1" in legacy
-    assert "load_shadow_benchmark_snapshots_v2" not in legacy
-    assert "load_automanager_pnl_comparison_v2" in legacy
-    assert "build_automanager_pnl_figure_v2" in legacy
+    read_model = Path("tradingdesk_automanage_read_model_v2.py").read_text(encoding="utf-8")
+    assert "load_persisted_strategy_series_v1" in comparison
+    assert "load_shadow_benchmark_snapshots_v2" not in comparison
+    assert "load_automanager_pnl_comparison_v2" in facade
+    assert "pnl_enrollments_for_context_v2" in read_model
     assert "render_tradingdesk_automanage_pnl_chart_v2" in facade
 
 
@@ -74,7 +75,6 @@ def test_simple_core_removes_activation_ack_and_manual_takeover_ceremony():
 
 
 def test_live_chart_macd_follows_selected_chart_timeframe_without_redundant_control():
-    from pathlib import Path
     desk = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
     standalone = Path("pages/0_Live_Chart.py").read_text(encoding="utf-8")
     assert "load_live_test_snapshot_v1(" in desk and "load_live_test_snapshot_v1(" in standalone
@@ -82,6 +82,7 @@ def test_live_chart_macd_follows_selected_chart_timeframe_without_redundant_cont
     assert "trade_markers=_load_trade_markers()," in desk
     assert 'render_lightweight_simple_live_v2(payload, key=chart_key, refresh_only=refresh_only)' in desk
     assert '_refresh_live_chart_data()' in desk
+
 
 def test_simple_core_strategy_selector_is_event_driven_and_backend_authoritative():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
@@ -96,20 +97,20 @@ def test_simple_core_strategy_selector_is_event_driven_and_backend_authoritative
 
 
 def test_bottom_chart_keeps_actual_live_and_persisted_model_semantics_separate():
-    legacy = Path("tradingdesk_automanage_panel_legacy_v2.py").read_text(encoding="utf-8")
-    assert "load_automanager_pnl_comparison_v2" in legacy
-    assert "build_automanager_pnl_figure_v2" in legacy
-    assert "P/L · LIVE og modellene" in legacy
-    assert "TradingDesk kjører ikke historisk replay" in legacy
+    facade = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
+    comparison = Path("autotrader_pnl_comparison_v2.py").read_text(encoding="utf-8")
+    assert "load_automanager_pnl_comparison_v2" in facade
+    assert "load_persisted_strategy_series_v1" in comparison
+    assert "P/L · benchmark og Strategy Lab" in facade
 
 
 def test_bottom_chart_still_exposes_engine_provenance_and_next_status():
-    legacy = Path("tradingdesk_automanage_panel_legacy_v2.py").read_text(encoding="utf-8")
+    activity = Path("tradingdesk_automanage_activity_ui_v2.py").read_text(encoding="utf-8")
     page_source = Path("pages/0_TradingDesk.py").read_text(encoding="utf-8")
-    assert "load_automanager_activity_log_v2" in legacy
-    assert "Hendelser og neste status" in legacy
-    assert "Status nå:" in legacy
-    assert "Neste:" in legacy
+    assert "load_automanager_activity_log_v2" in activity
+    assert "Hendelser og neste status" in activity
+    assert "Status nå:" in activity
+    assert "Neste:" in activity
     assert "render_tradingdesk_automanage_pnl_chart_v2(context, observations=observations, auto_refresh=auto_refresh)" in page_source
 
 
