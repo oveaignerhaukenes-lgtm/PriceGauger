@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-"""Canonical operator-facing authority transitions for AutoTrader V2.
-
-The control plane owns the account->engine claim before mutating V2 runtime
-authority. Raw V2 authority primitives remain available to worker/recovery code,
-but operator UI should use this module.
-"""
+"""Canonical operator-facing authority transitions for AutoTrader V2."""
 
 from dataclasses import dataclass
 
-from autotrader_engine_account_ownership_v1 import ENGINE_V2, claim_account_v1, release_account_v1
+from autotrader_engine_account_ownership_v1 import (
+    ENGINE_V2,
+    claim_account_v1,
+    load_account_owner_v1,
+    release_account_v1,
+)
 from autotrader_manage_control_v1 import (
     auto_manage_enabled_v1,
     position_management_enabled_v1,
@@ -41,23 +41,20 @@ def set_live_enabled_v2(enrollment, enabled: bool, *, db_path: str = "pricegauge
     account_id = str(enrollment.account_id).strip()
     owner_key = str(enrollment.pilot_key).strip()
     if enabled:
+        previous_owner = load_account_owner_v1(account_id, db_path=db_path)
         claim_account_v1(account_id, ENGINE_V2, owner_key, db_path=db_path)
+        claim_created = previous_owner is None
         try:
             set_position_management_enabled_v1(enrollment, True)
             set_auto_manage_enabled_v1(enrollment, True)
         except Exception:
-            # Roll back only the claim introduced for this transition. The raw
-            # authority functions are deliberately left unchanged for recovery.
-            release_account_v1(account_id, ENGINE_V2, owner_key, db_path=db_path)
+            if claim_created:
+                release_account_v1(account_id, ENGINE_V2, owner_key, db_path=db_path)
             raise
     else:
-        # Remove execution authority before releasing the ownership boundary.
         set_auto_manage_enabled_v1(enrollment, False)
         set_position_management_enabled_v1(enrollment, False)
-        try:
+        owner = load_account_owner_v1(account_id, db_path=db_path)
+        if owner is not None:
             release_account_v1(account_id, ENGINE_V2, owner_key, db_path=db_path)
-        except RuntimeError:
-            # A mismatching owner is an architecture violation and must remain
-            # visible rather than silently deleting another controller's claim.
-            raise
     return authority_state_v2(enrollment)
