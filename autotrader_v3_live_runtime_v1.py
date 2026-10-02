@@ -44,9 +44,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if e.execution_mode==EXECUTION_MODE_LIVE
         and live_authority_armed_v3(e.pilot_key,db_path=db_path))
     LOGGER.info("v3 LIVE active armed enrollments=%d",len(active))
-    # Strategy selection is registry-driven. LIVE route availability is intentionally
-    # separate: trailing has a planner but lacks durable Saxo reconciliation.
-    # Do not substitute another strategy when the selected one is blocked.
     for e in active:
         adapter = STRATEGIES_V3.get(e.strategy_key)
         if adapter is None:
@@ -60,8 +57,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         (adapter := STRATEGIES_V3.get(e.strategy_key)) is not None
         and adapter.live_route_enabled)
     if not enrollments: return 0
-    # Record the heartbeat before any external dependency. If setup fails after
-    # authority is armed, the UI must show the failure instead of "no heartbeat".
     for e in enrollments:
         _record_runtime(e.pilot_key,"RUNNING","worker cycle entered",db_path=db_path)
     try:
@@ -72,8 +67,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         for e in enrollments:
             _record_runtime(e.pilot_key,"FAILED",f"{type(exc).__name__}: {exc}",db_path=db_path)
         raise
-    # Saxo account endpoint returns JSON dictionaries, not account objects.
-    # Treating them as attributes made every armed v3 cycle fail before execution.
     accounts={}
     account_currencies={}
     account_contexts={}
@@ -88,16 +81,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             account_contexts[account_id]=(account_key,str(row.get('ClientKey') or ''))
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
-        # Reconcile before computing a new signal: locks must be handled even
-        # when market data is missing or the latest strategy target is HOLD.
         pending=pending_order_v3(account_id=e.account_id,uic=e.uic,
                                  asset_type=e.asset_type,db_path=db_path)
         if pending:
-            # Keep reconciliation deliberately simple: Saxo's current exact
-            # account/product inventory is the source of truth.  The durable
-            # reservation records the inventory we expected after the POST.
-            # If current inventory equals it, the mutation happened. Otherwise
-            # keep the lock and wait; never resend an ambiguous order.
             expected=pending.get('expected_inventory')
             if expected is None:
                 _record_runtime(e.pilot_key,'BLOCKED',
@@ -134,32 +120,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=waiting; no retry sent',
                     db_path=db_path)
             else:
-                # A proven non-PriceGauger manual broker fill is an intentional human
-                # adjustment. Adopt Saxo actual immediately and retire the old
-                # expectation; unexplained mismatches remain fail-closed.
-                from manual_saxo_trade_markers_v1 import manual_fill_explains_inventory_change_v1
-                submitted_amount=float(pending.get('submitted_amount') or 0.0)
-                submitted_side=str(pending.get('submitted_side') or '').strip().lower()
-                before_amount=expected_amount
-                if submitted_side=='buy':
-                    before_amount-=submitted_amount
-                elif submitted_side=='sell':
-                    before_amount+=submitted_amount
-                proven_manual=manual_fill_explains_inventory_change_v1(
-                    account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type,
-                    submitted_at=pending.get('updated_at'),before_inventory=before_amount,
-                    actual_inventory=fresh_actual.amount)
-                if proven_manual:
-                    mark_order_v3(request_key=pending['request_key'],state='RECONCILED',
-                        detail='Manual Saxo fill adopted; stale V3 expectation retired',
-                        db_path=db_path)
-                    _record_runtime(e.pilot_key,'RECONCILED',
-                        f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=manual-adopted; next cycle may manage actual',
-                        db_path=db_path)
-                else:
-                    _record_runtime(e.pilot_key,'BLOCKED',
-                        f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=conflict; unexplained inventory change',
-                        db_path=db_path)
+                # LIVE authority is ownership of this exact account+instrument.
+                # Saxo actual is therefore adopted even when a human changed the
+                # position while V3 had an older expectation. Retire the stale
+                # request; the next cycle manages the full actual inventory.
+                # This does not authorize expansion: OPEN/ADD still passes through
+                # the configured V3 exposure policy, while REDUCE/CLOSE may manage
+                # an oversized adopted position back toward the strategy target.
+                mark_order_v3(request_key=pending['request_key'],state='RECONCILED',
+                    detail='LIVE account+instrument inventory adopted; stale V3 expectation retired',
+                    db_path=db_path)
+                _record_runtime(e.pilot_key,'RECONCILED',
+                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=inventory-adopted; next cycle may manage actual',
+                    db_path=db_path)
             continue
         actual=_actual(e,broker)
         _record_runtime(e.pilot_key,'READY',f'actual={actual.amount:g} pending=none; evaluating target',db_path=db_path)
@@ -174,8 +147,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
         modifiers=[]
         if 'reset-on-loss' in config.modifiers:
-            # FLAT has no open P/L by definition. Do not query Saxo for a
-            # non-existent position and do not let an inert modifier block entry.
             if abs(actual.amount) <= 1e-12:
                 modifiers.append(ResetOnLossModifierV3(open_pnl=0.0,actual_inventory=actual.amount))
             else:
@@ -194,17 +165,12 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation is None:
             _record_runtime(e.pilot_key,"MANAGING",f"target={snapshot.risk_approved_target.amount:g} actual={actual.amount:g}",db_path=db_path)
             continue
-        # REDUCE/CLOSE may only shrink the exact observed position. OPEN/ADD use
-        # the persisted submission-time NOK exposure policy below.
         if mutation.action in {'REDUCE','CLOSE'}:
             if actual.amount == 0 or mutation.amount > abs(actual.amount) + 1e-9:
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction exceeds exact current position',db_path=db_path)
                 continue
             from decimal import Decimal, ROUND_DOWN
             step=Decimal('0.01')
-            # Planner inventory is float-backed, so e.g. -0.03 -> -0.02 may
-            # arrive as 0.009999999999999998. Snap near-step noise first;
-            # then floor genuine fractional excess to Saxo's 0.01 lot step.
             requested=Decimal(str(mutation.amount))
             nearest_steps=(requested / step).quantize(Decimal('1'))
             nearest=nearest_steps * step
@@ -247,8 +213,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     mutation.requires_flat_confirmation,mutation.reason+'; clamped by V3 NOK exposure cap')
             _record_runtime(e.pilot_key,'READY',
                 f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} action={mutation.action} amount={mutation.amount:g} cap_nok={capped.max_notional_nok:g}',db_path=db_path)
-        # CLOSE and OPEN of one reversal must have distinct durable identities.
-        # A retry of the same mutation retains its original identity.
         signed_delta=mutation.amount if side=='Buy' else -mutation.amount
         request_key=str(uuid5(NAMESPACE_URL,
             f'{e.pilot_key}:{decision.decision_key}:{mutation.action}:{side}:'
@@ -258,7 +222,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         pre=broker.precheck(order)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
             raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
-        # Persist before the external POST; a timeout is UNKNOWN, never a retry.
         reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
             account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,
             expected_inventory=actual.amount+signed_delta,
