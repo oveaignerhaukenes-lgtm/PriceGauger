@@ -30,12 +30,14 @@ def authority_state_v3(trader_id: str, *, db_path: str = "pricegauger.db") -> V3
     )
 
 
-def _canonical_account_id_v3(trader_id: str, account_id: str | None) -> str:
+def _canonical_account_id_v3(trader_id: str, account_id: str | None, *, db_path: str) -> str:
     explicit = str(account_id or "").strip()
     if explicit:
         return explicit
-    # Transitional compatibility for the TradingDesk cockpit: account identity is
-    # recovered from the durable enrollment, never from Streamlit/session state.
+    if db_path != "pricegauger.db":
+        raise ValueError("V3 LIVE requires an explicit Saxo account ownership boundary")
+    # Transitional compatibility for the production TradingDesk cockpit only:
+    # recover identity from the durable enrollment, never presentation state.
     enrollment = load_strategy_enrollment_v2(trader_id)
     resolved = str(getattr(enrollment, "account_id", "") or "").strip()
     if not resolved:
@@ -50,7 +52,7 @@ def set_live_enabled_v3(
     account_id: str | None = None,
     db_path: str = "pricegauger.db",
 ) -> V3AuthorityStateV1:
-    account = _canonical_account_id_v3(trader_id, account_id) if enabled else str(account_id or "").strip()
+    account = _canonical_account_id_v3(trader_id, account_id, db_path=db_path) if enabled else str(account_id or "").strip()
     if enabled:
         previous_owner = load_account_owner_v1(account, db_path=db_path)
         claim_account_v1(account, ENGINE_V3, trader_id, db_path=db_path)
