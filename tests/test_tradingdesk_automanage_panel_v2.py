@@ -131,15 +131,12 @@ def test_live_family_activation_owns_internal_authority_gates():
     assert "set_auto_manage_enabled_v1" in family_ui
 
 
-
 def test_v2_strategy_selector_includes_family_strategies_so_backend_truth_is_representable():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
-    assert "strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if item.key != STRATEGY_KEY_V3)" in source
+    assert "strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if engine_for_strategy_key_v1(item.key) == ENGINE_V2)" in source
 
 
 def test_bootstrap_fails_closed_when_same_product_exists_on_multiple_saxo_accounts():
     source = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
     assert "multiple Saxo accounts hold this product" in source
     assert "implicit account selection" in source
-
-

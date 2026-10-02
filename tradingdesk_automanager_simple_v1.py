@@ -61,9 +61,8 @@ from autotrader_take_profit_modifier_v1 import (
 from saxo_provider import LIVE_BASE_URL, configured_client
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
-from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
-from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
-from autotrader_v3_sim_authority_v1 import set_sim_authority_v3
+from autotrader_engine_identity_v1 import ENGINE_V2, ENGINE_V3, enrollment_engine_v1, engine_for_strategy_key_v1
+from autotrader_v3_control_plane_v1 import authority_state_v3, set_live_enabled_v3
 from database import connect
 
 
@@ -404,11 +403,11 @@ def render_tradingdesk_automanager_simple_v1(
     # Both tabs remain visible. A Saxo account already bound to one engine is
     # unavailable to the other, including enrollments on other instruments.
     tabs = st.tabs(["AutoTrader V2", "AutoTrader V3"])
-    for tab, engine_key in zip(tabs, ("V2", "V3")):
+    for tab, engine_key in zip(tabs, (ENGINE_V2, ENGINE_V3)):
         with tab:
             claimed_by_other = {
                 item.account_id for item in active_enrollments
-                if ("V3" if item.strategy_key == STRATEGY_KEY_V3 else "V2") != engine_key
+                if ("V3" if enrollment_engine_v1(item) == ENGINE_V3 else "V2") != engine_key
             }
             eligible = tuple(row for row in accounts if row[0] not in claimed_by_other)
             if not eligible:
@@ -427,7 +426,7 @@ def render_tradingdesk_automanager_simple_v1(
             account_name = next(name for aid, _, name in eligible if aid == selected_account)
             st.caption(f"Konto: {account_name} · {selected_account}")
             if enrollment is not None:
-                actual_engine = "V3" if enrollment.strategy_key == STRATEGY_KEY_V3 else "V2"
+                actual_engine = enrollment_engine_v1(enrollment)
                 if actual_engine != engine_key:
                     st.error("Kontoen tilhører en annen motor. Ingen ordre kan sendes her.")
                     continue
@@ -445,7 +444,7 @@ def render_tradingdesk_automanager_simple_v1(
     st.caption("Kontoer som er knyttet til én motor, skjules i den andre fanen. Ingen automatisk overtakelse av posisjoner.")
     selected_by_engine = {
         engine_key: st.session_state.get(f"td-account-tab:{engine_key}:{context.market_id}")
-        for engine_key in ("V2", "V3")
+        for engine_key in (ENGINE_V2, ENGINE_V3)
     }
     st.session_state[f"td-active-account:{context.market_id}"] = selected_by_engine.get("V3") or selected_by_engine.get("V2")
     return observations
@@ -460,7 +459,7 @@ def _render_account_autotrader_v1(
         bootstrap = _bootstrap_candidate_v1(context, observations, account_id=selected_account)
         selected = st.selectbox(
             "Strategi (V2-bootstrap)",
-            tuple(item for item in AUTOTRADER_STRATEGIES_V2 if item.key != STRATEGY_KEY_V3),
+            tuple(item for item in AUTOTRADER_STRATEGIES_V2 if engine_for_strategy_key_v1(item.key) == ENGINE_V2),
             format_func=lambda item: item.label,
             key=f"td-simple-bootstrap-strategy:{context.market_id}:{selected_account}",
         )
@@ -499,7 +498,7 @@ def _render_account_autotrader_v1(
 
     # Engine identity is persisted in the enrollment. Never switch engines from
     # a shared radio while an OPEN/CLOSE request may still be in flight.
-    engine_v3 = enrollment.strategy_key == STRATEGY_KEY_V3
+    engine_v3 = enrollment_engine_v1(enrollment) == ENGINE_V3
     st.markdown(f"**AutoTrader {'V3' if engine_v3 else 'V2'} · konto {selected_account}**")
     st.caption(f"Backend-motor: {'V3' if engine_v3 else 'V2'} · pilot {enrollment.pilot_key}")
     if engine_v3:
@@ -513,7 +512,7 @@ def _render_account_autotrader_v1(
     # One obvious master authority control. Engine identity is explicit so V2 and V3
     # can coexist without an ARMED badge from one engine being mistaken for the other.
     if engine_v3:
-        engine_on = live_authority_armed_v3(enrollment.pilot_key)
+        engine_on = authority_state_v3(enrollment.pilot_key).live_armed
         engine_label = "ENGINE V3 · LIVE"
     else:
         engine_on = bool(position_manage_enabled and auto_trade_enabled)
@@ -549,7 +548,7 @@ def _render_account_autotrader_v1(
     if desired_engine_on != engine_on:
         try:
             if engine_v3:
-                set_live_authority_v3(enrollment.pilot_key, desired_engine_on)
+                set_live_enabled_v3(enrollment.pilot_key, desired_engine_on)
             else:
                 set_position_management_enabled_v1(enrollment, desired_engine_on)
                 set_auto_manage_enabled_v1(enrollment, desired_engine_on)
@@ -636,7 +635,7 @@ def _render_account_autotrader_v1(
     strategy_pending_key = f"{strategy_selector_key}:pending"
     strategy_error_key = f"{strategy_selector_key}:error"
     family_primary_keys = {FAMILY_MACD_STRATEGY_V1, FAMILY_MACD_HIST_STRATEGY_V1, FAMILY_PRICE_MACD_STRATEGY_V1}
-    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if item.key != STRATEGY_KEY_V3)
+    strategy_keys = tuple(item.key for item in AUTOTRADER_STRATEGIES_V2 if engine_for_strategy_key_v1(item.key) == ENGINE_V2)
     pending_strategy_key = str(st.session_state.get(strategy_pending_key) or "").strip()
     if strategy_selector_key not in st.session_state or not pending_strategy_key:
         if str(st.session_state.get(strategy_selector_key) or "") != enrollment.strategy_key:

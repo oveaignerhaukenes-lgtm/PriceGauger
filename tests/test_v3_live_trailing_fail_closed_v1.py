@@ -5,10 +5,13 @@ from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3
 RUNTIME = Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
 DESK = Path("tradingdesk_automanager_simple_v1.py").read_text(encoding="utf-8")
 DRIVER = Path("autotrader_v3_closed_bar_driver_v1.py").read_text(encoding="utf-8")
+IDENTITY = Path("autotrader_engine_identity_v1.py").read_text(encoding="utf-8")
 
 
 def test_tradingdesk_trailing_strategy_cannot_silently_run_histogram_live():
-    assert "from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3" in DESK
+    assert '"macd-trailing-v1"' in IDENTITY
+    assert '"macd-histogram-v1"' in IDENTITY
+    assert "engine_for_strategy_key_v1" in DESK
     assert "strategy_key == STOCH_KEY" in DRIVER
     assert "macd_stoch_target_v3" in DRIVER
     assert "macd_trailing_target_v3" in DRIVER
