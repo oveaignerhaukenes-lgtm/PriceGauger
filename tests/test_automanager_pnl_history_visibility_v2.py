@@ -35,68 +35,43 @@ class _FakeDb:
             return _Rows([{"enrolled_at": datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc)}])
         if "FROM pg_v2_autotrader_managed_positions" in normalized:
             return _Rows(
-                [
-                    {
-                        "net_position_id": "position-1",
-                        "direction": "Buy",
-                        # Deliberately far from strategy enrollment. Exact persisted
-                        # position identity, not timestamp proximity, is authoritative.
-                        "enrolled_at": datetime(2026, 9, 3, 18, 0, tzinfo=timezone.utc),
-                    }
-                ]
+                [{"net_position_id": "position-1", "direction": "Buy", "enrolled_at": datetime(2026, 9, 3, 18, 0, tzinfo=timezone.utc)}]
             )
         raise AssertionError(normalized)
 
 
 def _inactive_live_enrollment() -> StrategyEnrollmentV2:
     return StrategyEnrollmentV2(
-        pilot_key="pilot-history",
-        strategy_key="macd-30m-long-flat-v1",
-        execution_mode="LIVE_MANAGE",
-        account_id="account",
-        anchor_net_position_id="position-1",
-        uic=4912,
-        asset_type="CfdOnIndex",
-        market_id=7,
-        instrument_id=11,
-        market_name="US Tech 100 NAS · Saxo 4912",
-        enabled=False,
-        live_open_armed=False,
-        entry_mode="MANUAL_ENTRY_ONLY",
+        pilot_key="pilot-history", strategy_key="macd-30m-long-flat-v1", execution_mode="LIVE_MANAGE",
+        account_id="account", anchor_net_position_id="position-1", uic=4912, asset_type="CfdOnIndex",
+        market_id=7, instrument_id=11, market_name="US Tech 100 NAS · Saxo 4912", enabled=False,
+        live_open_armed=False, entry_mode="MANUAL_ENTRY_ONLY",
     )
 
 
 def test_shadow_anchor_uses_exact_persisted_position_even_when_timestamps_are_far_apart(monkeypatch):
     db = _FakeDb()
     monkeypatch.setattr(benchmark, "connect", lambda: db)
-
     anchor = benchmark._load_product_anchor_v2((_inactive_live_enrollment(),))
-
     assert anchor.managed_position_id == "position-1"
     assert anchor.initial_state == benchmark.STATE_LONG
     assert anchor.started_at == datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc)
-
     strategy_sql, strategy_params = db.queries[0]
     assert "WHERE pilot_key = ?" in strategy_sql
     assert "enabled = TRUE" not in strategy_sql
     assert strategy_params == ("pilot-history",)
-
     managed_sql, managed_params = db.queries[1]
     assert "net_position_id = ?" in managed_sql
     assert managed_params == ("account", "position-1", 4912, "CfdOnIndex")
 
 
 def test_tradingdesk_pnl_has_read_only_latest_pilot_fallback_and_no_silent_disappearance():
-    # Simple Core replaces only the control plane. The existing persisted P/L/read
-    # model remains intentionally isolated in the legacy renderer and is re-exported
-    # through tradingdesk_automanage_panel_v2.
-    source = Path("tradingdesk_automanage_panel_legacy_v2.py").read_text(encoding="utf-8")
+    read_model = Path("tradingdesk_automanage_read_model_v2.py").read_text(encoding="utf-8")
     facade = Path("tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-
-    assert "def _pnl_enrollments_for_context_v2" in source
-    assert "ORDER BY updated_at DESC, enrolled_at DESC" in source
-    assert "historical_fallback" in source
-    assert "Ingen aktiv execution-authority gjenopprettes av grafen" in source
-    assert "P/L-graf: ingen AutoManager-pilot finnes ennå for dette markedet." in source
-    assert "if live is not None and live.enabled" in source
+    assert "def pnl_enrollments_for_context_v2" in read_model
+    assert "ORDER BY updated_at DESC, enrolled_at DESC" in read_model
+    assert "historical_fallback" in facade
+    assert "Ingen aktiv execution-authority gjenopprettes av grafen" in facade
+    assert "P/L-graf: ingen AutoManager-pilot finnes ennå for dette markedet." in facade
+    assert "if live is not None and live.enabled" in facade
     assert "render_tradingdesk_automanage_pnl_chart_v2" in facade
