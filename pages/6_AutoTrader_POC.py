@@ -9,6 +9,7 @@ from autotrader_risk_control_ui_v2 import render_risk_control_monitor_v2
 from autotrader_risk_control_v2 import _position_observations_v2
 from autotrader_pnl_comparison_v2 import load_automanager_pnl_comparison_v2
 from autotrader_strategy_enrollment_v2 import load_active_strategy_enrollments_v2
+from autotrader_v3_control_plane_v1 import authority_state_v3, set_live_enabled_v3, set_sim_enabled_v3
 from autotrader_v3_fleet_read_model_v1 import build_fleet_read_model_v3
 from autotrader_v3_fleet_ui_v1 import render_autotrader_v3_fleet_preview
 from autotrader_v3_regime_chart_ui_v1 import render_v3_regime_return_chart
@@ -17,8 +18,6 @@ from trading_desk_v2_context import load_trading_desk_contexts_v2
 from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_v2
 from saxo_provider import configured_client
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
-from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3, set_sim_authority_v3
-from autotrader_v3_live_authority_v1 import live_authority_armed_v3, set_live_authority_v3
 
 
 ACTIVE_MARKET_KEY = "autotrader-v2-market"
@@ -96,29 +95,32 @@ with v3_tab:
         if trailing:
             st.markdown("**V3 simulator authority**")
             for item in trailing:
-                armed = sim_authority_armed_v3(item.pilot_key)
+                authority = authority_state_v3(item.pilot_key)
                 desired = st.toggle(
                     f"ENGINE V3 · {item.market_name} · SIM",
-                    value=armed,
+                    value=authority.sim_armed,
                     key=f"v3-sim-arm:{item.pilot_key}",
                     help="Kjører beslutningsmotoren på lukkede 5m-bars. Ingen Saxo POST.",
                 )
-                if desired != armed:
-                    set_sim_authority_v3(item.pilot_key, desired)
+                if desired != authority.sim_armed:
+                    set_sim_enabled_v3(item.pilot_key, desired)
                     st.rerun()
 
-                live_armed = live_authority_armed_v3(item.pilot_key)
                 live_desired = st.toggle(
                     f"ENGINE V3 · {item.market_name} · LIVE",
-                    value=live_armed,
+                    value=authority.live_armed,
                     key=f"v3-live-arm:{item.pilot_key}",
                     disabled=desired,
                     help="ON = denne v3 AutoTraderen er aktiv i LIVE og workeren forvalter den eksakte Saxo account + UIC + AssetType-boundaryen.",
                 )
-                if live_desired != live_armed:
-                    set_live_authority_v3(item.pilot_key, live_desired)
+                if live_desired != authority.live_armed:
+                    set_live_enabled_v3(
+                        item.pilot_key,
+                        live_desired,
+                        account_id=item.account_id,
+                    )
                     st.rerun()
-                if live_armed:
+                if authority.live_armed:
                     st.success("LIVE AKTIV · worker execution er koblet. Eksisterende Saxo-inventory inngår i v3 reconciliation.")
 
         live_groups: dict[tuple[str, int, str, int], list] = {}
