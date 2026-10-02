@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 
 from autotrader_pnl_comparison_v2 import (
     PAPER_SCALE_PILOT_EQUIVALENT,
     PAPER_SCALE_RAW_1X,
     AutoManagerPnlComparisonV2,
+    LiveRealizedPnlPointV2,
 )
 from autotrader_shadow_benchmark_v2 import ShadowBenchmarkSeriesV2, ShadowEquityPointV2
-from autotrader_pnl_comparison_v2 import LiveRealizedPnlPointV2
-from datetime import datetime, timezone
-
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -19,25 +18,13 @@ UTC = timezone.utc
 def _comparison(scale: str) -> AutoManagerPnlComparisonV2:
     started = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
     series = ShadowBenchmarkSeriesV2(
-        strategy_key="macd-1m-flip-control-v1",
-        execution_mode="SHADOW_CONTROL",
-        currency="NOK",
-        seed_equity=500.0,
-        started_at=started,
-        points=(ShadowEquityPointV2(started, 500.0, "FLAT"),),
+        strategy_key="macd-1m-flip-control-v1", execution_mode="SHADOW_CONTROL", currency="NOK",
+        seed_equity=500.0, started_at=started, points=(ShadowEquityPointV2(started, 500.0, "FLAT"),),
     )
     live = (LiveRealizedPnlPointV2(started, 0.0, 0.0),)
     return AutoManagerPnlComparisonV2(
-        pilot_key="pilot",
-        product_key="acct:4912:CfdOnIndex:77",
-        currency="NOK",
-        seed_equity=500.0,
-        started_at=started,
-        as_of=started,
-        live_realized=live,
-        live_epochs=(),
-        paper_series=(series,),
-        paper_scale=scale,
+        pilot_key="pilot", product_key="acct:4912:CfdOnIndex:77", currency="NOK", seed_equity=500.0,
+        started_at=started, as_of=started, live_realized=live, live_epochs=(), paper_series=(series,), paper_scale=scale,
     )
 
 
@@ -51,19 +38,16 @@ def test_comparison_scale_contract_preserves_legacy_default() -> None:
 def test_public_ui_loader_reads_persisted_series_and_replay_is_explicit_bridge() -> None:
     comparison = (ROOT / "autotrader_pnl_comparison_v2.py").read_text(encoding="utf-8")
     materializer = (ROOT / "autotrader_strategy_series_materializer_v1.py").read_text(encoding="utf-8")
-    read_model = (ROOT / "tradingdesk_automanage_panel_legacy_v2.py").read_text(encoding="utf-8")
     facade = (ROOT / "tradingdesk_automanage_panel_v2.py").read_text(encoding="utf-8")
-
     public_start = comparison.index("def load_automanager_pnl_comparison_v2(")
     replay_start = comparison.index("def replay_automanager_pnl_comparison_v2(")
     public_body = comparison[public_start:replay_start]
     assert "load_persisted_strategy_series_v1(" in public_body
     assert "load_shadow_benchmark_series_exact_anchor_v2(" not in public_body
     assert "there is deliberately no hidden fallback" in public_body
-
     assert "replay_automanager_pnl_comparison_v2" in materializer
     assert "load_automanager_pnl_comparison_v2" not in materializer
-    assert "load_automanager_pnl_comparison_v2(tuple(group))" in read_model
+    assert "load_automanager_pnl_comparison_v2(tuple(group))" in facade
     assert "render_tradingdesk_automanage_pnl_chart_v2" in facade
 
 
