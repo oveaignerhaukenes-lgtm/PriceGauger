@@ -1,9 +1,15 @@
 # Next architect
 
-The authoritative handoff for **Arkitekt 14** is:
+The authoritative architectural work ledger is now:
 
-**[`docs/ARCHITECT_HANDOFF_2026-09-24_ARKITEKT14.md`](ARCHITECT_HANDOFF_2026-09-24_ARKITEKT14.md)**
+**[`docs/AEN_ARCHITECTURE_CLEANUP_LEDGER_2026-10-01.md`](AEN_ARCHITECTURE_CLEANUP_LEDGER_2026-10-01.md)**
 
-Read it in full before changing AutoTrader V3 runtime dispatch, V2→V3 migration, modifier semantics, Sim-Adapt, Overseer/God Mode, LIVE execution, or the TradingDesk/Live Chart integration.
+For the completed V3 LIVE inventory-ownership migration and its production verification, also read:
 
-Older architect handoffs are historical context only. Refresh current `main` before branching.
+- [`docs/AEN_V3_LIVE_INVENTORY_OWNERSHIP_2026-10-02.md`](AEN_V3_LIVE_INVENTORY_OWNERSHIP_2026-10-02.md)
+- [`docs/AEN_V3_LIVE_INVENTORY_OWNERSHIP_WORKLIST_2026-10-02.md`](AEN_V3_LIVE_INVENTORY_OWNERSHIP_WORKLIST_2026-10-02.md)
+- [`docs/AEN_V3_LIVE_INVENTORY_OWNERSHIP_CHANGELOG_2026-10-02.md`](AEN_V3_LIVE_INVENTORY_OWNERSHIP_CHANGELOG_2026-10-02.md)
+
+Current priority is the controlled architecture cleanup: hard V2/V3 separation, canonical control planes, explicit state ownership, execution observability, architecture guardrail tests, then retirement of proven-dead transitional layers. V2 and V3 must remain independently runnable on different Saxo accounts throughout the cleanup.
+
+The Arkitekt 14–18 handoffs remain historical context, not current authority. Refresh current `main` before branching and update the cleanup ledger as each tranche is verified.
