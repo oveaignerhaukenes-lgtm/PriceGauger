@@ -1,12 +1,21 @@
 import sqlite3
+from contextlib import contextmanager
 
 import autotrader_engine_account_ownership_v1 as ownership
 
 
+@contextmanager
 def _connect(path):
     con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
-    return con
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
 
 
 def test_v2_and_v3_can_own_different_accounts(monkeypatch, tmp_path):
