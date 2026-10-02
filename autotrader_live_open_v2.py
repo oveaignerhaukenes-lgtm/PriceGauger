@@ -9,15 +9,21 @@ that prevents stale broker working orders and unexplained late fills from silent
 becoming fresh AutoManager authority.
 """
 
+import os
 from typing import Mapping
 
 import autotrader_execution_guard_v1 as _guard
 import autotrader_live_open_legacy_v2 as _legacy
+import autotrader_open_sizing_v2 as _sizing
 from autotrader_execution_guard_v1 import install_execution_safety_guard_v1
 from autotrader_live_open_legacy_v2 import *  # noqa: F401,F403
 from autotrader_strategy_switch_provenance_v2 import has_unconsumed_settled_flat_handoff_v2
 from autotrader_trade_markers_v1 import ensure_autotrader_trade_marker_schema_v1
 from database import connect
+
+
+V2_ENTRY_AMOUNT_ENV = "PRICEGAUGER_V2_ENTRY_AMOUNT"
+_ORIGINAL_FIND_ENTRY = _sizing.find_largest_legal_entry_v2
 
 
 def _row_value(row, key: str, index: int):
@@ -86,6 +92,95 @@ def _execution_close_provenance_v1(pilot_key: str) -> tuple[bool, bool]:
     return bool(handoff), False
 
 
+def _configured_entry_amount_v2() -> float | None:
+    """Return an optional deployment-configured V2 amount; no instrument amount is hard-coded."""
+    raw = os.getenv(V2_ENTRY_AMOUNT_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        amount = float(raw)
+    except ValueError as exc:
+        raise _sizing.EntrySizingError(f"{V2_ENTRY_AMOUNT_ENV} must be numeric") from exc
+    if amount <= 0:
+        raise _sizing.EntrySizingError(f"{V2_ENTRY_AMOUNT_ENV} must be positive")
+    return amount
+
+
+def _find_configured_entry_v2(
+    client,
+    *,
+    account_key: str,
+    account_currency: str,
+    instrument,
+    direction: str,
+    envelope,
+    controlled_capital: float,
+    external_reference_prefix: str,
+    max_notional_account=None,
+    require_side_price: bool = False,
+):
+    """Use a configured test amount while preserving Saxo and Margin Envelope prechecks.
+
+    If the deployment has no explicit amount configured, retain the existing sizing
+    policy unchanged. The configured amount is still normalized against the exact
+    instrument rules and must pass the same final broker/envelope checks as before.
+    """
+    amount = _configured_entry_amount_v2()
+    if amount is None:
+        return _ORIGINAL_FIND_ENTRY(
+            client,
+            account_key=account_key,
+            account_currency=account_currency,
+            instrument=instrument,
+            direction=direction,
+            envelope=envelope,
+            controlled_capital=controlled_capital,
+            external_reference_prefix=external_reference_prefix,
+            max_notional_account=max_notional_account,
+            require_side_price=require_side_price,
+        )
+
+    rules = _sizing.load_entry_instrument_rules_v2(
+        client,
+        account_key=account_key,
+        instrument=instrument,
+    )
+    normalized = _sizing._quantized_amount(amount, rules, upward=False)
+    minimum = _sizing.minimum_legal_amount_v2(rules)
+    if normalized + 1e-12 < minimum:
+        raise _sizing.EntrySizingError(
+            f"configured V2 entry amount {amount} is below Saxo minimum {minimum}"
+        )
+    final = _sizing.precheck_entry_amount_v2(
+        client,
+        account_key=account_key,
+        account_currency=account_currency,
+        instrument=instrument,
+        rules=rules,
+        direction=direction,
+        amount=normalized,
+        envelope=envelope,
+        controlled_capital=controlled_capital,
+        external_reference=f"{external_reference_prefix}-fixed",
+        require_side_price=require_side_price,
+    )
+    if not final.allowed:
+        reasons = ",".join(final.margin_decision.reasons) or "none"
+        raise _sizing.EntrySizingError(
+            "configured V2 entry rejected: "
+            f"amount={normalized} saxo_precheck={final.precheck_result!r} "
+            f"disclaimers={final.disclaimers_present} margin_reasons={reasons}"
+        )
+    if max_notional_account is not None and final.notional_account > float(max_notional_account) + 1e-8:
+        raise _sizing.EntrySizingError("configured V2 entry exceeds scoped notional cap")
+    return _sizing.EntrySizingResultV2(
+        rules=rules,
+        amount=normalized,
+        final_precheck=final,
+        precheck_count=1,
+    )
+
+
 def _saxo_quote_error_code_v1(value: object) -> str:
     """Normalize Saxo's explicit no-error sentinels without weakening market-open checks."""
     text = str(value or "").strip()
@@ -120,12 +215,10 @@ def _require_market_open_for_open_v1(client, *, account_id: str, uic: int, asset
 
 # Keep the preserved executor, but install explicit safety boundaries around its
 # broker working-order, submit and adoption edges before any runtime thread starts.
-# Saxo currently returns Quote.ErrorCode="None" for a valid quote. The original
-# #322 guard treated that non-empty string as an error; replace only that validation
-# function while preserving the explicit IsMarketOpen=True requirement.
 _guard.require_market_open_for_open_v1 = _require_market_open_for_open_v1
 install_execution_safety_guard_v1()
 _legacy._settled_close_provenance = _execution_close_provenance_v1
+_legacy.find_largest_legal_entry_v2 = _find_configured_entry_v2
 _settled_close_provenance = _execution_close_provenance_v1
 
 
