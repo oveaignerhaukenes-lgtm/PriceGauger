@@ -62,9 +62,6 @@ with header_left:
 with header_right:
     st.page_link("pages/0_TradingDesk.py", label="Åpne TradingDesk", icon="📊")
 
-# Keep the shared TradingDesk selection aligned while navigating between the two
-# operational surfaces. The value is only a UI preference; execution identity is
-# always re-resolved from the canonical context and Saxo product identity.
 st.session_state[TRADINGDESK_MARKET_KEY] = market
 context = contexts[market]
 
@@ -103,7 +100,7 @@ with v3_tab:
                     help="Kjører beslutningsmotoren på lukkede 5m-bars. Ingen Saxo POST.",
                 )
                 if desired != authority.sim_armed:
-                    set_sim_enabled_v3(item.pilot_key, desired)
+                    set_sim_enabled_v3(item.pilot_key, desired, account_id=item.account_id)
                     st.rerun()
 
                 live_desired = st.toggle(
