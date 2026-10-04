@@ -13,8 +13,19 @@ st.info(
     "Første versjon bruker et demonstrasjonssnapshot slik at arbeidsformen kan vurderes før datakilder kobles på."
 )
 
-# A deliberately static worked example. It demonstrates the information model without
-# pretending that we already have actor-identifying data or a production event detector.
+with st.expander("❓ Hvordan lese analysen?", expanded=False):
+    st.markdown(
+        """
+        **Observert** betyr at påstanden kommer direkte fra tilgjengelige data, for eksempel pris, rente eller rapportert posisjonering.  
+        **Inferert** betyr at dataene passer med en mekanisme, men ikke identifiserer aktøren eller årsaken direkte.  
+        **Bekreftet** betyr at senere data styrker en tidligere hypotese vesentlig.  
+        **Svekket** betyr at senere data gjør hypotesen mindre sannsynlig.  
+        **Avkreftet** betyr at senere evidens er uforenlig med den opprinnelige forklaringen.
+
+        **Confidence** sier hvor sterkt evidensgrunnlaget er, ikke hvor dramatisk markedsbevegelsen var. En stor bevegelse kan fortsatt ha en forklaring med lav confidence.
+        """
+    )
+
 example = {
     "title": "Eksempel · kraftig fall i US Tech 100",
     "move": "−2,1 % på 47 min",
@@ -73,22 +84,96 @@ st.code(
     "hendelse → prisede forventninger → aktør/mandat → constraint/incentiv → ordreflow → likviditet → pris",
     language=None,
 )
+with st.expander("❓ Hva betyr ordreflow og likviditet?", expanded=False):
+    st.markdown(
+        """
+        **Ordreflow** er strømmen av faktiske kjøps- og salgsordre som møter markedets tilgjengelige likviditet. En nyhet flytter ikke prisen direkte: den endrer aktørenes incentiver eller constraints, som igjen skaper ordre.
+
+        **Likviditet** er hvor mye kjøps- og salgsinteresse som finnes rundt gjeldende pris. Aggressive kjøpere konsumerer tilbud på ask; aggressive selgere konsumerer bud. Hvis ordrene er store relativt til tilgjengelig likviditet, må prisen ofte flytte seg mer for å finne motpart.
+
+        **Absorption** oppstår når mye aggressiv ordreflow møter en stor passiv motpart og prisen derfor beveger seg mindre enn volumet skulle tilsi.
+        """
+    )
 
 st.divider()
 st.subheader("Aktørkart")
 actors = [
-    ("CTA / trend", "Pris, momentum, volatilitet", "Systematiske trendregler", "Trendforsterkning / mekanisk scale-in/out", "COT + modellert eksponering"),
-    ("Macro / hedgefond", "Makro, rates, FX, relative value", "Avkastning / asymmetri", "Cross-asset reprising", "COT / 13F / fund-flow, ofte aggregert"),
-    ("Optionsdealere", "Delta, gamma, vega, inventory", "Holde bok hedget", "Mekanisk hedging rundt pris/strikes", "Options OI/volum + inferert dealer-side"),
-    ("Vol-control / risk parity", "Volatilitet, korrelasjon, risiko", "Målstyrt porteføljerisiko", "De-/releveraging", "Vol/korrelasjon + modellert pressure"),
-    ("Pensjon / long-only", "Allokering, benchmark, liabilities", "Mandat / langsiktig allokering", "Rebalansering", "Holdings/fund-flow/rebalansering"),
-    ("Passive / ETF", "Indeksvekter og investor-flow", "Tracking", "Creation/redemption og rebalance", "ETF holdings/flows"),
-    ("Corporate / hedgers", "Råvarer, valuta, finansiering", "Redusere virksomhetsrisiko", "Hedge-flow uten retningssyn", "Rapporter + futures positioning"),
-    ("Sentralbank / offentlig", "Reserver, valuta, likviditet", "Policy / reserveforvaltning", "FX/rente/gull/liquidity-flow", "Balanser, reserver, offisielle rapporter"),
-    ("Retail", "Pris, nyheter, sentiment", "Spekulasjon / investering", "Kan forsterke konsentrert momentum", "Broker-/options-/sentiment-proxies"),
+    (
+        "CTA / trend",
+        "Commodity Trading Advisor. I denne sammenhengen særlig systematiske fond som følger regler basert på trend, momentum og volatilitet. De kan kjøpe fordi markedet allerede stiger eller selge fordi det faller, og dermed forsterke en eksisterende bevegelse. CTA-aktivitet er ofte inferert fra pris, volatilitet og senere posisjoneringsdata — ikke direkte identifisert ordre for ordre.",
+        "Pris, momentum, volatilitet",
+        "Systematiske trendregler",
+        "Trendforsterkning / mekanisk scale-in/out",
+        "COT + modellert eksponering",
+    ),
+    (
+        "Macro / hedgefond",
+        "Diskresjonære eller systematiske fond som handler makroøkonomiske sammenhenger på tvers av renter, valuta, aksjer og råvarer. De kan reagere raskt når ny informasjon endrer forventninger til vekst, inflasjon eller sentralbankpolitikk.",
+        "Makro, rates, FX, relative value",
+        "Avkastning / asymmetri",
+        "Cross-asset reprising",
+        "COT / 13F / fund-flow, ofte aggregert",
+    ),
+    (
+        "Optionsdealere",
+        "Market makers som står på motsatt side av kundenes opsjonshandler og ofte hedger delta- og gammaeksponeringen i underliggende marked. Hedgingen kan skape mekaniske kjøp eller salg uten at dealeren har et retningssyn.",
+        "Delta, gamma, vega, inventory",
+        "Holde bok hedget",
+        "Mekanisk hedging rundt pris/strikes",
+        "Options OI/volum + inferert dealer-side",
+    ),
+    (
+        "Vol-control / risk parity",
+        "Strategier som skalerer eksponering etter målt risiko. Når volatiliteten øker kan de bli tvunget til å redusere posisjoner; når volatiliteten faller kan de øke igjen. Flowen kan derfor være mekanisk og etterslepende.",
+        "Volatilitet, korrelasjon, risiko",
+        "Målstyrt porteføljerisiko",
+        "De-/releveraging",
+        "Vol/korrelasjon + modellert pressure",
+    ),
+    (
+        "Pensjon / long-only",
+        "Store langsiktige investorer med allokerings-, benchmark- og liability-krav. De handler ofte langsommere enn spekulative fond, men størrelsen gjør rebalanseringer viktige.",
+        "Allokering, benchmark, liabilities",
+        "Mandat / langsiktig allokering",
+        "Rebalansering",
+        "Holdings/fund-flow/rebalansering",
+    ),
+    (
+        "Passive / ETF",
+        "Kapital som følger indeks eller fondskonstruksjon fremfor et aktivt markedssyn. Investorinn- og utbetalinger, indeksendringer og rebalansering kan skape forutsigbare handelsbehov.",
+        "Indeksvekter og investor-flow",
+        "Tracking",
+        "Creation/redemption og rebalance",
+        "ETF holdings/flows",
+    ),
+    (
+        "Corporate / hedgers",
+        "Selskaper og kommersielle aktører som bruker markedet for å redusere virksomhetsrisiko, for eksempel valuta-, råvare- eller renterisiko. En stor handel trenger derfor ikke uttrykke et syn på retningen.",
+        "Råvarer, valuta, finansiering",
+        "Redusere virksomhetsrisiko",
+        "Hedge-flow uten retningssyn",
+        "Rapporter + futures positioning",
+    ),
+    (
+        "Sentralbank / offentlig",
+        "Sentralbanker, finansdepartementer og andre offentlige aktører som påvirker markeder gjennom policy, reserver, likviditet, valutaoperasjoner og reserveforvaltning. Motivet er ofte stabilitet eller policy, ikke maksimal tradingavkastning.",
+        "Reserver, valuta, likviditet",
+        "Policy / reserveforvaltning",
+        "FX/rente/gull/liquidity-flow",
+        "Balanser, reserver, offisielle rapporter",
+    ),
+    (
+        "Retail",
+        "Private investorer og tradere. Gruppen er heterogen, men kan bli viktig når aktivitet konsentreres i samme instrument, opsjonsstrike eller narrativ og dermed forsterker momentum eller dealer-hedging.",
+        "Pris, nyheter, sentiment",
+        "Spekulasjon / investering",
+        "Kan forsterke konsentrert momentum",
+        "Broker-/options-/sentiment-proxies",
+    ),
 ]
-for name, observes, motive, footprint, data in actors:
-    with st.expander(name):
+for name, explanation, observes, motive, footprint, data in actors:
+    with st.expander(f"❓ {name}"):
+        st.write(explanation)
         c1, c2, c3, c4 = st.columns(4)
         c1.markdown(f"**Ser på**\n\n{observes}")
         c2.markdown(f"**Mandat / constraint**\n\n{motive}")
@@ -104,6 +189,22 @@ world.markdown("### Verden / nyheter")
 world.write("Vekst · inflasjon · renter · energi · geopolitikk · selskaper · policy")
 actor.markdown("### Aktører")
 actor.write("Hvem kan være marginal kjøper/selger, og hvilke regler eller constraints kan produsere flow?")
+
+with st.expander("❓ Begreper som dukker opp i analysen", expanded=False):
+    glossary = pd.DataFrame(
+        [
+            ["COT", "Commitments of Traders: periodisk posisjoneringsrapport for futuresmarkeder."],
+            ["Open interest (OI)", "Antall utestående futures- eller opsjonskontrakter som fortsatt er åpne."],
+            ["Delta", "Hvor mye en opsjonsverdi omtrent endres når underliggende pris flytter seg én enhet."],
+            ["Gamma", "Hvor raskt opsjonens delta endrer seg når underliggende pris flytter seg."],
+            ["Deleveraging", "Reduksjon av eksponering eller gearing, ofte fordi risiko/volatilitet har økt."],
+            ["Rebalansering", "Handler som bringer en portefølje tilbake mot ønskede vekter eller risikomål."],
+            ["Cross-asset", "Sammenheng eller reprising på tvers av aktivaklasser, f.eks. renter → USD → tech → gull."],
+            ["Positioning", "Hvordan markedsaktører allerede er eksponert long, short eller relativt til en benchmark."],
+        ],
+        columns=["Begrep", "Kort forklaring"],
+    )
+    st.dataframe(glossary, use_container_width=True, hide_index=True)
 
 st.subheader("Regime × aktør")
 st.dataframe(
