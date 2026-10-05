@@ -9,6 +9,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
+from autotrader_engine_account_ownership_v1 import ENGINE_V2, load_account_owner_v1
 from autotrader_managed_positions_v1 import (
     load_active_managed_positions_v1,
     managed_position_matches_v1,
@@ -494,8 +495,20 @@ def _evaluate_observations_v2(
     )
 
 
+def _v2_owned_observations_v2(
+    observations: tuple[PositionObservationV2, ...],
+) -> tuple[PositionObservationV2, ...]:
+    """Keep only Saxo positions on accounts currently owned by ENGINE V2."""
+    owned: list[PositionObservationV2] = []
+    for observation in observations:
+        owner = load_account_owner_v1(observation.account_id)
+        if owner is not None and owner.engine_id == ENGINE_V2:
+            owned.append(observation)
+    return tuple(owned)
+
+
 def run_risk_control_cycle_v2() -> RiskCycleSummaryV2:
-    """Observe the complete portfolio at the normal, lower-frequency cadence."""
+    """Observe only accounts currently owned by AutoTrader V2."""
     with _RISK_CYCLE_LOCK:
         config = load_risk_config_v2()
         if not modifier_enabled_v1("position_guardian"):
@@ -503,7 +516,7 @@ def run_risk_control_cycle_v2() -> RiskCycleSummaryV2:
         client = configured_client()
         if client is None:
             raise RuntimeError("Saxo client is not configured")
-        observations = _position_observations_v2(client)
+        observations = _v2_owned_observations_v2(_position_observations_v2(client))
         return _evaluate_observations_v2(
             observations,
             config=config,
