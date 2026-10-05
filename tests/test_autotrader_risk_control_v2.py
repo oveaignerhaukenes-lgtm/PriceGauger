@@ -181,3 +181,49 @@ def test_risk_control_decision_layer_never_submits_orders() -> None:
     assert ".precheck(" not in source
     assert "trade/v2/orders" not in source
     assert risk.ACTION_WOULD_CLOSE == "WOULD_CLOSE"
+
+
+def test_v2_owned_observations_excludes_v3_and_unowned_accounts(monkeypatch) -> None:
+    v2 = _position(pnl_pct=0.1)
+    v3 = risk.PositionObservationV2(
+        account_id="acct-v3",
+        net_position_id="position-v3",
+        uic=123,
+        asset_type="CfdOnIndex",
+        direction="Buy",
+        amount=1.0,
+        average_open_price=100.0,
+        current_price=100.1,
+        pnl_pct=0.1,
+        price_delay_minutes=0,
+        can_be_closed=True,
+        calculation_reliability="Ok",
+    )
+    unowned = risk.PositionObservationV2(
+        account_id="acct-unowned",
+        net_position_id="position-unowned",
+        uic=123,
+        asset_type="CfdOnIndex",
+        direction="Buy",
+        amount=1.0,
+        average_open_price=100.0,
+        current_price=100.1,
+        pnl_pct=0.1,
+        price_delay_minutes=0,
+        can_be_closed=True,
+        calculation_reliability="Ok",
+    )
+
+    class Owner:
+        def __init__(self, engine_id):
+            self.engine_id = engine_id
+
+    owners = {
+        "acct": Owner("V2"),
+        "acct-v3": Owner("V3"),
+        "acct-unowned": None,
+    }
+    monkeypatch.setattr(risk, "load_account_owner_v1", lambda account_id: owners[account_id])
+
+    scoped = risk._v2_owned_observations_v2((v2, v3, unowned))
+    assert scoped == (v2,)
