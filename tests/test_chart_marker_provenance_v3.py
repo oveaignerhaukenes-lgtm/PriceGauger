@@ -16,9 +16,11 @@ def test_reconciled_durable_orders_are_projected_with_engine_provenance():
     assert "FROM autotrader_v3_order_guard AS guard" in v3
     assert "guard.state = 'RECONCILED'" in v3
     assert 'source="AUTOTRADER_V3"' in v3
-    assert "cfg.account_id = guard.account_id" in v3
-    assert "cfg.uic = guard.uic" in v3
-    assert "cfg.asset_type = guard.asset_type" in v3
+    assert "enrollment.pilot_key = guard.trader_id" in v3
+    assert "enrollment.account_id = guard.account_id" in v3
+    assert "enrollment.uic = guard.uic" in v3
+    assert "enrollment.asset_type = guard.asset_type" in v3
+    assert "cfg.account_id" not in v3
 
 
 def test_chart_uses_compact_manual_m_and_distinct_v2_v3_colors():
