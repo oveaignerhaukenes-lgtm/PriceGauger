@@ -2,9 +2,11 @@ from __future__ import annotations
 
 """Read-only V3 execution provenance for TradingDesk chart markers.
 
-The V3 order guard is the durable execution/reconciliation source of truth.  This
-projection deliberately does not infer V3 from the legacy strategy enrollment table;
-it resolves the exact Saxo account/UIC/asset boundary against V3 config instead.
+The V3 order guard is the durable execution/reconciliation source of truth. During
+the multi-instance migration the current production V3 identity still lives in the
+strategy-enrollment boundary, so use that exact account/UIC/asset mapping for chart
+projection. The registry can replace this compatibility join once the runtime cutover
+bootstraps every production instance.
 """
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
@@ -26,11 +28,6 @@ def load_v3_trade_markers_v1(market_name: str) -> tuple[AutoTraderTradeMarkerV1,
                        guard.trader_id,
                        guard.expected_inventory
                 FROM autotrader_v3_order_guard AS guard
-                JOIN autotrader_v3_config AS cfg
-                  ON cfg.trader_id = guard.trader_id
-                 AND cfg.account_id = guard.account_id
-                 AND cfg.uic = guard.uic
-                 AND cfg.asset_type = guard.asset_type
                 JOIN pg_v2_autotrader_strategy_enrollments AS enrollment
                   ON enrollment.pilot_key = guard.trader_id
                  AND enrollment.account_id = guard.account_id
@@ -66,7 +63,6 @@ def load_v3_trade_markers_v1(market_name: str) -> tuple[AutoTraderTradeMarkerV1,
             "expected_inventory": row[6],
         }
         expected = value.get("expected_inventory")
-        # A reconciled mutation ending at exact zero is a close, not a directional entry.
         direction = "FLAT" if expected is not None and abs(float(expected)) <= 1e-9 else (
             "LONG" if str(value["submitted_side"]).lower() == "buy" else "SHORT"
         )
