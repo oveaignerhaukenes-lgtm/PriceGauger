@@ -28,7 +28,14 @@ def _event_count(instance_id):
 def render_v3_fleet_management_v1():
     instances=bootstrap_v3_instances_from_enrollments_v1()
     if not instances: st.info('Ingen V3-instanser finnes ennå.'); return
-    broker=configured_live_pilot_client_v3(); rows=[]
+    broker=configured_live_pilot_client_v3(); rows=[]; account_names={}
+    if broker:
+        try:
+            for row in broker.accounts():
+                if isinstance(row,dict):
+                    aid=str(row.get('AccountId') or '').strip()
+                    if aid:account_names[aid]=str(row.get('AccountName') or row.get('DisplayName') or '').strip()
+        except Exception: pass
     for item in instances:
         config=load_autotrader_config_v3(item.instance_id); policy=load_execution_policy_v3(item.instance_id); auth=authority_state_v3(item.instance_id); status,detail,updated=_runtime(item.instance_id)
         try: pnl=broker.open_pnl_exact(account_id=item.account_id,uic=item.uic,asset_type=item.asset_type) if broker else None
@@ -36,14 +43,16 @@ def render_v3_fleet_management_v1():
         rows.append((item,config,policy,auth,status,detail,updated,pnl,_event_count(item.instance_id)))
     st.subheader('V3 Fleet'); st.caption('Samlet oversikt over aktive autotradere. TradingDesk er den raske arbeidsflaten for én instans; begge bruker samme canonical config.')
     m=st.columns(4); m[0].metric('Instanser',len(rows)); m[1].metric('LIVE',sum(r[3].live_armed for r in rows)); m[2].metric('SIM',sum(r[3].sim_armed for r in rows)); m[3].metric('Handler 24t',sum(r[8] for r in rows))
-    comparable=[{'Instans':f'{r[0].account_id} · {r[1].strategy_key}','Åpen P/L':float(r[7])} for r in rows if r[7] is not None]
+    comparable=[{'Instans':f'{r[0].market_name} · {account_names.get(r[0].account_id) or r[0].account_id}','Åpen P/L':float(r[7])} for r in rows if r[7] is not None]
     if comparable:
         st.markdown('**Relativ prestasjon · nåværende åpne P/L**')
         st.bar_chart(pd.DataFrame(comparable).set_index('Instans'))
         st.caption('Dette er brokerens nåværende åpne P/L per eksakt konto/instrument, ikke en rekonstruert historisk avkastningskurve.')
     for item,config,policy,auth,status,detail,updated,pnl,count in rows:
         with st.container(border=True):
-            c=st.columns([2,1,1,1,1]); c[0].markdown(f'### {item.account_id} · {item.market_name}'); c[1].metric('Strategi',config.strategy_key); c[2].metric('LIVE','ON' if auth.live_armed else 'OFF'); c[3].metric('Åpen P/L','—' if pnl is None else f'{pnl:+.2f}'); c[4].metric('Handler 24t',count)
+            account_name=account_names.get(item.account_id,''); account=f'{account_name} ({item.account_id})' if account_name else item.account_id
+            c=st.columns([2,1,1,1,1]); c[0].markdown(f'### {item.market_name} · {account}'); c[1].metric('Strategi',config.strategy_key); c[2].metric('LIVE','ON' if auth.live_armed else 'OFF'); c[3].metric('Åpen P/L','—' if pnl is None else f'{pnl:+.2f}'); c[4].metric('Handler 24t',count)
+            st.caption(f'V3 {item.instance_id[:8]} · konto {item.account_id} · UIC {item.uic} · {item.asset_type} · instrument {item.instrument_id}')
             cap=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'; st.caption(f'{status} · {detail} · periode {config.timeframe} · options {", ".join(config.modifiers) or "ingen"} · ramme {cap}')
             try:
                 d=load_execution_diagnostic_v1(account_id=item.account_id,uic=int(item.uic),asset_type=item.asset_type,owner_key=item.instance_id,engine_id='V3')
