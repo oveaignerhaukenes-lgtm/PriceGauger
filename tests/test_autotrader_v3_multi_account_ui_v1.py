@@ -35,6 +35,9 @@ class _FakeStreamlit:
     def popover(self, _label):
         return nullcontext()
 
+    def expander(self, _label, **_kwargs):
+        return nullcontext()
+
     def selectbox(self, _label, options, **_kwargs):
         return options[0]
 
@@ -51,6 +54,9 @@ class _FakeStreamlit:
         pass
 
     def success(self, *_args, **_kwargs):
+        pass
+
+    def error(self, *_args, **_kwargs):
         pass
 
     def rerun(self):
@@ -70,6 +76,19 @@ def _instance(instance_id, account_id):
     )
 
 
+
+
+def _binding():
+    return SimpleNamespace(
+        key="1:1:4912:CfdOnIndex",
+        label="US Tech 100 NAS · NAS · UIC 4912 · CfdOnIndex",
+        market_name="US Tech 100 NAS",
+        market_id=1,
+        instrument_id=1,
+        uic=4912,
+        asset_type="CfdOnIndex",
+    )
+
 def test_create_defers_tab_selection_until_rerun(monkeypatch):
     old = _instance("old-id", "OLD")
     created = _instance("new-id", "NEW")
@@ -83,6 +102,8 @@ def test_create_defers_tab_selection_until_rerun(monkeypatch):
         lambda: SimpleNamespace(accounts=lambda: ({"AccountId": "NEW", "AccountName": "Ny"},)),
     )
     monkeypatch.setattr(ui, "load_account_owner_v1", lambda _account_id: None)
+    monkeypatch.setattr(ui, "load_available_v3_instrument_bindings_v1", lambda: (_binding(),))
+    monkeypatch.setattr(ui, "same_v3_binding_v1", lambda instance, target: True)
     monkeypatch.setattr(ui, "create_v3_instance_v1", lambda **_kwargs: created)
 
     with pytest.raises(_Rerun):
@@ -106,6 +127,8 @@ def test_pending_tab_is_applied_before_radio_widget_is_instantiated(monkeypatch)
         lambda: SimpleNamespace(accounts=lambda: ({"AccountId": "OLD"}, {"AccountId": "NEW"})),
     )
     monkeypatch.setattr(ui, "load_account_owner_v1", lambda _account_id: None)
+    monkeypatch.setattr(ui, "load_available_v3_instrument_bindings_v1", lambda: (_binding(),))
+    monkeypatch.setattr(ui, "same_v3_binding_v1", lambda instance, target: True)
 
     selected = ui.render_v3_instance_selector_v1(key_prefix="test")
 
