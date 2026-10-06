@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 from autotrader_execution_diagnostics_v1 import load_execution_diagnostic_v1
 from autotrader_v3_config_v1 import load_autotrader_config_v3
@@ -33,9 +34,13 @@ def render_v3_fleet_management_v1():
         try: pnl=broker.open_pnl_exact(account_id=item.account_id,uic=item.uic,asset_type=item.asset_type) if broker else None
         except Exception: pnl=None
         rows.append((item,config,policy,auth,status,detail,updated,pnl,_event_count(item.instance_id)))
-    st.subheader('V3 Fleet')
-    st.caption('Samlet oversikt over aktive autotradere. TradingDesk er den raske arbeidsflaten for én instans; begge bruker samme canonical config.')
+    st.subheader('V3 Fleet'); st.caption('Samlet oversikt over aktive autotradere. TradingDesk er den raske arbeidsflaten for én instans; begge bruker samme canonical config.')
     m=st.columns(4); m[0].metric('Instanser',len(rows)); m[1].metric('LIVE',sum(r[3].live_armed for r in rows)); m[2].metric('SIM',sum(r[3].sim_armed for r in rows)); m[3].metric('Handler 24t',sum(r[8] for r in rows))
+    comparable=[{'Instans':f'{r[0].account_id} · {r[1].strategy_key}','Åpen P/L':float(r[7])} for r in rows if r[7] is not None]
+    if comparable:
+        st.markdown('**Relativ prestasjon · nåværende åpne P/L**')
+        st.bar_chart(pd.DataFrame(comparable).set_index('Instans'))
+        st.caption('Dette er brokerens nåværende åpne P/L per eksakt konto/instrument, ikke en rekonstruert historisk avkastningskurve.')
     for item,config,policy,auth,status,detail,updated,pnl,count in rows:
         with st.container(border=True):
             c=st.columns([2,1,1,1,1]); c[0].markdown(f'### {item.account_id} · {item.market_name}'); c[1].metric('Strategi',config.strategy_key); c[2].metric('LIVE','ON' if auth.live_armed else 'OFF'); c[3].metric('Åpen P/L','—' if pnl is None else f'{pnl:+.2f}'); c[4].metric('Handler 24t',count)
@@ -46,7 +51,6 @@ def render_v3_fleet_management_v1():
             except Exception: pass
             with st.expander('Administrer instansen',expanded=False): render_v3_instance_controls_v1(item,key_prefix='fleet')
 
-# Backward-compatible read-only renderer retained for callers outside the V3 page.
 def render_autotrader_v3_fleet_preview(rows):
     st.subheader('AutoTrader v3 · Fleet')
     for row in rows:
