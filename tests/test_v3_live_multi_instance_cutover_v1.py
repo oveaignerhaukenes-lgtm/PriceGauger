@@ -102,6 +102,8 @@ def test_bootstrap_preserves_existing_production_instance_identity(monkeypatch,t
     db=str(tmp_path/"v3.db")
     legacy=SimpleNamespace(
         pilot_key="production-v3-pilot",
+        strategy_key="macd-trailing-v1",
+        execution_mode="LIVE_MANAGE",
         account_id="autotrader",
         uic=4912,
         asset_type="CfdOnIndex",
