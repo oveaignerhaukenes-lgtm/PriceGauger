@@ -44,6 +44,7 @@ def test_short_bullish_impulse_can_cross_zero_to_capture_brief_reversal():
         initial_target=TargetInventoryV3(-.02),
     )
     assert [item.target.amount for item in decisions] == pytest.approx([-.03, -.02, -.01, 0, .01])
+    assert decisions[3].action == "REGIME_CROSS_FLAT"
     assert decisions[-1].action == "ADD_IMPULSE"
 
 
@@ -64,23 +65,55 @@ def test_invalid_tranche_configuration_fails_closed():
         MacdTrailingConfigV3(tranche=.02, max_inventory=.01)
 
 
-def test_hard_opposite_reversal_flattens_entire_target():
-    decision = macd_trailing_target_v3(
-        current_target=TargetInventoryV3(.05),
-        previous_observation=_obs(.02),
-        observation=_obs(-.05),
-        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10, hard_reversal_ratio=2.0),
-    )
-    assert decision.target.amount == 0.0
-    assert decision.action == "HARD_REVERSAL_FLAT"
-
-
-def test_ordinary_reversal_still_reduces_one_tranche():
+def test_any_bearish_regime_cross_flattens_entire_long_target():
     decision = macd_trailing_target_v3(
         current_target=TargetInventoryV3(.05),
         previous_observation=_obs(.04),
-        observation=_obs(-.05),
-        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10, hard_reversal_ratio=2.0),
+        observation=_obs(-.001),
+        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10),
     )
-    assert decision.target.amount == pytest.approx(.04)
-    assert decision.action == "TRAIL_OUT"
+    assert decision.target.amount == 0.0
+    assert decision.action == "REGIME_CROSS_FLAT"
+
+
+def test_bearish_first_observation_flattens_legacy_long_without_previous_spread():
+    decision = macd_trailing_target_v3(
+        current_target=TargetInventoryV3(.05),
+        observation=_obs(-.001),
+        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10),
+    )
+    assert decision.target.amount == 0.0
+    assert decision.action == "REGIME_CROSS_FLAT"
+
+
+def test_any_bullish_regime_cross_flattens_entire_short_target():
+    decision = macd_trailing_target_v3(
+        current_target=TargetInventoryV3(-.04),
+        previous_observation=_obs(-.03),
+        observation=_obs(.001),
+        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10),
+    )
+    assert decision.target.amount == 0.0
+    assert decision.action == "REGIME_CROSS_FLAT"
+
+
+def test_flat_target_never_builds_long_inside_bearish_regime_even_if_spread_improves():
+    decision = macd_trailing_target_v3(
+        current_target=TargetInventoryV3(0),
+        previous_observation=_obs(-.05),
+        observation=_obs(-.02),
+        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10),
+    )
+    assert decision.target.amount == 0.0
+    assert decision.action == "HOLD_IMPULSE"
+
+
+def test_flat_target_never_builds_short_inside_bullish_regime_even_if_spread_weakens():
+    decision = macd_trailing_target_v3(
+        current_target=TargetInventoryV3(0),
+        previous_observation=_obs(.05),
+        observation=_obs(.02),
+        config=MacdTrailingConfigV3(tranche=.01, max_inventory=.10),
+    )
+    assert decision.target.amount == 0.0
+    assert decision.action == "HOLD_IMPULSE"
