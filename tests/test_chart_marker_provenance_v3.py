@@ -17,8 +17,9 @@ def test_v3_chart_reads_canonical_execution_ledger_not_order_state():
     assert "markers.extend(load_v3_trade_markers_v1(market_name))" in legacy
     assert "FROM autotrader_v3_execution_events e" in v3
     assert "autotrader_v3_order_guard" not in v3
-    assert "autotrader_v3_execution_events" in ledger
-    assert "record_reconciled_execution_v1" in guard
+    assert "pg_v3_execution_event_trigger" in ledger
+    assert "AFTER UPDATE OF state ON autotrader_v3_order_guard" in ledger
+    assert "ensure_v3_execution_event_schema_v1" in guard
     assert 'source="AUTOTRADER_V3"' in v3
 
 
