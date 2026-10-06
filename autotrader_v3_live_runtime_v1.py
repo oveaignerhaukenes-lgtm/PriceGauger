@@ -42,8 +42,13 @@ def _actual(e,broker):
 def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db"):
     """Return only enabled V3 instances with explicit LIVE authority and exact account ownership."""
     active=[]
-    for e in load_v3_runtime_instances_v1(db_path=db_path):
-        if not live_authority_armed_v3(e.pilot_key,db_path=db_path):
+    instances=load_v3_runtime_instances_v1(db_path=db_path)
+    LOGGER.info("v3 LIVE discovered enabled instances=%d ids=%s",
+        len(instances),",".join(e.pilot_key for e in instances) or "-")
+    for e in instances:
+        armed=live_authority_armed_v3(e.pilot_key,db_path=db_path)
+        LOGGER.info("v3 LIVE candidate instance=%s armed=%s",e.pilot_key,armed)
+        if not armed:
             continue
         owner=load_account_owner_v1(e.account_id,db_path=db_path)
         if owner is None or owner.engine_id != ENGINE_V3 or owner.owner_key != e.pilot_key:
