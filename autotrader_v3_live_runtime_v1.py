@@ -3,7 +3,8 @@ import logging
 from uuid import uuid5, NAMESPACE_URL
 from datetime import datetime,timedelta,timezone
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
-from autotrader_strategy_enrollment_v2 import load_active_strategy_enrollments_v2,EXECUTION_MODE_LIVE
+from autotrader_engine_account_ownership_v1 import ENGINE_V3, load_account_owner_v1
+from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
 from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
@@ -38,24 +39,40 @@ def _actual(e,broker):
     return TargetInventoryV3(broker.signed_inventory_exact(
         account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type))
 
+def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db"):
+    """Return only enabled V3 instances with explicit LIVE authority and exact account ownership."""
+    active=[]
+    for e in load_v3_runtime_instances_v1(db_path=db_path):
+        if not live_authority_armed_v3(e.pilot_key,db_path=db_path):
+            continue
+        owner=load_account_owner_v1(e.account_id,db_path=db_path)
+        if owner is None or owner.engine_id != ENGINE_V3 or owner.owner_key != e.pilot_key:
+            observed="unowned" if owner is None else f"{owner.engine_id}/{owner.owner_key}"
+            _record_runtime(e.pilot_key,"BLOCKED",
+                f"V3 account ownership mismatch: expected {ENGINE_V3}/{e.pilot_key}, got {observed}; no orders sent.",
+                db_path=db_path)
+            continue
+        active.append(e)
+    return tuple(active)
+
 def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
-    """Normal v3 LIVE runtime. The LIVE toggle is the user authority boundary."""
-    active=tuple(e for e in load_active_strategy_enrollments_v2()
-        if e.execution_mode==EXECUTION_MODE_LIVE
-        and live_authority_armed_v3(e.pilot_key,db_path=db_path))
-    LOGGER.info("v3 LIVE active armed enrollments=%d",len(active))
+    """Normal v3 LIVE runtime. The LIVE toggle plus exact V3 account ownership is the authority boundary."""
+    active=_load_owned_armed_runtime_instances_v3(db_path=db_path)
+    LOGGER.info("v3 LIVE active owned armed instances=%d",len(active))
+    enrollments=[]
     for e in active:
         adapter = STRATEGIES_V3.get(e.strategy_key)
         if adapter is None:
             _record_runtime(e.pilot_key, "BLOCKED",
                 f"Unregistered V3 strategy {e.strategy_key}; no orders sent.", db_path=db_path)
-        elif not adapter.live_route_enabled:
+            continue
+        if not adapter.live_route_enabled:
             _record_runtime(e.pilot_key, "BLOCKED",
                 f"{e.strategy_key}: LIVE execution/reconciliation not validated. No orders sent.",
                 db_path=db_path)
-    enrollments=tuple(e for e in active if
-        (adapter := STRATEGIES_V3.get(e.strategy_key)) is not None
-        and adapter.live_route_enabled)
+            continue
+        enrollments.append(e)
+    enrollments=tuple(enrollments)
     if not enrollments: return 0
     for e in enrollments:
         _record_runtime(e.pilot_key,"RUNNING","worker cycle entered",db_path=db_path)
