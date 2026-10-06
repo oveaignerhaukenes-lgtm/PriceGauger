@@ -490,12 +490,46 @@ def _forming_chart_candle(context: TradingDeskV2Context | None) -> FormingCandle
     )
 
 
-def _load_standalone_chart_payload():
-    """Use the exact standalone Live Chart snapshot and payload contract.
+def _load_chart_indicators_v1(closed):
+    """Calculate selected studies with warmup while keeping VWAP anchored to the visible window."""
+    selected = tuple(str(item) for item in indicator_names if str(item) in INDICATOR_OPTIONS)
+    if not closed or not selected:
+        return None, selected
 
-    Intentionally exclude TradingDesk studies, trade history and forecast from
-    the one-second path until the basic chart has passed a browser smoke test.
-    """
+    minutes = int(TIMEFRAME_MINUTES[timeframe])
+    visible_start = utc(closed[0].bar_time)
+    visible_end = utc(closed[-1].bar_time)
+    # Calendar-time padding is deliberately wider than the nominal 120 periods so
+    # exchange closures/weekends still leave enough completed bars for EMA/SMA/MACD.
+    warmup_start = visible_start - timedelta(
+        minutes=minutes * int(INDICATOR_WARMUP_PERIODS) * 3
+    )
+    try:
+        raw = store.load_range(
+            market=market,
+            start=warmup_start,
+            end=visible_end + timedelta(minutes=minutes),
+            limit=20000,
+        )
+        warmup_bars = resample_bars(raw, timeframe=timeframe)
+        technical = calculate_indicators(warmup_bars)
+        technical = clip_indicators(
+            technical,
+            start=closed[0].bar_time,
+            end=closed[-1].bar_time,
+        )
+        if INDICATOR_VWAP in selected:
+            # VWAP is intentionally anchored to the visible chart window, not warmup history.
+            visible_technical = calculate_indicators(closed)
+            technical = replace(technical, vwap=visible_technical.vwap)
+        return technical, selected
+    except Exception:
+        # Indicator presentation must never take down the live candle chart.
+        return calculate_indicators(closed), selected
+
+
+def _load_standalone_chart_payload():
+    """Build the stable live chart plus the selected TradingDesk studies."""
     context = baseline_contexts.get(market)
     if context is None or context.instrument is None:
         return None, (), None
@@ -503,17 +537,18 @@ def _load_standalone_chart_payload():
         market=market, timeframe=timeframe, window_hours=window_hours,
         instrument=context.instrument,
     )
+    technical, selected_indicators = _load_chart_indicators_v1(closed)
     payload = build_lightweight_direct_live_payload_v1(
         market=market,
         timeframe=timeframe,
         primary=closed,
         overlays={},
         overlay_mode="Normalisert %",
-        indicators=None,
-        indicator_names=(),
-        indicator_timeframes={},
-        chart_height=260,
-        price_panel_share=1.0,
+        indicators=technical,
+        indicator_names=selected_indicators,
+        indicator_timeframes={INDICATOR_MACD: timeframe},
+        chart_height=chart_height,
+        price_panel_share=float(price_panel_pct) / 100.0,
         trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
