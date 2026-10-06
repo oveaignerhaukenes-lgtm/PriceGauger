@@ -6,6 +6,7 @@ from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
 from autotrader_engine_account_ownership_v1 import ENGINE_V3, load_account_owner_v1
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
+from autotrader_v3_closed_bar_driver_v1 import ensure_closed_bar_driver_schema_v3
 from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
@@ -26,6 +27,67 @@ from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
+
+_FIXED_TIMEFRAME_MINUTES_V3={
+    "1m":1,
+    "2m":2,
+    "5m":5,
+    "10m":10,
+    "15m":15,
+    "30m":30,
+    "1h":60,
+}
+
+def _live_timeframe_minutes_v3(timeframe:str)->int:
+    label=str(timeframe or "").strip()
+    if label=="Adaptiv":
+        raise ValueError("Adaptiv timeframe is not implemented in V3 LIVE")
+    try:
+        return _FIXED_TIMEFRAME_MINUTES_V3[label]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported V3 LIVE timeframe: {label or '<empty>'}") from exc
+
+def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
+                                      timeframe_minutes:int,db_path="pricegauger.db")->bool:
+    """Keep closed-bar impulse history from leaking across strategy/timeframe changes.
+
+    Before this fix V3 LIVE was hard-coded to 5m. Existing rows therefore have an
+    implicit 5m context. On the first configured non-5m cycle we preserve the current
+    target and last processed bar, but clear previous_spread so a 5m impulse cannot
+    become the previous observation for a 15m/30m/etc decision.
+    """
+    ensure_closed_bar_driver_schema_v3(db_path)
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_live_decision_context(
+          trader_id TEXT PRIMARY KEY,
+          strategy_key TEXT NOT NULL,
+          timeframe_minutes INTEGER NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        row=db.execute(
+            "SELECT strategy_key,timeframe_minutes FROM autotrader_v3_live_decision_context WHERE trader_id=?",
+            (str(trader_id),),
+        ).fetchone()
+        if row is None:
+            previous_strategy=str(strategy_key)
+            previous_timeframe=5
+        else:
+            previous_strategy=str(row["strategy_key"] if isinstance(row,dict) else row[0])
+            previous_timeframe=int(row["timeframe_minutes"] if isinstance(row,dict) else row[1])
+        changed=(previous_strategy!=str(strategy_key) or previous_timeframe!=int(timeframe_minutes))
+        if changed:
+            db.execute(
+                "UPDATE autotrader_v3_closed_bar_state SET previous_spread=NULL WHERE trader_id=?",
+                (str(trader_id),),
+            )
+        db.execute("""INSERT INTO autotrader_v3_live_decision_context(
+          trader_id,strategy_key,timeframe_minutes,updated_at)
+          VALUES(?,?,?,CURRENT_TIMESTAMP)
+          ON CONFLICT(trader_id) DO UPDATE SET
+            strategy_key=excluded.strategy_key,
+            timeframe_minutes=excluded.timeframe_minutes,
+            updated_at=CURRENT_TIMESTAMP""",
+            (str(trader_id),str(strategy_key),int(timeframe_minutes)))
+    return changed
 
 def _record_runtime(trader_id, status, detail="", *, db_path="pricegauger.db"):
     LOGGER.info("v3 runtime trader=%s status=%s detail=%s",trader_id,status,detail)
@@ -170,16 +232,34 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     db_path=db_path)
             continue
         actual=_actual(e,broker)
-        _record_runtime(e.pilot_key,'READY',f'actual={actual.amount:g} pending=none; evaluating target',db_path=db_path)
-        bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
-        closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,timeframe_minutes=5) if bars else ()
-        obs=macd_observations_v2(closed,timeframe_minutes=5) if closed else ()
-        if not obs:
-            _record_runtime(e.pilot_key,"DEGRADED","no closed 5m MACD observation",db_path=db_path)
-            continue
-        decision=evaluate_strategy_bar_v3(trader_id=e.pilot_key,observation=obs[-1],bars=closed,strategy_key=e.strategy_key,db_path=db_path)
-        trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
         config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
+        try:
+            timeframe_minutes=_live_timeframe_minutes_v3(config.timeframe)
+        except ValueError as exc:
+            _record_runtime(e.pilot_key,'BLOCKED',f'{exc}; no orders sent',db_path=db_path)
+            continue
+        context_changed=_prepare_live_decision_context_v3(
+            trader_id=e.pilot_key,strategy_key=e.strategy_key,
+            timeframe_minutes=timeframe_minutes,db_path=db_path)
+        if context_changed:
+            LOGGER.info("v3 LIVE decision context changed trader=%s strategy=%s timeframe=%s",
+                e.pilot_key,e.strategy_key,config.timeframe)
+        _record_runtime(e.pilot_key,'READY',
+            f'actual={actual.amount:g} pending=none; evaluating target timeframe={config.timeframe}',
+            db_path=db_path)
+        bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
+            instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
+        closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,
+            timeframe_minutes=timeframe_minutes) if bars else ()
+        obs=macd_observations_v2(closed,timeframe_minutes=timeframe_minutes) if closed else ()
+        if not obs:
+            _record_runtime(e.pilot_key,"DEGRADED",
+                f"no closed {config.timeframe} MACD observation",db_path=db_path)
+            continue
+        decision=evaluate_strategy_bar_v3(
+            trader_id=e.pilot_key,observation=obs[-1],bars=closed,
+            strategy_key=e.strategy_key,db_path=db_path)
+        trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
         modifiers=[]
         if 'reset-on-loss' in config.modifiers:
             if abs(actual.amount) <= 1e-12:
@@ -194,7 +274,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
         plan=plan_execution_v3(snapshot)
         _record_runtime(e.pilot_key,'READY',
-            f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} delta={snapshot.pending_delta:g} pending=none',
+            f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} delta={snapshot.pending_delta:g} timeframe={config.timeframe} pending=none',
             db_path=db_path)
         mutation=next((s for s in plan.steps if s.action in {"OPEN","ADD","REDUCE","CLOSE"}),None)
         if mutation is None:
