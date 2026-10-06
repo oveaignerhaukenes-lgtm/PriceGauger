@@ -37,6 +37,8 @@ class AutoTraderInstanceHealthV1:
     pending_age_seconds: float | None
     broker_order_id: str | None
     broker_working: bool | None
+    market_open: bool | None
+    market_state: str | None
     open_pnl: float | None
     trades_24h: int
     severity: str
@@ -164,6 +166,8 @@ def classify_instance_health_v1(
     pending_state: str | None,
     pending_age_seconds: float | None,
     broker_working: bool | None = None,
+    market_open: bool | None = None,
+    market_state: str | None = None,
 ) -> tuple[str, str | None, str | None]:
     """Return severity, stable issue code and operator-facing explanation."""
 
@@ -177,10 +181,17 @@ def classify_instance_health_v1(
             "Saxo-ordrens resultat er ukjent. Ingen ny ordre sendes før posisjonen er avklart.",
         )
     if pending == "SUBMITTED" and broker_working is True:
+        if market_open is False:
+            state_text = f" ({market_state})" if market_state else ""
+            return (
+                "YELLOW",
+                "ORDER_WORKING_MARKET_CLOSED",
+                f"Ordren er fortsatt aktiv hos Saxo. Markedet er stengt{state_text}; AutoTrader venter på utførelse.",
+            )
         return (
             "YELLOW",
             "ORDER_WORKING",
-            "Ordren er fortsatt aktiv hos Saxo og venter på utførelse; dette kan være normalt ved stengt marked.",
+            "Ordren er fortsatt aktiv hos Saxo og venter på utførelse.",
         )
     if pending and pending_age_seconds is not None and pending_age_seconds >= PENDING_CRITICAL_SECONDS:
         return (
@@ -211,6 +222,13 @@ def classify_instance_health_v1(
             "YELLOW",
             "ORDER_PENDING",
             f"Venter på Saxo-reconciliation ({pending_age_seconds:.0f} s).",
+        )
+    if live_armed and market_open is False:
+        state_text = f" ({market_state})" if market_state else ""
+        return (
+            "YELLOW",
+            "MARKET_CLOSED",
+            f"Markedet er stengt{state_text}. AutoTrader er armert og venter på at Saxo åpner markedet.",
         )
     if status in _YELLOW_RUNTIME_STATES:
         return (
@@ -259,8 +277,22 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
         pending = _pending(instance)
         pending_age = _age_seconds(pending["updated_at"], now=current) if pending else None
         broker_working = None
+        market_open = None
+        market_state = None
         if pending and pending.get("broker_order_id") and working_order_ids is not None:
             broker_working = str(pending["broker_order_id"]) in working_order_ids
+        if broker is not None and (live_armed or sim_armed):
+            try:
+                market = broker.market_status_exact(
+                    account_id=instance.account_id,
+                    uic=int(instance.uic),
+                    asset_type=instance.asset_type,
+                )
+                market_open = market.is_open
+                market_state = market.market_state
+            except Exception:
+                market_open = None
+                market_state = None
 
         severity, issue_code, issue_message = classify_instance_health_v1(
             live_armed=live_armed,
@@ -270,6 +302,8 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
             pending_state=pending["state"] if pending else None,
             pending_age_seconds=pending_age,
             broker_working=broker_working,
+            market_open=market_open,
+            market_state=market_state,
         )
 
         pnl = None
@@ -302,6 +336,8 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
                 pending_age_seconds=pending_age,
                 broker_order_id=pending["broker_order_id"] if pending else None,
                 broker_working=broker_working,
+                market_open=market_open,
+                market_state=market_state,
                 open_pnl=pnl,
                 trades_24h=_trades_24h(instance.instance_id),
                 severity=severity,
