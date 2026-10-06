@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from autotrader_health_v1 import classify_instance_health_v1
+from autotrader_health_v1 import _working_order_ids_v1, classify_instance_health_v1
 
 
 def test_pending_order_escalates_from_yellow_to_red():
@@ -24,6 +24,44 @@ def test_pending_order_escalates_from_yellow_to_red():
     )
     assert (severity, code) == ("RED", "ORDER_STUCK")
     assert "70 s" in message
+
+
+
+
+def test_verified_working_order_stays_yellow_even_when_old():
+    severity, code, message = classify_instance_health_v1(
+        live_armed=True,
+        runtime_status="PENDING",
+        runtime_detail="actual=-5 expected=0 pending=waiting",
+        runtime_age_seconds=7200,
+        pending_state="SUBMITTED",
+        pending_age_seconds=7200,
+        broker_working=True,
+    )
+    assert (severity, code) == ("YELLOW", "ORDER_WORKING")
+    assert "fortsatt aktiv hos Saxo" in message
+    assert "stengt marked" in message
+
+
+def test_working_order_read_uses_exact_saxo_order_ids_and_fails_unknown():
+    class Client:
+        def __init__(self, payload):
+            self.payload = payload
+        def _get(self, path, params=None):
+            assert path == "port/v1/orders/me"
+            assert params == {"$top": 1000}
+            if isinstance(self.payload, Exception):
+                raise self.payload
+            return self.payload
+
+    class Broker:
+        def __init__(self, payload):
+            self.client = Client(payload)
+
+    assert _working_order_ids_v1(
+        Broker({"Data": [{"OrderId": "5449985173"}, {"OrderId": "other"}]})
+    ) == {"5449985173", "other"}
+    assert _working_order_ids_v1(Broker(RuntimeError("broker unavailable"))) is None
 
 
 def test_unknown_and_blocked_execution_are_immediately_red():
