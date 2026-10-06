@@ -23,10 +23,24 @@ export default function(component) {
       <div><span class="dot ${String(x.severity||'IDLE').toLowerCase()}"></span><b>${esc(x.market_name)}</b><span class="right">${x.live_armed?'LIVE':(x.sim_armed?'SIM':'AV')}</span></div>
       <small>${esc(x.account_name||x.account_id)} · ${esc(x.runtime_status)} · P/L ${esc(pnl(x.open_pnl))}</small>
       <small>Sist ${esc(when(x.runtime_updated_at))} · Handler 24t ${esc(x.trades_24h)}</small>
+      <small>Marked ${esc(x.market_state||(x.market_open===true?'Open':(x.market_open===false?'Closed':'ukjent')))}</small>
       ${x.pending_state?`<small class="warn">Ordre ${esc(x.pending_state)} · ${esc(age(x.pending_age_seconds))}${x.broker_order_id?` · Saxo ${esc(x.broker_order_id)}`:''}</small>`:''}
       ${x.issue_message?`<small class="err">${esc(x.issue_message)}</small>`:''}
     </div>`).join('');
   const critical=Array.from(p.critical_messages||[]);
+  const active=Array.from(p.instances||[]).filter(x=>x.live_armed);
+  const palette={GREEN:'#22c55e',YELLOW:'#f59e0b',RED:'#ef4444',IDLE:'#64748b'};
+  const counts={GREEN:0,YELLOW:0,RED:0,IDLE:0};
+  active.forEach(x=>{const key=String(x.severity||'IDLE').toUpperCase();counts[key in counts?key:'IDLE']+=1});
+  let cursor=0;
+  const sectors=[];
+  ['GREEN','YELLOW','RED','IDLE'].forEach(key=>{
+    if(!counts[key]||!active.length)return;
+    const next=cursor+(counts[key]/active.length)*100;
+    sectors.push(`${palette[key]} ${cursor}% ${next}%`);
+    cursor=next;
+  });
+  const healthGradient=active.length?`conic-gradient(${sectors.join(',')})`:'#64748b';
   root.innerHTML=`
     <style>
     #${id}{font-family:system-ui,sans-serif}#${id} button{font:inherit}
@@ -43,7 +57,7 @@ export default function(component) {
     @media(prefers-color-scheme:dark){#${id} .panel,#${id} .alert{background:#0e1117;color:#f8fafc}#${id} .actions button{background:#111827;color:#f8fafc}#${id} .warn{color:#fbbf24}#${id} .err{color:#f87171}}
     @media(max-width:700px){#${id} .stats{grid-template-columns:repeat(2,1fr)}}
     </style>
-    <button id="fab" class="fab ${state}" title="AutoTrader: ${esc(p.label||p.state)}">${String(p.state).toUpperCase()==='RED'?'!':'A'}</button>
+    <button id="fab" class="fab ${state}" style="background:${healthGradient}" title="AutoTrader: ${esc(p.label||p.state)}">${String(p.state).toUpperCase()==='RED'?'!':'A'}</button>
     <div id="panel" class="panel"><h3>AutoTrader</h3><div class="summary">${esc(p.label)} · canonical V3 LIVE health</div>
       <div class="stats"><div class="stat"><b>${esc(p.live_count||0)}</b>LIVE</div><div class="stat"><b>${esc(pnl(p.open_pnl))}</b>Åpen P/L</div><div class="stat"><b>${esc(p.trades_24h||0)}</b>Handler 24t</div><div class="stat"><b>${esc(p.unresolved_orders||0)}</b>Uavklart</div></div>${rows||'<small>Ingen V3-instanser.</small>'}</div>
     <div id="back" class="back"><div class="alert"><h3>AutoTrader krever oppmerksomhet</h3><div>En LIVE-feil eller ubekreftet ordre er oppdaget.</div>${critical.map(x=>`<div class="msg">${esc(x)}</div>`).join('')}<div class="actions"><button id="close">Lukk</button><button id="open">Åpne status</button></div></div></div>`;
