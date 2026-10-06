@@ -21,7 +21,7 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
-    StrategySpecV3("macd", "MACD", "Ren MACD-grunnstrategi.", "macd-trailing-v1", True),
+    StrategySpecV3("macd", "MACD", "MACD-regime: motsatt kryss går direkte FLAT; impuls skalerer kun innen aktiv retning.", "macd-trailing-v1", True),
     StrategySpecV3("macd-stoch-v1", "MACD-Stoch", "MACD bygger eksponering trinnvis; motsatt Stochastic K/D-rollover går FLAT uten å reversere.", "macd-stoch-v1", True),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
