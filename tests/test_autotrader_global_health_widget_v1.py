@@ -85,6 +85,40 @@ def test_unknown_and_blocked_execution_are_immediately_red():
     assert blocked[:2] == ("RED", "RUNTIME_BLOCKED")
 
 
+
+
+def test_closed_saxo_market_is_yellow_waiting_not_failure():
+    severity, code, message = classify_instance_health_v1(
+        live_armed=True,
+        runtime_status="MANAGING",
+        runtime_detail="target=0 actual=0",
+        runtime_age_seconds=5,
+        pending_state=None,
+        pending_age_seconds=None,
+        market_open=False,
+        market_state="Closed",
+    )
+    assert (severity, code) == ("YELLOW", "MARKET_CLOSED")
+    assert "Markedet er stengt" in message
+    assert "Closed" in message
+
+
+def test_working_order_in_closed_market_is_explicitly_yellow():
+    severity, code, message = classify_instance_health_v1(
+        live_armed=True,
+        runtime_status="PENDING",
+        runtime_detail="waiting",
+        runtime_age_seconds=7200,
+        pending_state="SUBMITTED",
+        pending_age_seconds=7200,
+        broker_working=True,
+        market_open=False,
+        market_state="Closed",
+    )
+    assert (severity, code) == ("YELLOW", "ORDER_WORKING_MARKET_CLOSED")
+    assert "venter på utførelse" in message
+
+
 def test_healthy_live_instance_is_green():
     assert classify_instance_health_v1(
         live_armed=True,
@@ -104,5 +138,8 @@ def test_global_build_chrome_mounts_read_only_autotrader_widget():
     assert "position:fixed" in widget
     assert "localStorage" in widget
     assert "alert_fingerprint" in widget
+    assert "conic-gradient" in widget
+    assert "filter(x=>x.live_armed)" in widget
+    assert "healthGradient" in widget
     assert "place_order(" not in widget
     assert "set_live_enabled_v3" not in widget
