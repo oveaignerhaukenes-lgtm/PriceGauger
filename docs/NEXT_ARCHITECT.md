@@ -1,15 +1,30 @@
 # Next architect
 
-The authoritative architectural work ledger is now:
+Start here:
 
-**[`docs/AEN_ARCHITECTURE_CLEANUP_LEDGER_2026-10-01.md`](AEN_ARCHITECTURE_CLEANUP_LEDGER_2026-10-01.md)**
+**[`docs/PRICEGAUGER_NEW_PROJECT_BOOTSTRAP_2026-10-06.md`](PRICEGAUGER_NEW_PROJECT_BOOTSTRAP_2026-10-06.md)**
 
-For the completed V3 LIVE inventory-ownership migration and its production verification, also read:
+This bootstrap is the current minimal authority for a fresh ChatGPT Project / next architect.
 
-- [`docs/AEN_V3_LIVE_INVENTORY_OWNERSHIP_2026-10-02.md`](AEN_V3_LIVE_INVENTORY_OWNERSHIP_2026-10-02.md)
-- [`docs/AEN_V3_LIVE_INVENTORY_OWNERSHIP_WORKLIST_2026-10-02.md`](AEN_V3_LIVE_INVENTORY_OWNERSHIP_WORKLIST_2026-10-02.md)
-- [`docs/AEN_V3_LIVE_INVENTORY_OWNERSHIP_CHANGELOG_2026-10-02.md`](AEN_V3_LIVE_INVENTORY_OWNERSHIP_CHANGELOG_2026-10-02.md)
+Working rule:
 
-Current priority is the controlled architecture cleanup: hard V2/V3 separation, canonical control planes, explicit state ownership, execution observability, architecture guardrail tests, then retirement of proven-dead transitional layers. V2 and V3 must remain independently runnable on different Saxo accounts throughout the cleanup.
+```text
+read bootstrap
+→ refresh main
+→ inspect only the code/tests relevant to the requested change
+→ bounded branch
+→ CI
+→ guarded merge
+→ verify exact Railway SHA
+→ inspect runtime evidence
+```
 
-The Arkitekt 14–18 handoffs remain historical context, not current authority. Refresh current `main` before branching and update the cleanup ledger as each tranche is verified.
+Do not preload the full historical handoff archive or the old long-form `CURRENT_STATUS.md` unless a concrete question requires it.
+
+Deeper architecture references, only when needed:
+
+- `docs/AEN_ARCHITECTURE_CLEANUP_LEDGER_2026-10-01.md`
+- `docs/AEN_ARCHITECT_19_HANDOFF_2026-10-06.md`
+- `docs/AEN_CANONICAL_MODULE_MAP_2026-10-02.md`
+
+The immediate next step is a user-level strategy/product discussion after confirming fresh production state, not an automatic new architecture tranche.
