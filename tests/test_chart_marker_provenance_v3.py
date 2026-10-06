@@ -8,19 +8,18 @@ def test_manual_sync_knows_durable_v2_v3_broker_order_ids():
     assert "NOT EXISTS" in source
 
 
-def test_reconciled_durable_orders_are_projected_with_engine_provenance():
+def test_v3_chart_reads_canonical_execution_ledger_not_order_state():
     legacy=Path("autotrader_trade_markers_v2.py").read_text()
     v3=Path("autotrader_v3_trade_markers_v1.py").read_text()
+    ledger=Path("autotrader_v3_execution_events_v1.py").read_text()
+    guard=Path("autotrader_v3_order_guard_v1.py").read_text()
     assert "load_v3_trade_markers_v1" in legacy
     assert "markers.extend(load_v3_trade_markers_v1(market_name))" in legacy
-    assert "FROM autotrader_v3_order_guard AS guard" in v3
-    assert "guard.state = 'RECONCILED'" in v3
+    assert "FROM autotrader_v3_execution_events e" in v3
+    assert "autotrader_v3_order_guard" not in v3
+    assert "autotrader_v3_execution_events" in ledger
+    assert "record_reconciled_execution_v1" in guard
     assert 'source="AUTOTRADER_V3"' in v3
-    assert "enrollment.pilot_key = guard.trader_id" in v3
-    assert "enrollment.account_id = guard.account_id" in v3
-    assert "enrollment.uic = guard.uic" in v3
-    assert "enrollment.asset_type = guard.asset_type" in v3
-    assert "cfg.account_id" not in v3
 
 
 def test_chart_uses_compact_manual_m_and_distinct_v2_v3_colors():
