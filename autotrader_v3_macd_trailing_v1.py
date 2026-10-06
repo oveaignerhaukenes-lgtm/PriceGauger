@@ -58,28 +58,47 @@ def macd_trailing_target_v3(
     previous_observation: MacdObservationV2 | None = None,
     config: MacdTrailingConfigV3 = MacdTrailingConfigV3(),
 ) -> MacdTrailingDecisionV3:
-    """Trail desired inventory one tranche with the change in MACD spread (impulse).
+    """Trail exposure inside the active MACD regime.
 
-    This is intentionally a pure strategy function: no Saxo observation, persistence,
-    capital lookup or order path. Repeated closed observations can accumulate inventory
-    up to max_inventory; a sign reversal first walks inventory back through zero.
+    MACD spread sign owns direction:
+    - bullish spread permits LONG exposure only;
+    - bearish spread permits SHORT exposure only;
+    - any existing opposite-side target is flattened immediately on the first
+      closed observation in the new regime.
+
+    MACD impulse controls tranche-by-tranche sizing *inside* that regime. A
+    weakening impulse may trail exposure back toward zero, but it may never
+    rebuild on the wrong side of the current MACD regime.
     """
     spread = float(observation.spread)
     current = _quantize(current_target.amount, config.tranche)
-    if previous_observation is not None and current != 0.0:
-        previous_spread = float(previous_observation.spread)
-        opposed = (current > 0.0 and spread < 0.0) or (current < 0.0 and spread > 0.0)
-        baseline = max(abs(previous_spread), config.deadband)
-        hard_reversal = opposed and baseline > 0.0 and abs(spread) >= baseline * config.hard_reversal_ratio
-        if hard_reversal:
-            return MacdTrailingDecisionV3(
-                target=TargetInventoryV3(0.0),
-                action="HARD_REVERSAL_FLAT",
-                reason=(f"hard MACD reversal {previous_spread:+.6f} -> {spread:+.6f}; "
-                        "flatten entire target before any opposite rebuild"),
-                spread=spread,
-            )
-    if abs(spread) <= config.deadband:
+
+    if spread > config.deadband:
+        regime = 1
+    elif spread < -config.deadband:
+        regime = -1
+    else:
+        regime = 0
+
+    # Regime ownership is absolute: never carry an opposite-side target across
+    # a completed MACD cross. This also safely closes legacy inventory when the
+    # first post-deploy observation is already on the opposite side.
+    if current > 0.0 and regime < 0:
+        return MacdTrailingDecisionV3(
+            target=TargetInventoryV3(0.0),
+            action="REGIME_CROSS_FLAT",
+            reason=f"bearish MACD regime spread {spread:+.6f}; flatten entire LONG target",
+            spread=spread,
+        )
+    if current < 0.0 and regime > 0:
+        return MacdTrailingDecisionV3(
+            target=TargetInventoryV3(0.0),
+            action="REGIME_CROSS_FLAT",
+            reason=f"bullish MACD regime spread {spread:+.6f}; flatten entire SHORT target",
+            spread=spread,
+        )
+
+    if regime == 0:
         return MacdTrailingDecisionV3(
             target=TargetInventoryV3(current),
             action="HOLD",
@@ -89,35 +108,50 @@ def macd_trailing_target_v3(
 
     previous_spread = float(previous_observation.spread) if previous_observation is not None else None
     if previous_spread is None:
-        # First observation establishes direction with one tranche.
-        delta = config.tranche if spread > 0 else -config.tranche
-        evidence = "initial spread"
+        delta = config.tranche * regime
+        evidence = "initial regime"
     else:
         impulse = spread - previous_spread
         if abs(impulse) <= config.deadband:
             delta = 0.0
             evidence = "flat impulse"
-        elif impulse > 0:
-            # MACD spread is improving: add/rebuild LONG, or trail SHORT out.
-            delta = config.tranche
-            evidence = f"bullish impulse {impulse:+.6f}"
+        elif regime > 0:
+            if impulse > 0:
+                delta = config.tranche
+                evidence = f"bullish impulse {impulse:+.6f}"
+            elif current > 0:
+                delta = -config.tranche
+                evidence = f"weakening bullish regime {impulse:+.6f}"
+            else:
+                delta = 0.0
+                evidence = f"bullish regime but weakening impulse {impulse:+.6f}"
         else:
-            # MACD spread is deteriorating: add/rebuild SHORT, or trail LONG out.
-            delta = -config.tranche
-            evidence = f"bearish impulse {impulse:+.6f}"
+            if impulse < 0:
+                delta = -config.tranche
+                evidence = f"bearish impulse {impulse:+.6f}"
+            elif current < 0:
+                delta = config.tranche
+                evidence = f"weakening bearish regime {impulse:+.6f}"
+            else:
+                delta = 0.0
+                evidence = f"bearish regime but weakening impulse {impulse:+.6f}"
 
     proposed = current + delta
+    # The active MACD regime is a hard directional boundary. Impulse may reduce
+    # exposure to zero, but it cannot cross through zero into the wrong side.
+    if regime > 0:
+        proposed = max(0.0, proposed)
+    else:
+        proposed = min(0.0, proposed)
+
     bounded = max(-config.max_inventory, min(config.max_inventory, proposed))
     bounded = _quantize(bounded, config.tranche)
     if bounded == current:
         action = "HOLD_MAX" if abs(current) >= config.max_inventory else "HOLD_IMPULSE"
     elif abs(bounded) < abs(current):
         action = "TRAIL_OUT"
-    elif current == 0 or (current > 0) == (bounded > 0):
-        action = "ADD_IMPULSE"
     else:
-        action = "CROSS_ZERO"
-
+        action = "ADD_IMPULSE"
 
     return MacdTrailingDecisionV3(
         target=TargetInventoryV3(bounded),
@@ -125,7 +159,6 @@ def macd_trailing_target_v3(
         reason=f"MACD spread {spread:+.6f}; {evidence}; one {config.tranche:g} tranche",
         spread=spread,
     )
-
 
 def replay_macd_trailing_targets_v3(
     observations: Sequence[MacdObservationV2],
