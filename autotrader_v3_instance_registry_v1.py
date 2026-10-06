@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from uuid import NAMESPACE_URL,uuid5
 
 from autotrader_engine_identity_v1 import ENGINE_V2,ENGINE_V3,enrollment_engine_v1
-from autotrader_strategy_enrollment_v2 import load_active_strategy_enrollments_v2
+from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE,load_active_strategy_enrollments_v2
 from database import connect,using_postgres
 
 _LEGACY_REGISTRY_MIGRATION_V1="2026-10-06-filter-v2-preserve-v3-identity-v1"
@@ -74,7 +74,7 @@ def _migrate_legacy_registry_rows_v1(enrollments,*,db_path='pricegauger.db')->No
     """
     ensure_v3_instance_registry_v1(db_path=db_path)
     v2=tuple(e for e in enrollments if enrollment_engine_v1(e)==ENGINE_V2)
-    v3=tuple(e for e in enrollments if enrollment_engine_v1(e)==ENGINE_V3)
+    v3=tuple(e for e in enrollments if enrollment_engine_v1(e)==ENGINE_V3 and str(e.execution_mode)==EXECUTION_MODE_LIVE)
     with connect(db_path) as db:
         marker=db.execute('SELECT migration_key FROM autotrader_v3_registry_migrations WHERE migration_key=?',
             (_LEGACY_REGISTRY_MIGRATION_V1,)).fetchone()
