@@ -13,8 +13,8 @@ from autotrader_v3_registry_v1 import CONTROL_MODES_V3,MODIFIERS_V3,STRATEGIES_V
 
 def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     trader_id=str(instance.instance_id); config=load_autotrader_config_v3(trader_id); policy=load_execution_policy_v3(trader_id)
-    st.markdown(f'**{instance.market_name} · {instance.account_id}**')
-    st.caption(f'V3 {trader_id[:8]} · UIC {instance.uic} · config deles mellom TradingDesk og fleet-visningen')
+    st.markdown(f'**{instance.market_name} · konto {instance.account_id} · UIC {instance.uic}**')
+    st.caption(f'V3 {trader_id[:8]} · {instance.asset_type} · instrument {instance.instrument_id} · config deles mellom TradingDesk og fleet-visningen')
     keys=tuple(x.key for x in STRATEGIES_V3)
     a,b=st.columns(2)
     strategy=a.selectbox('Strategi',keys,index=keys.index(config.strategy_key),format_func=lambda k:next(x.label for x in STRATEGIES_V3 if x.key==k),key=f'{key_prefix}:strategy:{trader_id}')
