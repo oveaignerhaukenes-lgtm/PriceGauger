@@ -126,3 +126,35 @@ def test_live_runtime_no_longer_discovers_from_v2_enrollments():
     assert "load_active_strategy_enrollments_v2" not in source
     assert "EXECUTION_MODE_LIVE" not in source
     assert "load_account_owner_v1" in source
+
+
+def test_postgres_runtime_runs_legacy_ownership_backfill_before_owner_gate(monkeypatch,tmp_path):
+    db=str(tmp_path/"v3.db")
+    item=SimpleNamespace(
+        pilot_key="production-v3-pilot",
+        account_id="autotrader",
+        uic=4912,
+        asset_type="CfdOnIndex",
+        market_id=1,
+        instrument_id=2,
+        market_name="US Tech 100 NAS",
+        strategy_key="macd-trailing-v1",
+    )
+    events=[]
+    monkeypatch.setattr(runtime,"using_postgres",lambda:True)
+    monkeypatch.setattr(runtime,"load_v3_runtime_instances_v1",lambda **_kwargs:(item,))
+    monkeypatch.setattr(runtime,"live_authority_armed_v3",lambda *_args,**_kwargs:True)
+    def _backfill(instances,**_kwargs):
+        events.append("backfill")
+        assert tuple(instances)==(item,)
+        return (item.pilot_key,)
+    monkeypatch.setattr(runtime,"backfill_legacy_v3_live_ownership_v1",_backfill)
+    def _owner(*_args,**_kwargs):
+        events.append("owner")
+        return SimpleNamespace(engine_id=ENGINE_V3,owner_key=item.pilot_key)
+    monkeypatch.setattr(runtime,"load_account_owner_v1",_owner)
+
+    active=runtime._load_owned_armed_runtime_instances_v3(db_path=db)
+
+    assert active==(item,)
+    assert events==["backfill","owner"]
