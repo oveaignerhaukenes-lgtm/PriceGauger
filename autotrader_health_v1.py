@@ -36,6 +36,7 @@ class AutoTraderInstanceHealthV1:
     pending_state: str | None
     pending_age_seconds: float | None
     broker_order_id: str | None
+    broker_working: bool | None
     open_pnl: float | None
     trades_24h: int
     severity: str
@@ -118,6 +119,43 @@ def _pending(instance):
     }
 
 
+def _working_orders_exact_v1(broker) -> set[tuple[str, str, int, str]]:
+    """Return exact active Saxo order boundaries as (OrderId, AccountId, Uic, AssetType)."""
+    if broker is None:
+        return set()
+    try:
+        accounts = broker.accounts()
+        key_to_id = {
+            str(row.get("AccountKey") or "").strip(): str(row.get("AccountId") or "").strip()
+            for row in accounts
+            if isinstance(row, dict)
+            and str(row.get("AccountKey") or "").strip()
+            and str(row.get("AccountId") or "").strip()
+        }
+        payload = broker.client._get("port/v1/orders/me", params={"$top": 1000})
+        rows = payload.get("Data") or []
+        if not isinstance(rows, list):
+            return set()
+        result: set[tuple[str, str, int, str]] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            order_id = str(row.get("OrderId") or "").strip()
+            account_id = str(row.get("AccountId") or "").strip()
+            if not account_id:
+                account_id = key_to_id.get(str(row.get("AccountKey") or "").strip(), "")
+            asset_type = str(row.get("AssetType") or "").strip()
+            try:
+                uic = int(row.get("Uic"))
+            except (TypeError, ValueError):
+                continue
+            if order_id and account_id and asset_type:
+                result.add((order_id, account_id, uic, asset_type))
+        return result
+    except Exception:
+        return set()
+
+
 def _trades_24h(instance_id: str) -> int:
     try:
         sql = (
@@ -144,6 +182,7 @@ def classify_instance_health_v1(
     runtime_age_seconds: float | None,
     pending_state: str | None,
     pending_age_seconds: float | None,
+    broker_working: bool | None = None,
 ) -> tuple[str, str | None, str | None]:
     """Return severity, stable issue code and operator-facing explanation."""
 
@@ -155,6 +194,12 @@ def classify_instance_health_v1(
             "RED",
             "ORDER_UNKNOWN",
             "Saxo-ordrens resultat er ukjent. Ingen ny ordre sendes før posisjonen er avklart.",
+        )
+    if pending == "SUBMITTED" and broker_working is True:
+        return (
+            "YELLOW",
+            "ORDER_WORKING",
+            "Ordren er fortsatt aktiv hos Saxo og venter på utførelse; dette kan være normalt ved stengt marked.",
         )
     if pending and pending_age_seconds is not None and pending_age_seconds >= PENDING_CRITICAL_SECONDS:
         return (
@@ -202,6 +247,7 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
     instances = bootstrap_v3_instances_from_enrollments_v1()
     broker = configured_live_pilot_client_v3() if include_pnl else None
     account_names: dict[str, str] = {}
+    working_orders: set[tuple[str, str, int, str]] = set()
     if broker is not None:
         try:
             for row in broker.accounts():
@@ -214,6 +260,8 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
                     ).strip()
         except Exception:
             broker = None
+        if broker is not None:
+            working_orders = _working_orders_exact_v1(broker)
 
     rows: list[AutoTraderInstanceHealthV1] = []
     for instance in instances:
@@ -229,6 +277,14 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
         runtime_age = _age_seconds(runtime_at, now=current)
         pending = _pending(instance)
         pending_age = _age_seconds(pending["updated_at"], now=current) if pending else None
+        broker_working = None
+        if pending and pending.get("broker_order_id") and broker is not None:
+            broker_working = (
+                str(pending["broker_order_id"]),
+                str(instance.account_id),
+                int(instance.uic),
+                str(instance.asset_type),
+            ) in working_orders
 
         severity, issue_code, issue_message = classify_instance_health_v1(
             live_armed=live_armed,
@@ -237,6 +293,7 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
             runtime_age_seconds=runtime_age,
             pending_state=pending["state"] if pending else None,
             pending_age_seconds=pending_age,
+            broker_working=broker_working,
         )
 
         pnl = None
@@ -268,6 +325,7 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
                 pending_state=pending["state"] if pending else None,
                 pending_age_seconds=pending_age,
                 broker_order_id=pending["broker_order_id"] if pending else None,
+                broker_working=broker_working,
                 open_pnl=pnl,
                 trades_24h=_trades_24h(instance.instance_id),
                 severity=severity,
