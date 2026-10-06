@@ -11,9 +11,6 @@ def ensure_schema(db_path="pricegauger.db"):
             state TEXT NOT NULL, broker_order_id TEXT, detail TEXT,
             expected_inventory REAL, submitted_amount REAL, submitted_side TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
-        # Existing pilot databases predate the reconciliation evidence columns.
-        # Add them in place before any SELECT or INSERT references them.
-        columns=("expected_inventory","submitted_amount","submitted_side")
         if using_postgres():
             for name,kind in (("expected_inventory","DOUBLE PRECISION"),
                               ("submitted_amount","DOUBLE PRECISION"),
@@ -45,6 +42,7 @@ def mark(*, request_key, state, broker_order_id=None, detail=None, db_path="pric
     if state not in (*UNRESOLVED, "RECONCILED", "REJECTED"):
         raise ValueError("invalid V3 order state")
     ensure_schema(db_path)
+    event=None
     with connect(db_path) as db:
         cursor=db.execute("""UPDATE autotrader_v3_order_guard
             SET state=?, broker_order_id=COALESCE(?,broker_order_id),
@@ -52,6 +50,26 @@ def mark(*, request_key, state, broker_order_id=None, detail=None, db_path="pric
             (state,broker_order_id,detail,request_key))
         if cursor.rowcount != 1:
             raise LookupError("missing V3 order reservation")
+        # Only exact post-order inventory confirmation is an execution event.
+        # Inventory-adoption reconciliation deliberately does not create one.
+        if state == "RECONCILED" and detail == "Exact Saxo inventory reached expected post-order position":
+            row=db.execute("""SELECT g.trader_id,g.account_id,g.uic,g.asset_type,
+                g.expected_inventory,g.submitted_amount,g.submitted_side,g.broker_order_id,i.market_name
+                FROM autotrader_v3_order_guard g
+                JOIN autotrader_v3_engine_instances i
+                  ON i.instance_id=g.trader_id AND i.account_id=g.account_id
+                 AND i.uic=g.uic AND i.asset_type=g.asset_type
+                WHERE g.request_key=?""",(request_key,)).fetchone()
+            if row is not None:
+                if isinstance(row,dict): event=dict(row)
+                else: event=dict(zip(("trader_id","account_id","uic","asset_type","expected_inventory","submitted_amount","submitted_side","broker_order_id","market_name"),row))
+    if event is not None:
+        from autotrader_v3_execution_events_v1 import record_reconciled_execution_v1
+        record_reconciled_execution_v1(request_key=request_key,instance_id=event["trader_id"],
+            account_id=event["account_id"],uic=event["uic"],asset_type=event["asset_type"],
+            market_name=event["market_name"],submitted_side=event["submitted_side"],
+            submitted_amount=event["submitted_amount"],expected_inventory=event["expected_inventory"],
+            broker_order_id=event["broker_order_id"],db_path=db_path)
 
 def unresolved(*, account_id, uic, asset_type, db_path="pricegauger.db"):
     ensure_schema(db_path)
