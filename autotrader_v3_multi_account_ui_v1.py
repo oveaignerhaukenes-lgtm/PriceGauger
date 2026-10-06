@@ -1,44 +1,38 @@
 from __future__ import annotations
-
 import streamlit as st
-
 from autotrader_engine_account_ownership_v1 import load_account_owner_v1
-from autotrader_v3_instance_registry_v1 import bootstrap_v3_instances_from_enrollments_v1, create_v3_instance_v1
+from autotrader_v3_instance_registry_v1 import bootstrap_v3_instances_from_enrollments_v1,create_v3_instance_v1
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 
-
-def render_v3_instance_selector_v1(*, key_prefix: str = "v3-instance"):
+def render_v3_instance_selector_v1(*,key_prefix='v3-instance'):
     instances=bootstrap_v3_instances_from_enrollments_v1()
-    if not instances:
-        st.info("Ingen V3-instans finnes ennå.")
-        return None
-    by_id={item.instance_id:item for item in instances}
-    labels={item.instance_id:f"{item.account_id} · {item.market_name}" for item in instances}
-    ids=tuple(by_id)
-    selected=st.radio("V3 konto",ids,format_func=lambda key:labels[key],horizontal=True,key=f"{key_prefix}:tabs")
-    with st.popover("＋ Legg til konto"):
+    if not instances:st.info('Ingen V3-instans finnes ennå.');return None
+    by_id={i.instance_id:i for i in instances};labels={i.instance_id:f'{i.account_id} · {i.market_name}' for i in instances};ids=tuple(by_id)
+    selected=st.radio('V3 konto',ids,format_func=lambda k:labels[k],horizontal=True,key=f'{key_prefix}:tabs')
+    with st.popover('＋ Legg til konto'):
         broker=configured_live_pilot_client_v3()
-        if broker is None:
-            st.warning("Saxo LIVE er ikke tilgjengelig; kan ikke hente kontoer.")
+        if broker is None:st.warning('Saxo LIVE er ikke tilgjengelig; kan ikke hente kontoer.')
         else:
-            used={item.account_id for item in instances}
-            candidates=[]
+            attached={i.account_id:i for i in instances};rows=[]
             for row in broker.accounts():
-                if not isinstance(row,dict): continue
-                account_id=str(row.get("AccountId") or "").strip()
-                if not account_id or account_id in used: continue
-                owner=load_account_owner_v1(account_id)
-                if owner is None:
-                    candidates.append(account_id)
-            if not candidates:
-                st.caption("Ingen ledig Saxo-konto. Kontoer som allerede eies av V2/V3 kan ikke legges til.")
+                if not isinstance(row,dict):continue
+                aid=str(row.get('AccountId') or '').strip()
+                if not aid:continue
+                owner=load_account_owner_v1(aid);reason=None
+                if aid in attached:reason=f'V3 {attached[aid].instance_id[:8]}'
+                elif owner is not None:reason=f'{owner.engine_id} {owner.owner_key[:8]}'
+                name=str(row.get('AccountName') or row.get('DisplayName') or '').strip()
+                rows.append((aid,name,reason))
+            if not rows:st.caption('Ingen Saxo-kontoer ble returnert.')
             else:
-                account_id=st.selectbox("Saxo-konto",tuple(candidates),key=f"{key_prefix}:new-account")
-                template=by_id[selected]
-                st.caption(f"Ny instans bruker samme instrument-boundary som denne fanen: {template.market_name} · UIC {template.uic}.")
-                if st.button("Opprett V3-fane",type="primary",key=f"{key_prefix}:create"):
-                    created=create_v3_instance_v1(account_id=account_id,template=template)
-                    st.session_state[f"{key_prefix}:tabs"]=created.instance_id
-                    st.success(f"V3-instans opprettet for {account_id}.")
-                    st.rerun()
+                options=tuple(a for a,_,_ in rows);meta={a:(n,r) for a,n,r in rows}
+                def label(a):
+                    n,r=meta[a];base=f'{a}' + (f' · {n}' if n else '')
+                    return f'🔒 {base} · i bruk av {r}' if r else f'✓ {base} · ledig'
+                account_id=st.selectbox('Saxo-konto',options,format_func=label,key=f'{key_prefix}:new-account')
+                reason=meta[account_id][1];template=by_id[selected]
+                if reason:st.caption(f'Kontoen kan ikke velges: den er allerede knyttet til {reason}.')
+                else:st.caption(f'Ny instans bruker instrumentet fra valgt fane: {template.market_name} · UIC {template.uic}.')
+                if st.button('Opprett V3-instans',type='primary',disabled=bool(reason),key=f'{key_prefix}:create'):
+                    created=create_v3_instance_v1(account_id=account_id,template=template);st.session_state[f'{key_prefix}:tabs']=created.instance_id;st.success(f'V3-instans opprettet for {account_id}.');st.rerun()
     return by_id[selected]
