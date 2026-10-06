@@ -7,6 +7,7 @@ owned by the engine instance, never by either page.
 """
 import streamlit as st
 from autotrader_v3_config_v1 import AutoTraderConfigV3,load_autotrader_config_v3,save_autotrader_config_v3
+from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v3
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 from autotrader_v3_registry_v1 import CONTROL_MODES_V3,MODIFIERS_V3,STRATEGIES_V3,TIMEFRAMES_V3
 
@@ -29,5 +30,23 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     desired=AutoTraderConfigV3(trader_id,strategy,timeframe,mode,tuple(enabled)); desired_policy=ExecutionPolicyV3(trader_id,float(budget),float(exposure)); changed=desired!=config or desired_policy!=policy
     if st.button('Bruk på denne instansen',type='primary',disabled=not changed,width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy); st.success('Canonical V3 config oppdatert.'); st.rerun()
+
+    authority=authority_state_v3(trader_id)
+    st.markdown('**Execution authority**')
+    if authority.live_armed:
+        st.success(f'LIVE PÅ · konto {instance.account_id} · UIC {instance.uic}')
+        if st.button('Slå LIVE av',width='stretch',key=f'{key_prefix}:live-off:{trader_id}'):
+            try:set_live_enabled_v3(trader_id,False,account_id=instance.account_id)
+            except Exception as exc:st.error(f'Kunne ikke slå LIVE av: {exc}')
+            else:st.rerun()
+    else:
+        st.caption('LIVE AV · knappen under gir denne V3-instansen execution-authority på eksakt konto/instrument.')
+        if st.button('Slå LIVE på',type='primary',width='stretch',disabled=not spec.runtime_ready,key=f'{key_prefix}:live-on:{trader_id}'):
+            try:
+                if changed:
+                    save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
+                set_live_enabled_v3(trader_id,True,account_id=instance.account_id)
+            except Exception as exc:st.error(f'Kunne ikke slå LIVE på: {exc}')
+            else:st.rerun()
 
 __all__=['render_v3_instance_controls_v1']
