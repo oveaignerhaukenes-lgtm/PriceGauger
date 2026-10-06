@@ -37,7 +37,7 @@ def test_live_runtime_discovers_two_owned_armed_instances_independently(tmp_path
 
     active=runtime._load_owned_armed_runtime_instances_v3(db_path=db)
 
-    assert {item.instance_id for item in active} == {first.instance_id,second.instance_id}
+    assert {item.pilot_key for item in active} == {first.instance_id,second.instance_id}
     assert {item.account_id for item in active} == {"autotrader","lager"}
 
 
@@ -51,7 +51,7 @@ def test_live_runtime_skips_unarmed_instance(tmp_path):
 
     active=runtime._load_owned_armed_runtime_instances_v3(db_path=db)
 
-    assert tuple(item.instance_id for item in active) == (armed.instance_id,)
+    assert tuple(item.pilot_key for item in active) == (armed.instance_id,)
 
 
 def test_live_runtime_fails_closed_on_account_owner_mismatch(tmp_path):
