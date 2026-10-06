@@ -7,6 +7,7 @@ from autotrader_engine_account_ownership_v1 import (
 )
 from autotrader_engine_identity_v1 import enrollment_engine_v1
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE, load_active_strategy_enrollments_v2
+from autotrader_v2_control_plane_v1 import authority_state_v2
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from database import connect
 
@@ -39,9 +40,9 @@ def backfill_legacy_v3_live_ownership_v1(instances, *, db_path: str = "pricegaug
         str(e.pilot_key): e for e in enrollments
         if enrollment_engine_v1(e)==ENGINE_V3 and str(e.execution_mode)==EXECUTION_MODE_LIVE
     }
-    v2_accounts={
+    v2_live_accounts={
         str(e.account_id) for e in enrollments
-        if enrollment_engine_v1(e)==ENGINE_V2
+        if enrollment_engine_v1(e)==ENGINE_V2 and authority_state_v2(e).live_armed
     }
 
     candidates=[]
@@ -61,9 +62,9 @@ def backfill_legacy_v3_live_ownership_v1(instances, *, db_path: str = "pricegaug
             raise RuntimeError(
                 f"legacy V3 ownership migration boundary mismatch for {pilot}"
             )
-        if account in v2_accounts:
+        if account in v2_live_accounts:
             raise RuntimeError(
-                f"legacy V3 ownership migration conflict: account {account} is also an active V2 account"
+                f"legacy V3 ownership migration conflict: account {account} has active V2 LIVE authority"
             )
         candidates.append((pilot,account))
 
