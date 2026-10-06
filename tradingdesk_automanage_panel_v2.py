@@ -24,11 +24,16 @@ from tradingdesk_ui.charts.navigation_sync import render_tradingdesk_navigation_
 from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsive_runtime_v1
 
 def _render_v3_controls_for_market_v1(context:TradingDeskV2Context):
-    try: instances=tuple(i for i in bootstrap_v3_instances_from_enrollments_v1() if i.enabled and int(i.market_id)==int(context.market_id))
+    expected_instrument_id=context.instrument_id
+    try: instances=tuple(
+        i for i in bootstrap_v3_instances_from_enrollments_v1()
+        if i.enabled and int(i.market_id)==int(context.market_id)
+        and (expected_instrument_id is None or int(i.instrument_id)==int(expected_instrument_id))
+    )
     except Exception as exc: st.caption(f"V3-instanskontroll venter: {exc}"); return
     if not instances:return
     st.divider(); st.markdown("**V3 · valgt autotrader-instans**"); st.caption("Strategi, periode, options og eksponering lagres på selve instansen og deles med fleet-visningen.")
-    by_id={i.instance_id:i for i in instances}; selected=st.selectbox("Autotrader-instans",tuple(by_id),format_func=lambda k:f"{by_id[k].account_id} · {by_id[k].market_name}",key=f"td-v3-instance:{context.market_id}")
+    by_id={i.instance_id:i for i in instances}; selected=st.selectbox("Autotrader-instans",tuple(by_id),format_func=lambda k:f"{by_id[k].market_name} · konto {by_id[k].account_id} · UIC {by_id[k].uic}",key=f"td-v3-instance:{context.market_id}")
     with st.container(border=True): render_v3_instance_controls_v1(by_id[selected],key_prefix="tradingdesk")
 
 def render_tradingdesk_automanage_panel_v2(context:TradingDeskV2Context,*,auto_refresh:bool=True)->tuple|None:
