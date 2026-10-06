@@ -119,41 +119,22 @@ def _pending(instance):
     }
 
 
-def _working_orders_exact_v1(broker) -> set[tuple[str, str, int, str]]:
-    """Return exact active Saxo order boundaries as (OrderId, AccountId, Uic, AssetType)."""
+def _working_order_ids_v1(broker) -> set[str] | None:
+    """Return active Saxo OrderIds, or None when broker state cannot be read."""
     if broker is None:
-        return set()
+        return None
     try:
-        accounts = broker.accounts()
-        key_to_id = {
-            str(row.get("AccountKey") or "").strip(): str(row.get("AccountId") or "").strip()
-            for row in accounts
-            if isinstance(row, dict)
-            and str(row.get("AccountKey") or "").strip()
-            and str(row.get("AccountId") or "").strip()
-        }
         payload = broker.client._get("port/v1/orders/me", params={"$top": 1000})
-        rows = payload.get("Data") or []
+        rows = payload.get("Data")
         if not isinstance(rows, list):
-            return set()
-        result: set[tuple[str, str, int, str]] = set()
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            order_id = str(row.get("OrderId") or "").strip()
-            account_id = str(row.get("AccountId") or "").strip()
-            if not account_id:
-                account_id = key_to_id.get(str(row.get("AccountKey") or "").strip(), "")
-            asset_type = str(row.get("AssetType") or "").strip()
-            try:
-                uic = int(row.get("Uic"))
-            except (TypeError, ValueError):
-                continue
-            if order_id and account_id and asset_type:
-                result.add((order_id, account_id, uic, asset_type))
-        return result
+            return None
+        return {
+            str(row.get("OrderId") or "").strip()
+            for row in rows
+            if isinstance(row, dict) and str(row.get("OrderId") or "").strip()
+        }
     except Exception:
-        return set()
+        return None
 
 
 def _trades_24h(instance_id: str) -> int:
@@ -247,7 +228,7 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
     instances = bootstrap_v3_instances_from_enrollments_v1()
     broker = configured_live_pilot_client_v3() if include_pnl else None
     account_names: dict[str, str] = {}
-    working_orders: set[tuple[str, str, int, str]] = set()
+    working_order_ids: set[str] | None = None
     if broker is not None:
         try:
             for row in broker.accounts():
@@ -261,7 +242,7 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
         except Exception:
             broker = None
         if broker is not None:
-            working_orders = _working_orders_exact_v1(broker)
+            working_order_ids = _working_order_ids_v1(broker)
 
     rows: list[AutoTraderInstanceHealthV1] = []
     for instance in instances:
@@ -278,13 +259,8 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
         pending = _pending(instance)
         pending_age = _age_seconds(pending["updated_at"], now=current) if pending else None
         broker_working = None
-        if pending and pending.get("broker_order_id") and broker is not None:
-            broker_working = (
-                str(pending["broker_order_id"]),
-                str(instance.account_id),
-                int(instance.uic),
-                str(instance.asset_type),
-            ) in working_orders
+        if pending and pending.get("broker_order_id") and working_order_ids is not None:
+            broker_working = str(pending["broker_order_id"]) in working_order_ids
 
         severity, issue_code, issue_message = classify_instance_health_v1(
             live_armed=live_armed,
