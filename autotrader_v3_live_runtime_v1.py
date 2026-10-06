@@ -11,7 +11,7 @@ from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_legacy_ownership_migration_v1 import backfill_legacy_v3_live_ownership_v1
 from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3
-from database import connect
+from database import connect,using_postgres
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
@@ -46,17 +46,18 @@ def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db"):
     instances=load_v3_runtime_instances_v1(db_path=db_path)
     LOGGER.info("v3 LIVE discovered enabled instances=%d ids=%s",
         len(instances),",".join(e.pilot_key for e in instances) or "-")
-    try:
-        claimed=backfill_legacy_v3_live_ownership_v1(instances,db_path=db_path)
-        if claimed:
-            LOGGER.info("v3 LIVE legacy ownership backfilled instances=%s",",".join(claimed))
-    except Exception as exc:
-        detail=f"V3 legacy ownership migration blocked: {type(exc).__name__}: {exc}"
-        LOGGER.error("%s",detail)
-        for e in instances:
-            if live_authority_armed_v3(e.pilot_key,db_path=db_path):
-                _record_runtime(e.pilot_key,"BLOCKED",detail+"; no orders sent.",db_path=db_path)
-        return ()
+    if using_postgres():
+        try:
+            claimed=backfill_legacy_v3_live_ownership_v1(instances,db_path=db_path)
+            if claimed:
+                LOGGER.info("v3 LIVE legacy ownership backfilled instances=%s",",".join(claimed))
+        except Exception as exc:
+            detail=f"V3 legacy ownership migration blocked: {type(exc).__name__}: {exc}"
+            LOGGER.error("%s",detail)
+            for e in instances:
+                if live_authority_armed_v3(e.pilot_key,db_path=db_path):
+                    _record_runtime(e.pilot_key,"BLOCKED",detail+"; no orders sent.",db_path=db_path)
+            return ()
     for e in instances:
         armed=live_authority_armed_v3(e.pilot_key,db_path=db_path)
         LOGGER.info("v3 LIVE candidate instance=%s armed=%s",e.pilot_key,armed)
