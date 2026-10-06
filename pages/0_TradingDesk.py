@@ -185,6 +185,21 @@ def _horizon_label(seconds: int) -> str:
     return f"{hours:g}t"
 
 
+market_title_col, market_select_col = st.columns([3, 2], gap="medium")
+with market_select_col:
+    market = st.selectbox(
+        "Marked",
+        available_markets,
+        key=MARKET_STATE_KEY,
+        on_change=_persist_market_selection,
+    )
+if str(st.query_params.get("market", "") or "") != market:
+    st.query_params["market"] = market
+baseline_context = baseline_contexts[market]
+with market_title_col:
+    st.markdown(f"### {market}")
+    st.caption(baseline_context.instrument_label)
+
 chart_column, controls_column = st.columns([100 - controls_width_pct, controls_width_pct], gap="medium")
 
 with controls_column:
@@ -199,15 +214,7 @@ with controls_column:
     )
 
     with st.expander("V2 marked / analyse", expanded=True):
-        market = st.selectbox(
-            "Marked",
-            available_markets,
-            key=MARKET_STATE_KEY,
-            on_change=_persist_market_selection,
-        )
-        if str(st.query_params.get("market", "") or "") != market:
-            st.query_params["market"] = market
-        baseline_context = baseline_contexts[market]
+        st.caption(f"Analyseinnstillinger for {market}.")
         baseline_view = baseline_context.forecast
 
         horizons = tuple(sorted(int(value) for value in baseline_view.available_horizons))
