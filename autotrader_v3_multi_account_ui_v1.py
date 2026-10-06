@@ -8,7 +8,10 @@ def render_v3_instance_selector_v1(*,key_prefix='v3-instance'):
     instances=bootstrap_v3_instances_from_enrollments_v1()
     if not instances:st.info('Ingen V3-instans finnes ennå.');return None
     by_id={i.instance_id:i for i in instances};labels={i.instance_id:f'{i.account_id} · {i.market_name}' for i in instances};ids=tuple(by_id)
-    selected=st.radio('V3 konto',ids,format_func=lambda k:labels[k],horizontal=True,key=f'{key_prefix}:tabs')
+    tab_key=f'{key_prefix}:tabs';pending_tab_key=f'{key_prefix}:pending-tab'
+    pending_tab=st.session_state.pop(pending_tab_key,None)
+    if pending_tab in by_id:st.session_state[tab_key]=pending_tab
+    selected=st.radio('V3 konto',ids,format_func=lambda k:labels[k],horizontal=True,key=tab_key)
     with st.popover('＋ Legg til konto'):
         broker=configured_live_pilot_client_v3()
         if broker is None:st.warning('Saxo LIVE er ikke tilgjengelig; kan ikke hente kontoer.')
@@ -34,5 +37,5 @@ def render_v3_instance_selector_v1(*,key_prefix='v3-instance'):
                 if reason:st.caption(f'Kontoen kan ikke velges: den er allerede knyttet til {reason}.')
                 else:st.caption(f'Ny instans bruker instrumentet fra valgt fane: {template.market_name} · UIC {template.uic}.')
                 if st.button('Opprett V3-instans',type='primary',disabled=bool(reason),key=f'{key_prefix}:create'):
-                    created=create_v3_instance_v1(account_id=account_id,template=template);st.session_state[f'{key_prefix}:tabs']=created.instance_id;st.success(f'V3-instans opprettet for {account_id}.');st.rerun()
+                    created=create_v3_instance_v1(account_id=account_id,template=template);st.session_state[pending_tab_key]=created.instance_id;st.success(f'V3-instans opprettet for {account_id}.');st.rerun()
     return by_id[selected]
