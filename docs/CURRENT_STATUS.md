@@ -1,5 +1,8 @@
 # PriceGauger — Current Status / Stable Checkpoint
 
+> **2026-10-06 current-work note:** For new development sessions and fresh ChatGPT Projects, start with [`PRICEGAUGER_NEW_PROJECT_BOOTSTRAP_2026-10-06.md`](PRICEGAUGER_NEW_PROJECT_BOOTSTRAP_2026-10-06.md) and fresh `main`. The document below is retained as historical/long-form context and should not be preloaded as the primary current-state authority.
+
+
 ## 2026-09-27 Strategy Lab execution update
 
 The original 2026-08-30 checkpoint below is historical. Strategy Lab plan creation
