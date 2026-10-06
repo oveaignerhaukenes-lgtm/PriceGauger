@@ -18,4 +18,4 @@ def test_tradingdesk_market_selector_is_top_level_and_unique():
     assert source.count('key=MARKET_STATE_KEY') == 1
     assert source.index("market_title_col, market_select_col") < source.index("chart_column, controls_column")
     assert 'st.markdown(f"### {market}")' in source
-    assert 'st.caption(f"Marked: {market} · {baseline_context.instrument_label}")' in source
+    assert 'st.caption(f"Analyseinnstillinger for {market}.")' in source
