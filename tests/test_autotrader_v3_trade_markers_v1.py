@@ -3,11 +3,14 @@ from pathlib import Path
 
 def test_v3_marker_projection_reads_durable_reconciled_order_guard():
     source = Path("autotrader_v3_trade_markers_v1.py").read_text(encoding="utf-8")
+    assert "bootstrap_v3_instances_from_enrollments_v1()" in source
     assert "FROM autotrader_v3_order_guard AS guard" in source
+    assert "JOIN autotrader_v3_engine_instances AS boundary" in source
+    assert "boundary.instance_id = guard.trader_id" in source
+    assert "boundary.account_id = guard.account_id" in source
+    assert "boundary.uic = guard.uic" in source
+    assert "boundary.asset_type = guard.asset_type" in source
     assert "guard.state = 'RECONCILED'" in source
-    assert "enrollment.account_id = guard.account_id" in source
-    assert "enrollment.uic = guard.uic" in source
-    assert "enrollment.asset_type = guard.asset_type" in source
     assert 'source="AUTOTRADER_V3"' in source
 
 
