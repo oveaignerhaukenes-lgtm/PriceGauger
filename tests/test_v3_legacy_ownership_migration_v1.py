@@ -44,12 +44,17 @@ def _marker_exists(db):
     return row is not None
 
 
+def _v2_off(_enrollment):
+    return SimpleNamespace(live_armed=False)
+
+
 def test_backfill_claims_preownership_armed_v3_live_identity_once(monkeypatch,tmp_path):
     db=str(tmp_path/"pg.db")
     legacy=_legacy()
     item=_instance()
     set_live_authority_v3(item.pilot_key,True,db_path=db)
     monkeypatch.setattr(migration,"load_active_strategy_enrollments_v2",lambda:(legacy,))
+    monkeypatch.setattr(migration,"authority_state_v2",_v2_off)
 
     claimed=migration.backfill_legacy_v3_live_ownership_v1((item,),db_path=db)
 
@@ -62,15 +67,37 @@ def test_backfill_claims_preownership_armed_v3_live_identity_once(monkeypatch,tm
     assert migration.backfill_legacy_v3_live_ownership_v1((item,),db_path=db)==()
 
 
-def test_backfill_rejects_active_v2_on_same_account_transactionally(monkeypatch,tmp_path):
+def test_backfill_allows_stale_v2_enrollment_when_v2_live_authority_is_off(monkeypatch,tmp_path):
     db=str(tmp_path/"pg.db")
     v3=_legacy()
     v2=_legacy(pilot="v2-pilot",strategy="macd-30m-long-flat-v1")
     item=_instance()
     set_live_authority_v3(item.pilot_key,True,db_path=db)
     monkeypatch.setattr(migration,"load_active_strategy_enrollments_v2",lambda:(v2,v3))
+    monkeypatch.setattr(migration,"authority_state_v2",_v2_off)
 
-    with pytest.raises(RuntimeError,match="also an active V2 account"):
+    claimed=migration.backfill_legacy_v3_live_ownership_v1((item,),db_path=db)
+
+    assert claimed==(item.pilot_key,)
+    owner=load_account_owner_v1(item.account_id,db_path=db)
+    assert owner is not None and owner.engine_id==ENGINE_V3 and owner.owner_key==item.pilot_key
+    assert _marker_exists(db)
+
+
+def test_backfill_rejects_actual_v2_live_authority_on_same_account(monkeypatch,tmp_path):
+    db=str(tmp_path/"pg.db")
+    v3=_legacy()
+    v2=_legacy(pilot="v2-pilot",strategy="macd-30m-long-flat-v1")
+    item=_instance()
+    set_live_authority_v3(item.pilot_key,True,db_path=db)
+    monkeypatch.setattr(migration,"load_active_strategy_enrollments_v2",lambda:(v2,v3))
+    monkeypatch.setattr(
+        migration,
+        "authority_state_v2",
+        lambda e:SimpleNamespace(live_armed=(e.pilot_key==v2.pilot_key)),
+    )
+
+    with pytest.raises(RuntimeError,match="active V2 LIVE authority"):
         migration.backfill_legacy_v3_live_ownership_v1((item,),db_path=db)
 
     assert load_account_owner_v1(item.account_id,db_path=db) is None
@@ -84,6 +111,7 @@ def test_backfill_never_transfers_existing_owner(monkeypatch,tmp_path):
     set_live_authority_v3(item.pilot_key,True,db_path=db)
     claim_account_v1(item.account_id,ENGINE_V3,"other-v3-owner",db_path=db)
     monkeypatch.setattr(migration,"load_active_strategy_enrollments_v2",lambda:(legacy,))
+    monkeypatch.setattr(migration,"authority_state_v2",_v2_off)
 
     with pytest.raises(RuntimeError,match="owned by V3/other-v3-owner"):
         migration.backfill_legacy_v3_live_ownership_v1((item,),db_path=db)
@@ -99,6 +127,7 @@ def test_backfill_rejects_changed_exact_broker_boundary(monkeypatch,tmp_path):
     item=_instance(uic=9999)
     set_live_authority_v3(item.pilot_key,True,db_path=db)
     monkeypatch.setattr(migration,"load_active_strategy_enrollments_v2",lambda:(legacy,))
+    monkeypatch.setattr(migration,"authority_state_v2",_v2_off)
 
     with pytest.raises(RuntimeError,match="boundary mismatch"):
         migration.backfill_legacy_v3_live_ownership_v1((item,),db_path=db)
@@ -112,6 +141,7 @@ def test_backfill_does_not_promote_shadow_or_unarmed_identity(monkeypatch,tmp_pa
     shadow=_legacy(mode="SHADOW")
     item=_instance()
     monkeypatch.setattr(migration,"load_active_strategy_enrollments_v2",lambda:(shadow,))
+    monkeypatch.setattr(migration,"authority_state_v2",_v2_off)
 
     assert migration.backfill_legacy_v3_live_ownership_v1((item,),db_path=db)==()
     assert load_account_owner_v1(item.account_id,db_path=db) is None
