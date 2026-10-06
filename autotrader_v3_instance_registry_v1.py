@@ -55,6 +55,53 @@ def create_v3_instance_v1(*,account_id:str,template,db_path='pricegauger.db',ins
     return next(i for i in load_v3_instances_v1(db_path=db_path) if i.instance_id==identity)
 
 
+def replace_v3_instance_boundary_v1(*,instance_id:str,template,db_path='pricegauger.db'):
+    """Atomically replace one enabled account's broker boundary with a new V3 identity.
+
+    Authority/pending-order safety belongs to the caller. This registry primitive only
+    guarantees that the old row is disabled and the new exact boundary is enabled in
+    one database transaction, so an account is never left with two enabled instances.
+    """
+    ensure_v3_instance_registry_v1(db_path=db_path);old_id=str(instance_id or '').strip()
+    if not old_id:raise ValueError('instance_id required')
+    with connect(db_path) as db:
+        row=db.execute('''SELECT account_id,uic,asset_type,market_id,instrument_id,market_name
+          FROM autotrader_v3_engine_instances WHERE instance_id=? AND enabled=TRUE''',(old_id,)).fetchone()
+        if row is None:raise LookupError('enabled V3 instance not found')
+        g=lambda k,n:row[k] if isinstance(row,dict) else row[n]
+        account=str(g('account_id',0));old_uic=int(g('uic',1));old_asset=str(g('asset_type',2))
+        new_uic=int(template.uic);new_asset=str(template.asset_type)
+        new_market_id=int(template.market_id);new_instrument_id=int(template.instrument_id);new_market_name=str(template.market_name)
+        if old_uic==new_uic and old_asset==new_asset and int(g('market_id',3))==new_market_id and int(g('instrument_id',4))==new_instrument_id:
+            return V3EngineInstanceV1(old_id,account,old_uic,old_asset,int(g('market_id',3)),int(g('instrument_id',4)),str(g('market_name',5)),True)
+        identity=str(uuid5(NAMESPACE_URL,f'pricegauger:v3:{account}:{new_uic}:{new_asset}'))
+        occupied=db.execute('''SELECT instance_id FROM autotrader_v3_engine_instances
+          WHERE account_id=? AND enabled=TRUE AND instance_id<>?''',(account,old_id)).fetchone()
+        if occupied is not None:raise RuntimeError('Saxo account has another enabled V3 instance')
+        boundary=db.execute('''SELECT instance_id FROM autotrader_v3_engine_instances
+          WHERE account_id=? AND uic=? AND asset_type=? AND instance_id NOT IN (?,?)''',
+          (account,new_uic,new_asset,old_id,identity)).fetchone()
+        if boundary is not None:raise RuntimeError('target V3 broker boundary already belongs to another instance')
+        historical=db.execute('''SELECT account_id,uic,asset_type FROM autotrader_v3_engine_instances
+          WHERE instance_id=?''',(identity,)).fetchone()
+        if historical is not None:
+            h=lambda k,n:historical[k] if isinstance(historical,dict) else historical[n]
+            if str(h('account_id',0))!=account or int(h('uic',1))!=new_uic or str(h('asset_type',2))!=new_asset:
+                raise RuntimeError('stable V3 identity collides with another broker boundary')
+        db.execute('''UPDATE autotrader_v3_engine_instances SET enabled=FALSE,updated_at=CURRENT_TIMESTAMP
+          WHERE instance_id=?''',(old_id,))
+        if historical is None:
+            db.execute('''INSERT INTO autotrader_v3_engine_instances(
+              instance_id,account_id,uic,asset_type,market_id,instrument_id,market_name,enabled)
+              VALUES(?,?,?,?,?,?,?,TRUE)''',
+              (identity,account,new_uic,new_asset,new_market_id,new_instrument_id,new_market_name))
+        else:
+            db.execute('''UPDATE autotrader_v3_engine_instances SET
+              market_id=?,instrument_id=?,market_name=?,enabled=TRUE,updated_at=CURRENT_TIMESTAMP
+              WHERE instance_id=?''',(new_market_id,new_instrument_id,new_market_name,identity))
+    return next(i for i in load_v3_instances_v1(db_path=db_path) if i.instance_id==identity)
+
+
 def _legacy_registry_migration_complete_v1(*,db_path='pricegauger.db')->bool:
     ensure_v3_instance_registry_v1(db_path=db_path)
     with connect(db_path) as db:
