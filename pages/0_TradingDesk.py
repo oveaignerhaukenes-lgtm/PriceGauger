@@ -214,7 +214,7 @@ with controls_column:
     )
 
     with st.expander("V2 marked / analyse", expanded=True):
-        st.caption(f"Marked: {market} · {baseline_context.instrument_label}")
+        st.caption(f"Analyseinnstillinger for {market}.")
         baseline_view = baseline_context.forecast
 
         horizons = tuple(sorted(int(value) for value in baseline_view.available_horizons))
