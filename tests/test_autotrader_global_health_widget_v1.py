@@ -40,7 +40,7 @@ def test_verified_working_order_stays_yellow_even_when_old():
     )
     assert (severity, code) == ("YELLOW", "ORDER_WORKING")
     assert "fortsatt aktiv hos Saxo" in message
-    assert "stengt marked" in message
+    assert "venter på utførelse" in message
 
 
 def test_working_order_read_uses_exact_saxo_order_ids_and_fails_unknown():
