@@ -1,7 +1,14 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import Mapping
 from saxo_provider import LIVE_BASE_URL,SaxoClient,SaxoInstrument,SaxoError,configured_client
 from saxo_trading import SaxoOrderRequest,SaxoTradingSafetyError
+
+@dataclass(frozen=True, slots=True)
+class SaxoMarketStatusV3:
+    is_open: bool | None
+    market_state: str | None
+    quote_error: str | None
 
 class SaxoLivePilotClientV3:
     """Narrow LIVE adapter. Construction and every POST fail closed unless explicitly confirmed."""
@@ -33,6 +40,24 @@ class SaxoLivePilotClientV3:
         if len(matches)!=1:
             raise SaxoTradingSafetyError("v3 LIVE account identity is missing or ambiguous")
         return matches[0]
+    def market_status_exact(self, *,account_id:str,uic:int,asset_type:str)->SaxoMarketStatusV3:
+        """Read Saxo's account-scoped market state without relying on local schedules."""
+        account_key,_=self._account_context_exact(account_id)
+        payload=self.client._get("trade/v1/infoprices",params={
+            "AccountKey":account_key,
+            "Uic":int(uic),
+            "AssetType":asset_type,
+            "FieldGroups":"InstrumentPriceDetails,Quote",
+        })
+        details=payload.get("InstrumentPriceDetails") if isinstance(payload.get("InstrumentPriceDetails"),Mapping) else {}
+        quote=payload.get("Quote") if isinstance(payload.get("Quote"),Mapping) else {}
+        raw_open=details.get("IsMarketOpen")
+        is_open=raw_open if isinstance(raw_open,bool) else None
+        market_state=str(quote.get("MarketState") or "").strip() or None
+        raw_error=str(quote.get("ErrorCode") or "").strip()
+        quote_error=None if raw_error.lower() in {"","none","null"} else raw_error
+        return SaxoMarketStatusV3(is_open=is_open,market_state=market_state,quote_error=quote_error)
+
     def net_positions_exact(self, *,account_id:str,uic:int,asset_type:str):
         # /netpositions/me is client-wide and can aggregate the same instrument
         # across accounts. Ask Saxo to scope the calculation to AccountKey instead.
