@@ -222,6 +222,13 @@ def render_build_badge() -> None:
     _render_page_chrome(page)
 
     try:
+        from autotrader_status_widget_v1 import render_autotrader_status_widget_v1
+        render_autotrader_status_widget_v1()
+    except Exception:
+        # Global health chrome is read-only and must never prevent a page from loading.
+        pass
+
+    try:
         with st.sidebar:
             st.page_link("pages/2_Signalaggregat.py", label="∑ Signalaggregat")
     except Exception:
