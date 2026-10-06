@@ -3,14 +3,14 @@ from __future__ import annotations
 """Presentation projection of canonical V3 execution events."""
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
-from autotrader_v3_execution_events_v1 import ensure_v3_execution_event_schema_v1
+from autotrader_v3_order_guard_v1 import ensure_schema as ensure_v3_order_schema
 from database import connect, using_postgres
 
 
 def load_v3_trade_markers_v1(market_name: str) -> tuple[AutoTraderTradeMarkerV1, ...]:
     if not using_postgres():
         return ()
-    ensure_v3_execution_event_schema_v1()
+    ensure_v3_order_schema()
     with connect() as db:
         rows=db.execute("""SELECT e.executed_at,anchor.close AS display_price,e.direction,e.amount,
             e.instance_id,e.request_key
