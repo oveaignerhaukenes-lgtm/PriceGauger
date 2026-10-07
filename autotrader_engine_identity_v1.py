@@ -10,6 +10,7 @@ V3_STRATEGY_KEYS = frozenset({
     "macd-histogram-v1",
     "macd-histogram-flip-build-v1",
     "vwap-regime-histogram-v1",
+    "macd-regime-histogram-v1",
     "macd-stoch-v1",
 })
 
