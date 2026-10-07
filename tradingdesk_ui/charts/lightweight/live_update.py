@@ -552,6 +552,17 @@ def _marker_payload(markers: Sequence[AutoTraderTradeMarkerV1]) -> list[dict[str
             "direction": str(marker.direction),
             "active": bool(marker.active),
             "source": str(marker.source or ""),
+            "action": str(marker.action or ""),
+            "side": str(marker.side or ""),
+            "inventory_before": (
+                None if marker.inventory_before is None else float(marker.inventory_before)
+            ),
+            "inventory_after": (
+                None if marker.inventory_after is None else float(marker.inventory_after)
+            ),
+            "position_units": (
+                None if marker.position_units is None else float(marker.position_units)
+            ),
             "id": f"{marker.net_position_id}:{_epoch_seconds(marker.executed_at)}",
         }
         for marker in markers
