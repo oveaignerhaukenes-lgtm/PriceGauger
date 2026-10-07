@@ -27,10 +27,18 @@ from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
-from saxo_provider import SaxoInstrument
+from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
+
+def _definitive_saxo_rejection_v3(exc:Exception)->bool:
+    """True only when Saxo returned a concrete client-side rejection response."""
+    if not isinstance(exc,SaxoError):
+        return False
+    code=getattr(exc,"status_code",None)
+    return isinstance(code,int) and 400 <= code < 500 and code not in {408,429}
+
 
 def _live_timeframe_minutes_v3(timeframe:str)->int:
     label=str(timeframe or "").strip()
@@ -423,6 +431,17 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         try:
             result=broker.place_order(order,confirm_live=True)
         except Exception as exc:
+            if _definitive_saxo_rejection_v3(exc):
+                mark_order_v3(request_key=request_key,state='REJECTED',
+                    detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
+                _record_runtime(
+                    e.pilot_key,'BLOCKED',
+                    f'Saxo avviste ordren: {exc}; ingen ordre ble opprettet.',
+                    db_path=db_path)
+                LOGGER.warning(
+                    'v3 LIVE broker rejected trader=%s action=%s side=%s amount=%s error=%s',
+                    e.pilot_key,mutation.action,side,mutation.amount,exc)
+                continue
             mark_order_v3(request_key=request_key,state='UNKNOWN',
                 detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
             _record_runtime(e.pilot_key,'BLOCKED','Saxo order result unknown; reconcile before retry',db_path=db_path)
