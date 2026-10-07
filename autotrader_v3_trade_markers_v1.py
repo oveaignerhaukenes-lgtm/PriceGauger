@@ -4,6 +4,20 @@ from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
 from autotrader_v3_order_guard_v1 import ensure_schema as ensure_v3_order_schema
 from database import connect,using_postgres
 
+def marker_direction_v3(*,action:str,side:str,resulting_direction:str)->str:
+    """Chart arrow is broker order side; full close remains a neutral FLAT marker."""
+    action_u=str(action or "").upper()
+    side_u=str(side or "").upper()
+    result_u=str(resulting_direction or "").upper()
+    if action_u=="CLOSE" or result_u=="FLAT":
+        return "FLAT"
+    if side_u=="BUY":
+        return "LONG"
+    if side_u=="SELL":
+        return "SHORT"
+    return result_u
+
+
 def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...]:
     if not using_postgres():return ()
     ensure_v3_order_schema()
@@ -15,17 +29,12 @@ def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...
     result=[]
     for row in rows:
         v=dict(row) if isinstance(row,dict) else dict(zip(("executed_at","display_price","action","side","direction","amount","instance_id","request_key"),row))
-        action=str(v["action"] or "").upper()
-        side=str(v["side"] or "").upper()
-        if action=="CLOSE" or str(v["direction"] or "").upper()=="FLAT":
-            marker_direction="FLAT"
-        elif side=="BUY":
-            marker_direction="LONG"
-        elif side=="SELL":
-            marker_direction="SHORT"
-        else:
-            marker_direction=str(v["direction"])
+        marker_direction=marker_direction_v3(
+            action=str(v["action"]),
+            side=str(v["side"]),
+            resulting_direction=str(v["direction"]),
+        )
         result.append(AutoTraderTradeMarkerV1(executed_at=v["executed_at"],execution_price=float(v["display_price"]),direction=marker_direction,amount=float(v["amount"]),strategy_key=str(v["instance_id"]),net_position_id=str(v["request_key"]),active=False,source="AUTOTRADER_V3"))
     return tuple(result)
 
-__all__=["load_v3_trade_markers_v1"]
+__all__=["marker_direction_v3","load_v3_trade_markers_v1"]
