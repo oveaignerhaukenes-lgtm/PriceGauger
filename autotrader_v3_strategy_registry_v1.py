@@ -11,7 +11,7 @@ from typing import Callable
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
-from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
+from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3, evaluate_closed_bar_series_v3
 
 
 @dataclass(frozen=True)
@@ -41,4 +41,17 @@ def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, 
     return adapter.evaluate_closed_bar(
         trader_id=trader_id, observation=observation,
         strategy_key=adapter.key, bars=bars, config=config, db_path=db_path,
+    )
+
+
+def evaluate_strategy_bars_v3(*, strategy_key: str, trader_id: str, observations, bars=(),
+                              config=None, db_path="pricegauger.db"):
+    adapter = strategy_adapter_v3(strategy_key)
+    return evaluate_closed_bar_series_v3(
+        trader_id=trader_id,
+        observations=observations,
+        strategy_key=adapter.key,
+        bars=bars,
+        config=config,
+        db_path=db_path,
     )
