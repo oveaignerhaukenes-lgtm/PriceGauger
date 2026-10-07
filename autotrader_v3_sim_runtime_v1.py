@@ -153,6 +153,7 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             observation=observations[-1],
             strategy_key=instance.strategy_key,
             bars=closed,
+            source_bars=tuple(bars),
             db_path=db_path,
         )
         processed += int(result.is_new)
