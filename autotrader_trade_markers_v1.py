@@ -23,6 +23,11 @@ class AutoTraderTradeMarkerV1:
     net_position_id: str
     active: bool
     source: str
+    action: str = ""
+    side: str = ""
+    inventory_before: float | None = None
+    inventory_after: float | None = None
+    position_units: float | None = None
 
 
 def _utc(value: Any) -> datetime:
