@@ -1,6 +1,6 @@
 from datetime import datetime,timezone
 from autotrader_macd_dry_run_v2 import MacdObservationV2
-from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
+from autotrader_v3_closed_bar_driver_v1 import align_closed_bar_target_v3, evaluate_closed_bar_once_v3
 
 def obs(minute,spread):
     return MacdObservationV2(bar_time=datetime(2026,9,23,0,minute,tzinfo=timezone.utc),macd=spread,signal=0.0)
@@ -21,3 +21,12 @@ def test_closed_bar_driver_rejects_older_bar_as_duplicate(tmp_path):
     old=evaluate_closed_bar_once_v3(trader_id="t",observation=obs(5,-1),db_path=db)
     assert not old.is_new
     assert old.decision.target.amount==0.01
+
+
+def test_target_can_align_to_actual_without_replaying_same_bar(tmp_path):
+    db=str(tmp_path/"pg.db")
+    evaluate_closed_bar_once_v3(trader_id="t",observation=obs(5,1),db_path=db)
+    assert align_closed_bar_target_v3(trader_id="t",target_amount=-0.07,db_path=db)
+    duplicate=evaluate_closed_bar_once_v3(trader_id="t",observation=obs(5,1),db_path=db)
+    assert not duplicate.is_new
+    assert duplicate.decision.target.amount == -0.07

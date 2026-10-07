@@ -7,12 +7,12 @@ from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
 from autotrader_engine_account_ownership_v1 import ENGINE_V3, load_account_owner_v1
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
-from autotrader_v3_closed_bar_driver_v1 import ensure_closed_bar_driver_schema_v3
+from autotrader_v3_closed_bar_driver_v1 import align_closed_bar_target_v3, ensure_closed_bar_driver_schema_v3
 from autotrader_v3_domain import AccountBoundaryV3,ControlModeV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_legacy_ownership_migration_v1 import backfill_legacy_v3_live_ownership_v1
-from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3, order_state as order_state_v3
+from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3, order_state as order_state_v3, order_detail as order_detail_v3
 from database import connect,using_postgres
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
@@ -47,6 +47,18 @@ def _recorded_definitive_saxo_rejection_v3(detail:str|None)->bool:
         return False
     code=int(match.group(1))
     return 400 <= code < 500 and code not in {408,429}
+
+
+def _margin_capacity_rejection_v3(exc:Exception)->bool:
+    """True only for Saxo's explicit no-more-margin rejection."""
+    return (
+        isinstance(exc,SaxoError)
+        and _definitive_saxo_rejection_v3(exc)
+        and "wouldexceedmargin" in str(exc).lower()
+    )
+
+def _recorded_margin_capacity_rejection_v3(detail:str|None)->bool:
+    return "wouldexceedmargin" in str(detail or "").lower()
 
 
 def _live_timeframe_minutes_v3(timeframe:str)->int:
@@ -428,12 +440,26 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             f'{e.pilot_key}:{decision.decision_key}:{mutation.action}:{side}:'
             f'{actual.amount:.10g}:{mutation.amount:.10g}'))
         if order_state_v3(request_key=request_key,db_path=db_path)=='REJECTED':
-            _record_runtime(
-                e.pilot_key,'BLOCKED',
-                'Samme lukkede bar-intent er allerede avvist av Saxo; '
-                'ingen retry før en ny beslutning.',
-                db_path=db_path,
-            )
+            rejected_detail=order_detail_v3(request_key=request_key,db_path=db_path)
+            if (
+                mutation.action in {'OPEN','ADD'}
+                and _recorded_margin_capacity_rejection_v3(rejected_detail)
+            ):
+                align_closed_bar_target_v3(
+                    trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+                _record_runtime(
+                    e.pilot_key,'MANAGING',
+                    f'Saxo margin capacity reached; holding actual={actual.amount:g}; '
+                    'no queued build target.',
+                    db_path=db_path,
+                )
+            else:
+                _record_runtime(
+                    e.pilot_key,'BLOCKED',
+                    'Samme lukkede bar-intent er allerede avvist av Saxo; '
+                    'ingen retry før en ny beslutning.',
+                    db_path=db_path,
+                )
             continue
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
             external_reference=('pgv3-'+request_key)[-50:])
@@ -467,15 +493,32 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             result=broker.place_order(order,confirm_live=True)
         except Exception as exc:
             if _definitive_saxo_rejection_v3(exc):
+                detail=f'{type(exc).__name__}: {exc}'
                 mark_order_v3(request_key=request_key,state='REJECTED',
-                    detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
-                _record_runtime(
-                    e.pilot_key,'BLOCKED',
-                    f'Saxo avviste ordren: {exc}; ingen ordre ble opprettet.',
-                    db_path=db_path)
-                LOGGER.warning(
-                    'v3 LIVE broker rejected trader=%s action=%s side=%s amount=%s error=%s',
-                    e.pilot_key,mutation.action,side,mutation.amount,exc)
+                    detail=detail,db_path=db_path)
+                if (
+                    mutation.action in {'OPEN','ADD'}
+                    and _margin_capacity_rejection_v3(exc)
+                ):
+                    align_closed_bar_target_v3(
+                        trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+                    _record_runtime(
+                        e.pilot_key,'MANAGING',
+                        f'Saxo margin capacity reached; holding actual={actual.amount:g}; '
+                        'no queued build target.',
+                        db_path=db_path)
+                    LOGGER.info(
+                        'v3 LIVE margin capacity reached trader=%s action=%s side=%s '
+                        'amount=%s actual=%s',
+                        e.pilot_key,mutation.action,side,mutation.amount,actual.amount)
+                else:
+                    _record_runtime(
+                        e.pilot_key,'BLOCKED',
+                        f'Saxo avviste ordren: {exc}; ingen ordre ble opprettet.',
+                        db_path=db_path)
+                    LOGGER.warning(
+                        'v3 LIVE broker rejected trader=%s action=%s side=%s amount=%s error=%s',
+                        e.pilot_key,mutation.action,side,mutation.amount,exc)
                 continue
             mark_order_v3(request_key=request_key,state='UNKNOWN',
                 detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
