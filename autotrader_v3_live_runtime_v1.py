@@ -341,7 +341,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 continue
             if permitted != requested:
                 from autotrader_v3_execution_plan_v1 import ExecutionStepV3
-                mutation=ExecutionStepV3(
+                mutation=ExecutionStepV3.from_amount(
                     mutation.action,float(permitted),mutation.direction,
                     mutation.requires_flat_confirmation,
                     mutation.reason+f'; floored to Saxo amount step {float(step):g}')
@@ -368,7 +368,8 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 continue
             if capped.permitted_amount + 1e-9 < mutation.amount:
                 from autotrader_v3_execution_plan_v1 import ExecutionStepV3
-                mutation=ExecutionStepV3(mutation.action,capped.permitted_amount,mutation.direction,
+                mutation=ExecutionStepV3.from_amount(
+                    mutation.action,capped.permitted_amount,mutation.direction,
                     mutation.requires_flat_confirmation,mutation.reason+'; aligned to Saxo amount step')
             _record_runtime(e.pilot_key,'READY',
                 f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} action={mutation.action} amount={mutation.amount:g} cap_nok={capped.max_notional_nok:g}',db_path=db_path)
