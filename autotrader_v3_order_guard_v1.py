@@ -42,12 +42,23 @@ def unresolved(*,account_id,uic,asset_type,db_path="pricegauger.db"):
         return db.execute("""SELECT request_key,state FROM autotrader_v3_order_guard WHERE account_id=? AND uic=? AND asset_type=?
             AND state IN ('RESERVED','SUBMITTING','SUBMITTED','UNKNOWN') LIMIT 1""",(account_id,int(uic),asset_type)).fetchone()
 
+def order_state(*,request_key,db_path="pricegauger.db"):
+    ensure_schema(db_path)
+    with connect(db_path) as db:
+        row=db.execute(
+            "SELECT state FROM autotrader_v3_order_guard WHERE request_key=?",
+            (str(request_key),),
+        ).fetchone()
+    if row is None:return None
+    return str(row["state"] if isinstance(row,dict) else row[0])
+
+
 def pending_order(*,account_id,uic,asset_type,db_path="pricegauger.db"):
     ensure_schema(db_path)
     with connect(db_path) as db:
-        row=db.execute("""SELECT request_key,state,broker_order_id,expected_inventory,submitted_amount,submitted_side,updated_at
+        row=db.execute("""SELECT request_key,state,broker_order_id,detail,expected_inventory,submitted_amount,submitted_side,updated_at
             FROM autotrader_v3_order_guard WHERE account_id=? AND uic=? AND asset_type=?
             AND state IN ('RESERVED','SUBMITTING','SUBMITTED','UNKNOWN') LIMIT 1""",(account_id,int(uic),asset_type)).fetchone()
     if row is None:return None
     if isinstance(row,dict):return dict(row)
-    return dict(zip(("request_key","state","broker_order_id","expected_inventory","submitted_amount","submitted_side","updated_at"),row))
+    return dict(zip(("request_key","state","broker_order_id","detail","expected_inventory","submitted_amount","submitted_side","updated_at"),row))

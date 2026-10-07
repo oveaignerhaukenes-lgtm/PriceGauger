@@ -1,5 +1,6 @@
 """Regression checks for live V3 durable request identity and account isolation."""
 from pathlib import Path
+import ast
 import pytest
 from autotrader_v3_live_saxo_v1 import SaxoLivePilotClientV3
 from saxo_trading import SaxoTradingSafetyError
@@ -9,8 +10,19 @@ from saxo_provider import LIVE_BASE_URL
 def test_all_runtime_status_updates_use_reserved_request_key():
     source=Path('autotrader_v3_live_runtime_v1.py').read_text()
     assert 'reserve_order_v3(request_key=request_key' in source
-    assert source.count('mark_order_v3(request_key=request_key')==4
-    assert 'mark_order_v3(request_key=decision.decision_key' not in source
+    tree=ast.parse(source)
+    calls=[
+        node for node in ast.walk(tree)
+        if isinstance(node,ast.Call)
+        and isinstance(node.func,ast.Name)
+        and node.func.id=='mark_order_v3'
+    ]
+    assert len(calls) >= 5
+    for call in calls:
+        request_kw=next((kw for kw in call.keywords if kw.arg=='request_key'),None)
+        assert request_kw is not None
+        identity=ast.unparse(request_kw.value)
+        assert identity in {"request_key", "pending['request_key']"}
 
 
 def test_exact_positions_are_scoped_server_side_by_account_key():
