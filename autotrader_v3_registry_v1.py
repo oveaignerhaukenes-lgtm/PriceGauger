@@ -27,6 +27,13 @@ STRATEGIES_V3 = (
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
     StrategySpecV3("macd-histogram", "MACD Histogram", "Histogramretning styrer target inventory direkte.", "macd-histogram-v1", True),
+    StrategySpecV3(
+        "macd-histogram-flip-build",
+        "Histogram Flip+Build",
+        "Histogram-slope flipper target direkte til minste tranche på ny side og bygger videre én tranche per ny lukket bar.",
+        "macd-histogram-flip-build-v1",
+        True,
+    ),
 )
 
 MODIFIERS_V3 = (
