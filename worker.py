@@ -16,7 +16,6 @@ from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
 from autotrader_v3_sim_runtime_v1 import run_v3_sim_cycle_v1
 from autotrader_v3_live_runtime_v1 import run_v3_live_cycle_v1
-from autotrader_v3_ops_migrate_flip_build_20261007 import migrate_nas100_flip_build_once_v1
 from config import openai_api_key, openai_market_model
 from database import using_postgres
 from indicator_ai_insights_v1 import refresh_indicator_ai_once_v1
@@ -305,13 +304,6 @@ def run_v3_live_fast_loop_v1(
     A 2m strategy therefore sees every newly closed 2m bar with at most roughly
     one fast-loop interval of scheduling latency under normal operation.
     """
-    try:
-        migration_result=migrate_nas100_flip_build_once_v1(db_path=str(db_path))
-    except Exception as exc:
-        LOGGER.critical("NAS100 Flip+Build one-shot migration failed: %s", exc, exc_info=True)
-        return
-    LOGGER.warning("NAS100 Flip+Build one-shot migration result=%s", migration_result)
-
     interval=max(10,int(interval_seconds))
     LOGGER.info("v3 LIVE fast loop started interval=%ss", interval)
     while not stop_event.is_set():
