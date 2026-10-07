@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import threading
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
 LOGGER = logging.getLogger("pricegauger.worker")
 DEFAULT_DB_PATH = "pricegauger.db"
 DEFAULT_INTERVAL_SECONDS = 60
+V3_LIVE_INTERVAL_SECONDS = 30
 FLOW_HEARTBEAT_SECONDS = 600
 FLOW_SCORE_DELTA = 0.02
 
@@ -212,6 +214,7 @@ def run_once(
     db_path: str | Path = DEFAULT_DB_PATH,
     channel: str = "Middle_East_Spectator",
     plans_fetcher: Callable[..., list[TelegramSearchPlan]] = fetch_search_plans,
+    include_v3_live: bool = True,
 ) -> WorkerRunSummary:
     status = AnalysisStatusStore(db_path)
     status.begin_cycle()
@@ -277,16 +280,42 @@ def run_once(
     except Exception as exc:
         LOGGER.warning("v3 MACD-Trailing SIM cycle failed; worker continues: %s", exc, exc_info=True)
 
-    try:
-        v3_live_executed = run_v3_live_cycle_v1(db_path=str(db_path))
-        if v3_live_executed:
-            LOGGER.info("v3 LIVE executed mutations=%d", v3_live_executed)
-    except Exception as exc:
-        LOGGER.warning("v3 LIVE cycle failed; worker continues: %s", exc, exc_info=True)
+    if include_v3_live:
+        try:
+            v3_live_executed = run_v3_live_cycle_v1(db_path=str(db_path))
+            if v3_live_executed:
+                LOGGER.info("v3 LIVE executed mutations=%d", v3_live_executed)
+        except Exception as exc:
+            LOGGER.warning("v3 LIVE cycle failed; worker continues: %s", exc, exc_info=True)
 
     summary = WorkerRunSummary(fetched=len(all_plans))
     LOGGER.info("cycle complete fetched=%s", summary.fetched)
     return summary
+
+
+def _run_v3_live_forever(
+    *,
+    db_path: str | Path,
+    stop_event: threading.Event,
+    interval_seconds: int = V3_LIVE_INTERVAL_SECONDS,
+) -> None:
+    """Run V3 LIVE independently from slow news/AI/materialization work.
+
+    A 2m strategy therefore sees every newly closed 2m bar with at most roughly
+    one fast-loop interval of scheduling latency under normal operation.
+    """
+    interval=max(10,int(interval_seconds))
+    LOGGER.info("v3 LIVE fast loop started interval=%ss", interval)
+    while not stop_event.is_set():
+        started=time.monotonic()
+        try:
+            executed=run_v3_live_cycle_v1(db_path=str(db_path))
+            if executed:
+                LOGGER.info("v3 LIVE fast loop executed mutations=%d", executed)
+        except Exception as exc:
+            LOGGER.warning("v3 LIVE fast loop failed; retrying: %s", exc, exc_info=True)
+        remaining=max(0.5,interval-(time.monotonic()-started))
+        stop_event.wait(remaining)
 
 
 def run_forever(
@@ -300,12 +329,25 @@ def run_forever(
 
     backend = "postgresql" if using_postgres() else f"sqlite:{db_path}"
     LOGGER.info("worker started interval=%ss storage=%s channel=%s", interval_seconds, backend, channel)
+    stop_event=threading.Event()
+    v3_thread=threading.Thread(
+        target=_run_v3_live_forever,
+        kwargs={
+            "db_path":db_path,
+            "stop_event":stop_event,
+            "interval_seconds":V3_LIVE_INTERVAL_SECONDS,
+        },
+        name="pricegauger-v3-live",
+        daemon=True,
+    )
+    v3_thread.start()
     while True:
         started = time.monotonic()
         try:
             run_once(
                 db_path=db_path,
                 channel=channel,
+                include_v3_live=False,
             )
         except KeyboardInterrupt:
             raise
