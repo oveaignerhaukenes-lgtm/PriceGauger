@@ -17,7 +17,7 @@ from autotrader_v3_registry_v1 import (
 
 
 def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
-    trader_id=str(instance.instance_id); config=load_autotrader_config_v3(trader_id); policy=load_execution_policy_v3(trader_id)
+    trader_id=str(instance.instance_id); config=load_autotrader_config_v3(trader_id); policy=load_execution_policy_v3(trader_id); authority=authority_state_v3(trader_id)
     st.markdown(f'**{instance.market_name} · konto {instance.account_id} · UIC {instance.uic}**')
     st.caption(f'V3 {trader_id[:8]} · {instance.asset_type} · instrument {instance.instrument_id} · config deles mellom TradingDesk og fleet-visningen')
     keys=tuple(x.key for x in STRATEGIES_V3)
@@ -55,10 +55,12 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     )
     if live_issues:
         st.warning('LIVE sperret av config: ' + ' · '.join(live_issues))
-    if st.button('Bruk på denne instansen',type='primary',disabled=not changed,width='stretch',key=f'{key_prefix}:save:{trader_id}'):
+    save_blocked=bool(authority.live_armed and live_issues)
+    if save_blocked:
+        st.caption('Slå LIVE av før du lagrer en config som ikke er LIVE-runtime-klar.')
+    if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy); st.success('Canonical V3 config oppdatert.'); st.rerun()
 
-    authority=authority_state_v3(trader_id)
     st.markdown('**Execution authority**')
     if authority.live_armed:
         st.success(f'LIVE PÅ · konto {instance.account_id} · UIC {instance.uic}')
