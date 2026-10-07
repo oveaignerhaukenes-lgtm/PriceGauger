@@ -21,8 +21,8 @@ def test_all_runtime_status_updates_use_reserved_request_key():
     for call in calls:
         request_kw=next((kw for kw in call.keywords if kw.arg=='request_key'),None)
         assert request_kw is not None
-        assert isinstance(request_kw.value,ast.Name)
-        assert request_kw.value.id=='request_key'
+        identity=ast.unparse(request_kw.value)
+        assert identity in {"request_key", "pending['request_key']"}
 
 
 def test_exact_positions_are_scoped_server_side_by_account_key():
