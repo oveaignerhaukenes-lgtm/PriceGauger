@@ -44,3 +44,17 @@ def test_unchanged_histogram_holds():
     decision = _decision(-0.04, -0.20, -0.20)
     assert decision.target.amount == -0.04
     assert decision.action == "HOLD"
+
+
+def test_runtime_registry_contains_flip_build():
+    from autotrader_v3_macd_histogram_flip_build_v1 import STRATEGY_KEY_V3
+    from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3
+    assert STRATEGY_KEY_V3 in STRATEGIES_V3
+    assert STRATEGIES_V3[STRATEGY_KEY_V3].live_route_enabled is True
+
+
+def test_catalog_maps_flip_build_to_runtime_key():
+    from autotrader_v3_registry_v1 import strategy_v3
+    spec = strategy_v3("macd-histogram-flip-build")
+    assert spec.runtime_key == "macd-histogram-flip-build-v1"
+    assert spec.runtime_ready is True
