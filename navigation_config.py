@@ -31,6 +31,9 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
         {"page": "pages/99_Runtime_Diagnostics.py", "title": "Database og runtime", "icon": "🛠️", "url_path": "Runtime_Diagnostics"},
         {"page": "pages/7_Benchmark.py", "title": "Benchmark", "icon": "🧪", "url_path": "Benchmark"},
     ),
+    "Verktøy vi vurderer videre": (
+        {"page": "pages/7_Forecast_Learning.py", "title": "Graf/forecast-lab", "icon": "📈", "url_path": "Forecast_Learning"},
+    ),
     "Utviklerverktøy · Legacy": (
         {"page": "pages/1_Kjerneflyt.py", "title": "Legacy · Historisk motor", "icon": "🔗", "url_path": "Historisk_motor"},
         {"page": "pages/2_Direct_Technical.py", "title": "Legacy · Direct Technical", "icon": "📈", "url_path": "Direct_Technical"},
@@ -38,7 +41,6 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
         {"page": "pages/2_Signalaggregat.py", "title": "Legacy · Signalaggregat", "icon": "📶", "url_path": "Signalaggregat"},
         {"page": "pages/Market_State.py", "title": "Legacy · Market State", "icon": "🧭", "url_path": "Market_State"},
         {"page": "pages/Signal_History.py", "title": "Legacy · Signalhistorikk", "icon": "📊", "url_path": "Signal_History"},
-        {"page": "pages/7_Forecast_Learning.py", "title": "Legacy · Graf/forecast-lab", "icon": "📈", "url_path": "Forecast_Learning"},
     ),
 }
 
