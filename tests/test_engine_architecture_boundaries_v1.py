@@ -8,6 +8,7 @@ SHARED_UI = ROOT / "tradingdesk_automanager_simple_v1.py"
 def test_engine_identity_classifies_v3_without_runtime_imports():
     assert engine_for_strategy_key_v1("macd-trailing-v1") == ENGINE_V3
     assert engine_for_strategy_key_v1("macd-histogram-v1") == ENGINE_V3
+    assert engine_for_strategy_key_v1("vwap-regime-histogram-v1") == ENGINE_V3
     assert engine_for_strategy_key_v1("macd-stoch-v1") == ENGINE_V3
     assert engine_for_strategy_key_v1("macd-flip-v2") == ENGINE_V2
 
