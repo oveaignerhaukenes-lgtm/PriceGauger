@@ -369,7 +369,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             if capped.permitted_amount + 1e-9 < mutation.amount:
                 from autotrader_v3_execution_plan_v1 import ExecutionStepV3
                 mutation=ExecutionStepV3(mutation.action,capped.permitted_amount,mutation.direction,
-                    mutation.requires_flat_confirmation,mutation.reason+'; clamped by V3 NOK exposure cap')
+                    mutation.requires_flat_confirmation,mutation.reason+'; aligned to Saxo amount step')
             _record_runtime(e.pilot_key,'READY',
                 f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} action={mutation.action} amount={mutation.amount:g} cap_nok={capped.max_notional_nok:g}',db_path=db_path)
         signed_delta=mutation.amount if side=='Buy' else -mutation.amount
