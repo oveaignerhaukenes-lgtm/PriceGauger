@@ -126,6 +126,47 @@ def _marker_payload(
         auto_v3 = source == "AUTOTRADER_V3"
         auto_v2 = source in {"AUTOTRADER_V2", "AUTOTRADER_OPEN", "ACTIVE_MANAGED_POSITION"}
         is_flat = direction == "FLAT"
+
+        if auto_v3:
+            units = 1.0 if marker.position_units is None else max(0.0, min(10.0, float(marker.position_units)))
+            vector_size = 1.0 if is_flat else max(0.85, min(2.65, 0.65 + 0.20 * units))
+            result.append(
+                {
+                    "time": time_value,
+                    "price": float(marker.execution_price),
+                    "position": "atPriceMiddle",
+                    "shape": "square" if is_flat else ("arrowUp" if direction == "LONG" else "arrowDown"),
+                    "color": "#64748b" if is_flat else "#a855f7",
+                    "text": "",
+                    "size": vector_size,
+                    "id": f"{source}:{marker.net_position_id}:{raw_time}:position",
+                    "direction": direction,
+                    "active": bool(marker.active),
+                    "source": source,
+                    "marker_role": "POSITION_VECTOR",
+                    "position_units": units,
+                }
+            )
+            side = str(marker.side or "").upper()
+            if side in {"BUY", "SELL"}:
+                result.append(
+                    {
+                        "time": time_value,
+                        "price": float(marker.execution_price),
+                        "position": "belowBar" if side == "BUY" else "aboveBar",
+                        "shape": "arrowUp" if side == "BUY" else "arrowDown",
+                        "color": "#e879f9",
+                        "text": "",
+                        "size": 0.45,
+                        "id": f"{source}:{marker.net_position_id}:{raw_time}:execution",
+                        "direction": "LONG" if side == "BUY" else "SHORT",
+                        "active": bool(marker.active),
+                        "source": source,
+                        "marker_role": "EXECUTION_SIDE",
+                    }
+                )
+            continue
+
         if is_flat:
             color = "#ef4444"
             label = "FLAT"
@@ -136,8 +177,7 @@ def _marker_payload(
             label = "M"
             size = 0.82
         else:
-            # Engine identity is color; arrow direction is BUY/SELL. No chart text.
-            color = "#a855f7" if auto_v3 else "#0ea5e9"
+            color = "#0ea5e9"
             label = ""
             size = 1.0 if marker.active else 0.72
         result.append(
