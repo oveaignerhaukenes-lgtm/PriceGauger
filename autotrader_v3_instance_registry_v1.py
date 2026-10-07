@@ -46,10 +46,18 @@ def load_v3_instances_v1(*,db_path='pricegauger.db'):
 def create_v3_instance_v1(*,account_id:str,template,db_path='pricegauger.db',instance_id=None):
     ensure_v3_instance_registry_v1(db_path=db_path);account=str(account_id or '').strip()
     if not account:raise ValueError('V3 instance requires account_id')
-    identity=str(instance_id or uuid5(NAMESPACE_URL,f'pricegauger:v3:{account}:{int(template.uic)}:{template.asset_type}'))
+    requested=str(instance_id or '').strip() or None
+    deterministic=str(uuid5(NAMESPACE_URL,f'pricegauger:v3:{account}:{int(template.uic)}:{template.asset_type}'))
     with connect(db_path) as db:
         existing=db.execute('SELECT instance_id FROM autotrader_v3_engine_instances WHERE account_id=? AND enabled=TRUE',(account,)).fetchone()
         if existing is not None:raise ValueError('This Saxo account is already attached to a V3 instance')
+        boundary=db.execute('''SELECT instance_id FROM autotrader_v3_engine_instances
+          WHERE account_id=? AND uic=? AND asset_type=? ORDER BY created_at ASC LIMIT 1''',
+          (account,int(template.uic),str(template.asset_type))).fetchone()
+        boundary_id=None if boundary is None else str(boundary['instance_id'] if isinstance(boundary,dict) else boundary[0])
+        if requested and boundary_id and requested!=boundary_id:
+            raise RuntimeError('requested V3 identity conflicts with historical broker boundary')
+        identity=requested or boundary_id or deterministic
         historical=db.execute('''SELECT account_id,uic,asset_type FROM autotrader_v3_engine_instances
           WHERE instance_id=?''',(identity,)).fetchone()
         if historical is None:
