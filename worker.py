@@ -293,7 +293,7 @@ def run_once(
     return summary
 
 
-def _run_v3_live_forever(
+def run_v3_live_fast_loop_v1(
     *,
     db_path: str | Path,
     stop_event: threading.Event,
@@ -331,7 +331,7 @@ def run_forever(
     LOGGER.info("worker started interval=%ss storage=%s channel=%s", interval_seconds, backend, channel)
     stop_event=threading.Event()
     v3_thread=threading.Thread(
-        target=_run_v3_live_forever,
+        target=run_v3_live_fast_loop_v1,
         kwargs={
             "db_path":db_path,
             "stop_event":stop_event,
