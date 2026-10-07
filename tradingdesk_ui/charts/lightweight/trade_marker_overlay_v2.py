@@ -47,6 +47,38 @@ export default function(component) {
             const source = String(marker.source || '');
             const manualSaxo = source === 'SAXO_MANUAL_FILL';
             const autoV3 = source === 'AUTOTRADER_V3';
+
+            if (autoV3) {
+                const unitsRaw = Number(marker.position_units);
+                const units = Number.isFinite(unitsRaw) ? Math.max(0, Math.min(10, unitsRaw)) : 1;
+                const vectorSize = isFlat ? 1.0 : Math.max(0.85, Math.min(2.65, 0.65 + 0.20 * units));
+                const markers = [{
+                    time,
+                    price,
+                    position: 'atPriceMiddle',
+                    shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
+                    color: isFlat ? '#64748b' : '#a855f7',
+                    text: '',
+                    size: vectorSize,
+                    id: `${marker.id || raw}:${index}:position`,
+                }];
+
+                const side = String(marker.side || '').toUpperCase();
+                if (side === 'BUY' || side === 'SELL') {
+                    markers.push({
+                        time,
+                        price,
+                        position: side === 'BUY' ? 'belowBar' : 'aboveBar',
+                        shape: side === 'BUY' ? 'arrowUp' : 'arrowDown',
+                        color: '#e879f9',
+                        text: '',
+                        size: 0.45,
+                        id: `${marker.id || raw}:${index}:execution`,
+                    });
+                }
+                return markers;
+            }
+
             return [{
                 time,
                 price,
@@ -54,7 +86,7 @@ export default function(component) {
                 shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
                 color: isFlat ? '#64748b' : (manualSaxo
                     ? (direction === 'LONG' ? '#16a34a' : '#dc2626')
-                    : (autoV3 ? '#a855f7' : '#0ea5e9')),
+                    : '#0ea5e9'),
                 text: manualSaxo ? 'M' : '',
                 size: isFlat ? 1.0 : (manualSaxo ? 0.82 : (marker.active ? 1.0 : 0.72)),
                 id: `${marker.id || raw}:${index}`,
