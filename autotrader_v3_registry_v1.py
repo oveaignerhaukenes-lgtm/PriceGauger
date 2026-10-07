@@ -37,8 +37,15 @@ STRATEGIES_V3 = (
     StrategySpecV3(
         "vwap-regime-histogram",
         "VWAP Regime + Histogram",
-        "Rolling VWAP-helning eier retning; histogram skalerer eksponering. Sterkt regime forbyr motposisjon, svakt regime tillater én probe, flat VWAP går FLAT.",
+        "Eksperimentell VWAP-variant. Ikke LIVE på index-CFD uten pålitelig volumgrunnlag.",
         "vwap-regime-histogram-v1",
+        False,
+    ),
+    StrategySpecV3(
+        "macd-regime-histogram",
+        "Histogram MACD-RxSy",
+        "R-periodens MACD eier retning; S-periodens histogram skalerer eksponering uten motregime-flips.",
+        "macd-regime-histogram-v1",
         True,
     ),
 )
@@ -64,6 +71,7 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
     "1m": 1, "2m": 2, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60,
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
+REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss",)
 SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
@@ -85,6 +93,7 @@ def live_config_issues_v3(
     timeframe: str,
     control_mode: str,
     modifiers: tuple[str, ...] | list[str],
+    regime_timeframe: str = "15m",
 ) -> tuple[str, ...]:
     issues: list[str] = []
     try:
@@ -95,6 +104,8 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key == "macd-regime-histogram" and regime_timeframe not in REGIME_TIMEFRAMES_V3:
+        issues.append(f"regime timeframe {regime_timeframe} is not LIVE runtime-ready")
     if control_mode not in LIVE_CONTROL_MODES_V3:
         issues.append(f"control mode {control_mode} is not LIVE runtime-ready")
     unsupported = tuple(item for item in modifiers if item not in LIVE_MODIFIERS_V3)
@@ -109,6 +120,7 @@ def sim_config_issues_v3(
     timeframe: str,
     control_mode: str,
     modifiers: tuple[str, ...] | list[str],
+    regime_timeframe: str = "15m",
 ) -> tuple[str, ...]:
     issues: list[str] = []
     try:
@@ -119,6 +131,8 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key == "macd-regime-histogram" and regime_timeframe not in REGIME_TIMEFRAMES_V3:
+        issues.append(f"regime timeframe {regime_timeframe} is not SIM runtime-ready")
     if control_mode not in SIM_CONTROL_MODES_V3:
         issues.append(f"control mode {control_mode} is not SIM runtime-ready")
     unsupported = tuple(item for item in modifiers if item not in SIM_MODIFIERS_V3)
