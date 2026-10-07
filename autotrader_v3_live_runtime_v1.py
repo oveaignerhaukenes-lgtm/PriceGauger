@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import re
 from uuid import uuid5, NAMESPACE_URL
 from datetime import datetime,timedelta,timezone
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
@@ -11,7 +12,7 @@ from autotrader_v3_domain import AccountBoundaryV3,ControlModeV3,TargetInventory
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_legacy_ownership_migration_v1 import backfill_legacy_v3_live_ownership_v1
-from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3
+from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3, order_state as order_state_v3
 from database import connect,using_postgres
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
@@ -38,6 +39,14 @@ def _definitive_saxo_rejection_v3(exc:Exception)->bool:
         return False
     code=getattr(exc,"status_code",None)
     return isinstance(code,int) and 400 <= code < 500 and code not in {408,429}
+
+def _recorded_definitive_saxo_rejection_v3(detail:str|None)->bool:
+    """Recognize only durable UNKNOWN rows that contain an explicit Saxo HTTP 4xx."""
+    match=re.search(r"\bHTTP\s+(\d{3})\b",str(detail or ""))
+    if match is None:
+        return False
+    code=int(match.group(1))
+    return 400 <= code < 500 and code not in {408,429}
 
 
 def _live_timeframe_minutes_v3(timeframe:str)->int:
@@ -198,6 +207,24 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         pending=pending_order_v3(account_id=e.account_id,uic=e.uic,
                                  asset_type=e.asset_type,db_path=db_path)
         if pending:
+            if (
+                str(pending.get('state') or '').upper()=='UNKNOWN'
+                and _recorded_definitive_saxo_rejection_v3(pending.get('detail'))
+            ):
+                recorded=str(pending.get('detail') or '').strip()
+                mark_order_v3(
+                    request_key=pending['request_key'],
+                    state='REJECTED',
+                    detail=recorded+'; reclassified from durable explicit Saxo 4xx rejection',
+                    db_path=db_path,
+                )
+                _record_runtime(
+                    e.pilot_key,'REJECTED',
+                    'Tidligere UNKNOWN var dokumentert Saxo 4xx-avvisning; '
+                    'ingen ordre ble opprettet. Venter på neste beslutning.',
+                    db_path=db_path,
+                )
+                continue
             expected=pending.get('expected_inventory')
             if expected is None:
                 _record_runtime(e.pilot_key,'BLOCKED',
@@ -400,6 +427,14 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         request_key=str(uuid5(NAMESPACE_URL,
             f'{e.pilot_key}:{decision.decision_key}:{mutation.action}:{side}:'
             f'{actual.amount:.10g}:{mutation.amount:.10g}'))
+        if order_state_v3(request_key=request_key,db_path=db_path)=='REJECTED':
+            _record_runtime(
+                e.pilot_key,'BLOCKED',
+                'Samme lukkede bar-intent er allerede avvist av Saxo; '
+                'ingen retry før en ny beslutning.',
+                db_path=db_path,
+            )
+            continue
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
             external_reference=('pgv3-'+request_key)[-50:])
         pre=broker.precheck(order)
