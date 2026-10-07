@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 import logging
+import threading
 from pathlib import Path
 import time
 from typing import Callable
@@ -101,6 +102,7 @@ def run_once(
             db_path=db_path,
             channel="configured-sources",
             plans_fetcher=configured_fetcher,
+            include_v3_live=False,
         )
     finally:
         worker_module.OpenAITelegramFlowScorer = original_scorer
@@ -137,6 +139,18 @@ def run_forever(
         interval_seconds,
         ",".join(channel_store.list_enabled()) or "none",
     )
+    stop_event=threading.Event()
+    v3_thread=threading.Thread(
+        target=worker_module.run_v3_live_fast_loop_v1,
+        kwargs={
+            "db_path":db_path,
+            "stop_event":stop_event,
+            "interval_seconds":worker_module.V3_LIVE_INTERVAL_SECONDS,
+        },
+        name="pricegauger-v3-live",
+        daemon=True,
+    )
+    v3_thread.start()
     while True:
         started = time.monotonic()
         try:
