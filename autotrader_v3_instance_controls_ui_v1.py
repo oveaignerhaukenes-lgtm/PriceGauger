@@ -7,6 +7,7 @@ owned by the engine instance, never by either page.
 """
 import streamlit as st
 from autotrader_v3_config_v1 import AutoTraderConfigV3,load_autotrader_config_v3,save_autotrader_config_v3
+from autotrader_v3_instance_binding_v1 import remove_unarmed_v3_instance_v1
 from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v3
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
@@ -134,5 +135,23 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                 set_live_enabled_v3(trader_id,True,account_id=instance.account_id)
             except Exception as exc:st.error(f'Kunne ikke slå LIVE på: {exc}')
             else:st.rerun()
+
+    st.divider()
+    st.markdown('**Instans**')
+    st.caption('Fjerning deaktiverer bare instansen i fleet-listen. Historikk, config og execution-audit beholdes.')
+    if st.button(
+        'Fjern fra AutoTrader',
+        width='stretch',
+        disabled=bool(authority.live_armed or authority.sim_armed),
+        key=f'{key_prefix}:remove:{trader_id}',
+        help='LIVE og SIM må være AV. Uavklart ordre eller execution-ownership blokkerer også fjerning.',
+    ):
+        try:
+            remove_unarmed_v3_instance_v1(instance)
+        except Exception as exc:
+            st.error(f'Kunne ikke fjerne instansen: {exc}')
+        else:
+            st.success('V3-instansen er fjernet fra aktiv fleet. Historikken er beholdt.')
+            st.rerun()
 
 __all__=['render_v3_instance_controls_v1']
