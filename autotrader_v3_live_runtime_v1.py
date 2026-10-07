@@ -23,6 +23,8 @@ from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
 from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3
+from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
+from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -254,6 +256,22 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         except ValueError as exc:
             _record_runtime(e.pilot_key,'BLOCKED',f'{exc}; no orders sent',db_path=db_path)
             continue
+        account=accounts.get(e.account_id)
+        if account is None:
+            _record_runtime(e.pilot_key,'BLOCKED',f'V3 LIVE account unavailable: {e.account_id}',db_path=db_path)
+            continue
+        instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
+        try:
+            instrument_rules=load_entry_instrument_rules_v2(
+                broker.client,account_key=account,instrument=instrument)
+            strategy_amount_config=strategy_amount_config_v3(
+                strategy_key=e.strategy_key,rules=instrument_rules)
+        except Exception as exc:
+            _record_runtime(
+                e.pilot_key,'BLOCKED',
+                f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
+                db_path=db_path)
+            continue
         context_changed=_prepare_live_decision_context_v3(
             trader_id=e.pilot_key,strategy_key=e.strategy_key,
             timeframe_minutes=timeframe_minutes,db_path=db_path)
@@ -274,7 +292,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             continue
         decision=evaluate_strategy_bar_v3(
             trader_id=e.pilot_key,observation=obs[-1],bars=closed,
-            strategy_key=e.strategy_key,db_path=db_path)
+            strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path)
         trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
         modifiers=[]
         if 'reset-on-loss' in config.modifiers:
@@ -301,25 +319,29 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction exceeds exact current position',db_path=db_path)
                 continue
             from decimal import Decimal, ROUND_DOWN
-            step=Decimal('0.01')
+            step=Decimal(str(instrument_rules.increment_size))
+            if step <= 0:
+                _record_runtime(e.pilot_key,'BLOCKED','Saxo amount step is not positive',db_path=db_path)
+                continue
             requested=Decimal(str(mutation.amount))
             nearest_steps=(requested / step).quantize(Decimal('1'))
             nearest=nearest_steps * step
             if abs(requested-nearest) <= Decimal('0.000000001'):
                 requested=nearest
             permitted=(requested / step).to_integral_value(rounding=ROUND_DOWN) * step
-            if permitted < Decimal('0.01'):
-                _record_runtime(e.pilot_key,'BLOCKED','Reduction below 0.01 Saxo order step',db_path=db_path)
+            if permitted <= 0:
+                _record_runtime(
+                    e.pilot_key,'BLOCKED',
+                    f'Reduction below Saxo amount step {float(step):g}',db_path=db_path)
                 continue
             if permitted != requested:
                 from autotrader_v3_execution_plan_v1 import ExecutionStepV3
-                mutation=ExecutionStepV3(mutation.action,float(permitted),mutation.direction,
-                    mutation.requires_flat_confirmation,mutation.reason+'; floored to 0.01 Saxo order step')
-        account=accounts.get(e.account_id)
-        if account is None: raise RuntimeError(f"v3 LIVE account unavailable: {e.account_id}")
+                mutation=ExecutionStepV3(
+                    mutation.action,float(permitted),mutation.direction,
+                    mutation.requires_flat_confirmation,
+                    mutation.reason+f'; floored to Saxo amount step {float(step):g}')
         side=("Buy" if mutation.direction=="LONG" else "Sell")
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
-        instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
         if mutation.action in {'OPEN','ADD'}:
             policy=load_execution_policy_v3(e.pilot_key,db_path=db_path)
             if policy is None:
