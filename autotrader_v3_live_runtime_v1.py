@@ -415,6 +415,15 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     mutation.action,float(permitted),mutation.direction,
                     mutation.requires_flat_confirmation,
                     mutation.reason+f'; floored to Saxo amount step {float(step):g}')
+        if (
+            mutation.action in {'OPEN','ADD'}
+            and mutation.amount > float(strategy_amount_config.tranche) + 1e-9
+        ):
+            from autotrader_v3_execution_plan_v1 import ExecutionStepV3
+            mutation=ExecutionStepV3.from_amount(
+                mutation.action,float(strategy_amount_config.tranche),mutation.direction,
+                mutation.requires_flat_confirmation,
+                mutation.reason+'; limited to one strategy tranche per broker order')
         side=("Buy" if mutation.direction=="LONG" else "Sell")
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         policy=None
