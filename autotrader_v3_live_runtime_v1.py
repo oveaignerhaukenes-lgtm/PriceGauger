@@ -7,7 +7,7 @@ from autotrader_engine_account_ownership_v1 import ENGINE_V3, load_account_owner
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
 from autotrader_v3_closed_bar_driver_v1 import ensure_closed_bar_driver_schema_v3
-from autotrader_v3_domain import AccountBoundaryV3,TargetInventoryV3,signed_inventory_v3
+from autotrader_v3_domain import AccountBoundaryV3,ControlModeV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_legacy_ownership_migration_v1 import backfill_legacy_v3_live_ownership_v1
@@ -293,7 +293,12 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         decision=evaluate_strategy_bar_v3(
             trader_id=e.pilot_key,observation=obs[-1],bars=closed,
             strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path)
-        trader=TraderV3(e.pilot_key,AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),e.strategy_key)
+        trader=TraderV3(
+            e.pilot_key,
+            AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
+            e.strategy_key,
+            mode=ControlModeV3.DETERMINISTIC,  # canonical mapping for UI control_mode="Manuell"
+        )
         modifiers=[]
         if 'reset-on-loss' in config.modifiers:
             if abs(actual.amount) <= 1e-12:
