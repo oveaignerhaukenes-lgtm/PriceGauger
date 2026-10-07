@@ -15,6 +15,11 @@ from autotrader_v3_fleet_ui_v1 import render_autotrader_v3_fleet_preview
 from autotrader_v3_regime_chart_ui_v1 import render_v3_regime_return_chart
 from build_info import render_build_badge
 from trading_desk_v2_context import load_trading_desk_contexts_v2
+from tradingdesk_workspace_state_v2 import (
+    hidden_tradingdesk_markets_v2,
+    set_tradingdesk_market_hidden_v2,
+    visible_tradingdesk_markets_v2,
+)
 from tradingdesk_automanage_panel_v2 import render_tradingdesk_automanage_panel_v2
 from saxo_provider import configured_client
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3
@@ -38,9 +43,15 @@ except Exception as exc:
     st.error(f"AutoTrader kunne ikke lese canonical v2 workspaces: {exc}")
     st.stop()
 
-available_markets = tuple(sorted(contexts))
+all_markets = tuple(sorted(contexts))
+hidden_markets = hidden_tradingdesk_markets_v2(all_markets)
+available_markets = visible_tradingdesk_markets_v2(all_markets)
 if not available_markets:
-    st.info("Venter på aktive canonical v2 workspaces.")
+    st.info("Alle AutoTrader-markeder er skjult fra arbeidsflaten.")
+    for hidden_market in hidden_markets:
+        if st.button(f"Gjenopprett {hidden_market}", key=f"at-restore-only:{hidden_market}"):
+            set_tradingdesk_market_hidden_v2(hidden_market, False, available_markets=all_markets)
+            st.rerun()
     st.stop()
 
 preferred_market = st.session_state.get(ACTIVE_MARKET_KEY)
@@ -50,7 +61,7 @@ if preferred_market not in available_markets:
     preferred_market = available_markets[0]
 st.session_state[ACTIVE_MARKET_KEY] = preferred_market
 
-header_left, header_right = st.columns([3, 1], gap="large")
+header_left, header_right, header_remove = st.columns([3, 1, 1], gap="large")
 with header_left:
     market = st.selectbox(
         "Marked",
@@ -61,6 +72,18 @@ with header_left:
     )
 with header_right:
     st.page_link("pages/0_TradingDesk.py", label="Åpne TradingDesk", icon="📊")
+with header_remove:
+    st.caption("Marked")
+    if st.button("Fjern", key=f"at-hide-market:{market}", width="stretch",
+                 help="Skjuler markedet fra AutoTrader/TradingDesk uten å slette canonical data eller historikk."):
+        set_tradingdesk_market_hidden_v2(market, True, available_markets=all_markets)
+        st.rerun()
+    if hidden_markets:
+        with st.popover("Skjulte"):
+            for hidden_market in hidden_markets:
+                if st.button(f"Gjenopprett {hidden_market}", key=f"at-restore:{hidden_market}", width="stretch"):
+                    set_tradingdesk_market_hidden_v2(hidden_market, False, available_markets=all_markets)
+                    st.rerun()
 
 st.session_state[TRADINGDESK_MARKET_KEY] = market
 context = contexts[market]
