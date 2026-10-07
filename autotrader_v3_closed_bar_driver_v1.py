@@ -42,6 +42,25 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
         )""")
 
 
+def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
+                               db_path: str = "pricegauger.db") -> bool:
+    """Align the persisted strategy target to confirmed broker inventory.
+
+    This preserves the bar cursor and previous histogram observation, so a rejected
+    expansion cannot accumulate as an execution backlog while the next fresh bar can
+    still make a new one-tranche decision.
+    """
+    ensure_closed_bar_driver_schema_v3(db_path)
+    now = datetime.utcnow().isoformat()
+    with connect(db_path) as db:
+        cursor = db.execute(
+            """UPDATE autotrader_v3_closed_bar_state
+               SET target_amount=?,updated_at=? WHERE trader_id=?""",
+            (float(target_amount), now, str(trader_id)),
+        )
+    return cursor.rowcount == 1
+
+
 def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV2,
                                 strategy_key: str = HISTOGRAM_KEY,
                                 config: MacdTrailingConfigV3 | MacdHistogramConfigV3 | None = None,
@@ -97,4 +116,4 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
     return ClosedBarDecisionV3(f"{trader_id}|{bar_time}",decision,True)
 
 
-__all__=["ClosedBarDecisionV3","ensure_closed_bar_driver_schema_v3","evaluate_closed_bar_once_v3"]
+__all__=["ClosedBarDecisionV3","align_closed_bar_target_v3","ensure_closed_bar_driver_schema_v3","evaluate_closed_bar_once_v3"]
