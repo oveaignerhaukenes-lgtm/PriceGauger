@@ -10,6 +10,10 @@ from autotrader_v3_macd_histogram_v1 import (
     STRATEGY_KEY_V3 as HISTOGRAM_KEY, MacdHistogramConfigV3,
     MacdHistogramDecisionV3, macd_histogram_target_v3,
 )
+from autotrader_v3_macd_histogram_flip_build_v1 import (
+    STRATEGY_KEY_V3 as HISTOGRAM_FLIP_BUILD_KEY,
+    macd_histogram_flip_build_target_v3,
+)
 from autotrader_v3_macd_stoch_v1 import (
     STRATEGY_KEY_V3 as STOCH_KEY, MacdStochDecisionV3, macd_stoch_target_v3,
 )
@@ -47,15 +51,22 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, TRAILING_KEY, STOCH_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, TRAILING_KEY, STOCH_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
         config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, STOCH_KEY} else MacdHistogramConfigV3()
     if strategy_key in {TRAILING_KEY, STOCH_KEY} and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
-    if strategy_key == HISTOGRAM_KEY and not isinstance(config, MacdHistogramConfigV3):
-        raise TypeError("histogram requires MacdHistogramConfigV3")
-    decide = macd_stoch_target_v3 if strategy_key == STOCH_KEY else (macd_trailing_target_v3 if strategy_key == TRAILING_KEY else macd_histogram_target_v3)
+    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY} and not isinstance(config, MacdHistogramConfigV3):
+        raise TypeError("histogram strategies require MacdHistogramConfigV3")
+    if strategy_key == STOCH_KEY:
+        decide = macd_stoch_target_v3
+    elif strategy_key == TRAILING_KEY:
+        decide = macd_trailing_target_v3
+    elif strategy_key == HISTOGRAM_FLIP_BUILD_KEY:
+        decide = macd_histogram_flip_build_target_v3
+    else:
+        decide = macd_histogram_target_v3
     ensure_closed_bar_driver_schema_v3(db_path)
     bar_time = observation.bar_time.isoformat()
     with connect(db_path) as db:
