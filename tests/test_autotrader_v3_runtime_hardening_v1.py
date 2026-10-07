@@ -9,7 +9,9 @@ from saxo_provider import LIVE_BASE_URL
 def test_all_runtime_status_updates_use_reserved_request_key():
     source=Path('autotrader_v3_live_runtime_v1.py').read_text()
     assert 'reserve_order_v3(request_key=request_key' in source
-    assert source.count('mark_order_v3(request_key=request_key')==4
+    marked=source.count('mark_order_v3(')
+    assert marked >= 5
+    assert source.count('mark_order_v3(request_key=request_key') == marked
     assert 'mark_order_v3(request_key=decision.decision_key' not in source
 
 
