@@ -19,6 +19,7 @@ WINDOW_HOURS_SESSION_KEY = "tradingdesk-window-hours"
 OVERLAY_MODE_SESSION_KEY = "tradingdesk-overlay-mode"
 OVERLAYS_SESSION_KEY = "tradingdesk-overlays"
 INDICATORS_SESSION_KEY = "tradingdesk-indicators"
+HIDDEN_MARKETS_SESSION_KEY = "tradingdesk-hidden-markets"
 INDICATOR_AI_SESSION_KEY = "tradingdesk-indicator-ai-enabled"
 CHART_HEIGHT_SESSION_KEY = "tradingdesk-chart-height"
 PRICE_PANEL_PCT_SESSION_KEY = "tradingdesk-price-panel-pct"
@@ -34,6 +35,7 @@ _SAFE_SESSION_KEYS = {
     "overlay_mode": OVERLAY_MODE_SESSION_KEY,
     "overlays": OVERLAYS_SESSION_KEY,
     "indicators": INDICATORS_SESSION_KEY,
+    "hidden_markets": HIDDEN_MARKETS_SESSION_KEY,
     "indicator_ai_enabled": INDICATOR_AI_SESSION_KEY,
     "chart_height": CHART_HEIGHT_SESSION_KEY,
     "price_panel_pct": PRICE_PANEL_PCT_SESSION_KEY,
@@ -46,7 +48,7 @@ _INT_PREFERENCES = {
     "price_panel_pct",
 }
 _BOOL_PREFERENCES = {"auto_refresh", "indicator_ai_enabled"}
-_LIST_PREFERENCES = {"overlays", "indicators"}
+_LIST_PREFERENCES = {"overlays", "indicators", "hidden_markets"}
 
 
 def _has_streamlit_run_context() -> bool:
@@ -103,7 +105,7 @@ def _safe_state_from_session(available_markets: set[str]) -> dict[str, Any]:
                 continue
         elif persisted_key in _LIST_PREFERENCES:
             items = _safe_string_list(value)
-            if persisted_key == "overlays":
+            if persisted_key in {"overlays", "hidden_markets"}:
                 items = [item for item in items if item in available_markets]
             result[persisted_key] = items
     return result
@@ -161,7 +163,7 @@ def restore_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> 
                 continue
         elif persisted_key in _LIST_PREFERENCES:
             value = _safe_string_list(value)
-            if persisted_key == "overlays":
+            if persisted_key in {"overlays", "hidden_markets"}:
                 value = [item for item in value if item in markets]
         st.session_state[session_key] = value
 
@@ -197,6 +199,38 @@ def persist_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> 
         pass
 
 
+def hidden_tradingdesk_markets_v2(available_markets: Iterable[str]) -> tuple[str, ...]:
+    markets = {str(item) for item in available_markets}
+    hidden = _safe_string_list(st.session_state.get(HIDDEN_MARKETS_SESSION_KEY, []))
+    return tuple(sorted(item for item in hidden if item in markets))
+
+
+def visible_tradingdesk_markets_v2(available_markets: Iterable[str]) -> tuple[str, ...]:
+    items = tuple(str(item) for item in available_markets)
+    hidden = set(hidden_tradingdesk_markets_v2(items))
+    return tuple(item for item in items if item not in hidden)
+
+
+def set_tradingdesk_market_hidden_v2(
+    market: str,
+    hidden: bool,
+    *,
+    available_markets: Iterable[str],
+) -> None:
+    markets = tuple(str(item) for item in available_markets)
+    name = str(market or "").strip()
+    if name not in set(markets):
+        raise ValueError("unknown TradingDesk market")
+    current = set(hidden_tradingdesk_markets_v2(markets))
+    if hidden:
+        current.add(name)
+    else:
+        current.discard(name)
+    st.session_state[HIDDEN_MARKETS_SESSION_KEY] = sorted(current)
+    persist_tradingdesk_workspace_state_v2(markets)
+
+
+
 def sync_tradingdesk_workspace_state_v2(available_markets: Iterable[str]) -> str | None:
     """Restore when needed, then persist current safe state.
 
@@ -214,6 +248,7 @@ __all__ = [
     "CONTROLS_WIDTH_SESSION_KEY",
     "INDICATOR_AI_SESSION_KEY",
     "INDICATORS_SESSION_KEY",
+    "HIDDEN_MARKETS_SESSION_KEY",
     "MACD_TIMEFRAME_SESSION_KEY",
     "MARKET_SESSION_KEY",
     "OVERLAY_MODE_SESSION_KEY",
@@ -223,7 +258,10 @@ __all__ = [
     "SCHEMA_VERSION",
     "TIMEFRAME_SESSION_KEY",
     "WINDOW_HOURS_SESSION_KEY",
+    "hidden_tradingdesk_markets_v2",
     "persist_tradingdesk_workspace_state_v2",
     "restore_tradingdesk_workspace_state_v2",
+    "set_tradingdesk_market_hidden_v2",
     "sync_tradingdesk_workspace_state_v2",
+    "visible_tradingdesk_markets_v2",
 ]
