@@ -13,6 +13,7 @@ from autotrader_v3_macd_histogram_flip_build_v1 import STRATEGY_KEY_V3 as HISTOG
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
+from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
 
 
@@ -26,7 +27,7 @@ class StrategyAdapterV3:
 STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
     key: StrategyAdapterV3(key=key, evaluate_closed_bar=evaluate_closed_bar_once_v3,
                            live_route_enabled=True)
-    for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, TRAILING_KEY, STOCH_KEY)
+    for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, TRAILING_KEY, STOCH_KEY)
 }
 
 
@@ -38,10 +39,12 @@ def strategy_adapter_v3(key: str) -> StrategyAdapterV3:
 
 
 def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, bars=(),
-                             source_bars=(), config=None, db_path="pricegauger.db"):
+                             source_bars=(), regime_timeframe_minutes=15, market_name="",
+                             config=None, db_path="pricegauger.db"):
     adapter = strategy_adapter_v3(strategy_key)
     return adapter.evaluate_closed_bar(
         trader_id=trader_id, observation=observation,
         strategy_key=adapter.key, bars=bars, source_bars=source_bars,
+        regime_timeframe_minutes=regime_timeframe_minutes, market_name=market_name,
         config=config, db_path=db_path,
     )
