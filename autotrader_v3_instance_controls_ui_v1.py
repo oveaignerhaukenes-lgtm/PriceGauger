@@ -13,7 +13,7 @@ from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_p
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_registry_v1 import (
-    CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3,
+    CONTROL_MODES_V3, MODIFIERS_V3, REGIME_TIMEFRAMES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
     LIVE_CONTROL_MODES_V3, LIVE_MODIFIERS_V3, LIVE_TIMEFRAMES_V3,
     live_config_issues_v3, sim_config_issues_v3,
 )
@@ -68,10 +68,20 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         key=f'{key_prefix}:strategy:{trader_id}',
     )
     timeframe=b.selectbox(
-        'Periode', TIMEFRAMES_V3, index=TIMEFRAMES_V3.index(config.timeframe),
+        'Signalperiode (S)', TIMEFRAMES_V3, index=TIMEFRAMES_V3.index(config.timeframe),
         format_func=lambda value: value if value in LIVE_TIMEFRAMES_V3 else f'{value} · ikke LIVE',
         key=f'{key_prefix}:timeframe:{trader_id}',
     )
+    regime_timeframe=config.regime_timeframe
+    if strategy=='macd-regime-histogram':
+        regime_timeframe=st.selectbox(
+            'Regimeperiode (R)',
+            REGIME_TIMEFRAMES_V3,
+            index=REGIME_TIMEFRAMES_V3.index(config.regime_timeframe),
+            key=f'{key_prefix}:regime-timeframe:{trader_id}',
+            help='MACD på R-perioden bestemmer tillatt side. Histogram på S-perioden bygger/reduserer eksponeringen.',
+        )
+        st.caption(f'Aktiv modell: Histogram MACD-R{regime_timeframe}S{timeframe}')
     spec=next(x for x in STRATEGIES_V3 if x.key==strategy)
     if not spec.runtime_ready: st.warning('Denne strategien er SIM/sammenlignbar, men ikke runtime-klar for LIVE.')
     p1,p2=st.columns(2); budget=p1.number_input('Budsjett (NOK)',min_value=100.0,value=float(policy.budget_nok if policy else 2000),step=100.0,key=f'{key_prefix}:budget:{trader_id}'); exposure=p2.slider('Eksponering (%)',1,100,int(policy.exposure_pct if policy else 100),key=f'{key_prefix}:exposure:{trader_id}')
@@ -87,14 +97,18 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         format_func=lambda value: value if value in LIVE_CONTROL_MODES_V3 else f'{value} · ikke LIVE',
         key=f'{key_prefix}:mode:{trader_id}',
     )
-    desired=AutoTraderConfigV3(trader_id,strategy,timeframe,mode,tuple(enabled)); desired_policy=ExecutionPolicyV3(trader_id,float(budget),float(exposure)); changed=desired!=config or desired_policy!=policy
+    desired=AutoTraderConfigV3(
+        trader_id,strategy,timeframe,mode,tuple(enabled),regime_timeframe
+    ); desired_policy=ExecutionPolicyV3(trader_id,float(budget),float(exposure)); changed=desired!=config or desired_policy!=policy
     live_issues=live_config_issues_v3(
         strategy_key=desired.strategy_key,timeframe=desired.timeframe,
         control_mode=desired.control_mode,modifiers=desired.modifiers,
+        regime_timeframe=desired.regime_timeframe,
     )
     sim_issues=sim_config_issues_v3(
         strategy_key=desired.strategy_key,timeframe=desired.timeframe,
         control_mode=desired.control_mode,modifiers=desired.modifiers,
+        regime_timeframe=desired.regime_timeframe,
     )
     if live_issues:
         st.warning('LIVE sperret av config: ' + ' · '.join(live_issues))
