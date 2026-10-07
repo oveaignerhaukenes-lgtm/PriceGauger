@@ -1,5 +1,5 @@
 import pytest
-from autotrader_v3_order_guard_v1 import reserve,mark,unresolved,pending_order,UNRESOLVED
+from autotrader_v3_order_guard_v1 import reserve,mark,unresolved,pending_order,order_state,UNRESOLVED
 
 def test_unresolved_states_are_fail_closed():
     assert {'RESERVED','SUBMITTING','SUBMITTED','UNKNOWN'} == set(UNRESOLVED)
@@ -73,3 +73,17 @@ def test_existing_guard_table_is_migrated_in_place(tmp_path):
     with pytest.raises(Exception):
         reserve(request_key='new',trader_id='new',account_id='a',uic=4912,
                 asset_type='CfdOnIndex',db_path=db)
+
+
+def test_rejected_request_is_terminal_and_queryable(tmp_path):
+    db=str(tmp_path/'guard.sqlite')
+    scope=dict(account_id='a',uic=4912,asset_type='CfdOnIndex',db_path=db)
+    reserve(request_key='reject-1',trader_id='pilot',expected_inventory=-0.08,
+            submitted_amount=0.01,submitted_side='Sell',**scope)
+    mark(request_key='reject-1',state='UNKNOWN',
+         detail='SaxoError: REQUEST_FAILED · HTTP 400: WouldExceedMargin',db_path=db)
+    pending=pending_order(**scope)
+    assert pending['detail'].endswith('WouldExceedMargin')
+    mark(request_key='reject-1',state='REJECTED',detail=pending['detail'],db_path=db)
+    assert order_state(request_key='reject-1',db_path=db)=='REJECTED'
+    assert pending_order(**scope) is None
