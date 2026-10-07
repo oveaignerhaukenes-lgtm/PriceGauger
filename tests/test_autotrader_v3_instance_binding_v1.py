@@ -103,3 +103,17 @@ def test_instance_removal_fails_closed_while_live_is_armed(monkeypatch,tmp_path)
     with pytest.raises(RuntimeError,match="LIVE"):
         binding.remove_unarmed_v3_instance_v1(old,db_path=db)
     assert registry.load_v3_instances_v1(db_path=db) == (old,)
+
+
+def test_removed_custom_identity_is_reused_for_same_broker_boundary(monkeypatch,tmp_path):
+    db=str(tmp_path/"v3.db")
+    old=registry.create_v3_instance_v1(
+        account_id="account",template=_template(),instance_id="legacy-production-id",db_path=db)
+    monkeypatch.setattr(binding,"authority_state_v3",lambda *_args,**_kwargs:SimpleNamespace(live_armed=False,sim_armed=False))
+    monkeypatch.setattr(binding,"load_account_owner_v1",lambda *_args,**_kwargs:None)
+    monkeypatch.setattr(binding,"pending_order",lambda **_kwargs:None)
+
+    binding.remove_unarmed_v3_instance_v1(old,db_path=db)
+    restored=registry.create_v3_instance_v1(account_id="account",template=_template(),db_path=db)
+
+    assert restored.instance_id == "legacy-production-id"
