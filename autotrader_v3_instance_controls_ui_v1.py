@@ -9,11 +9,49 @@ import streamlit as st
 from autotrader_v3_config_v1 import AutoTraderConfigV3,load_autotrader_config_v3,save_autotrader_config_v3
 from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v3
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
+from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
+from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_registry_v1 import (
     CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3,
     LIVE_CONTROL_MODES_V3, LIVE_MODIFIERS_V3, LIVE_TIMEFRAMES_V3,
     live_config_issues_v3, sim_config_issues_v3,
 )
+
+
+@st.cache_data(ttl=30,show_spinner=False)
+def _cost_guard_cached_v3(account_id:str,market_name:str,uic:int,asset_type:str):
+    broker=configured_live_pilot_client_v3()
+    return assess_transaction_cost_v3(
+        broker=broker,
+        account_id=account_id,
+        market_name=market_name,
+        uic=int(uic),
+        asset_type=asset_type,
+    )
+
+
+def _render_cost_guard_v3(assessment):
+    max_cost=assessment.max_total_cost_pct
+    commission=max(
+        value for value in (assessment.long_commission,assessment.short_commission)
+        if value is not None
+    ) if any(value is not None for value in (assessment.long_commission,assessment.short_commission)) else None
+    extra=[]
+    if commission is not None:
+        extra.append(f'maks kurtasje {commission:,.2f} {assessment.commission_currency or ""}'.strip())
+    if max_cost is not None:
+        extra.append(f'inn/ut {max_cost:.2f}%')
+    text='Kostnadssjekk: '+assessment.detail
+    if extra:
+        text += ' · ' + ' · '.join(extra)
+    if assessment.severity=='GREEN':
+        st.success(text)
+    elif assessment.severity=='YELLOW':
+        st.warning(text)
+    else:
+        st.error(text)
+    if assessment.assumptions:
+        st.caption('Saxo cost assumptions: '+', '.join(assessment.assumptions))
 
 
 def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
@@ -59,6 +97,10 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     )
     if live_issues:
         st.warning('LIVE sperret av config: ' + ' · '.join(live_issues))
+    cost_assessment=_cost_guard_cached_v3(
+        str(instance.account_id),str(instance.market_name),int(instance.uic),str(instance.asset_type))
+    _render_cost_guard_v3(cost_assessment)
+    cost_blocked=bool(cost_assessment.blocked)
     if sim_issues:
         st.info('SIM sperret av config: ' + ' · '.join(sim_issues))
     save_blocked=bool((authority.live_armed and live_issues) or (authority.sim_armed and sim_issues))
@@ -76,8 +118,17 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             else:st.rerun()
     else:
         st.caption('LIVE AV · knappen under gir denne V3-instansen execution-authority på eksakt konto/instrument.')
-        if st.button('Slå LIVE på',type='primary',width='stretch',disabled=bool(live_issues),key=f'{key_prefix}:live-on:{trader_id}'):
+        if st.button('Slå LIVE på',type='primary',width='stretch',disabled=bool(live_issues or cost_blocked),key=f'{key_prefix}:live-on:{trader_id}'):
             try:
+                fresh_cost=assess_transaction_cost_v3(
+                    broker=configured_live_pilot_client_v3(),
+                    account_id=str(instance.account_id),
+                    market_name=str(instance.market_name),
+                    uic=int(instance.uic),
+                    asset_type=str(instance.asset_type),
+                )
+                if fresh_cost.blocked:
+                    raise RuntimeError(f'LIVE kostnadssperre: {fresh_cost.detail}')
                 if changed:
                     save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
                 set_live_enabled_v3(trader_id,True,account_id=instance.account_id)

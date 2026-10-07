@@ -23,6 +23,7 @@ from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
 from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3, enforce_execution_policy_precheck_v3
+from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
@@ -262,6 +263,20 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
                 db_path=db_path)
             continue
+        cost_assessment=assess_transaction_cost_v3(
+            broker=broker,
+            account_id=e.account_id,
+            market_name=e.market_name,
+            uic=int(e.uic),
+            asset_type=e.asset_type,
+            amount=float(strategy_amount_config.tranche),
+        )
+        if cost_assessment.blocked and abs(actual.amount) <= 1e-12:
+            _record_runtime(
+                e.pilot_key,'BLOCKED',
+                'V3 transaction cost guard blocked new exposure: '+cost_assessment.detail,
+                db_path=db_path)
+            continue
         context_changed=_prepare_live_decision_context_v3(
             trader_id=e.pilot_key,strategy_key=e.strategy_key,
             timeframe_minutes=timeframe_minutes,db_path=db_path)
@@ -339,6 +354,16 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         policy=None
         if mutation.action in {'OPEN','ADD'}:
+            if cost_assessment.blocked:
+                _record_runtime(
+                    e.pilot_key,'BLOCKED',
+                    'V3 transaction cost guard blocked '+mutation.action+': '+cost_assessment.detail,
+                    db_path=db_path)
+                continue
+            if cost_assessment.severity=='YELLOW':
+                LOGGER.warning(
+                    'v3 transaction cost warning pilot=%s action=%s detail=%s',
+                    e.pilot_key,mutation.action,cost_assessment.detail)
             policy=load_execution_policy_v3(e.pilot_key,db_path=db_path)
             if policy is None:
                 _record_runtime(e.pilot_key,'BLOCKED','OPEN/ADD requires an explicit V3 NOK exposure policy',db_path=db_path)
