@@ -6,7 +6,7 @@ from datetime import datetime,timedelta,timezone
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
 from autotrader_engine_account_ownership_v1 import ENGINE_V3, load_account_owner_v1
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
-from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
+from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bars_v3
 from autotrader_v3_closed_bar_driver_v1 import ensure_closed_bar_driver_schema_v3
 from autotrader_v3_domain import AccountBoundaryV3,ControlModeV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
@@ -204,8 +204,73 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             account_contexts[account_id]=(account_key,str(row.get('ClientKey') or ''))
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
-        pending=pending_order_v3(account_id=e.account_id,uic=e.uic,
-                                 asset_type=e.asset_type,db_path=db_path)
+        config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
+        try:
+            timeframe_minutes=_live_timeframe_minutes_v3(config.timeframe)
+        except ValueError as exc:
+            _record_runtime(e.pilot_key,'BLOCKED',f'{exc}; no orders sent',db_path=db_path)
+            continue
+        account=accounts.get(e.account_id)
+        if account is None:
+            _record_runtime(e.pilot_key,'BLOCKED',f'V3 LIVE account unavailable: {e.account_id}',db_path=db_path)
+            continue
+        instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
+        try:
+            instrument_rules=load_entry_instrument_rules_v2(
+                broker.client,account_key=account,instrument=instrument)
+            strategy_amount_config=strategy_amount_config_v3(
+                strategy_key=e.strategy_key,rules=instrument_rules)
+        except Exception as exc:
+            _record_runtime(
+                e.pilot_key,'BLOCKED',
+                f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
+                db_path=db_path)
+            continue
+
+        context_changed=_prepare_live_decision_context_v3(
+            trader_id=e.pilot_key,strategy_key=e.strategy_key,
+            timeframe_minutes=timeframe_minutes,db_path=db_path)
+        if context_changed:
+            LOGGER.info(
+                "v3 LIVE decision context changed trader=%s strategy=%s timeframe=%s",
+                e.pilot_key,e.strategy_key,config.timeframe)
+
+        bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
+            instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
+        closed=closed_bars_v2(
+            tuple(b.point for b in bars),market=e.market_name,
+            timeframe_minutes=timeframe_minutes) if bars else ()
+        obs=macd_observations_v2(
+            closed,timeframe_minutes=timeframe_minutes) if closed else ()
+        if not obs:
+            _record_runtime(
+                e.pilot_key,"DEGRADED",
+                f"no closed {config.timeframe} MACD observation",db_path=db_path)
+            continue
+
+        decisions=evaluate_strategy_bars_v3(
+            trader_id=e.pilot_key,
+            observations=obs,
+            bars=closed,
+            strategy_key=e.strategy_key,
+            config=strategy_amount_config,
+            db_path=db_path,
+        )
+        if not decisions:
+            _record_runtime(
+                e.pilot_key,"DEGRADED",
+                f"no {config.timeframe} strategy decision",db_path=db_path)
+            continue
+        decision=decisions[-1]
+        new_bars=sum(1 for item in decisions if item.is_new)
+        if new_bars>1:
+            LOGGER.info(
+                "v3 LIVE signal catch-up trader=%s timeframe=%s closed_bars=%d final_target=%g",
+                e.pilot_key,config.timeframe,new_bars,decision.decision.target.amount)
+
+        pending=pending_order_v3(
+            account_id=e.account_id,uic=e.uic,
+            asset_type=e.asset_type,db_path=db_path)
         if pending:
             if (
                 str(pending.get('state') or '').upper()=='UNKNOWN'
@@ -220,15 +285,17 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 )
                 _record_runtime(
                     e.pilot_key,'REJECTED',
-                    'Tidligere UNKNOWN var dokumentert Saxo 4xx-avvisning; '
-                    'ingen ordre ble opprettet. Venter på neste beslutning.',
+                    f'Tidligere UNKNOWN var dokumentert Saxo 4xx-avvisning; '
+                    f'signal clock advanced {new_bars} new {config.timeframe} bars; '
+                    'ingen ordre ble opprettet.',
                     db_path=db_path,
                 )
                 continue
             expected=pending.get('expected_inventory')
             if expected is None:
                 _record_runtime(e.pilot_key,'BLOCKED',
-                    'Pending order lacks expected inventory; no retry sent',db_path=db_path)
+                    f'Pending order lacks expected inventory; signal clock advanced '
+                    f'{new_bars} new {config.timeframe} bars; no retry sent',db_path=db_path)
                 continue
             try:
                 fresh_actual=_actual(e,broker)
@@ -254,50 +321,34 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     detail='Exact Saxo inventory reached expected post-order position',
                     db_path=db_path)
                 _record_runtime(e.pilot_key,'RECONCILED',
-                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=confirmed; next cycle may evaluate target',
+                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} '
+                    f'signal_target={decision.decision.target.amount:g} '
+                    f'signal_bars={new_bars} timeframe={config.timeframe}; next cycle may execute current target',
                     db_path=db_path)
             elif reconciliation.state=='WAIT':
                 _record_runtime(e.pilot_key,'PENDING',
-                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=waiting; no retry sent',
+                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} '
+                    f'signal_target={decision.decision.target.amount:g} '
+                    f'signal_bars={new_bars} timeframe={config.timeframe}; no retry sent',
                     db_path=db_path)
             else:
-                # LIVE authority is ownership of this exact account+instrument.
-                # Saxo actual is therefore adopted even when a human changed the
-                # position while V3 had an older expectation. Retire the stale
-                # request; the next cycle manages the full actual inventory.
-                # This does not authorize expansion: OPEN/ADD still passes through
-                # the configured V3 exposure policy, while REDUCE/CLOSE may manage
-                # an oversized adopted position back toward the strategy target.
                 mark_order_v3(request_key=pending['request_key'],state='RECONCILED',
                     detail='LIVE account+instrument inventory adopted; stale V3 expectation retired',
                     db_path=db_path)
                 _record_runtime(e.pilot_key,'RECONCILED',
-                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=inventory-adopted; next cycle may manage actual',
+                    f'actual={fresh_actual.amount:g} expected={expected_amount:g} '
+                    f'signal_target={decision.decision.target.amount:g} '
+                    f'signal_bars={new_bars} timeframe={config.timeframe}; inventory adopted',
                     db_path=db_path)
             continue
+
         actual=_actual(e,broker)
-        config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
-        try:
-            timeframe_minutes=_live_timeframe_minutes_v3(config.timeframe)
-        except ValueError as exc:
-            _record_runtime(e.pilot_key,'BLOCKED',f'{exc}; no orders sent',db_path=db_path)
-            continue
-        account=accounts.get(e.account_id)
-        if account is None:
-            _record_runtime(e.pilot_key,'BLOCKED',f'V3 LIVE account unavailable: {e.account_id}',db_path=db_path)
-            continue
-        instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
-        try:
-            instrument_rules=load_entry_instrument_rules_v2(
-                broker.client,account_key=account,instrument=instrument)
-            strategy_amount_config=strategy_amount_config_v3(
-                strategy_key=e.strategy_key,rules=instrument_rules)
-        except Exception as exc:
-            _record_runtime(
-                e.pilot_key,'BLOCKED',
-                f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
-                db_path=db_path)
-            continue
+        _record_runtime(
+            e.pilot_key,'READY',
+            f'actual={actual.amount:g} target={decision.decision.target.amount:g} '
+            f'signal_bars={new_bars} timeframe={config.timeframe} pending=none',
+            db_path=db_path)
+
         cost_assessment=assess_transaction_cost_v3(
             broker=broker,
             account_id=e.account_id,
@@ -312,27 +363,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 'V3 transaction cost guard blocked new exposure: '+cost_assessment.detail,
                 db_path=db_path)
             continue
-        context_changed=_prepare_live_decision_context_v3(
-            trader_id=e.pilot_key,strategy_key=e.strategy_key,
-            timeframe_minutes=timeframe_minutes,db_path=db_path)
-        if context_changed:
-            LOGGER.info("v3 LIVE decision context changed trader=%s strategy=%s timeframe=%s",
-                e.pilot_key,e.strategy_key,config.timeframe)
-        _record_runtime(e.pilot_key,'READY',
-            f'actual={actual.amount:g} pending=none; evaluating target timeframe={config.timeframe}',
-            db_path=db_path)
-        bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
-            instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
-        closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,
-            timeframe_minutes=timeframe_minutes) if bars else ()
-        obs=macd_observations_v2(closed,timeframe_minutes=timeframe_minutes) if closed else ()
-        if not obs:
-            _record_runtime(e.pilot_key,"DEGRADED",
-                f"no closed {config.timeframe} MACD observation",db_path=db_path)
-            continue
-        decision=evaluate_strategy_bar_v3(
-            trader_id=e.pilot_key,observation=obs[-1],bars=closed,
-            strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path)
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
