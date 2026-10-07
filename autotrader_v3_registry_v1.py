@@ -43,6 +43,37 @@ MODIFIERS_V3 = (
 TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m", "1h", "Adaptiv")
 CONTROL_MODES_V3 = ("Manuell", "Sim-Adapt", "Overseer", "God Mode")
 
+# Canonical LIVE capability contract. Items may exist in the V3 product/catalog
+# before they have a validated production runtime. LIVE must never silently
+# ignore a configured setting.
+LIVE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m", "1h")
+LIVE_CONTROL_MODES_V3 = ("Manuell",)
+LIVE_MODIFIERS_V3 = ("reset-on-loss",)
+
+
+def live_config_issues_v3(
+    *,
+    strategy_key: str,
+    timeframe: str,
+    control_mode: str,
+    modifiers: tuple[str, ...] | list[str],
+) -> tuple[str, ...]:
+    issues: list[str] = []
+    try:
+        spec = strategy_v3(strategy_key)
+    except StopIteration:
+        return (f"unknown strategy {strategy_key}",)
+    if not spec.runtime_ready or not spec.runtime_key:
+        issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
+    if timeframe not in LIVE_TIMEFRAMES_V3:
+        issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if control_mode not in LIVE_CONTROL_MODES_V3:
+        issues.append(f"control mode {control_mode} is not LIVE runtime-ready")
+    unsupported = tuple(item for item in modifiers if item not in LIVE_MODIFIERS_V3)
+    if unsupported:
+        issues.append("modifiers not LIVE runtime-ready: " + ", ".join(unsupported))
+    return tuple(issues)
+
 
 def strategy_v3(key: str) -> StrategySpecV3:
     return next(item for item in STRATEGIES_V3 if item.key == key)
