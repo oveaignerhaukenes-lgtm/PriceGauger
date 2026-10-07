@@ -46,9 +46,23 @@ CONTROL_MODES_V3 = ("Manuell", "Sim-Adapt", "Overseer", "God Mode")
 # Canonical LIVE capability contract. Items may exist in the V3 product/catalog
 # before they have a validated production runtime. LIVE must never silently
 # ignore a configured setting.
-LIVE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m", "1h")
+FIXED_TIMEFRAME_MINUTES_V3 = {
+    "1m": 1, "2m": 2, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60,
+}
+LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss",)
+SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
+SIM_CONTROL_MODES_V3 = ("Manuell",)
+SIM_MODIFIERS_V3: tuple[str, ...] = ()
+
+
+def fixed_timeframe_minutes_v3(timeframe: str) -> int:
+    label = str(timeframe or "").strip()
+    try:
+        return FIXED_TIMEFRAME_MINUTES_V3[label]
+    except KeyError as exc:
+        raise ValueError(f"unsupported fixed V3 timeframe: {label or '<empty>'}") from exc
 
 
 def live_config_issues_v3(
@@ -72,6 +86,30 @@ def live_config_issues_v3(
     unsupported = tuple(item for item in modifiers if item not in LIVE_MODIFIERS_V3)
     if unsupported:
         issues.append("modifiers not LIVE runtime-ready: " + ", ".join(unsupported))
+    return tuple(issues)
+
+
+def sim_config_issues_v3(
+    *,
+    strategy_key: str,
+    timeframe: str,
+    control_mode: str,
+    modifiers: tuple[str, ...] | list[str],
+) -> tuple[str, ...]:
+    issues: list[str] = []
+    try:
+        spec = strategy_v3(strategy_key)
+    except StopIteration:
+        return (f"unknown strategy {strategy_key}",)
+    if not spec.runtime_ready or not spec.runtime_key:
+        issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
+    if timeframe not in SIM_TIMEFRAMES_V3:
+        issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if control_mode not in SIM_CONTROL_MODES_V3:
+        issues.append(f"control mode {control_mode} is not SIM runtime-ready")
+    unsupported = tuple(item for item in modifiers if item not in SIM_MODIFIERS_V3)
+    if unsupported:
+        issues.append("modifiers not SIM runtime-ready: " + ", ".join(unsupported))
     return tuple(issues)
 
 

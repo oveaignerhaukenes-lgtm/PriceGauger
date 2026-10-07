@@ -12,7 +12,7 @@ from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_p
 from autotrader_v3_registry_v1 import (
     CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3,
     LIVE_CONTROL_MODES_V3, LIVE_MODIFIERS_V3, LIVE_TIMEFRAMES_V3,
-    live_config_issues_v3,
+    live_config_issues_v3, sim_config_issues_v3,
 )
 
 
@@ -53,11 +53,17 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         strategy_key=desired.strategy_key,timeframe=desired.timeframe,
         control_mode=desired.control_mode,modifiers=desired.modifiers,
     )
+    sim_issues=sim_config_issues_v3(
+        strategy_key=desired.strategy_key,timeframe=desired.timeframe,
+        control_mode=desired.control_mode,modifiers=desired.modifiers,
+    )
     if live_issues:
         st.warning('LIVE sperret av config: ' + ' · '.join(live_issues))
-    save_blocked=bool(authority.live_armed and live_issues)
+    if sim_issues:
+        st.info('SIM sperret av config: ' + ' · '.join(sim_issues))
+    save_blocked=bool((authority.live_armed and live_issues) or (authority.sim_armed and sim_issues))
     if save_blocked:
-        st.caption('Slå LIVE av før du lagrer en config som ikke er LIVE-runtime-klar.')
+        st.caption('Slå den aktive motoren av før du lagrer en config som den ikke støtter.')
     if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy); st.success('Canonical V3 config oppdatert.'); st.rerun()
 

@@ -18,7 +18,7 @@ from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
-from autotrader_v3_registry_v1 import live_config_issues_v3
+from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, live_config_issues_v3
 from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
@@ -31,23 +31,13 @@ from saxo_trading import SaxoOrderRequest
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 
-_FIXED_TIMEFRAME_MINUTES_V3={
-    "1m":1,
-    "2m":2,
-    "5m":5,
-    "10m":10,
-    "15m":15,
-    "30m":30,
-    "1h":60,
-}
-
 def _live_timeframe_minutes_v3(timeframe:str)->int:
     label=str(timeframe or "").strip()
     if label=="Adaptiv":
         raise ValueError("Adaptiv timeframe is not implemented in V3 LIVE")
     try:
-        return _FIXED_TIMEFRAME_MINUTES_V3[label]
-    except KeyError as exc:
+        return fixed_timeframe_minutes_v3(label)
+    except ValueError as exc:
         raise ValueError(f"Unsupported V3 LIVE timeframe: {label or '<empty>'}") from exc
 
 def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
