@@ -50,9 +50,30 @@ def create_v3_instance_v1(*,account_id:str,template,db_path='pricegauger.db',ins
     with connect(db_path) as db:
         existing=db.execute('SELECT instance_id FROM autotrader_v3_engine_instances WHERE account_id=? AND enabled=TRUE',(account,)).fetchone()
         if existing is not None:raise ValueError('This Saxo account is already attached to a V3 instance')
-        db.execute('''INSERT INTO autotrader_v3_engine_instances(instance_id,account_id,uic,asset_type,market_id,instrument_id,market_name,enabled)
-          VALUES(?,?,?,?,?,?,?,TRUE)''',(identity,account,int(template.uic),str(template.asset_type),int(template.market_id),int(template.instrument_id),str(template.market_name)))
+        historical=db.execute('''SELECT account_id,uic,asset_type FROM autotrader_v3_engine_instances
+          WHERE instance_id=?''',(identity,)).fetchone()
+        if historical is None:
+            db.execute('''INSERT INTO autotrader_v3_engine_instances(instance_id,account_id,uic,asset_type,market_id,instrument_id,market_name,enabled)
+              VALUES(?,?,?,?,?,?,?,TRUE)''',(identity,account,int(template.uic),str(template.asset_type),int(template.market_id),int(template.instrument_id),str(template.market_name)))
+        else:
+            g=lambda k,n:historical[k] if isinstance(historical,dict) else historical[n]
+            if str(g('account_id',0))!=account or int(g('uic',1))!=int(template.uic) or str(g('asset_type',2))!=str(template.asset_type):
+                raise RuntimeError('stable V3 identity collides with another broker boundary')
+            db.execute('''UPDATE autotrader_v3_engine_instances SET
+              market_id=?,instrument_id=?,market_name=?,enabled=TRUE,updated_at=CURRENT_TIMESTAMP
+              WHERE instance_id=?''',(int(template.market_id),int(template.instrument_id),str(template.market_name),identity))
     return next(i for i in load_v3_instances_v1(db_path=db_path) if i.instance_id==identity)
+
+
+def disable_v3_instance_v1(*,instance_id:str,db_path='pricegauger.db')->None:
+    """Disable one V3 registry row without deleting its historical identity/config."""
+    ensure_v3_instance_registry_v1(db_path=db_path);identity=str(instance_id or '').strip()
+    if not identity:raise ValueError('instance_id required')
+    with connect(db_path) as db:
+        cursor=db.execute('''UPDATE autotrader_v3_engine_instances
+          SET enabled=FALSE,updated_at=CURRENT_TIMESTAMP
+          WHERE instance_id=? AND enabled=TRUE''',(identity,))
+        if cursor.rowcount!=1:raise LookupError('enabled V3 instance not found')
 
 
 def replace_v3_instance_boundary_v1(*,instance_id:str,template,db_path='pricegauger.db'):
