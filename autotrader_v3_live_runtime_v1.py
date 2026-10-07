@@ -18,6 +18,7 @@ from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
+from autotrader_v3_registry_v1 import live_config_issues_v3
 from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
@@ -141,6 +142,21 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     LOGGER.info("v3 LIVE active owned armed instances=%d",len(active))
     enrollments=[]
     for e in active:
+        config = load_autotrader_config_v3(e.pilot_key, db_path=db_path)
+        issues = live_config_issues_v3(
+            strategy_key=config.strategy_key,
+            timeframe=config.timeframe,
+            control_mode=config.control_mode,
+            modifiers=config.modifiers,
+        )
+        if issues:
+            _record_runtime(
+                e.pilot_key,
+                "BLOCKED",
+                "V3 LIVE config unsupported: " + "; ".join(issues) + "; no orders sent.",
+                db_path=db_path,
+            )
+            continue
         adapter = STRATEGIES_V3.get(e.strategy_key)
         if adapter is None:
             _record_runtime(e.pilot_key, "BLOCKED",
