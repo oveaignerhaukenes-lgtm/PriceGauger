@@ -34,6 +34,13 @@ STRATEGIES_V3 = (
         "macd-histogram-flip-build-v1",
         True,
     ),
+    StrategySpecV3(
+        "vwap-regime-histogram",
+        "VWAP Regime + Histogram",
+        "Rolling VWAP-helning eier retning; histogram skalerer eksponering. Sterkt regime forbyr motposisjon, svakt regime tillater én probe, flat VWAP går FLAT.",
+        "vwap-regime-histogram-v1",
+        True,
+    ),
 )
 
 MODIFIERS_V3 = (
