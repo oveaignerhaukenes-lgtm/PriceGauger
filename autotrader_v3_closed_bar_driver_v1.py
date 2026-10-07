@@ -21,6 +21,10 @@ from autotrader_v3_vwap_regime_histogram_v1 import (
     STRATEGY_KEY_V3 as VWAP_REGIME_KEY,
     vwap_regime_histogram_target_v3,
 )
+from autotrader_v3_macd_regime_histogram_v1 import (
+    STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY,
+    macd_regime_histogram_target_v3,
+)
 from autotrader_v3_macd_trailing_v1 import (
     STRATEGY_KEY_V3 as TRAILING_KEY, MacdTrailingConfigV3,
     MacdTrailingDecisionV3, macd_trailing_target_v3,
@@ -69,18 +73,19 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
                                 strategy_key: str = HISTOGRAM_KEY,
                                 config: MacdTrailingConfigV3 | MacdHistogramConfigV3 | None = None,
                                 bars: Sequence = (), source_bars: Sequence = (),
+                                regime_timeframe_minutes: int = 15, market_name: str = "",
                                 db_path: str = "pricegauger.db") -> ClosedBarDecisionV3:
     """Persistently reduce one *new* closed MACD bar into one target transition.
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, TRAILING_KEY, STOCH_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, TRAILING_KEY, STOCH_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
         config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, STOCH_KEY} else MacdHistogramConfigV3()
     if strategy_key in {TRAILING_KEY, STOCH_KEY} and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
-    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY} and not isinstance(config, MacdHistogramConfigV3):
+    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
     if strategy_key == STOCH_KEY:
         decide = macd_stoch_target_v3
@@ -90,6 +95,8 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         decide = macd_histogram_flip_build_target_v3
     elif strategy_key == VWAP_REGIME_KEY:
         decide = vwap_regime_histogram_target_v3
+    elif strategy_key == MACD_REGIME_HIST_KEY:
+        decide = macd_regime_histogram_target_v3
     else:
         decide = macd_histogram_target_v3
     ensure_closed_bar_driver_schema_v3(db_path)
@@ -116,6 +123,10 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             extra["bars"] = bars
         elif strategy_key == VWAP_REGIME_KEY:
             extra["source_bars"] = source_bars
+        elif strategy_key == MACD_REGIME_HIST_KEY:
+            extra["source_bars"] = source_bars
+            extra["regime_timeframe_minutes"] = int(regime_timeframe_minutes)
+            extra["market_name"] = str(market_name)
         decision=decide(current_target=TargetInventoryV3(target),
             observation=observation,previous_observation=previous,config=config,**extra)
         now=datetime.utcnow().isoformat()
