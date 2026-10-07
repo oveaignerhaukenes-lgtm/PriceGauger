@@ -142,16 +142,15 @@ def assess_transaction_cost_v3(
             uic=int(uic),
             asset_type=str(asset_type),
         )
-        rules = load_entry_instrument_rules_v2(
-            broker.client,
-            account_key=account_key,
-            instrument=instrument,
-        )
-        assessed_amount = (
-            minimum_legal_amount_v2(rules)
-            if amount is None
-            else float(amount)
-        )
+        if amount is None:
+            rules = load_entry_instrument_rules_v2(
+                broker.client,
+                account_key=account_key,
+                instrument=instrument,
+            )
+            assessed_amount = minimum_legal_amount_v2(rules)
+        else:
+            assessed_amount = float(amount)
         if assessed_amount <= 0:
             raise ValueError("cost guard amount must be positive")
         price = _reference_price(
