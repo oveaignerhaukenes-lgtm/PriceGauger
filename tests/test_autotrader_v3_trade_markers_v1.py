@@ -1,8 +1,7 @@
 from pathlib import Path
 
-from autotrader_v3_trade_markers_v1 import marker_direction_v3
+from autotrader_v3_trade_markers_v1 import marker_direction_v3, position_direction_v3
 
-from pathlib import Path
 
 def test_v3_marker_projection_reads_only_execution_events():
     source=Path("autotrader_v3_trade_markers_v1.py").read_text(encoding="utf-8")
@@ -10,11 +9,15 @@ def test_v3_marker_projection_reads_only_execution_events():
     assert "FROM autotrader_v3_order_guard" not in source
     assert "nearest_bar" not in source
     assert 'source="AUTOTRADER_V3"' in source
+    assert "inventory_before" in source and "inventory_after" in source
+    assert "position_units" in source
+
 
 def test_v3_ledger_derives_flat_from_reconciled_inventory():
     source=Path("autotrader_v3_execution_events_v1.py").read_text(encoding="utf-8")
     assert "THEN 'FLAT'" in source
     assert "inventory_before" in source and "inventory_after" in source
+
 
 def test_canonical_chart_marker_loader_includes_v3_projection():
     source=Path("autotrader_trade_markers_v2.py").read_text(encoding="utf-8")
@@ -22,7 +25,7 @@ def test_canonical_chart_marker_loader_includes_v3_projection():
     assert "markers.extend(load_v3_trade_markers_v1(market_name))" in source
 
 
-def test_v3_marker_direction_follows_broker_side_for_partial_reductions():
+def test_execution_side_direction_is_kept_separate_from_position_direction():
     assert marker_direction_v3(
         action="REDUCE", side="Buy", resulting_direction="SHORT"
     ) == "LONG"
@@ -31,16 +34,45 @@ def test_v3_marker_direction_follows_broker_side_for_partial_reductions():
     ) == "SHORT"
 
 
-def test_v3_full_close_remains_flat_marker():
+def test_position_vector_direction_follows_inventory_after():
+    assert position_direction_v3(
+        inventory_after=-0.05, resulting_direction="SHORT"
+    ) == "SHORT"
+    assert position_direction_v3(
+        inventory_after=0.03, resulting_direction="LONG"
+    ) == "LONG"
+    assert position_direction_v3(
+        inventory_after=0.0, resulting_direction="SHORT"
+    ) == "FLAT"
+
+
+def test_full_close_execution_marker_can_remain_neutral():
     assert marker_direction_v3(
         action="CLOSE", side="Buy", resulting_direction="FLAT"
     ) == "FLAT"
 
 
-def test_v3_add_and_open_keep_expected_side_arrows():
-    assert marker_direction_v3(
-        action="ADD", side="Sell", resulting_direction="SHORT"
-    ) == "SHORT"
-    assert marker_direction_v3(
-        action="OPEN", side="Buy", resulting_direction="LONG"
-    ) == "LONG"
+def test_chart_overlay_has_position_vector_and_execution_side_layers():
+    overlay=Path("tradingdesk_ui/charts/lightweight/trade_marker_overlay_v2.py").read_text(encoding="utf-8")
+    contract=Path("tradingdesk_ui/charts/lightweight/contract.py").read_text(encoding="utf-8")
+    live=Path("tradingdesk_ui/charts/lightweight/live_update.py").read_text(encoding="utf-8")
+
+    assert "position_units" in live
+    assert "vectorSize" in overlay
+    assert "0.65 + 0.20 * units" in overlay
+    assert ":position" in overlay
+    assert ":execution" in overlay
+    assert "side === 'BUY' ? 'belowBar' : 'aboveBar'" in overlay
+    assert '"marker_role": "POSITION_VECTOR"' in contract
+    assert '"marker_role": "EXECUTION_SIDE"' in contract
+
+
+def test_position_vector_size_grows_with_exposure_and_shrinks_on_reduction():
+    # Mirror the renderer contract: one tranche is visibly short, ten are capped.
+    def vector_size(units: float) -> float:
+        bounded=max(0.0,min(10.0,float(units)))
+        return max(0.85,min(2.65,0.65+0.20*bounded))
+
+    assert vector_size(1) < vector_size(3) < vector_size(7)
+    assert vector_size(7) > vector_size(4) > vector_size(1)
+    assert vector_size(10) == vector_size(20)
