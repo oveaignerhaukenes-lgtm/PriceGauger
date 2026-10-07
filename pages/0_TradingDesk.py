@@ -28,6 +28,11 @@ from trading_desk_indicators import (
     clip_indicators,
 )
 from trading_desk_v2_context import TradingDeskV2Context, load_trading_desk_contexts_v2
+from tradingdesk_workspace_state_v2 import (
+    hidden_tradingdesk_markets_v2,
+    set_tradingdesk_market_hidden_v2,
+    visible_tradingdesk_markets_v2,
+)
 from tradingdesk_automanage_panel_v2 import (
     render_tradingdesk_automanage_panel_v2,
     render_tradingdesk_automanage_pnl_chart_v2,
@@ -116,10 +121,15 @@ except Exception as exc:
     st.caption("Legacy analyse/forecast brukes ikke som skjult fallback etter v2-cutover.")
     st.stop()
 
-available_markets = sorted(baseline_contexts)
+all_markets = tuple(sorted(baseline_contexts))
+hidden_markets = hidden_tradingdesk_markets_v2(all_markets)
+available_markets = list(visible_tradingdesk_markets_v2(all_markets))
 if not available_markets:
-    st.info("Venter på aktive persisterte v2 workspaces før TradingDesk kan åpnes.")
-    st.caption("Legacy analyse/forecast brukes ikke som skjult fallback etter v2-cutover.")
+    st.info("Alle TradingDesk-markeder er skjult fra arbeidsflaten.")
+    for hidden_market in hidden_markets:
+        if st.button(f"Gjenopprett {hidden_market}", key=f"td-restore-only:{hidden_market}"):
+            set_tradingdesk_market_hidden_v2(hidden_market, False, available_markets=all_markets)
+            st.rerun()
     st.stop()
 
 requested_market = str(st.query_params.get("market", "") or "").strip()
@@ -185,7 +195,7 @@ def _horizon_label(seconds: int) -> str:
     return f"{hours:g}t"
 
 
-market_title_col, market_select_col = st.columns([3, 2], gap="medium")
+market_title_col, market_select_col, market_action_col = st.columns([3, 2, 1], gap="medium")
 with market_select_col:
     market = st.selectbox(
         "Marked",
@@ -199,6 +209,18 @@ baseline_context = baseline_contexts[market]
 with market_title_col:
     st.markdown(f"### {market}")
     st.caption(baseline_context.instrument_label)
+with market_action_col:
+    st.caption("Marked")
+    if st.button("Fjern", key=f"td-hide-market:{market}", width="stretch",
+                 help="Skjuler markedet fra TradingDesk/AutoTrader uten å slette canonical data eller historikk."):
+        set_tradingdesk_market_hidden_v2(market, True, available_markets=all_markets)
+        st.rerun()
+    if hidden_markets:
+        with st.popover("Skjulte"):
+            for hidden_market in hidden_markets:
+                if st.button(f"Gjenopprett {hidden_market}", key=f"td-restore:{hidden_market}", width="stretch"):
+                    set_tradingdesk_market_hidden_v2(hidden_market, False, available_markets=all_markets)
+                    st.rerun()
 
 chart_column, controls_column = st.columns([100 - controls_width_pct, controls_width_pct], gap="medium")
 

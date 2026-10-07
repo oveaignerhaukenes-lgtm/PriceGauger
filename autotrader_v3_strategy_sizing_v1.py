@@ -16,6 +16,7 @@ from autotrader_v3_macd_histogram_flip_build_v1 import (
     STRATEGY_KEY_V3 as HISTOGRAM_FLIP_BUILD_KEY,
 )
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
+from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
 from autotrader_v3_macd_trailing_v1 import (
     STRATEGY_KEY_V3 as TRAILING_KEY,
     MacdTrailingConfigV3,
@@ -50,7 +51,7 @@ def strategy_amount_config_v3(
 
     if strategy_key in {TRAILING_KEY, STOCH_KEY}:
         return MacdTrailingConfigV3(tranche=tranche, max_inventory=maximum)
-    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY}:
+    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY}:
         return MacdHistogramConfigV3(tranche=tranche, max_inventory=maximum)
     raise ValueError(f"unsupported V3 amount-config strategy: {strategy_key}")
 

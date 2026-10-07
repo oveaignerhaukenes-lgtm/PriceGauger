@@ -402,8 +402,8 @@ def render_tradingdesk_automanager_simple_v1(
 
     # Both tabs remain visible. A Saxo account already bound to one engine is
     # unavailable to the other, including enrollments on other instruments.
-    tabs = st.tabs(["AutoTrader V2", "AutoTrader V3"])
-    for tab, engine_key in zip(tabs, (ENGINE_V2, ENGINE_V3)):
+    tabs = st.tabs(["AutoTrader V3", "AutoTrader V2"])
+    for tab, engine_key in zip(tabs, (ENGINE_V3, ENGINE_V2)):
         with tab:
             claimed_by_other = {
                 item.account_id for item in active_enrollments
@@ -440,7 +440,7 @@ def render_tradingdesk_automanager_simple_v1(
                     selected_account=selected_account, enrollment=None,
                 )
             else:
-                st.info("Kontoen er ledig. Opprett V3-piloten med denne kontoen i den dedikerte V3-kontrollflaten; LIVE forblir sperret til ordrebanen er validert.")
+                st.info("Kontoen er ledig. Opprett en V3-instans med + under AutoTrader i TradingDesk eller i V3 fleet.")
     st.caption("Kontoer som er knyttet til én motor, skjules i den andre fanen. Ingen automatisk overtakelse av posisjoner.")
     selected_by_engine = {
         engine_key: st.session_state.get(f"td-account-tab:{engine_key}:{context.market_id}")

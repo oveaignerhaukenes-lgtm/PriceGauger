@@ -344,6 +344,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             continue
         decision=evaluate_strategy_bar_v3(
             trader_id=e.pilot_key,observation=obs[-1],bars=closed,
+            source_bars=tuple(bars),
             strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path)
         trader=TraderV3(
             e.pilot_key,

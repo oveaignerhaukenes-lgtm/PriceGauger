@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from autotrader_engine_account_ownership_v1 import load_account_owner_v1
 from autotrader_v3_control_plane_v1 import authority_state_v3
-from autotrader_v3_instance_registry_v1 import replace_v3_instance_boundary_v1
+from autotrader_v3_instance_registry_v1 import disable_v3_instance_v1, replace_v3_instance_boundary_v1
 from autotrader_v3_order_guard_v1 import pending_order
 from instrument_registry_v2 import list_subscribed_sources_v2
 
@@ -67,6 +67,30 @@ def same_v3_binding_v1(instance, binding: V3InstrumentBindingV1) -> bool:
     )
 
 
+def remove_unarmed_v3_instance_v1(instance, *, db_path="pricegauger.db") -> None:
+    """Remove an inert V3 instance from the active fleet while preserving history."""
+    state = authority_state_v3(str(instance.instance_id), db_path=db_path)
+    if state.live_armed or state.sim_armed:
+        raise RuntimeError("Slå av både LIVE og SIM før instansen kan fjernes.")
+    owner = load_account_owner_v1(str(instance.account_id), db_path=db_path)
+    if owner is not None:
+        raise RuntimeError(
+            f"Kontoen har fortsatt execution-ownership ({owner.engine_id}/{owner.owner_key[:8]}). "
+            "Frigi authority før instansen fjernes."
+        )
+    unresolved = pending_order(
+        account_id=str(instance.account_id),
+        uic=int(instance.uic),
+        asset_type=str(instance.asset_type),
+        db_path=db_path,
+    )
+    if unresolved is not None:
+        raise RuntimeError("Instansen har en uavklart ordre/pending-lock.")
+    disable_v3_instance_v1(instance_id=str(instance.instance_id), db_path=db_path)
+
+
+
+
 def replace_unarmed_v3_instance_binding_v1(instance, binding: V3InstrumentBindingV1, *, db_path="pricegauger.db"):
     """Replace an inert instance with a new exact broker/instrument identity.
 
@@ -100,6 +124,7 @@ def replace_unarmed_v3_instance_binding_v1(instance, binding: V3InstrumentBindin
 __all__ = [
     "V3InstrumentBindingV1",
     "load_available_v3_instrument_bindings_v1",
+    "remove_unarmed_v3_instance_v1",
     "replace_unarmed_v3_instance_binding_v1",
     "same_v3_binding_v1",
 ]

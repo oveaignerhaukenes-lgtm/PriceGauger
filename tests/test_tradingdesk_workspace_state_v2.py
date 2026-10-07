@@ -48,6 +48,7 @@ def test_persisted_market_and_safe_view_state_restore_after_new_session(monkeypa
             overlay_mode="Faktisk pris",
             overlays=["Brent"],
             indicators=["Bollinger", "RSI"],
+            hidden_markets=["Brent"],
             indicator_ai_enabled=True,
             chart_height=640,
             price_panel_pct=55,
@@ -70,6 +71,7 @@ def test_persisted_market_and_safe_view_state_restore_after_new_session(monkeypa
     assert fake.session_state[workspace.OVERLAY_MODE_SESSION_KEY] == "Faktisk pris"
     assert fake.session_state[workspace.OVERLAYS_SESSION_KEY] == ["Brent"]
     assert fake.session_state[workspace.INDICATORS_SESSION_KEY] == ["Bollinger", "RSI"]
+    assert fake.session_state[workspace.HIDDEN_MARKETS_SESSION_KEY] == ["Brent"]
     assert fake.session_state[workspace.INDICATOR_AI_SESSION_KEY] is True
     assert fake.session_state[workspace.CHART_HEIGHT_SESSION_KEY] == 640
     assert fake.session_state[workspace.PRICE_PANEL_PCT_SESSION_KEY] == 55
@@ -236,6 +238,7 @@ def test_workspace_restore_allowlist_cannot_persist_execution_authority(monkeypa
         "overlay_mode",
         "overlays",
         "indicators",
+        "hidden_markets",
         "indicator_ai_enabled",
         "chart_height",
         "price_panel_pct",
@@ -243,3 +246,26 @@ def test_workspace_restore_allowlist_cannot_persist_execution_authority(monkeypa
     assert "live_open_armed" not in workspace._SAFE_SESSION_KEYS
     assert "entry_mode" not in workspace._SAFE_SESSION_KEYS
     assert "approval_request_id" not in workspace._SAFE_SESSION_KEYS
+
+
+def test_hidden_market_is_ui_only_reversible_preference(monkeypatch):
+    fake = _FakeStreamlit()
+    monkeypatch.setattr(workspace, "st", fake)
+    monkeypatch.setattr(workspace, "_has_streamlit_run_context", lambda: True)
+    monkeypatch.setattr(workspace, "load_ui_workspace_state_v2", lambda *args, **kwargs: None)
+    saved=[]
+    monkeypatch.setattr(
+        workspace,
+        "save_ui_workspace_state_v2",
+        lambda page_key, state, **kwargs: saved.append(dict(state)),
+    )
+
+    markets=("Gold","US Tech 100 NAS")
+    workspace.set_tradingdesk_market_hidden_v2("Gold",True,available_markets=markets)
+    assert workspace.hidden_tradingdesk_markets_v2(markets) == ("Gold",)
+    assert workspace.visible_tradingdesk_markets_v2(markets) == ("US Tech 100 NAS",)
+    assert saved[-1]["hidden_markets"] == ["Gold"]
+
+    workspace.set_tradingdesk_market_hidden_v2("Gold",False,available_markets=markets)
+    assert workspace.hidden_tradingdesk_markets_v2(markets) == ()
+    assert workspace.visible_tradingdesk_markets_v2(markets) == markets

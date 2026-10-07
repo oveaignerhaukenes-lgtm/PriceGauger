@@ -29,9 +29,82 @@ def _account_rows_v1(broker):
     return rows
 
 
+def render_v3_instance_creator_v1(
+    *,
+    key_prefix='v3-instance-create',
+    preferred_market_id=None,
+    preferred_instrument_id=None,
+    pending_tab_key=None,
+):
+    """Render the canonical V3 instance creator from fleet or TradingDesk."""
+    instances=bootstrap_v3_instances_from_enrollments_v1()
+    broker=configured_live_pilot_client_v3()
+    account_rows=_account_rows_v1(broker)
+    bindings=load_available_v3_instrument_bindings_v1()
+    binding_by_key={item.key:item for item in bindings}
+
+    with st.popover('＋ Ny V3-instans'):
+        if broker is None:
+            st.warning('Saxo LIVE er ikke tilgjengelig; kan ikke hente kontoer.')
+            return None
+        if not account_rows:
+            st.caption('Ingen Saxo-kontoer ble returnert.')
+            return None
+        if not bindings:
+            st.warning('Ingen canonical Saxo-instrumenter fra TradingDesk er tilgjengelige.')
+            return None
+
+        attached={i.account_id:i for i in instances};rows=[]
+        for aid,name in account_rows:
+            owner=load_account_owner_v1(aid);reason=None
+            if aid in attached:reason=f'V3 {attached[aid].instance_id[:8]}'
+            elif owner is not None:reason=f'{owner.engine_id} {owner.owner_key[:8]}'
+            rows.append((aid,name,reason))
+        options=tuple(a for a,_,_ in rows);meta={a:(n,r) for a,n,r in rows}
+        def account_label(a):
+            n,r=meta[a];base=f'{a}' + (f' · {n}' if n else '')
+            return f'🔒 {base} · i bruk av {r}' if r else f'✓ {base} · ledig'
+        account_id=st.selectbox(
+            'Saxo-konto',options,format_func=account_label,key=f'{key_prefix}:new-account')
+
+        keys=tuple(binding_by_key)
+        preferred=next((
+            key for key,item in binding_by_key.items()
+            if (preferred_market_id is None or int(item.market_id)==int(preferred_market_id))
+            and (preferred_instrument_id is None or int(item.instrument_id)==int(preferred_instrument_id))
+        ),None)
+        binding_key=st.selectbox(
+            'Marked / instrument',
+            keys,
+            index=keys.index(preferred) if preferred in keys else 0,
+            format_func=lambda k:binding_by_key[k].label,
+            key=f'{key_prefix}:new-binding',
+        )
+        reason=meta[account_id][1];template=binding_by_key[binding_key]
+        if reason:st.caption(f'Kontoen kan ikke velges: den er allerede knyttet til {reason}.')
+        else:st.caption(f'Ny instans: {account_id} → {template.label}')
+        if st.button(
+            'Opprett V3-instans',type='primary',disabled=bool(reason),
+            key=f'{key_prefix}:create',
+        ):
+            created=create_v3_instance_v1(account_id=account_id,template=template)
+            if pending_tab_key:
+                st.session_state[pending_tab_key]=created.instance_id
+            st.success(f'V3-instans opprettet: {account_id} → {template.market_name}.')
+            st.rerun()
+    return None
+
+
 def render_v3_instance_selector_v1(*,key_prefix='v3-instance'):
     instances=bootstrap_v3_instances_from_enrollments_v1()
-    if not instances:st.info('Ingen V3-instans finnes ennå.');return None
+    tab_key=f'{key_prefix}:tabs';pending_tab_key=f'{key_prefix}:pending-tab'
+
+    if not instances:
+        st.info('Ingen V3-instans finnes ennå.')
+        render_v3_instance_creator_v1(
+            key_prefix=f'{key_prefix}:creator',pending_tab_key=pending_tab_key)
+        return None
+
     broker=configured_live_pilot_client_v3()
     account_rows=_account_rows_v1(broker);account_names={aid:name for aid,name in account_rows}
     by_id={i.instance_id:i for i in instances}
@@ -40,48 +113,15 @@ def render_v3_instance_selector_v1(*,key_prefix='v3-instance'):
         account=f'{name} ({item.account_id})' if name else item.account_id
         return f'{item.market_name} · {account} · UIC {item.uic}'
     ids=tuple(by_id)
-    tab_key=f'{key_prefix}:tabs';pending_tab_key=f'{key_prefix}:pending-tab'
     pending_tab=st.session_state.pop(pending_tab_key,None)
     if pending_tab in by_id:st.session_state[tab_key]=pending_tab
     selected=st.radio('V3-instans',ids,format_func=instance_label,horizontal=True,key=tab_key)
 
+    render_v3_instance_creator_v1(
+        key_prefix=f'{key_prefix}:creator',pending_tab_key=pending_tab_key)
+
     bindings=load_available_v3_instrument_bindings_v1()
     binding_by_key={item.key:item for item in bindings}
-
-    with st.popover('＋ Legg til konto'):
-        if broker is None:
-            st.warning('Saxo LIVE er ikke tilgjengelig; kan ikke hente kontoer.')
-        elif not account_rows:
-            st.caption('Ingen Saxo-kontoer ble returnert.')
-        elif not bindings:
-            st.warning('Ingen canonical Saxo-instrumenter fra TradingDesk er tilgjengelige.')
-        else:
-            attached={i.account_id:i for i in instances};rows=[]
-            for aid,name in account_rows:
-                owner=load_account_owner_v1(aid);reason=None
-                if aid in attached:reason=f'V3 {attached[aid].instance_id[:8]}'
-                elif owner is not None:reason=f'{owner.engine_id} {owner.owner_key[:8]}'
-                rows.append((aid,name,reason))
-            options=tuple(a for a,_,_ in rows);meta={a:(n,r) for a,n,r in rows}
-            def account_label(a):
-                n,r=meta[a];base=f'{a}' + (f' · {n}' if n else '')
-                return f'🔒 {base} · i bruk av {r}' if r else f'✓ {base} · ledig'
-            account_id=st.selectbox('Saxo-konto',options,format_func=account_label,key=f'{key_prefix}:new-account')
-            binding_key=st.selectbox(
-                'Marked / instrument',
-                tuple(binding_by_key),
-                format_func=lambda k:binding_by_key[k].label,
-                key=f'{key_prefix}:new-binding',
-            )
-            reason=meta[account_id][1];template=binding_by_key[binding_key]
-            if reason:st.caption(f'Kontoen kan ikke velges: den er allerede knyttet til {reason}.')
-            else:st.caption(f'Ny instans: {account_id} → {template.label}')
-            if st.button('Opprett V3-instans',type='primary',disabled=bool(reason),key=f'{key_prefix}:create'):
-                created=create_v3_instance_v1(account_id=account_id,template=template)
-                st.session_state[pending_tab_key]=created.instance_id
-                st.success(f'V3-instans opprettet: {account_id} → {template.market_name}.')
-                st.rerun()
-
     current=by_id[selected]
     with st.expander('Marked / instrument for valgt instans',expanded=False):
         st.caption(f'Nå: {current.market_name} · konto {current.account_id} · UIC {current.uic} · {current.asset_type}')
@@ -110,3 +150,6 @@ def render_v3_instance_selector_v1(*,key_prefix='v3-instance'):
                     st.success(f'Ny V3-instans er knyttet til {target.market_name} på konto {created.account_id}.')
                     st.rerun()
     return by_id[selected]
+
+
+__all__=['render_v3_instance_creator_v1','render_v3_instance_selector_v1']

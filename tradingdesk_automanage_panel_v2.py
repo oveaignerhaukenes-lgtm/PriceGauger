@@ -4,6 +4,7 @@ from autotrader_pnl_comparison_v2 import load_automanager_pnl_comparison_v2
 from autotrader_strategy_enrollment_v2 import EXECUTION_MODE_LIVE
 from autotrader_v3_instance_controls_ui_v1 import render_v3_instance_controls_v1
 from autotrader_v3_instance_registry_v1 import bootstrap_v3_instances_from_enrollments_v1
+from autotrader_v3_multi_account_ui_v1 import render_v3_instance_creator_v1
 from database import using_postgres
 from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_automanage_activity_ui_v2 import render_automanager_activity_log_v2
@@ -25,14 +26,23 @@ from tradingdesk_ui.charts.responsive_runtime import render_tradingdesk_responsi
 
 def _render_v3_controls_for_market_v1(context:TradingDeskV2Context):
     expected_instrument_id=context.instrument_id
+    st.divider(); st.markdown("**V3 · AutoTrader**")
+    render_v3_instance_creator_v1(
+        key_prefix=f"td-v3-create:{context.market_id}",
+        preferred_market_id=context.market_id,
+        preferred_instrument_id=expected_instrument_id,
+    )
     try: instances=tuple(
         i for i in bootstrap_v3_instances_from_enrollments_v1()
         if i.enabled and int(i.market_id)==int(context.market_id)
         and (expected_instrument_id is None or int(i.instrument_id)==int(expected_instrument_id))
     )
     except Exception as exc: st.caption(f"V3-instanskontroll venter: {exc}"); return
-    if not instances:return
-    st.divider(); st.markdown("**V3 · valgt autotrader-instans**"); st.caption("Strategi, periode, options og eksponering lagres på selve instansen og deles med fleet-visningen.")
+    if not instances:
+        st.caption("Ingen V3-instans er knyttet til dette markedet ennå. Bruk + for å opprette én direkte her.")
+        return
+    st.markdown("**Valgt autotrader-instans**")
+    st.caption("Strategi, periode, options og eksponering lagres på selve instansen og deles med fleet-visningen.")
     by_id={i.instance_id:i for i in instances}; selected=st.selectbox("Autotrader-instans",tuple(by_id),format_func=lambda k:f"{by_id[k].market_name} · konto {by_id[k].account_id} · UIC {by_id[k].uic}",key=f"td-v3-instance:{context.market_id}")
     with st.container(border=True): render_v3_instance_controls_v1(by_id[selected],key_prefix="tradingdesk")
 
