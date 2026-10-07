@@ -11,6 +11,7 @@ def test_navigation_groups_separate_product_from_developer_surfaces() -> None:
         "Analyse",
         "Tilkoblinger og handel",
         "Utviklerverktøy",
+        "Verktøy vi vurderer videre",
         "Utviklerverktøy · Legacy",
     ]
 
@@ -61,11 +62,18 @@ def test_legacy_surfaces_are_visibly_isolated_from_product_groups() -> None:
     retired_paths = {
         "pages/1_Kjerneflyt.py", "pages/2_Direct_Technical.py", "pages/5_AI_Market_Assessment.py",
         "pages/2_Signalaggregat.py", "pages/Market_State.py", "pages/Signal_History.py",
-        "pages/7_Forecast_Learning.py",
     }
     assert retired_paths.isdisjoint({page["page"] for page in product_pages})
     assert retired_paths == {page["page"] for page in legacy_pages}
     assert all(page["title"].startswith("Legacy · ") for page in legacy_pages)
+
+
+
+def test_forecast_learning_is_kept_out_of_legacy_for_further_evaluation() -> None:
+    candidates = PAGE_GROUPS["Verktøy vi vurderer videre"]
+    assert candidates == (
+        {"page": "pages/7_Forecast_Learning.py", "title": "Graf/forecast-lab", "icon": "📈", "url_path": "Forecast_Learning"},
+    )
 
 
 def test_active_diagnostics_remain_available_under_developer_tools() -> None:
