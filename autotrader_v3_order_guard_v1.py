@@ -53,6 +53,18 @@ def order_state(*,request_key,db_path="pricegauger.db"):
     return str(row["state"] if isinstance(row,dict) else row[0])
 
 
+def order_detail(*,request_key,db_path="pricegauger.db"):
+    ensure_schema(db_path)
+    with connect(db_path) as db:
+        row=db.execute(
+            "SELECT detail FROM autotrader_v3_order_guard WHERE request_key=?",
+            (str(request_key),),
+        ).fetchone()
+    if row is None:return None
+    value=row["detail"] if isinstance(row,dict) else row[0]
+    return None if value is None else str(value)
+
+
 def pending_order(*,account_id,uic,asset_type,db_path="pricegauger.db"):
     ensure_schema(db_path)
     with connect(db_path) as db:
