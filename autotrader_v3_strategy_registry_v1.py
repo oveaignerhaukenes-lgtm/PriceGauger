@@ -35,9 +35,10 @@ def strategy_adapter_v3(key: str) -> StrategyAdapterV3:
         raise ValueError(f"Unregistered V3 strategy: {key}") from exc
 
 
-def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, bars=(), db_path="pricegauger.db"):
+def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, bars=(),
+                             config=None, db_path="pricegauger.db"):
     adapter = strategy_adapter_v3(strategy_key)
     return adapter.evaluate_closed_bar(
         trader_id=trader_id, observation=observation,
-        strategy_key=adapter.key, bars=bars, db_path=db_path,
+        strategy_key=adapter.key, bars=bars, config=config, db_path=db_path,
     )

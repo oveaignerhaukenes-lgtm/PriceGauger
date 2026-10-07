@@ -15,6 +15,50 @@ from decimal import Decimal, ROUND_DOWN
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2,_info_price,_extract_price
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3
 
+def capital_requirement_nok_v3(*, precheck: dict, side: str, account_currency: str) -> float:
+    """Return Saxo broker-native capital requirement for one prechecked order."""
+    currency=str(account_currency or '').strip().upper()
+    if currency!='NOK':
+        raise ValueError('V3 capital requirement requires a NOK Saxo account')
+    normalized=str(side or '').strip().title()
+    if normalized not in {'Buy','Sell'}:
+        raise ValueError('V3 side must be Buy or Sell')
+    impact=precheck.get("MarginImpactBuySell")
+    impact=impact if isinstance(impact,dict) else {}
+    impact_currency=str(impact.get('Currency') or '').strip().upper()
+    suffix='Buy' if normalized=='Buy' else 'Sell'
+    raw_margin=impact.get(f'InitialMargin{suffix}',impact.get('InitialMargin'))
+    try:
+        margin=float(raw_margin) if raw_margin is not None else None
+    except (TypeError,ValueError):
+        margin=None
+    if margin is not None and margin > 0:
+        if impact_currency and impact_currency!='NOK':
+            raise ValueError(f'V3 margin requirement currency is {impact_currency}, expected NOK')
+        return margin
+    raw_cash=precheck.get('EstimatedCashRequired')
+    try:
+        cash=float(raw_cash) if raw_cash is not None else None
+    except (TypeError,ValueError):
+        cash=None
+    cash_currency=str(precheck.get('EstimatedCashRequiredCurrency') or '').strip().upper()
+    if cash is not None and cash >= 0:
+        if cash_currency and cash_currency!='NOK':
+            raise ValueError(f'V3 cash requirement currency is {cash_currency}, expected NOK')
+        return cash
+    raise ValueError('Saxo precheck did not expose broker capital requirement')
+
+
+def enforce_execution_policy_precheck_v3(*, precheck: dict, side: str,
+                                         account_currency: str, policy: ExecutionPolicyV3) -> float:
+    required=capital_requirement_nok_v3(
+        precheck=precheck,side=side,account_currency=account_currency)
+    cap=float(policy.max_notional_nok)
+    if required > cap + 1e-9:
+        raise ValueError(
+            f'V3 capital requirement {required:.2f} NOK exceeds configured cap {cap:.2f} NOK')
+    return required
+
 @dataclass(frozen=True, slots=True)
 class CappedMutationV3:
     requested_amount: float
@@ -51,3 +95,11 @@ def cap_open_add_amount_v3(*,broker,account_key:str,account_currency:str,instrum
     # with the cash allocation.  A future broker-native margin/cash-impact value
     # can enforce policy.max_notional_nok without changing this public contract.
     return CappedMutationV3(float(requested_amount),float(permitted),unit,policy.max_notional_nok)
+
+
+__all__ = [
+    "CappedMutationV3",
+    "cap_open_add_amount_v3",
+    "capital_requirement_nok_v3",
+    "enforce_execution_policy_precheck_v3",
+]

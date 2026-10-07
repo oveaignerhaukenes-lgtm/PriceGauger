@@ -16,25 +16,20 @@ class MacdTrailingConfigV3:
     tranche: float = 0.01
     max_inventory: float = 0.10
     deadband: float = 0.0
-    hard_reversal_ratio: float = 2.0
 
     def __post_init__(self) -> None:
         tranche = float(self.tranche)
         maximum = float(self.max_inventory)
         deadband = float(self.deadband)
-        reversal_ratio = float(self.hard_reversal_ratio)
         if not isfinite(tranche) or tranche <= 0:
             raise ValueError("tranche must be finite and positive")
         if not isfinite(maximum) or maximum < tranche:
             raise ValueError("max_inventory must be at least one tranche")
         if not isfinite(deadband) or deadband < 0:
             raise ValueError("deadband must be finite and non-negative")
-        if not isfinite(reversal_ratio) or reversal_ratio <= 1.0:
-            raise ValueError("hard_reversal_ratio must be finite and greater than 1")
         object.__setattr__(self, "tranche", tranche)
         object.__setattr__(self, "max_inventory", maximum)
         object.__setattr__(self, "deadband", deadband)
-        object.__setattr__(self, "hard_reversal_ratio", reversal_ratio)
 
 
 @dataclass(frozen=True, slots=True)

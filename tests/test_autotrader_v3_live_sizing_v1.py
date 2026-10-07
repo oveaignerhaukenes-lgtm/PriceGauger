@@ -1,7 +1,11 @@
 import pytest
 from types import SimpleNamespace
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3
-from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3
+from autotrader_v3_live_sizing_v1 import (
+    cap_open_add_amount_v3,
+    capital_requirement_nok_v3,
+    enforce_execution_policy_precheck_v3,
+)
 
 class Client:
     def _get(self,path,params=None):
@@ -90,3 +94,50 @@ def test_sizing_does_not_consume_order_precheck_rate_limit():
         instrument=SimpleNamespace(uic=1,asset_type='CfdOnIndex'),side='Buy',requested_amount=.01,
         policy=ExecutionPolicyV3('t',2000,100))
     assert result.permitted_amount==pytest.approx(.01)
+
+
+def test_v3_capital_requirement_prefers_broker_initial_margin_for_leveraged_order():
+    precheck={
+        'PreCheckResult':'Ok',
+        'EstimatedCashRequired':5000,
+        'EstimatedCashRequiredCurrency':'NOK',
+        'MarginImpactBuySell':{'Currency':'NOK','InitialMarginBuy':250},
+    }
+    assert capital_requirement_nok_v3(
+        precheck=precheck,side='Buy',account_currency='NOK') == pytest.approx(250)
+
+
+def test_v3_capital_requirement_uses_cash_when_margin_is_zero():
+    precheck={
+        'PreCheckResult':'Ok',
+        'EstimatedCashRequired':750,
+        'EstimatedCashRequiredCurrency':'NOK',
+        'MarginImpactBuySell':{'Currency':'NOK','InitialMarginBuy':0},
+    }
+    assert capital_requirement_nok_v3(
+        precheck=precheck,side='Buy',account_currency='NOK') == pytest.approx(750)
+
+
+def test_budget_times_exposure_is_an_enforced_broker_cap():
+    policy=ExecutionPolicyV3('t',budget_nok=2000,exposure_pct=50)
+    ok={
+        'MarginImpactBuySell':{'Currency':'NOK','InitialMarginBuy':999},
+    }
+    assert enforce_execution_policy_precheck_v3(
+        precheck=ok,side='Buy',account_currency='NOK',policy=policy) == pytest.approx(999)
+    too_large={
+        'MarginImpactBuySell':{'Currency':'NOK','InitialMarginBuy':1001},
+    }
+    with pytest.raises(ValueError,match='exceeds configured cap 1000.00 NOK'):
+        enforce_execution_policy_precheck_v3(
+            precheck=too_large,side='Buy',account_currency='NOK',policy=policy)
+
+
+def test_capital_requirement_fails_closed_on_unproven_currency_or_missing_evidence():
+    with pytest.raises(ValueError,match='expected NOK'):
+        capital_requirement_nok_v3(
+            precheck={'MarginImpactBuySell':{'Currency':'USD','InitialMarginBuy':10}},
+            side='Buy',account_currency='NOK')
+    with pytest.raises(ValueError,match='did not expose broker capital requirement'):
+        capital_requirement_nok_v3(
+            precheck={'MarginImpactBuySell':{}},side='Buy',account_currency='NOK')

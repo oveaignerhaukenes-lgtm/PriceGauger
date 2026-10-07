@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from autotrader_v3_domain import DecisionSnapshotV3, lots_v3
+from autotrader_v3_domain import DecisionSnapshotV3, centilots_v3, lots_v3
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +13,18 @@ class ExecutionStepV3:
     @property
     def amount(self) -> float:
         return float(lots_v3(self.amount_units))
+
+    @classmethod
+    def from_amount(cls, action: str, amount: float, direction: str,
+                    requires_flat_confirmation: bool, reason: str) -> "ExecutionStepV3":
+        return cls(
+            action,
+            centilots_v3(amount),
+            direction,
+            requires_flat_confirmation,
+            reason,
+        )
+
     direction: str
     requires_flat_confirmation: bool
     reason: str
