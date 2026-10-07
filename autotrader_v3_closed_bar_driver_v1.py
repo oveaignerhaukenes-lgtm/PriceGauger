@@ -86,4 +86,69 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
     return ClosedBarDecisionV3(f"{trader_id}|{bar_time}",decision,True)
 
 
-__all__=["ClosedBarDecisionV3","ensure_closed_bar_driver_schema_v3","evaluate_closed_bar_once_v3"]
+def _bar_time_v3(bar) -> datetime:
+    value=getattr(bar,"bar_time",None)
+    if isinstance(value,datetime):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z","+00:00"))
+
+
+def evaluate_closed_bar_series_v3(
+    *,
+    trader_id: str,
+    observations: Sequence[MacdObservationV2],
+    strategy_key: str = HISTOGRAM_KEY,
+    config: MacdTrailingConfigV3 | MacdHistogramConfigV3 | None = None,
+    bars: Sequence = (),
+    db_path: str = "pricegauger.db",
+) -> tuple[ClosedBarDecisionV3, ...]:
+    """Consume every unseen closed observation in chronological order.
+
+    Existing traders catch up bar-for-bar after execution delays/outages. A brand
+    new state deliberately bootstraps from only the latest closed observation,
+    preserving the established "start now" contract instead of replaying history.
+    """
+    items=tuple(sorted(observations,key=lambda item:item.bar_time))
+    if not items:
+        return ()
+    ensure_closed_bar_driver_schema_v3(db_path)
+    with connect(db_path) as db:
+        row=db.execute(
+            "SELECT last_bar_time FROM autotrader_v3_closed_bar_state WHERE trader_id=?",
+            (str(trader_id),),
+        ).fetchone()
+    if row is None:
+        pending=(items[-1],)
+    else:
+        last=str(row["last_bar_time"] if isinstance(row,dict) else row[0])
+        pending=tuple(item for item in items if item.bar_time.isoformat()>last)
+        if not pending:
+            return (
+                evaluate_closed_bar_once_v3(
+                    trader_id=trader_id,observation=items[-1],strategy_key=strategy_key,
+                    config=config,bars=bars,db_path=db_path,
+                ),
+            )
+
+    results=[]
+    for observation in pending:
+        selected_bars=bars
+        if strategy_key==STOCH_KEY:
+            selected_bars=tuple(
+                bar for bar in bars
+                if _bar_time_v3(bar)<=observation.bar_time
+            )
+        results.append(
+            evaluate_closed_bar_once_v3(
+                trader_id=trader_id,
+                observation=observation,
+                strategy_key=strategy_key,
+                config=config,
+                bars=selected_bars,
+                db_path=db_path,
+            )
+        )
+    return tuple(results)
+
+
+__all__=["ClosedBarDecisionV3","ensure_closed_bar_driver_schema_v3","evaluate_closed_bar_once_v3","evaluate_closed_bar_series_v3"]
