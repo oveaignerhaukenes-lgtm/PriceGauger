@@ -1,5 +1,8 @@
 from saxo_provider import SaxoError
-from autotrader_v3_live_runtime_v1 import _definitive_saxo_rejection_v3
+from autotrader_v3_live_runtime_v1 import (
+    _definitive_saxo_rejection_v3,
+    _recorded_definitive_saxo_rejection_v3,
+)
 
 
 def test_saxo_http_400_is_definitive_rejection():
@@ -22,4 +25,16 @@ def test_timeout_and_rate_limit_remain_uncertain():
 def test_server_error_remains_uncertain():
     assert _definitive_saxo_rejection_v3(
         SaxoError("server",status="REQUEST_FAILED",status_code=500)
+    ) is False
+
+
+def test_recorded_http_400_unknown_can_be_repaired_but_ambiguous_failures_cannot():
+    assert _recorded_definitive_saxo_rejection_v3(
+        "SaxoError: REQUEST_FAILED · HTTP 400: WouldExceedMargin"
+    ) is True
+    assert _recorded_definitive_saxo_rejection_v3(
+        "SaxoError: REQUEST_FAILED · HTTP 429: rate limited"
+    ) is False
+    assert _recorded_definitive_saxo_rejection_v3(
+        "SaxoError: CONNECTION_FAILED"
     ) is False
