@@ -22,7 +22,7 @@ from autotrader_v3_registry_v1 import live_config_issues_v3
 from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
-from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3
+from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3, enforce_execution_policy_precheck_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
@@ -342,6 +342,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     mutation.reason+f'; floored to Saxo amount step {float(step):g}')
         side=("Buy" if mutation.direction=="LONG" else "Sell")
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
+        policy=None
         if mutation.action in {'OPEN','ADD'}:
             policy=load_execution_policy_v3(e.pilot_key,db_path=db_path)
             if policy is None:
@@ -375,6 +376,24 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         pre=broker.precheck(order)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
             raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
+        if mutation.action in {'OPEN','ADD'}:
+            try:
+                capital_required=enforce_execution_policy_precheck_v3(
+                    precheck=pre,side=side,
+                    account_currency=account_currencies.get(e.account_id,''),
+                    policy=policy)
+            except Exception as exc:
+                _record_runtime(
+                    e.pilot_key,'BLOCKED',
+                    f'V3 capital policy blocked {mutation.action}: {type(exc).__name__}: {exc}',
+                    db_path=db_path)
+                continue
+            _record_runtime(
+                e.pilot_key,'READY',
+                f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} '
+                f'action={mutation.action} amount={mutation.amount:g} '
+                f'capital_required_nok={capital_required:g} cap_nok={policy.max_notional_nok:g}',
+                db_path=db_path)
         reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
             account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,
             expected_inventory=actual.amount+signed_delta,
