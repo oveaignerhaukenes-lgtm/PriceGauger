@@ -145,6 +145,18 @@ def strategy_v3(key: str) -> StrategySpecV3:
     return next(item for item in STRATEGIES_V3 if item.key == key)
 
 
+def strategy_display_label_v3(
+    strategy_key: str,
+    timeframe: str,
+    regime_timeframe: str = "15m",
+) -> str:
+    """Human-facing label for the *persisted* V3 strategy configuration."""
+    spec = strategy_v3(str(strategy_key))
+    if spec.key == "macd-regime-histogram":
+        return f"Histogram MACD-R{regime_timeframe}S{timeframe}"
+    return f"{spec.label} · {timeframe}"
+
+
 def modifier_v3(key: str) -> ModifierSpecV3:
     return next(item for item in MODIFIERS_V3 if item.key == key)
 
