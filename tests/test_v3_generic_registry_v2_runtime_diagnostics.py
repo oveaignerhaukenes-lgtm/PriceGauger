@@ -8,16 +8,18 @@ from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
+from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, strategy_adapter_v3
 
 
 def test_v3_registry_routes_all_strategies_through_same_decision_contract():
-    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, TRAILING_KEY, STOCH_KEY}
+    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, STOCH_KEY}
     driver = strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(HISTOGRAM_FLIP_BUILD_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(VWAP_REGIME_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(MACD_REGIME_HIST_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(AEN2_STICKY_KEY).evaluate_closed_bar
+    assert driver is strategy_adapter_v3(AEN21_FAST_EXIT_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(TRAILING_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(STOCH_KEY).evaluate_closed_bar
 
