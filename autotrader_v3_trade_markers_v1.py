@@ -1,10 +1,13 @@
 from __future__ import annotations
 """Presentation projection of canonical V3 execution events."""
 from collections import defaultdict
+import logging
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
-from autotrader_v3_order_guard_v1 import ensure_schema as ensure_v3_order_schema
 from database import connect,using_postgres
+
+
+LOGGER=logging.getLogger("pricegauger.tradingdesk.v3_trade_markers")
 
 
 def marker_direction_v3(*,action:str,side:str,resulting_direction:str)->str:
@@ -55,20 +58,27 @@ def _position_quanta_v3(rows)->dict[str,float]:
 
 def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...]:
     if not using_postgres():return ()
-    ensure_v3_order_schema()
-    with connect() as db:
-        rows=db.execute("""SELECT e.executed_at,anchor.close AS display_price,
-          e.action,e.side,e.direction,e.amount,e.inventory_before,e.inventory_after,
-          e.instance_id,e.account_id,e.request_key
-          FROM autotrader_v3_execution_events e
-          JOIN autotrader_v3_engine_instances i ON i.instance_id=e.instance_id
-          JOIN LATERAL (
-            SELECT b.close FROM pg_v2_market_bars_1m b
-            WHERE b.instrument_id=i.instrument_id AND b.bar_time<=e.executed_at
-            ORDER BY b.bar_time DESC LIMIT 1
-          ) anchor ON TRUE
-          WHERE e.market_name=? AND e.executed_at>=now()-INTERVAL '14 days'
-          ORDER BY e.executed_at ASC LIMIT 1000""",(str(market_name),)).fetchall()
+    # Presentation is strictly read-only. The worker owns V3 schema/trigger setup.
+    try:
+        with connect() as db:
+            rows=db.execute("""SELECT e.executed_at,COALESCE(anchor.close,0.0) AS display_price,
+              e.action,e.side,e.direction,e.amount,e.inventory_before,e.inventory_after,
+              e.instance_id,e.account_id,e.request_key
+              FROM autotrader_v3_execution_events e
+              JOIN autotrader_v3_engine_instances i ON i.instance_id=e.instance_id
+              LEFT JOIN LATERAL (
+                SELECT b.close FROM pg_v2_market_bars_1m b
+                WHERE b.instrument_id=i.instrument_id AND b.bar_time<=e.executed_at
+                ORDER BY b.bar_time DESC LIMIT 1
+              ) anchor ON TRUE
+              WHERE e.market_name=? AND e.executed_at>=now()-INTERVAL '14 days'
+              ORDER BY e.executed_at ASC LIMIT 1000""",(str(market_name),)).fetchall()
+    except Exception as exc:
+        LOGGER.warning(
+            "V3 chart marker projection unavailable market=%s error=%s",
+            market_name,type(exc).__name__,
+        )
+        return ()
 
     quanta=_position_quanta_v3(rows)
     result=[]
