@@ -29,6 +29,10 @@ from autotrader_v3_aen2_sticky_regime_v1 import (
     STRATEGY_KEY_V3 as AEN2_STICKY_KEY,
     aen2_sticky_regime_target_v3,
 )
+from autotrader_v3_aen21_sticky_fast_exit_v1 import (
+    STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY,
+    aen21_sticky_fast_exit_target_v3,
+)
 from autotrader_v3_macd_trailing_v1 import (
     STRATEGY_KEY_V3 as TRAILING_KEY, MacdTrailingConfigV3,
     MacdTrailingDecisionV3, macd_trailing_target_v3,
@@ -83,13 +87,13 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, TRAILING_KEY, STOCH_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, STOCH_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
         config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, STOCH_KEY} else MacdHistogramConfigV3()
     if strategy_key in {TRAILING_KEY, STOCH_KEY} and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
-    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY} and not isinstance(config, MacdHistogramConfigV3):
+    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
     if strategy_key == STOCH_KEY:
         decide = macd_stoch_target_v3
@@ -103,6 +107,8 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         decide = macd_regime_histogram_target_v3
     elif strategy_key == AEN2_STICKY_KEY:
         decide = aen2_sticky_regime_target_v3
+    elif strategy_key == AEN21_FAST_EXIT_KEY:
+        decide = aen21_sticky_fast_exit_target_v3
     else:
         decide = macd_histogram_target_v3
     ensure_closed_bar_driver_schema_v3(db_path)
@@ -129,7 +135,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             extra["bars"] = bars
         elif strategy_key == VWAP_REGIME_KEY:
             extra["source_bars"] = source_bars
-        elif strategy_key in {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY}:
+        elif strategy_key in {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY}:
             extra["source_bars"] = source_bars
             extra["regime_timeframe_minutes"] = int(regime_timeframe_minutes)
             extra["market_name"] = str(market_name)

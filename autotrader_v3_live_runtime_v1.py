@@ -18,6 +18,7 @@ from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
+from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
@@ -34,7 +35,7 @@ from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
-REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY}
+REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY}
 
 def _definitive_saxo_rejection_v3(exc:Exception)->bool:
     """True only when Saxo returned a concrete client-side rejection response."""

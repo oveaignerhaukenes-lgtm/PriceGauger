@@ -16,6 +16,7 @@ def test_catalog_does_not_claim_unimplemented_strategies_are_runtime_ready():
     assert specs["macd-histogram"].runtime_ready
     assert specs["macd-regime-histogram"].runtime_ready
     assert specs["aen2-sticky-regime"].runtime_ready
+    assert specs["aen21-sticky-fast-exit"].runtime_ready
     assert specs["vwap-regime-histogram"].runtime_ready
     assert not specs["price-macd"].runtime_ready
     assert not specs["price-stoch"].runtime_ready

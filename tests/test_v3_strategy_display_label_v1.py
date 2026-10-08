@@ -17,3 +17,9 @@ def test_aen2_display_label_carries_regime_and_signal_timeframes():
     assert strategy_display_label_v3(
         "aen2-sticky-regime","2m","15m"
     ) == "Aen#2 · Sticky R15m/S2m"
+
+
+def test_aen21_display_label_carries_regime_signal_and_fast_exit():
+    assert strategy_display_label_v3(
+        "aen21-sticky-fast-exit","2m","15m"
+    ) == "Aen#2.1 · Sticky R15m/S2m · Fast Exit"
