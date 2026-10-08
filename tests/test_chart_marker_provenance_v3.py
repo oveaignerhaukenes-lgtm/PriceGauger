@@ -5,7 +5,7 @@ def test_manual_sync_knows_durable_v2_v3_broker_order_ids():
 
 def test_v3_chart_reads_canonical_execution_ledger_not_order_state():
     legacy=Path("autotrader_trade_markers_v2.py").read_text(); v3=Path("autotrader_v3_trade_markers_v1.py").read_text(); ledger=Path("autotrader_v3_execution_events_v1.py").read_text(); guard=Path("autotrader_v3_order_guard_v1.py").read_text()
-    assert "load_v3_trade_markers_v1" in legacy; assert "markers.extend(load_v3_trade_markers_v1(market_name))" in legacy
+    assert "load_v3_trade_markers_v1" in legacy; assert '("v3", load_v3_trade_markers_v1)' in legacy; assert "markers.extend(loader(market_name))" in legacy
     assert "FROM autotrader_v3_execution_events e" in v3; assert "FROM autotrader_v3_order_guard" not in v3
     assert "pg_v3_execution_event_trigger" in ledger; assert "AFTER UPDATE OF state ON autotrader_v3_order_guard" in ledger
     assert "ensure_v3_execution_event_schema_v1" in guard; assert 'source="AUTOTRADER_V3"' in v3
