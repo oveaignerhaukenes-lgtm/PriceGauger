@@ -20,8 +20,9 @@ export default function(component) {
   const state=String(p.state||'IDLE').toLowerCase();
   const rows=Array.from(p.instances||[]).map(x=>`
     <div class="row">
-      <div><span class="dot ${String(x.severity||'IDLE').toLowerCase()}"></span><b>${esc(x.market_name)}</b><span class="right">${x.live_armed?'LIVE':(x.sim_armed?'SIM':'AV')}</span></div>
-      <small>${esc(x.account_name||x.account_id)} · ${esc(x.runtime_status)} · P/L ${esc(pnl(x.open_pnl))}</small>
+      <div><span class="dot ${String(x.severity||'IDLE').toLowerCase()}"></span><b>${esc(x.account_name||x.account_id)}</b><span class="right">${x.live_armed?'LIVE':(x.sim_armed?'SIM':'AV')}</span></div>
+      <small>${esc(x.market_name)} · ${esc(x.runtime_status)} · P/L ${esc(pnl(x.open_pnl))}</small>
+      <small><b>Strategi:</b> ${esc(x.strategy_label||x.strategy_key||'—')}</small>
       <small>Sist ${esc(when(x.runtime_updated_at))} · Handler 24t ${esc(x.trades_24h)}</small>
       <small>Marked ${esc(x.market_state||(x.market_open===true?'Open':(x.market_open===false?'Closed':'ukjent')))}</small>
       ${x.pending_state?`<small class="warn">Ordre ${esc(x.pending_state)} · ${esc(age(x.pending_age_seconds))}${x.broker_order_id?` · Saxo ${esc(x.broker_order_id)}`:''}</small>`:''}
