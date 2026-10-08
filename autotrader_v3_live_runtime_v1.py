@@ -26,7 +26,17 @@ from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, live_config_is
 from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
-from autotrader_v3_live_sizing_v1 import cap_open_add_amount_v3, enforce_execution_policy_precheck_v3
+from autotrader_v3_live_sizing_v1 import (
+    V3CapitalCapReached,
+    cap_open_add_amount_v3,
+    enforce_execution_policy_precheck_v3,
+)
+from autotrader_v3_capacity_hold_v1 import (
+    capacity_hold_blocks_v3,
+    clear_capacity_hold_v3,
+    load_capacity_hold_v3,
+    save_capacity_hold_v3,
+)
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
@@ -338,6 +348,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             f"{e.strategy_key}:R{config.regime_timeframe}"
             if e.strategy_key in REGIME_RUNTIME_KEYS_V3 else e.strategy_key
         )
+        capacity_context_key=f"{context_strategy_key}|T{config.timeframe}"
         context_changed=_prepare_live_decision_context_v3(
             trader_id=e.pilot_key,strategy_key=context_strategy_key,
             timeframe_minutes=timeframe_minutes,actual_amount=actual.amount,db_path=db_path)
@@ -435,6 +446,25 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             if policy is None:
                 _record_runtime(e.pilot_key,'BLOCKED','OPEN/ADD requires an explicit V3 NOK exposure policy',db_path=db_path)
                 continue
+            hold=load_capacity_hold_v3(trader_id=e.pilot_key,db_path=db_path)
+            if hold is not None:
+                if capacity_hold_blocks_v3(
+                    hold=hold,
+                    desired_direction=mutation.direction,
+                    actual_amount=actual.amount,
+                    cap_nok=policy.max_notional_nok,
+                    context_key=capacity_context_key,
+                ):
+                    align_closed_bar_target_v3(
+                        trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+                    _record_runtime(
+                        e.pilot_key,'MANAGING',
+                        f'PG capital cap reached; holding {hold.direction} actual={actual.amount:g}; '
+                        'same-direction OPEN/ADD paused until capacity frees or settings change.',
+                        db_path=db_path,
+                    )
+                    continue
+                clear_capacity_hold_v3(trader_id=e.pilot_key,db_path=db_path)
             try:
                 capped=cap_open_add_amount_v3(broker=broker,account_key=account,
                     account_currency=account_currencies.get(e.account_id,''),instrument=instrument,
@@ -494,10 +524,32 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     policy=policy,
                     current_same_side_amount=abs(actual.amount) if mutation.action=='ADD' else 0.0,
                     order_amount=mutation.amount)
+            except V3CapitalCapReached as exc:
+                save_capacity_hold_v3(
+                    trader_id=e.pilot_key,
+                    direction=mutation.direction,
+                    cap_nok=policy.max_notional_nok,
+                    inventory_amount=actual.amount,
+                    context_key=capacity_context_key,
+                    db_path=db_path,
+                )
+                align_closed_bar_target_v3(
+                    trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+                _record_runtime(
+                    e.pilot_key,'MANAGING',
+                    f'PG capital cap reached; holding {mutation.direction} actual={actual.amount:g}; '
+                    'same-direction OPEN/ADD paused until capacity frees or settings change.',
+                    db_path=db_path,
+                )
+                LOGGER.info(
+                    'v3 PG capital capacity reached trader=%s direction=%s actual=%s cap_nok=%s detail=%s',
+                    e.pilot_key,mutation.direction,actual.amount,policy.max_notional_nok,exc,
+                )
+                continue
             except Exception as exc:
                 _record_runtime(
                     e.pilot_key,'BLOCKED',
-                    f'V3 capital policy blocked {mutation.action}: {type(exc).__name__}: {exc}',
+                    f'V3 capital policy unavailable for {mutation.action}: {type(exc).__name__}: {exc}',
                     db_path=db_path)
                 continue
             _record_runtime(
