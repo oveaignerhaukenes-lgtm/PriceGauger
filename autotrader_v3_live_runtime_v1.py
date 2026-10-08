@@ -487,7 +487,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 capital_required=enforce_execution_policy_precheck_v3(
                     precheck=pre,side=side,
                     account_currency=account_currencies.get(e.account_id,''),
-                    policy=policy)
+                    policy=policy,
+                    current_same_side_amount=abs(actual.amount) if mutation.action=='ADD' else 0.0,
+                    order_amount=mutation.amount)
             except Exception as exc:
                 _record_runtime(
                     e.pilot_key,'BLOCKED',

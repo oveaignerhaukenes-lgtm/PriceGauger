@@ -50,13 +50,34 @@ def capital_requirement_nok_v3(*, precheck: dict, side: str, account_currency: s
 
 
 def enforce_execution_policy_precheck_v3(*, precheck: dict, side: str,
-                                         account_currency: str, policy: ExecutionPolicyV3) -> float:
-    required=capital_requirement_nok_v3(
+                                         account_currency: str, policy: ExecutionPolicyV3,
+                                         current_same_side_amount: float = 0.0,
+                                         order_amount: float | None = None) -> float:
+    """Enforce the PG capital allocation against the resulting same-side position.
+
+    Saxo's precheck exposes the margin impact of the order being checked.  For an
+    incremental pyramiding strategy that is not enough on its own: validating each
+    0.01 tranche independently would let a trader accumulate an arbitrarily large
+    position while every individual step stayed below the configured cap.
+
+    For ADD we therefore conservatively project the current per-unit initial-margin
+    requirement across the post-trade same-side inventory.  This keeps the per-trader
+    allocation meaningful even though Saxo margin is pooled at client level.
+    """
+    step_required=capital_requirement_nok_v3(
         precheck=precheck,side=side,account_currency=account_currency)
+    current=max(0.0,float(current_same_side_amount or 0.0))
+    if current > 1e-12:
+        if order_amount is None or float(order_amount) <= 1e-12:
+            raise ValueError('V3 cumulative capital check requires positive order amount')
+        amount=float(order_amount)
+        required=step_required * ((current + amount) / amount)
+    else:
+        required=step_required
     cap=float(policy.max_notional_nok)
     if required > cap + 1e-9:
         raise ValueError(
-            f'V3 capital requirement {required:.2f} NOK exceeds configured cap {cap:.2f} NOK')
+            f'V3 cumulative capital requirement {required:.2f} NOK exceeds configured cap {cap:.2f} NOK')
     return required
 
 @dataclass(frozen=True, slots=True)

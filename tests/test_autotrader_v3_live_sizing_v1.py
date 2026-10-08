@@ -141,3 +141,30 @@ def test_capital_requirement_fails_closed_on_unproven_currency_or_missing_eviden
     with pytest.raises(ValueError,match='did not expose broker capital requirement'):
         capital_requirement_nok_v3(
             precheck={'MarginImpactBuySell':{}},side='Buy',account_currency='NOK')
+
+
+def test_incremental_build_cannot_bypass_cumulative_cap():
+    policy=ExecutionPolicyV3('t',budget_nok=300,exposure_pct=100)
+    step={
+        'MarginImpactBuySell':{'Currency':'NOK','InitialMarginBuy':147},
+    }
+    # First 0.01 uses 147 NOK; second projects 294 NOK and is still inside cap.
+    assert enforce_execution_policy_precheck_v3(
+        precheck=step,side='Buy',account_currency='NOK',policy=policy,
+        current_same_side_amount=0.01,order_amount=0.01,
+    ) == pytest.approx(294)
+    # Third 0.01 would project 441 NOK total and must be stopped.
+    with pytest.raises(ValueError,match='cumulative capital requirement 441.00 NOK exceeds configured cap 300.00 NOK'):
+        enforce_execution_policy_precheck_v3(
+            precheck=step,side='Buy',account_currency='NOK',policy=policy,
+            current_same_side_amount=0.02,order_amount=0.01,
+        )
+
+
+def test_open_cap_semantics_remain_order_margin_when_flat():
+    policy=ExecutionPolicyV3('t',budget_nok=300,exposure_pct=100)
+    precheck={'MarginImpactBuySell':{'Currency':'NOK','InitialMarginBuy':250}}
+    assert enforce_execution_policy_precheck_v3(
+        precheck=precheck,side='Buy',account_currency='NOK',policy=policy,
+        current_same_side_amount=0.0,order_amount=0.01,
+    ) == pytest.approx(250)
