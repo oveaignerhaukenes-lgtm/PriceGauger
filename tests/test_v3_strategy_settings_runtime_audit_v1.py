@@ -48,6 +48,13 @@ def test_live_capability_contract_accepts_only_currently_wired_settings():
         control_mode="Manuell",
         modifiers=(),
     ) == ()
+    assert live_config_issues_v3(
+        strategy_key="aen21-sticky-fast-exit",
+        timeframe="2m",
+        regime_timeframe="15m",
+        control_mode="Manuell",
+        modifiers=(),
+    ) == ()
     assert "regime timeframe Adaptiv" in " | ".join(live_config_issues_v3(
         strategy_key="macd-regime-histogram",
         timeframe="5m",
@@ -91,6 +98,15 @@ def test_macd_regime_strategy_uses_histogram_sizing():
 def test_aen2_uses_histogram_sizing():
     config = strategy_amount_config_v3(
         strategy_key="aen2-sticky-regime-v1",
+        rules=_rules(decimals=2, minimum=0.01, step=0.01),
+    )
+    assert isinstance(config, MacdHistogramConfigV3)
+    assert config.tranche == pytest.approx(0.01)
+
+
+def test_aen21_uses_histogram_sizing():
+    config = strategy_amount_config_v3(
+        strategy_key="aen21-sticky-fast-exit-v1",
         rules=_rules(decimals=2, minimum=0.01, step=0.01),
     )
     assert isinstance(config, MacdHistogramConfigV3)
