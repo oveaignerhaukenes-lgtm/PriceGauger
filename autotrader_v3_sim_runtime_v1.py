@@ -7,6 +7,7 @@ from autotrader_mtf_entry_shadow_v2 import closed_bars_v2, macd_observations_v2
 from autotrader_v3_closed_bar_driver_v1 import ensure_closed_bar_driver_schema_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, sim_config_issues_v3
+from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
@@ -90,6 +91,7 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             timeframe=config.timeframe,
             control_mode=config.control_mode,
             modifiers=config.modifiers,
+            regime_timeframe=config.regime_timeframe,
         )
         if issues:
             _record_sim_runtime_v3(
@@ -111,16 +113,21 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             continue
 
         timeframe_minutes = fixed_timeframe_minutes_v3(config.timeframe)
+        regime_timeframe_minutes = fixed_timeframe_minutes_v3(config.regime_timeframe)
+        context_strategy_key = (
+            f"{instance.strategy_key}:R{config.regime_timeframe}"
+            if instance.strategy_key == MACD_REGIME_HIST_KEY else instance.strategy_key
+        )
         context_changed = _prepare_sim_decision_context_v3(
             instance_id=instance.pilot_key,
-            strategy_key=instance.strategy_key,
+            strategy_key=context_strategy_key,
             timeframe_minutes=timeframe_minutes,
             db_path=db_path,
         )
         if context_changed:
             LOGGER.info(
-                "v3 SIM decision context changed trader=%s strategy=%s timeframe=%s",
-                instance.pilot_key, instance.strategy_key, config.timeframe,
+                "v3 SIM decision context changed trader=%s strategy=%s timeframe=%s regime=%s",
+                instance.pilot_key, instance.strategy_key, config.timeframe, config.regime_timeframe,
             )
 
         bars = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
@@ -154,6 +161,8 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             strategy_key=instance.strategy_key,
             bars=closed,
             source_bars=tuple(bars),
+            regime_timeframe_minutes=regime_timeframe_minutes,
+            market_name=instance.market_name,
             db_path=db_path,
         )
         processed += int(result.is_new)
@@ -161,7 +170,9 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             instance.pilot_key,
             "RUNNING",
             f"strategy={config.strategy_key} runtime={instance.strategy_key} "
-            f"timeframe={config.timeframe} new_bar={bool(result.is_new)}",
+            f"timeframe={config.timeframe} "
+            + (f"regime={config.regime_timeframe} " if instance.strategy_key == MACD_REGIME_HIST_KEY else "")
+            + f"new_bar={bool(result.is_new)}",
             db_path=db_path,
         )
     return processed

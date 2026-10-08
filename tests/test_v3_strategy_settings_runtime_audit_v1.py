@@ -34,6 +34,20 @@ def test_live_capability_contract_accepts_only_currently_wired_settings():
         control_mode="Manuell",
         modifiers=("reset-on-loss",),
     ) == ()
+    assert live_config_issues_v3(
+        strategy_key="macd-regime-histogram",
+        timeframe="5m",
+        regime_timeframe="15m",
+        control_mode="Manuell",
+        modifiers=(),
+    ) == ()
+    assert "regime timeframe Adaptiv" in " | ".join(live_config_issues_v3(
+        strategy_key="macd-regime-histogram",
+        timeframe="5m",
+        regime_timeframe="Adaptiv",
+        control_mode="Manuell",
+        modifiers=(),
+    ))
 
     issues = live_config_issues_v3(
         strategy_key="price-macd",
@@ -56,6 +70,15 @@ def test_tech100_like_rules_preserve_one_centilot_strategy_tranche():
     assert isinstance(config, MacdTrailingConfigV3)
     assert config.tranche == pytest.approx(0.01)
     assert config.max_inventory == pytest.approx(0.10)
+
+
+def test_macd_regime_strategy_uses_histogram_sizing():
+    config = strategy_amount_config_v3(
+        strategy_key="macd-regime-histogram-v1",
+        rules=_rules(decimals=2, minimum=0.01, step=0.01),
+    )
+    assert isinstance(config, MacdHistogramConfigV3)
+    assert config.tranche == pytest.approx(0.01)
 
 
 def test_integer_share_product_uses_integer_strategy_tranche():

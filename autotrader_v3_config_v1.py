@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
-from database import connect
-from autotrader_v3_registry_v1 import CONTROL_MODES_V3, MODIFIERS_V3, STRATEGIES_V3, TIMEFRAMES_V3
+from database import connect, using_postgres
+from autotrader_v3_registry_v1 import (
+    CONTROL_MODES_V3, MODIFIERS_V3, REGIME_TIMEFRAMES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +16,7 @@ class AutoTraderConfigV3:
     timeframe: str = "5m"
     control_mode: str = "Manuell"
     modifiers: tuple[str, ...] = ()
+    regime_timeframe: str = "15m"
 
     def __post_init__(self) -> None:
         if self.strategy_key not in {x.key for x in STRATEGIES_V3}:
@@ -22,6 +25,8 @@ class AutoTraderConfigV3:
             raise ValueError("unknown V3 timeframe")
         if self.control_mode not in CONTROL_MODES_V3:
             raise ValueError("unknown V3 control mode")
+        if self.regime_timeframe not in REGIME_TIMEFRAMES_V3:
+            raise ValueError("unknown V3 regime timeframe")
         unknown = set(self.modifiers) - {x.key for x in MODIFIERS_V3}
         if unknown:
             raise ValueError(f"unknown V3 modifiers: {sorted(unknown)}")
@@ -35,15 +40,22 @@ def ensure_autotrader_config_schema_v3(db_path: str = "pricegauger.db") -> None:
           timeframe TEXT NOT NULL,
           control_mode TEXT NOT NULL,
           modifiers_json TEXT NOT NULL,
+          regime_timeframe TEXT NOT NULL DEFAULT '15m',
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
+        if using_postgres():
+            db.execute("ALTER TABLE autotrader_v3_config ADD COLUMN IF NOT EXISTS regime_timeframe TEXT NOT NULL DEFAULT '15m'")
+        else:
+            existing={row[1] for row in db.execute("PRAGMA table_info(autotrader_v3_config)").fetchall()}
+            if "regime_timeframe" not in existing:
+                db.execute("ALTER TABLE autotrader_v3_config ADD COLUMN regime_timeframe TEXT NOT NULL DEFAULT '15m'")
 
 
 def load_autotrader_config_v3(trader_id: str, db_path: str = "pricegauger.db") -> AutoTraderConfigV3:
     ensure_autotrader_config_schema_v3(db_path)
     with connect(db_path) as db:
         row = db.execute(
-            "SELECT strategy_key,timeframe,control_mode,modifiers_json FROM autotrader_v3_config WHERE trader_id=?",
+            "SELECT strategy_key,timeframe,control_mode,modifiers_json,regime_timeframe FROM autotrader_v3_config WHERE trader_id=?",
             (trader_id,),
         ).fetchone()
     if row is None:
@@ -55,6 +67,7 @@ def load_autotrader_config_v3(trader_id: str, db_path: str = "pricegauger.db") -
         timeframe=str(get("timeframe", 1)),
         control_mode=str(get("control_mode", 2)),
         modifiers=tuple(json.loads(str(get("modifiers_json", 3)) or "[]")),
+        regime_timeframe=str(get("regime_timeframe", 4) or "15m"),
     )
 
 
@@ -62,12 +75,15 @@ def save_autotrader_config_v3(config: AutoTraderConfigV3, db_path: str = "priceg
     ensure_autotrader_config_schema_v3(db_path)
     with connect(db_path) as db:
         db.execute(
-            """INSERT INTO autotrader_v3_config(trader_id,strategy_key,timeframe,control_mode,modifiers_json,updated_at)
-               VALUES(?,?,?,?,?,CURRENT_TIMESTAMP)
+            """INSERT INTO autotrader_v3_config(
+                 trader_id,strategy_key,timeframe,control_mode,modifiers_json,regime_timeframe,updated_at)
+               VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)
                ON CONFLICT(trader_id) DO UPDATE SET
                  strategy_key=excluded.strategy_key,timeframe=excluded.timeframe,
                  control_mode=excluded.control_mode,modifiers_json=excluded.modifiers_json,
+                 regime_timeframe=excluded.regime_timeframe,
                  updated_at=excluded.updated_at""",
-            (config.trader_id, config.strategy_key, config.timeframe, config.control_mode, json.dumps(config.modifiers)),
+            (config.trader_id, config.strategy_key, config.timeframe, config.control_mode,
+             json.dumps(config.modifiers), config.regime_timeframe),
         )
     return config
