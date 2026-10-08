@@ -9,6 +9,7 @@ from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
 from autotrader_v3_instance_controls_ui_v1 import render_v3_instance_controls_v1
 from autotrader_v3_instance_registry_v1 import bootstrap_v3_instances_from_enrollments_v1
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
+from autotrader_v3_registry_v1 import strategy_display_label_v3
 from database import connect
 
 
@@ -50,10 +51,11 @@ def render_v3_fleet_management_v1():
         st.caption('Dette er brokerens nåværende åpne P/L per eksakt konto/instrument, ikke en rekonstruert historisk avkastningskurve.')
     for item,config,policy,auth,status,detail,updated,pnl,count in rows:
         with st.container(border=True):
-            account_name=account_names.get(item.account_id,''); account=f'{account_name} ({item.account_id})' if account_name else item.account_id
-            c=st.columns([2,1,1,1,1]); c[0].markdown(f'### {item.market_name} · {account}'); c[1].metric('Strategi',config.strategy_key); c[2].metric('LIVE','ON' if auth.live_armed else 'OFF'); c[3].metric('Åpen P/L','—' if pnl is None else f'{pnl:+.2f}'); c[4].metric('Handler 24t',count)
+            account_name=account_names.get(item.account_id,''); account_title=account_name or item.account_id
+            active_label=strategy_display_label_v3(config.strategy_key,config.timeframe,config.regime_timeframe)
+            c=st.columns([2,1,1,1,1]); c[0].markdown(f'### {account_title} · {item.market_name}'); c[1].metric('Strategi',active_label); c[2].metric('LIVE','ON' if auth.live_armed else 'OFF'); c[3].metric('Åpen P/L','—' if pnl is None else f'{pnl:+.2f}'); c[4].metric('Handler 24t',count)
             st.caption(f'V3 {item.instance_id[:8]} · konto {item.account_id} · UIC {item.uic} · {item.asset_type} · instrument {item.instrument_id}')
-            cap=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'; st.caption(f'{status} · {detail} · periode {config.timeframe} · options {", ".join(config.modifiers) or "ingen"} · ramme {cap}')
+            cap=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'; st.caption(f'{status} · {detail} · aktiv {active_label} · options {", ".join(config.modifiers) or "ingen"} · ramme {cap}')
             try:
                 d=load_execution_diagnostic_v1(account_id=item.account_id,uic=int(item.uic),asset_type=item.asset_type,owner_key=item.instance_id,engine_id='V3')
                 if d.request_state: st.caption(f'Execution: {d.request_state} · {d.request_detail or ""}')
