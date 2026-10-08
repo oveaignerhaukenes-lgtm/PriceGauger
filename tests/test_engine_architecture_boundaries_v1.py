@@ -11,6 +11,7 @@ def test_engine_identity_classifies_v3_without_runtime_imports():
     assert engine_for_strategy_key_v1("vwap-regime-histogram-v1") == ENGINE_V3
     assert engine_for_strategy_key_v1("macd-regime-histogram-v1") == ENGINE_V3
     assert engine_for_strategy_key_v1("aen2-sticky-regime-v1") == ENGINE_V3
+    assert engine_for_strategy_key_v1("aen21-sticky-fast-exit-v1") == ENGINE_V3
     assert engine_for_strategy_key_v1("macd-stoch-v1") == ENGINE_V3
     assert engine_for_strategy_key_v1("macd-flip-v2") == ENGINE_V2
 
