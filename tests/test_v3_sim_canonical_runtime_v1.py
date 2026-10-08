@@ -31,7 +31,7 @@ def test_sim_uses_canonical_instance_strategy_and_configured_timeframe(monkeypat
         instrument_id=99,market_name="US Tech 100 NAS",
     )
     config=SimpleNamespace(
-        strategy_key="macd",timeframe="15m",control_mode="Manuell",modifiers=(),
+        strategy_key="macd",timeframe="15m",regime_timeframe="15m",control_mode="Manuell",modifiers=(),
     )
     calls={}
 
@@ -71,6 +71,7 @@ def test_sim_uses_canonical_instance_strategy_and_configured_timeframe(monkeypat
     assert calls["context"]["timeframe_minutes"] == 15
     assert calls["evaluate"]["trader_id"] == "sim:pilot-1"
     assert calls["evaluate"]["strategy_key"] == "macd-trailing-v1"
+    assert calls["evaluate"]["regime_timeframe_minutes"] == 15
 
 
 def test_sim_source_has_no_v2_enrollment_or_fixed_5m_dependency():
