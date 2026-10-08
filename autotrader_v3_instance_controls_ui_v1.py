@@ -13,7 +13,7 @@ from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_p
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_registry_v1 import (
-    CONTROL_MODES_V3, MODIFIERS_V3, REGIME_TIMEFRAMES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
+    CONTROL_MODES_V3, MODIFIERS_V3, REGIME_STRATEGIES_V3, REGIME_TIMEFRAMES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
     LIVE_CONTROL_MODES_V3, LIVE_MODIFIERS_V3, LIVE_TIMEFRAMES_V3,
     live_config_issues_v3, sim_config_issues_v3, strategy_display_label_v3,
 )
@@ -95,7 +95,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         key=f'{key_prefix}:timeframe:{trader_id}',
     )
     regime_timeframe=config.regime_timeframe
-    if strategy=='macd-regime-histogram':
+    if strategy in REGIME_STRATEGIES_V3:
         regime_timeframe=st.selectbox(
             'Regimeperiode (R)',
             REGIME_TIMEFRAMES_V3,
@@ -103,7 +103,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             key=f'{key_prefix}:regime-timeframe:{trader_id}',
             help='MACD på R-perioden bestemmer tillatt side. Histogram på S-perioden bygger/reduserer eksponeringen.',
         )
-        selected_label=f'Histogram MACD-R{regime_timeframe}S{timeframe}'
+        selected_label=strategy_display_label_v3(strategy,timeframe,regime_timeframe)
         if selected_label != active_label:
             st.caption(f'Valgt, ikke lagret: {selected_label} · aktiv nå: {active_label}')
         else:
@@ -127,7 +127,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         trader_id,strategy,timeframe,mode,tuple(enabled),regime_timeframe
     ); desired_policy=ExecutionPolicyV3(trader_id,float(budget),float(exposure)); changed=desired!=config or desired_policy!=policy
     desired_label=strategy_display_label_v3(desired.strategy_key,desired.timeframe,desired.regime_timeframe)
-    if desired.strategy_key!='macd-regime-histogram' and desired_label!=active_label:
+    if desired.strategy_key not in REGIME_STRATEGIES_V3 and desired_label!=active_label:
         st.caption(f'Valgt, ikke lagret: {desired_label} · aktiv nå: {active_label}')
     live_issues=live_config_issues_v3(
         strategy_key=desired.strategy_key,timeframe=desired.timeframe,
