@@ -37,9 +37,9 @@ STRATEGIES_V3 = (
     StrategySpecV3(
         "vwap-regime-histogram",
         "VWAP Regime + Histogram",
-        "Eksperimentell VWAP-variant. Ikke LIVE på index-CFD uten pålitelig volumgrunnlag.",
+        "Eksperimentell VWAP-variant; volumgrunnlaget må vurderes per instrument.",
         "vwap-regime-histogram-v1",
-        False,
+        True,
     ),
     StrategySpecV3(
         "macd-regime-histogram",
