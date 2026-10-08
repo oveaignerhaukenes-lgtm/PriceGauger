@@ -16,6 +16,7 @@ from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as ma
 from database import connect,using_postgres
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
+from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
@@ -170,6 +171,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             timeframe=config.timeframe,
             control_mode=config.control_mode,
             modifiers=config.modifiers,
+            regime_timeframe=config.regime_timeframe,
         )
         if issues:
             _record_runtime(
@@ -291,6 +293,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
         try:
             timeframe_minutes=_live_timeframe_minutes_v3(config.timeframe)
+            regime_timeframe_minutes=_live_timeframe_minutes_v3(config.regime_timeframe)
         except ValueError as exc:
             _record_runtime(e.pilot_key,'BLOCKED',f'{exc}; no orders sent',db_path=db_path)
             continue
@@ -324,14 +327,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 'V3 transaction cost guard blocked new exposure: '+cost_assessment.detail,
                 db_path=db_path)
             continue
+        context_strategy_key=(
+            f"{e.strategy_key}:R{config.regime_timeframe}"
+            if e.strategy_key==MACD_REGIME_HIST_KEY else e.strategy_key
+        )
         context_changed=_prepare_live_decision_context_v3(
-            trader_id=e.pilot_key,strategy_key=e.strategy_key,
+            trader_id=e.pilot_key,strategy_key=context_strategy_key,
             timeframe_minutes=timeframe_minutes,db_path=db_path)
         if context_changed:
-            LOGGER.info("v3 LIVE decision context changed trader=%s strategy=%s timeframe=%s",
-                e.pilot_key,e.strategy_key,config.timeframe)
+            LOGGER.info("v3 LIVE decision context changed trader=%s strategy=%s timeframe=%s regime=%s",
+                e.pilot_key,e.strategy_key,config.timeframe,config.regime_timeframe)
         _record_runtime(e.pilot_key,'READY',
-            f'actual={actual.amount:g} pending=none; evaluating target timeframe={config.timeframe}',
+            f'actual={actual.amount:g} pending=none; evaluating target timeframe={config.timeframe}'
+            + (f' regime={config.regime_timeframe}' if e.strategy_key==MACD_REGIME_HIST_KEY else ''),
             db_path=db_path)
         bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
             instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
@@ -345,6 +353,8 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         decision=evaluate_strategy_bar_v3(
             trader_id=e.pilot_key,observation=obs[-1],bars=closed,
             source_bars=tuple(bars),
+            regime_timeframe_minutes=regime_timeframe_minutes,
+            market_name=e.market_name,
             strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path)
         trader=TraderV3(
             e.pilot_key,
@@ -366,7 +376,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
         plan=plan_execution_v3(snapshot)
         _record_runtime(e.pilot_key,'READY',
-            f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} delta={snapshot.pending_delta:g} timeframe={config.timeframe} pending=none',
+            f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} delta={snapshot.pending_delta:g} timeframe={config.timeframe}'
+            + (f' regime={config.regime_timeframe}' if e.strategy_key==MACD_REGIME_HIST_KEY else '')
+            + ' pending=none',
             db_path=db_path)
         mutation=next((s for s in plan.steps if s.action in {"OPEN","ADD","REDUCE","CLOSE"}),None)
         if mutation is None:
