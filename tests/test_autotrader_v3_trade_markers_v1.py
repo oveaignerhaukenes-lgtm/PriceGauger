@@ -24,7 +24,8 @@ def test_v3_ledger_derives_flat_from_reconciled_inventory():
 def test_canonical_chart_marker_loader_includes_v3_projection():
     source=Path("autotrader_trade_markers_v2.py").read_text(encoding="utf-8")
     assert "load_v3_trade_markers_v1" in source
-    assert "markers.extend(load_v3_trade_markers_v1(market_name))" in source
+    assert '("v3", load_v3_trade_markers_v1)' in source
+    assert "markers.extend(loader(market_name))" in source
 
 
 def test_execution_side_direction_is_kept_separate_from_position_direction():
