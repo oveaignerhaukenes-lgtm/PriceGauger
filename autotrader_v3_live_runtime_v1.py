@@ -75,13 +75,15 @@ def _live_timeframe_minutes_v3(timeframe:str)->int:
         raise ValueError(f"Unsupported V3 LIVE timeframe: {label or '<empty>'}") from exc
 
 def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
-                                      timeframe_minutes:int,db_path="pricegauger.db")->bool:
-    """Keep closed-bar impulse history from leaking across strategy/timeframe changes.
+                                      timeframe_minutes:int,actual_amount:float,
+                                      db_path="pricegauger.db")->bool:
+    """Prevent strategy/timeframe state from leaking across a LIVE context switch.
 
-    Before this fix V3 LIVE was hard-coded to 5m. Existing rows therefore have an
-    implicit 5m context. On the first configured non-5m cycle we preserve the current
-    target and last processed bar, but clear previous_spread so a 5m impulse cannot
-    become the previous observation for a 15m/30m/etc decision.
+    Broker inventory is authoritative.  When the configured strategy or timeframe
+    changes, discard the old strategy's desired target by aligning it to the exact
+    current Saxo inventory and clear its previous histogram spread.  The bar cursor is
+    preserved, so the switch itself never replays an old bar or submits an immediate
+    order; the new strategy takes authority on the next genuinely new closed bar.
     """
     ensure_closed_bar_driver_schema_v3(db_path)
     with connect(db_path) as db:
@@ -103,8 +105,10 @@ def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
         changed=(previous_strategy!=str(strategy_key) or previous_timeframe!=int(timeframe_minutes))
         if changed:
             db.execute(
-                "UPDATE autotrader_v3_closed_bar_state SET previous_spread=NULL WHERE trader_id=?",
-                (str(trader_id),),
+                """UPDATE autotrader_v3_closed_bar_state
+                   SET target_amount=?,previous_spread=NULL,updated_at=CURRENT_TIMESTAMP
+                   WHERE trader_id=?""",
+                (float(actual_amount),str(trader_id)),
             )
         db.execute("""INSERT INTO autotrader_v3_live_decision_context(
           trader_id,strategy_key,timeframe_minutes,updated_at)
@@ -336,7 +340,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         )
         context_changed=_prepare_live_decision_context_v3(
             trader_id=e.pilot_key,strategy_key=context_strategy_key,
-            timeframe_minutes=timeframe_minutes,db_path=db_path)
+            timeframe_minutes=timeframe_minutes,actual_amount=actual.amount,db_path=db_path)
         if context_changed:
             LOGGER.info("v3 LIVE decision context changed trader=%s strategy=%s timeframe=%s regime=%s",
                 e.pilot_key,e.strategy_key,config.timeframe,config.regime_timeframe)
