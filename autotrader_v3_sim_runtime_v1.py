@@ -9,6 +9,7 @@ from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, sim_config_issues_v3
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
+from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
@@ -16,7 +17,7 @@ from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 
 LOGGER = logging.getLogger("pricegauger.autotrader.v3.sim")
-REGIME_RUNTIME_KEYS_V3 = {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY}
+REGIME_RUNTIME_KEYS_V3 = {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY}
 
 
 def _sim_state_id_v3(instance_id: str) -> str:
