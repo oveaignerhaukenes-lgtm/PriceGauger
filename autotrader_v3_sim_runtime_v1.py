@@ -8,6 +8,7 @@ from autotrader_v3_closed_bar_driver_v1 import ensure_closed_bar_driver_schema_v
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, sim_config_issues_v3
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
+from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
@@ -15,6 +16,7 @@ from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 
 LOGGER = logging.getLogger("pricegauger.autotrader.v3.sim")
+REGIME_RUNTIME_KEYS_V3 = {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY}
 
 
 def _sim_state_id_v3(instance_id: str) -> str:
@@ -116,7 +118,7 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
         regime_timeframe_minutes = fixed_timeframe_minutes_v3(config.regime_timeframe)
         context_strategy_key = (
             f"{instance.strategy_key}:R{config.regime_timeframe}"
-            if instance.strategy_key == MACD_REGIME_HIST_KEY else instance.strategy_key
+            if instance.strategy_key in REGIME_RUNTIME_KEYS_V3 else instance.strategy_key
         )
         context_changed = _prepare_sim_decision_context_v3(
             instance_id=instance.pilot_key,
@@ -171,7 +173,7 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             "RUNNING",
             f"strategy={config.strategy_key} runtime={instance.strategy_key} "
             f"timeframe={config.timeframe} "
-            + (f"regime={config.regime_timeframe} " if instance.strategy_key == MACD_REGIME_HIST_KEY else "")
+            + (f"regime={config.regime_timeframe} " if instance.strategy_key in REGIME_RUNTIME_KEYS_V3 else "")
             + f"new_bar={bool(result.is_new)}",
             db_path=db_path,
         )
