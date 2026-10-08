@@ -14,6 +14,8 @@ def _stable_trade_marker_payload_v1(*args, **kwargs):
     """Keep initial/base-refresh marker colors identical to the 1s live overlay."""
     result = _ORIGINAL_MARKER_PAYLOAD(*args, **kwargs)
     for item in result:
+        if str(item.get("marker_role") or "") == "EXECUTION_EVENT":
+            continue
         direction = str(item.get("direction") or "").upper()
         if direction == "LONG":
             item["color"] = "#0ea5e9"
