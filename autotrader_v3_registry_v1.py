@@ -55,6 +55,13 @@ STRATEGIES_V3 = (
         "aen2-sticky-regime-v1",
         True,
     ),
+    StrategySpecV3(
+        "aen21-sticky-fast-exit",
+        "Aen#2.1 · Sticky Regime Rx/Sy · Fast Exit",
+        "Som Aen#2, men rått R-kryss mot eksisterende posisjon går FLAT før deadband; re-entry krever fortsatt bekreftet regime.",
+        "aen21-sticky-fast-exit-v1",
+        True,
+    ),
 )
 
 MODIFIERS_V3 = (
@@ -79,7 +86,7 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
-REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime")
+REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss",)
 SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
@@ -164,6 +171,8 @@ def strategy_display_label_v3(
         return f"Histogram MACD-R{regime_timeframe}S{timeframe}"
     if spec.key == "aen2-sticky-regime":
         return f"Aen#2 · Sticky R{regime_timeframe}/S{timeframe}"
+    if spec.key == "aen21-sticky-fast-exit":
+        return f"Aen#2.1 · Sticky R{regime_timeframe}/S{timeframe} · Fast Exit"
     return f"{spec.label} · {timeframe}"
 
 
