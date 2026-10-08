@@ -165,7 +165,7 @@ export default function(component) {{
         }}
         if (markerAccounts.length) {{
             const hint = document.createElement('span');
-            hint.textContent = 'stor=øk/åpne · liten=reduser/lukke';
+            hint.textContent = 'stor=flip · normal=øk/åpne · liten=reduser/lukke';
             hint.style.fontWeight = '500';
             hint.style.opacity = '.72';
             markerLegend.appendChild(hint);

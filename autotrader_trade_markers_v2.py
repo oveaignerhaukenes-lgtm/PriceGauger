@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1, load_autotrader_trade_markers_v1
 from autotrader_v3_trade_markers_v1 import load_v3_trade_markers_v1
 from database import connect, using_postgres
 from manual_saxo_trade_markers_v1 import load_manual_saxo_trade_markers_v1
+
+
+LOGGER = logging.getLogger("pricegauger.tradingdesk.trade_markers_v2")
 
 
 def _flat_markers_v2(market_name: str) -> tuple[AutoTraderTradeMarkerV1, ...]:
@@ -64,13 +69,23 @@ def _flat_markers_v2(market_name: str) -> tuple[AutoTraderTradeMarkerV1, ...]:
 
 
 def load_autotrader_trade_markers_v2(market_name: str) -> tuple[AutoTraderTradeMarkerV1, ...]:
-    markers = list(load_autotrader_trade_markers_v1(market_name))
-    markers.extend(_flat_markers_v2(market_name))
-    # V3 markers come directly from reconciled durable V3 order evidence.  Do not infer
-    # them through the legacy V2 enrollment/marker path: that was why proven V3 turns
-    # could be absent from TradingDesk even while the renderer already supported arrows.
-    markers.extend(load_v3_trade_markers_v1(market_name))
-    markers.extend(load_manual_saxo_trade_markers_v1(market_name))
+    """Combine marker sources without letting one broken projection blank the chart."""
+
+    markers: list[AutoTraderTradeMarkerV1] = []
+    sources = (
+        ("v3", load_v3_trade_markers_v1),
+        ("v2", load_autotrader_trade_markers_v1),
+        ("v2-flat", _flat_markers_v2),
+        ("manual-saxo", load_manual_saxo_trade_markers_v1),
+    )
+    for source_name, loader in sources:
+        try:
+            markers.extend(loader(market_name))
+        except Exception as exc:
+            LOGGER.warning(
+                "TradingDesk marker source unavailable source=%s market=%s error=%s",
+                source_name, market_name, type(exc).__name__,
+            )
     markers.sort(key=lambda item: (item.executed_at, item.direction, item.net_position_id))
     return tuple(markers)
 
