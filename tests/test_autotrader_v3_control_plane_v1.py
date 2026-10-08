@@ -27,6 +27,7 @@ def test_v3_config_roundtrip(tmp_path):
         timeframe="Adaptiv",
         control_mode="Overseer",
         modifiers=("impulse", "whipsaw"),
+        regime_timeframe="30m",
     )
     save_autotrader_config_v3(cfg, db)
     assert load_autotrader_config_v3("pilot-x", db) == cfg
@@ -48,3 +49,25 @@ def test_legacy_timeframe_variants_collapse_to_one_sfl_identity():
     from autotrader_v3_registry_v1 import migrate_legacy_strategy_v3
     assert migrate_legacy_strategy_v3("sfl-1m-v1").strategy_key=="sfl"
     assert migrate_legacy_strategy_v3("sfl-10m-v1").strategy_key=="sfl"
+
+
+def test_v3_existing_config_schema_migrates_to_default_regime_timeframe(tmp_path):
+    from database import connect
+    db=str(tmp_path/"legacy-v3.db")
+    with connect(db) as conn:
+        conn.execute("""CREATE TABLE autotrader_v3_config (
+          trader_id TEXT PRIMARY KEY,
+          strategy_key TEXT NOT NULL,
+          timeframe TEXT NOT NULL,
+          control_mode TEXT NOT NULL,
+          modifiers_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+        conn.execute(
+            """INSERT INTO autotrader_v3_config(
+              trader_id,strategy_key,timeframe,control_mode,modifiers_json)
+              VALUES(?,?,?,?,?)""",
+            ("old","macd-histogram","5m","Manuell","[]"),
+        )
+    loaded=load_autotrader_config_v3("old",db)
+    assert loaded.regime_timeframe=="15m"
