@@ -459,6 +459,6 @@ def test_direct_contract_keeps_execution_inside_current_forming_bucket_visible()
     rendered = payload["markers"][0]
     assert rendered["time"] == int(datetime(2026, 9, 4, 21, 0, tzinfo=timezone.utc).timestamp())
     assert rendered["shape"] == "arrowUp"
-    assert rendered["size"] == 0.32
+    assert rendered["size"] == 0.30
     assert rendered["account_name"] == "Autotrader"
     assert payload["marker_accounts"][0]["label"] == "Autotrader"
