@@ -59,7 +59,6 @@ export default function(component) {
             const time = nearestTime(times, raw);
             if (time == null) return [];
             const direction = String(marker.direction || '').toUpperCase();
-            if (direction !== 'LONG' && direction !== 'SHORT') return [];
             const source = String(marker.source || '');
             const manualSaxo = source === 'SAXO_MANUAL_FILL';
             const autoV3 = source === 'AUTOTRADER_V3';
@@ -78,6 +77,7 @@ export default function(component) {
                     id: `${source}:${marker.id || raw}:${index}`,
                 }];
             }
+            if (direction !== 'LONG' && direction !== 'SHORT') return [];
             return [{
                 time,
                 price,
