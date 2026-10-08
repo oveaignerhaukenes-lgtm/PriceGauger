@@ -7,7 +7,11 @@ import streamlit as st
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
 from saxo_chart_live import FormingCandle1m
-from tradingdesk_ui.charts.lightweight.contract import _v3_account_palette, _v3_execution_marker_size
+from tradingdesk_ui.charts.lightweight.contract import (
+    _v3_account_palette,
+    _v3_account_palette_map,
+    _v3_execution_marker_size,
+)
 
 
 _LIGHTWEIGHT_LIVE_UPDATE_JS = r"""
@@ -69,7 +73,7 @@ export default function(component) {
                     position: up ? 'belowBar' : 'aboveBar',
                     shape: up ? 'arrowUp' : 'arrowDown',
                     color: up ? String(marker.account_light || '#c084fc') : String(marker.account_dark || '#7e22ce'),
-                    text: ['REVERSE', 'FLIP'].includes(String(marker.action || '').toUpperCase()) ? 'F' : '',
+                    text: '',
                     size: Number(marker.marker_size || 0.42),
                     id: `${source}:${marker.id || raw}:${index}`,
                 }];
@@ -564,9 +568,12 @@ def _forming_payload(candle: FormingCandle1m, *, timeframe_minutes: int) -> dict
 
 def _marker_payload(markers: Sequence[AutoTraderTradeMarkerV1]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
+    palette_map = _v3_account_palette_map(markers)
     for marker in markers:
-        light, dark = _v3_account_palette(
-            str(marker.account_id or marker.instance_id or marker.strategy_key)
+        account_id = str(marker.account_id or "").strip()
+        light, dark = palette_map.get(
+            account_id,
+            _v3_account_palette(str(marker.account_id or marker.instance_id or marker.strategy_key)),
         )
         result.append({
             "executed_at": _epoch_seconds(marker.executed_at),
