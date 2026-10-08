@@ -15,6 +15,11 @@ from decimal import Decimal, ROUND_DOWN
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2,_info_price,_extract_price
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3
 
+
+class V3CapitalCapReached(ValueError):
+    """Expected capacity saturation, distinct from malformed/missing broker evidence."""
+
+
 def capital_requirement_nok_v3(*, precheck: dict, side: str, account_currency: str) -> float:
     """Return Saxo broker-native capital requirement for one prechecked order."""
     currency=str(account_currency or '').strip().upper()
@@ -76,7 +81,7 @@ def enforce_execution_policy_precheck_v3(*, precheck: dict, side: str,
         required=step_required
     cap=float(policy.max_notional_nok)
     if required > cap + 1e-9:
-        raise ValueError(
+        raise V3CapitalCapReached(
             f'V3 cumulative capital requirement {required:.2f} NOK exceeds configured cap {cap:.2f} NOK')
     return required
 
@@ -123,4 +128,5 @@ __all__ = [
     "cap_open_add_amount_v3",
     "capital_requirement_nok_v3",
     "enforce_execution_policy_precheck_v3",
+    "V3CapitalCapReached",
 ]
