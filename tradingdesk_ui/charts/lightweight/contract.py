@@ -106,6 +106,12 @@ _V3_ACCOUNT_PALETTES = (
     ("#86efac", "#15803d"),
     ("#fda4af", "#be123c"),
     ("#93c5fd", "#1d4ed8"),
+    ("#fdba74", "#c2410c"),
+    ("#a5b4fc", "#4338ca"),
+    ("#5eead4", "#0f766e"),
+    ("#f9a8d4", "#be185d"),
+    ("#bef264", "#4d7c0f"),
+    ("#c4b5fd", "#6d28d9"),
 )
 
 
@@ -118,23 +124,39 @@ def _v3_account_palette(account_id: str) -> tuple[str, str]:
 def _v3_execution_marker_size(action: str) -> float:
     normalized = str(action or "").upper()
     if normalized in {"OPEN", "ADD"}:
-        return 0.55
+        return 0.46
     if normalized in {"REDUCE", "CLOSE"}:
-        return 0.32
+        return 0.30
     if normalized in {"REVERSE", "FLIP"}:
-        return 0.70
-    return 0.42
+        return 0.62
+    return 0.38
+
+
+def _v3_account_palette_map(
+    markers: Sequence[AutoTraderTradeMarkerV1],
+) -> dict[str, tuple[str, str]]:
+    account_ids = sorted({
+        str(marker.account_id or "").strip()
+        for marker in markers
+        if str(marker.source or "") == "AUTOTRADER_V3"
+        and str(marker.account_id or "").strip()
+    })
+    return {
+        account_id: _V3_ACCOUNT_PALETTES[index % len(_V3_ACCOUNT_PALETTES)]
+        for index, account_id in enumerate(account_ids)
+    }
 
 
 def _marker_accounts(markers: Sequence[AutoTraderTradeMarkerV1]) -> list[dict[str, str]]:
     result: dict[str, dict[str, str]] = {}
+    palette_map = _v3_account_palette_map(markers)
     for marker in markers:
         if str(marker.source or "") != "AUTOTRADER_V3":
             continue
         account_id = str(marker.account_id or "").strip()
         if not account_id or account_id in result:
             continue
-        light, dark = _v3_account_palette(account_id)
+        light, dark = palette_map.get(account_id, _v3_account_palette(account_id))
         result[account_id] = {
             "account_id": account_id,
             "label": str(marker.account_name or account_id),
@@ -156,6 +178,7 @@ def _marker_payload(
     first_time = candle_times[0]
     last_time = candle_times[-1]
     result: list[dict[str, Any]] = []
+    palette_map = _v3_account_palette_map(markers)
     for marker in markers:
         raw_time = _epoch_seconds(marker.executed_at)
         if raw_time < first_time - bucket_seconds or raw_time > last_time + bucket_seconds:
@@ -179,7 +202,11 @@ def _marker_payload(
                 side = "BUY" if direction == "LONG" else ("SELL" if direction == "SHORT" else "")
             if side not in {"BUY", "SELL"}:
                 continue
-            light, dark = _v3_account_palette(str(marker.account_id or marker.instance_id or marker.strategy_key))
+            account_id = str(marker.account_id or "").strip()
+            light, dark = palette_map.get(
+                account_id,
+                _v3_account_palette(str(marker.account_id or marker.instance_id or marker.strategy_key)),
+            )
             visual_direction = "LONG" if side == "BUY" else "SHORT"
             action = str(marker.action or "").upper()
             result.append(
@@ -189,7 +216,7 @@ def _marker_payload(
                     "position": "belowBar" if side == "BUY" else "aboveBar",
                     "shape": "arrowUp" if side == "BUY" else "arrowDown",
                     "color": light if side == "BUY" else dark,
-                    "text": "F" if action in {"REVERSE", "FLIP"} else "",
+                    "text": "",
                     "size": _v3_execution_marker_size(action),
                     "id": f"{source}:{marker.net_position_id}:{raw_time}:execution",
                     "direction": visual_direction,
