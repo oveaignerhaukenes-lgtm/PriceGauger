@@ -48,6 +48,13 @@ STRATEGIES_V3 = (
         "macd-regime-histogram-v1",
         True,
     ),
+    StrategySpecV3(
+        "aen2-sticky-regime",
+        "Aen#2 · Sticky Regime Rx/Sy",
+        "R eier retning. S bygger med regimet; enkelt motrykk HOLD, vedvarende mottrykk + svekkende R reduserer.",
+        "aen2-sticky-regime-v1",
+        True,
+    ),
 )
 
 MODIFIERS_V3 = (
@@ -72,6 +79,7 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
+REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss",)
 SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
@@ -104,7 +112,7 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
-    if strategy_key == "macd-regime-histogram" and regime_timeframe not in REGIME_TIMEFRAMES_V3:
+    if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
         issues.append(f"regime timeframe {regime_timeframe} is not LIVE runtime-ready")
     if control_mode not in LIVE_CONTROL_MODES_V3:
         issues.append(f"control mode {control_mode} is not LIVE runtime-ready")
@@ -131,7 +139,7 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
-    if strategy_key == "macd-regime-histogram" and regime_timeframe not in REGIME_TIMEFRAMES_V3:
+    if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
         issues.append(f"regime timeframe {regime_timeframe} is not SIM runtime-ready")
     if control_mode not in SIM_CONTROL_MODES_V3:
         issues.append(f"control mode {control_mode} is not SIM runtime-ready")
@@ -154,6 +162,8 @@ def strategy_display_label_v3(
     spec = strategy_v3(str(strategy_key))
     if spec.key == "macd-regime-histogram":
         return f"Histogram MACD-R{regime_timeframe}S{timeframe}"
+    if spec.key == "aen2-sticky-regime":
+        return f"Aen#2 · Sticky R{regime_timeframe}/S{timeframe}"
     return f"{spec.label} · {timeframe}"
 
 
