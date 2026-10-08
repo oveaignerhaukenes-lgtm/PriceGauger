@@ -28,8 +28,10 @@ export default function(component) {
     }
 
     function payload(entry) {
-        const times = Array.from(entry?.baseCandles?.keys?.() || [])
-            .map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        const times = [
+            ...Array.from(entry?.baseCandles?.keys?.() || []),
+            ...Array.from(entry?.formingCandles?.keys?.() || []),
+        ].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
         if (!times.length) return [];
         const grace = Math.max(60, Number(data.timeframe_seconds || 60));
         const first = times[0];
@@ -49,34 +51,19 @@ export default function(component) {
             const autoV3 = source === 'AUTOTRADER_V3';
 
             if (autoV3) {
-                const unitsRaw = Number(marker.position_units);
-                const units = Number.isFinite(unitsRaw) ? Math.max(0, Math.min(10, unitsRaw)) : 1;
-                const vectorSize = isFlat ? 1.0 : Math.max(0.85, Math.min(2.65, 0.65 + 0.20 * units));
-                const markers = [{
+                const side = String(marker.side || '').toUpperCase();
+                if (side !== 'BUY' && side !== 'SELL') return [];
+                const up = side === 'BUY';
+                return [{
                     time,
                     price,
-                    position: 'atPriceMiddle',
-                    shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
-                    color: isFlat ? '#64748b' : '#a855f7',
-                    text: '',
-                    size: vectorSize,
-                    id: `${marker.id || raw}:${index}:position`,
+                    position: up ? 'belowBar' : 'aboveBar',
+                    shape: up ? 'arrowUp' : 'arrowDown',
+                    color: up ? String(marker.account_light || '#c084fc') : String(marker.account_dark || '#7e22ce'),
+                    text: ['REVERSE', 'FLIP'].includes(String(marker.action || '').toUpperCase()) ? 'F' : '',
+                    size: Number(marker.marker_size || 0.42),
+                    id: `${marker.id || raw}:${index}:execution`,
                 }];
-
-                const side = String(marker.side || '').toUpperCase();
-                if (side === 'BUY' || side === 'SELL') {
-                    markers.push({
-                        time,
-                        price,
-                        position: side === 'BUY' ? 'belowBar' : 'aboveBar',
-                        shape: side === 'BUY' ? 'arrowUp' : 'arrowDown',
-                        color: '#e879f9',
-                        text: '',
-                        size: 0.45,
-                        id: `${marker.id || raw}:${index}:execution`,
-                    });
-                }
-                return markers;
             }
 
             return [{

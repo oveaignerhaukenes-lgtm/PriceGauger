@@ -28,6 +28,9 @@ class AutoTraderTradeMarkerV1:
     inventory_before: float | None = None
     inventory_after: float | None = None
     position_units: float | None = None
+    account_id: str = ""
+    account_name: str = ""
+    instance_id: str = ""
 
 
 def _utc(value: Any) -> datetime:
@@ -162,7 +165,8 @@ def _historical_markers_v1(market_name: str) -> tuple[AutoTraderTradeMarkerV1, .
                 """
                 SELECT marker.executed_at, marker.execution_price, marker.direction,
                        marker.amount, marker.strategy_key, marker.net_position_id,
-                       CASE WHEN managed.net_position_id IS NULL THEN FALSE ELSE TRUE END AS active
+                       CASE WHEN managed.net_position_id IS NULL THEN FALSE ELSE TRUE END AS active,
+                       marker.account_id
                 FROM pg_v2_autotrader_trade_markers AS marker
                 JOIN pg_v2_autotrader_strategy_enrollments AS enrollment
                   ON enrollment.pilot_key = marker.pilot_key
@@ -195,6 +199,7 @@ def _historical_markers_v1(market_name: str) -> tuple[AutoTraderTradeMarkerV1, .
                 net_position_id=str(_value(row, "net_position_id", 5) or ""),
                 active=bool(_value(row, "active", 6)),
                 source="AUTOTRADER_OPEN",
+                account_id=str(_value(row, "account_id", 7) or ""),
             )
         )
     return tuple(result)
@@ -208,7 +213,8 @@ def _active_managed_marker_v1(market_name: str) -> AutoTraderTradeMarkerV1 | Non
             row = db.execute(
                 """
                 SELECT managed.enrolled_at, managed.average_open_price, managed.direction,
-                       managed.amount, enrollment.strategy_key, managed.net_position_id
+                       managed.amount, enrollment.strategy_key, managed.net_position_id,
+                       managed.account_id
                 FROM pg_v2_autotrader_managed_positions AS managed
                 JOIN pg_v2_autotrader_strategy_enrollments AS enrollment
                   ON enrollment.account_id = managed.account_id
@@ -235,6 +241,7 @@ def _active_managed_marker_v1(market_name: str) -> AutoTraderTradeMarkerV1 | Non
         net_position_id=str(_value(row, "net_position_id", 5) or ""),
         active=True,
         source="ACTIVE_MANAGED_POSITION",
+        account_id=str(_value(row, "account_id", 6) or ""),
     )
 
 
@@ -263,6 +270,9 @@ def load_autotrader_trade_markers_v1(market_name: str) -> tuple[AutoTraderTradeM
             net_position_id=marker.net_position_id,
             active=True,
             source=marker.source,
+            account_id=marker.account_id,
+            account_name=marker.account_name,
+            instance_id=marker.instance_id,
         )
         matched = True
         break

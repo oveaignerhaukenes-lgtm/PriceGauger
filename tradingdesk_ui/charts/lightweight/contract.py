@@ -3,6 +3,7 @@ from __future__ import annotations
 from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
+import hashlib
 from typing import Any
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
@@ -98,6 +99,51 @@ def _nearest_candle_time(candle_times: Sequence[int], value: int) -> int | None:
     return min(candidates, key=lambda item: abs(item - value)) if candidates else None
 
 
+_V3_ACCOUNT_PALETTES = (
+    ("#d8b4fe", "#7e22ce"),
+    ("#67e8f9", "#0e7490"),
+    ("#fcd34d", "#b45309"),
+    ("#86efac", "#15803d"),
+    ("#fda4af", "#be123c"),
+    ("#93c5fd", "#1d4ed8"),
+)
+
+
+def _v3_account_palette(account_id: str) -> tuple[str, str]:
+    key = str(account_id or "unknown").encode("utf-8")
+    index = int.from_bytes(hashlib.blake2s(key, digest_size=2).digest(), "big")
+    return _V3_ACCOUNT_PALETTES[index % len(_V3_ACCOUNT_PALETTES)]
+
+
+def _v3_execution_marker_size(action: str) -> float:
+    normalized = str(action or "").upper()
+    if normalized in {"OPEN", "ADD"}:
+        return 0.55
+    if normalized in {"REDUCE", "CLOSE"}:
+        return 0.32
+    if normalized in {"REVERSE", "FLIP"}:
+        return 0.70
+    return 0.42
+
+
+def _marker_accounts(markers: Sequence[AutoTraderTradeMarkerV1]) -> list[dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
+    for marker in markers:
+        if str(marker.source or "") != "AUTOTRADER_V3":
+            continue
+        account_id = str(marker.account_id or "").strip()
+        if not account_id or account_id in result:
+            continue
+        light, dark = _v3_account_palette(account_id)
+        result[account_id] = {
+            "account_id": account_id,
+            "label": str(marker.account_name or account_id),
+            "light": light,
+            "dark": dark,
+        }
+    return [result[key] for key in sorted(result)]
+
+
 def _marker_payload(
     markers: Sequence[AutoTraderTradeMarkerV1],
     *,
@@ -128,43 +174,38 @@ def _marker_payload(
         is_flat = direction == "FLAT"
 
         if auto_v3:
-            units = 1.0 if marker.position_units is None else max(0.0, min(10.0, float(marker.position_units)))
-            vector_size = 1.0 if is_flat else max(0.85, min(2.65, 0.65 + 0.20 * units))
+            side = str(marker.side or "").upper()
+            if side not in {"BUY", "SELL"}:
+                side = "BUY" if direction == "LONG" else ("SELL" if direction == "SHORT" else "")
+            if side not in {"BUY", "SELL"}:
+                continue
+            light, dark = _v3_account_palette(str(marker.account_id or marker.instance_id or marker.strategy_key))
+            visual_direction = "LONG" if side == "BUY" else "SHORT"
+            action = str(marker.action or "").upper()
             result.append(
                 {
                     "time": time_value,
                     "price": float(marker.execution_price),
-                    "position": "atPriceMiddle",
-                    "shape": "square" if is_flat else ("arrowUp" if direction == "LONG" else "arrowDown"),
-                    "color": "#64748b" if is_flat else "#a855f7",
-                    "text": "",
-                    "size": vector_size,
-                    "id": f"{source}:{marker.net_position_id}:{raw_time}:position",
-                    "direction": direction,
+                    "position": "belowBar" if side == "BUY" else "aboveBar",
+                    "shape": "arrowUp" if side == "BUY" else "arrowDown",
+                    "color": light if side == "BUY" else dark,
+                    "text": "F" if action in {"REVERSE", "FLIP"} else "",
+                    "size": _v3_execution_marker_size(action),
+                    "id": f"{source}:{marker.net_position_id}:{raw_time}:execution",
+                    "direction": visual_direction,
+                    "position_direction": direction,
                     "active": bool(marker.active),
                     "source": source,
-                    "marker_role": "POSITION_VECTOR",
-                    "position_units": units,
+                    "marker_role": "EXECUTION_EVENT",
+                    "action": action,
+                    "side": side,
+                    "account_id": str(marker.account_id or ""),
+                    "account_name": str(marker.account_name or ""),
+                    "instance_id": str(marker.instance_id or marker.strategy_key or ""),
+                    "inventory_before": marker.inventory_before,
+                    "inventory_after": marker.inventory_after,
                 }
             )
-            side = str(marker.side or "").upper()
-            if side in {"BUY", "SELL"}:
-                result.append(
-                    {
-                        "time": time_value,
-                        "price": float(marker.execution_price),
-                        "position": "belowBar" if side == "BUY" else "aboveBar",
-                        "shape": "arrowUp" if side == "BUY" else "arrowDown",
-                        "color": "#e879f9",
-                        "text": "",
-                        "size": 0.45,
-                        "id": f"{source}:{marker.net_position_id}:{raw_time}:execution",
-                        "direction": "LONG" if side == "BUY" else "SHORT",
-                        "active": bool(marker.active),
-                        "source": source,
-                        "marker_role": "EXECUTION_SIDE",
-                    }
-                )
             continue
 
         if is_flat:
@@ -278,6 +319,7 @@ def build_lightweight_live_payload_v1(
     chart_height: int,
     price_panel_share: float,
     trade_markers: Sequence[AutoTraderTradeMarkerV1] = (),
+    marker_times: Sequence[int] = (),
 ) -> dict[str, Any]:
     """Build a renderer-neutral, JSON-safe LIVE chart contract for Lightweight Charts.
 
@@ -288,6 +330,10 @@ def build_lightweight_live_payload_v1(
     selected = set(str(item) for item in indicator_names)
     candles = _candles(primary)
     candle_times = [int(item["time"]) for item in candles]
+    marker_candle_times = sorted({
+        *candle_times,
+        *(int(value) for value in marker_times),
+    })
     lines: list[dict[str, Any]] = []
     histograms: list[dict[str, Any]] = []
 
@@ -383,7 +429,8 @@ def build_lightweight_live_payload_v1(
         "volume": _volume(primary),
         "lines": lines,
         "histograms": histograms,
-        "markers": _marker_payload(trade_markers, candle_times=candle_times, timeframe=timeframe),
+        "markers": _marker_payload(trade_markers, candle_times=marker_candle_times, timeframe=timeframe),
+        "marker_accounts": _marker_accounts(trade_markers),
         "pane_order": pane_order,
         "thresholds": {
             "rsi": [30.0, 70.0],

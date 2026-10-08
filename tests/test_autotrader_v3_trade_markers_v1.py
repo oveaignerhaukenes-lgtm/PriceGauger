@@ -52,27 +52,22 @@ def test_full_close_execution_marker_can_remain_neutral():
     ) == "FLAT"
 
 
-def test_chart_overlay_has_position_vector_and_execution_side_layers():
+def test_chart_uses_one_compact_execution_triangle_per_v3_event():
     overlay=Path("tradingdesk_ui/charts/lightweight/trade_marker_overlay_v2.py").read_text(encoding="utf-8")
     contract=Path("tradingdesk_ui/charts/lightweight/contract.py").read_text(encoding="utf-8")
     live=Path("tradingdesk_ui/charts/lightweight/live_update.py").read_text(encoding="utf-8")
 
-    assert "position_units" in live
-    assert "vectorSize" in overlay
-    assert "0.65 + 0.20 * units" in overlay
-    assert ":position" in overlay
+    assert "vectorSize" not in overlay
+    assert ":position" not in overlay
     assert ":execution" in overlay
-    assert "side === 'BUY' ? 'belowBar' : 'aboveBar'" in overlay
-    assert '"marker_role": "POSITION_VECTOR"' in contract
-    assert '"marker_role": "EXECUTION_SIDE"' in contract
+    assert '"marker_role": "EXECUTION_EVENT"' in contract
+    assert "_v3_execution_marker_size" in contract
+    assert "account_light" in live and "account_dark" in live
 
 
-def test_position_vector_size_grows_with_exposure_and_shrinks_on_reduction():
-    # Mirror the renderer contract: one tranche is visibly short, ten are capped.
-    def vector_size(units: float) -> float:
-        bounded=max(0.0,min(10.0,float(units)))
-        return max(0.85,min(2.65,0.65+0.20*bounded))
+def test_execution_marker_size_distinguishes_build_from_reduce():
+    from tradingdesk_ui.charts.lightweight.contract import _v3_execution_marker_size
 
-    assert vector_size(1) < vector_size(3) < vector_size(7)
-    assert vector_size(7) > vector_size(4) > vector_size(1)
-    assert vector_size(10) == vector_size(20)
+    assert _v3_execution_marker_size("ADD") > _v3_execution_marker_size("REDUCE")
+    assert _v3_execution_marker_size("OPEN") > _v3_execution_marker_size("CLOSE")
+    assert _v3_execution_marker_size("REVERSE") > _v3_execution_marker_size("ADD")

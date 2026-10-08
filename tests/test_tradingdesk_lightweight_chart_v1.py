@@ -192,12 +192,13 @@ def test_touch_time_axis_drag_scales_x_axis_and_double_tap_fits_content() -> Non
     assert "height: '34px'" in source
 
 
-def test_trade_markers_keep_pg_and_manual_saxo_colors_distinct() -> None:
+def test_trade_markers_keep_account_aware_v3_and_manual_saxo_styles_distinct() -> None:
     source = (ROOT / "tradingdesk_ui" / "charts" / "lightweight" / "live_update.py").read_text(
         encoding="utf-8"
     )
     assert "source === 'SAXO_MANUAL_FILL'" in source
-    assert "autoV3 ? '#a855f7' : '#0ea5e9'" in source
+    assert "source === 'AUTOTRADER_V3'" in source
+    assert "marker.account_light" in source and "marker.account_dark" in source
     assert "direction === 'LONG' ? '#16a34a' : '#dc2626'" in source
     assert "text: manualSaxo ? 'M' : ''" in source
     assert "SAXO BUY" not in source
@@ -409,3 +410,55 @@ def test_live_payload_marks_confirmed_flat_as_red_circle() -> None:
     assert '{"LONG", "SHORT", "FLAT"}' in source
     assert 'color = "#ef4444"' in source
     assert '"circle" if is_flat' in source
+
+
+def test_direct_contract_keeps_execution_inside_current_forming_bucket_visible() -> None:
+    bars = _bars(count=4)
+    # Last closed 5m candle starts 20:55. Current forming bucket starts 21:00.
+    forming = FormingCandle1m(
+        market="US Tech 100 NAS",
+        bar_time="2026-09-04T21:03:00+00:00",
+        open=29500.0, high=29510.0, low=29495.0, close=29506.0,
+        volume=None, provider="Saxo price stream", uic=4912,
+        asset_type="CfdOnIndex", symbol="NAS100", delayed_by_minutes=None,
+        source_event_at="2026-09-04T21:03:05+00:00",
+        updated_at="2026-09-04T21:03:05+00:00",
+    )
+    marker = AutoTraderTradeMarkerV1(
+        executed_at=datetime(2026, 9, 4, 21, 3, 30, tzinfo=timezone.utc),
+        execution_price=29506.0,
+        direction="SHORT",
+        amount=0.01,
+        strategy_key="instance-1",
+        net_position_id="request-1",
+        active=False,
+        source="AUTOTRADER_V3",
+        action="REDUCE",
+        side="Buy",
+        inventory_before=-0.03,
+        inventory_after=-0.02,
+        account_id="ACC-1",
+        account_name="Autotrader",
+        instance_id="instance-1",
+    )
+    payload = build_lightweight_direct_live_payload_v1(
+        market="US Tech 100 NAS",
+        timeframe="5m",
+        primary=bars,
+        overlays={},
+        overlay_mode=OVERLAY_NORMALIZED,
+        indicators=None,
+        indicator_names=(),
+        indicator_timeframes={},
+        chart_height=780,
+        price_panel_share=0.5,
+        trade_markers=(marker,),
+        forming_candle=forming,
+    )
+    assert len(payload["markers"]) == 1
+    rendered = payload["markers"][0]
+    assert rendered["time"] == int(datetime(2026, 9, 4, 21, 0, tzinfo=timezone.utc).timestamp())
+    assert rendered["shape"] == "arrowUp"
+    assert rendered["size"] == 0.32
+    assert rendered["account_name"] == "Autotrader"
+    assert payload["marker_accounts"][0]["label"] == "Autotrader"

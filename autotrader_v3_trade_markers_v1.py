@@ -39,7 +39,7 @@ def _position_quanta_v3(rows)->dict[str,float]:
     for row in rows:
         v=dict(row) if isinstance(row,dict) else dict(zip(
             ("executed_at","display_price","action","side","direction","amount",
-             "inventory_before","inventory_after","instance_id","request_key"),row))
+             "inventory_before","inventory_after","instance_id","account_id","request_key"),row))
         try:
             amount=abs(float(v["amount"]))
         except (TypeError,ValueError):
@@ -59,7 +59,7 @@ def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...
     with connect() as db:
         rows=db.execute("""SELECT e.executed_at,anchor.close AS display_price,
           e.action,e.side,e.direction,e.amount,e.inventory_before,e.inventory_after,
-          e.instance_id,e.request_key
+          e.instance_id,e.account_id,e.request_key
           FROM autotrader_v3_execution_events e
           JOIN autotrader_v3_engine_instances i ON i.instance_id=e.instance_id
           JOIN LATERAL (
@@ -73,7 +73,7 @@ def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...
     quanta=_position_quanta_v3(rows)
     result=[]
     keys=("executed_at","display_price","action","side","direction","amount",
-          "inventory_before","inventory_after","instance_id","request_key")
+          "inventory_before","inventory_after","instance_id","account_id","request_key")
     for row in rows:
         v=dict(row) if isinstance(row,dict) else dict(zip(keys,row))
         after=float(v["inventory_after"])
@@ -96,6 +96,8 @@ def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...
             inventory_before=float(v["inventory_before"]),
             inventory_after=after,
             position_units=float(units) if units is not None else None,
+            account_id=str(v["account_id"]),
+            instance_id=str(v["instance_id"]),
         ))
     return tuple(result)
 

@@ -76,3 +76,10 @@ def test_tradingdesk_periodic_refresh_uses_independent_fragments():
     assert "_refresh_live_chart_data()" in main
     assert "_render_automanager_workspace()" in main
     assert "(_render_v2_analysis)()" in main
+
+
+def test_live_marker_refresh_includes_forming_candle_times():
+    live = Path("tradingdesk_ui/charts/lightweight/live_update.py").read_text(encoding="utf-8")
+    overlay = Path("tradingdesk_ui/charts/lightweight/trade_marker_overlay_v2.py").read_text(encoding="utf-8")
+    assert "entry?.formingCandles?.keys?.()" in live
+    assert "entry?.formingCandles?.keys?.()" in overlay

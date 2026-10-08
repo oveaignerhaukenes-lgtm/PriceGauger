@@ -7,6 +7,7 @@ import streamlit as st
 
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
 from saxo_chart_live import FormingCandle1m
+from tradingdesk_ui.charts.lightweight.contract import _v3_account_palette, _v3_execution_marker_size
 
 
 _LIGHTWEIGHT_LIVE_UPDATE_JS = r"""
@@ -39,8 +40,10 @@ export default function(component) {
     }
 
     function markerPayload(entry) {
-        const times = Array.from(entry?.baseCandles?.keys?.() || [])
-            .map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        const times = [
+            ...Array.from(entry?.baseCandles?.keys?.() || []),
+            ...Array.from(entry?.formingCandles?.keys?.() || []),
+        ].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
         if (!times.length) return [];
         const grace = Math.max(60, Number(data.timeframe_seconds || 60));
         const first = times[0];
@@ -56,14 +59,29 @@ export default function(component) {
             const source = String(marker.source || '');
             const manualSaxo = source === 'SAXO_MANUAL_FILL';
             const autoV3 = source === 'AUTOTRADER_V3';
+            if (autoV3) {
+                const side = String(marker.side || '').toUpperCase();
+                if (side !== 'BUY' && side !== 'SELL') return [];
+                const up = side === 'BUY';
+                return [{
+                    time,
+                    price,
+                    position: up ? 'belowBar' : 'aboveBar',
+                    shape: up ? 'arrowUp' : 'arrowDown',
+                    color: up ? String(marker.account_light || '#c084fc') : String(marker.account_dark || '#7e22ce'),
+                    text: ['REVERSE', 'FLIP'].includes(String(marker.action || '').toUpperCase()) ? 'F' : '',
+                    size: Number(marker.marker_size || 0.42),
+                    id: `${source}:${marker.id || raw}:${index}`,
+                }];
+            }
             return [{
                 time,
                 price,
-                position: 'atPriceMiddle',
+                position: direction === 'LONG' ? 'belowBar' : 'aboveBar',
                 shape: direction === 'LONG' ? 'arrowUp' : 'arrowDown',
                 color: manualSaxo
                     ? (direction === 'LONG' ? '#16a34a' : '#dc2626')
-                    : (autoV3 ? '#a855f7' : '#0ea5e9'),
+                    : '#0ea5e9',
                 text: manualSaxo ? 'M' : '',
                 size: manualSaxo ? 0.82 : (marker.active ? 1.0 : 0.72),
                 id: `${source}:${marker.id || raw}:${index}`,
@@ -545,8 +563,12 @@ def _forming_payload(candle: FormingCandle1m, *, timeframe_minutes: int) -> dict
 
 
 def _marker_payload(markers: Sequence[AutoTraderTradeMarkerV1]) -> list[dict[str, Any]]:
-    return [
-        {
+    result: list[dict[str, Any]] = []
+    for marker in markers:
+        light, dark = _v3_account_palette(
+            str(marker.account_id or marker.instance_id or marker.strategy_key)
+        )
+        result.append({
             "executed_at": _epoch_seconds(marker.executed_at),
             "execution_price": float(marker.execution_price),
             "direction": str(marker.direction),
@@ -563,10 +585,15 @@ def _marker_payload(markers: Sequence[AutoTraderTradeMarkerV1]) -> list[dict[str
             "position_units": (
                 None if marker.position_units is None else float(marker.position_units)
             ),
+            "account_id": str(marker.account_id or ""),
+            "account_name": str(marker.account_name or ""),
+            "instance_id": str(marker.instance_id or ""),
+            "account_light": light,
+            "account_dark": dark,
+            "marker_size": _v3_execution_marker_size(str(marker.action or "")),
             "id": f"{marker.net_position_id}:{_epoch_seconds(marker.executed_at)}",
-        }
-        for marker in markers
-    ]
+        })
+    return result
 
 
 def render_lightweight_live_update_v1(

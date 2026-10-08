@@ -125,6 +125,10 @@ def build_lightweight_direct_live_payload_v1(
 ) -> dict[str, Any]:
     """Extend the stable LWC contract with direct-render-only structural primitives."""
 
+    forming_payload = _forming_chart_payload_v1(
+        forming_candle,
+        timeframe=timeframe,
+    )
     payload = build_lightweight_live_payload_v1(
         market=market,
         timeframe=timeframe,
@@ -137,6 +141,7 @@ def build_lightweight_direct_live_payload_v1(
         chart_height=chart_height,
         price_panel_share=price_panel_share,
         trade_markers=trade_markers,
+        marker_times=(int(forming_payload["time"]),) if forming_payload is not None else (),
     )
     bands: list[dict[str, Any]] = []
     if INDICATOR_SWING_BANDS in set(str(item) for item in indicator_names) and primary:
@@ -151,10 +156,7 @@ def build_lightweight_direct_live_payload_v1(
                 }
             )
     payload["swing_bands"] = bands
-    payload["forming_candle"] = _forming_chart_payload_v1(
-        forming_candle,
-        timeframe=timeframe,
-    )
+    payload["forming_candle"] = forming_payload
     payload["timeframe_seconds"] = int(TIMEFRAME_MINUTES[str(timeframe)]) * 60
 
     resolved_rollovers: Sequence[Mapping[str, Any]] = rollover_events or ()
