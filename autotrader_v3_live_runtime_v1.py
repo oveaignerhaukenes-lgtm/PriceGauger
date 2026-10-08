@@ -348,6 +348,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             f"{e.strategy_key}:R{config.regime_timeframe}"
             if e.strategy_key in REGIME_RUNTIME_KEYS_V3 else e.strategy_key
         )
+        capacity_context_key=f"{context_strategy_key}|T{config.timeframe}"
         context_changed=_prepare_live_decision_context_v3(
             trader_id=e.pilot_key,strategy_key=context_strategy_key,
             timeframe_minutes=timeframe_minutes,actual_amount=actual.amount,db_path=db_path)
@@ -452,7 +453,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     desired_direction=mutation.direction,
                     actual_amount=actual.amount,
                     cap_nok=policy.max_notional_nok,
-                    context_key=context_strategy_key,
+                    context_key=capacity_context_key,
                 ):
                     align_closed_bar_target_v3(
                         trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
@@ -529,7 +530,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     direction=mutation.direction,
                     cap_nok=policy.max_notional_nok,
                     inventory_amount=actual.amount,
-                    context_key=context_strategy_key,
+                    context_key=capacity_context_key,
                     db_path=db_path,
                 )
                 align_closed_bar_target_v3(
