@@ -12,6 +12,7 @@ V3_STRATEGY_KEYS = frozenset({
     "vwap-regime-histogram-v1",
     "macd-regime-histogram-v1",
     "aen2-sticky-regime-v1",
+    "aen21-sticky-fast-exit-v1",
     "macd-stoch-v1",
 })
 
