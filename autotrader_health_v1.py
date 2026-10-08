@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 
+from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_control_plane_v1 import authority_state_v3
 from autotrader_v3_instance_registry_v1 import bootstrap_v3_instances_from_enrollments_v1
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
+from autotrader_v3_registry_v1 import strategy_display_label_v3
 from database import connect, using_postgres
 
 
@@ -26,6 +28,10 @@ class AutoTraderInstanceHealthV1:
     market_name: str
     account_id: str
     account_name: str
+    strategy_key: str
+    strategy_label: str
+    signal_timeframe: str
+    regime_timeframe: str
     uic: int
     live_armed: bool
     sim_armed: bool
@@ -265,6 +271,19 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
     rows: list[AutoTraderInstanceHealthV1] = []
     for instance in instances:
         try:
+            config = load_autotrader_config_v3(instance.instance_id)
+            strategy_key = config.strategy_key
+            signal_timeframe = config.timeframe
+            regime_timeframe = config.regime_timeframe
+            strategy_label = strategy_display_label_v3(
+                strategy_key, signal_timeframe, regime_timeframe
+            )
+        except Exception:
+            strategy_key = ""
+            signal_timeframe = ""
+            regime_timeframe = ""
+            strategy_label = "Ukjent strategi"
+        try:
             authority = authority_state_v3(instance.instance_id)
             live_armed = bool(authority.live_armed)
             sim_armed = bool(authority.sim_armed)
@@ -325,6 +344,10 @@ def load_autotrader_health_snapshot_v1(*, include_pnl: bool = True, now: datetim
                 market_name=instance.market_name,
                 account_id=instance.account_id,
                 account_name=account_names.get(instance.account_id, ""),
+                strategy_key=strategy_key,
+                strategy_label=strategy_label,
+                signal_timeframe=signal_timeframe,
+                regime_timeframe=regime_timeframe,
                 uic=int(instance.uic),
                 live_armed=live_armed,
                 sim_armed=sim_armed,

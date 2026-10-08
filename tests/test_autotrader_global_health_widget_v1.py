@@ -141,5 +141,8 @@ def test_global_build_chrome_mounts_read_only_autotrader_widget():
     assert "conic-gradient" in widget
     assert "filter(x=>x.live_armed)" in widget
     assert "healthGradient" in widget
+    assert "strategy_label" in widget
+    assert "<b>Strategi:</b>" in widget
+    assert "x.account_name||x.account_id" in widget
     assert "place_order(" not in widget
     assert "set_live_enabled_v3" not in widget

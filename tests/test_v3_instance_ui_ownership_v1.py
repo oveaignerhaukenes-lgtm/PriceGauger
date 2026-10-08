@@ -41,3 +41,15 @@ def test_market_remove_is_ui_only_and_reversible():
     assert 'set_tradingdesk_market_hidden_v2' in auto
     assert 'set_collection_subscription_v2' not in desk
     assert 'set_collection_subscription_v2' not in auto
+
+
+def test_instance_ui_shows_persisted_active_identity_and_explicit_unsaved_selection():
+    shared=Path('autotrader_v3_instance_controls_ui_v1.py').read_text()
+    fleet=Path('autotrader_v3_fleet_ui_v1.py').read_text()
+    assert "account_title=account_name or str(instance.account_id)" in shared
+    assert "Aktiv nå:" in shared
+    assert "Valgt, ikke lagret:" in shared
+    assert "LIVE PÅ · {account_title} · {active_label}" in shared
+    assert "Slå LIVE av · behold posisjon" in shared
+    assert "account_title=account_name or item.account_id" in fleet
+    assert "strategy_display_label_v3" in fleet
