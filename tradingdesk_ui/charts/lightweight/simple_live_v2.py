@@ -137,6 +137,41 @@ export default function(component) {{
         }});
         root.appendChild(selection);
 
+        const markerLegend = document.createElement('div');
+        Object.assign(markerLegend.style, {{
+            position: 'absolute', right: '72px', top: '8px', zIndex: '20',
+            display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap',
+            maxWidth: '58%', padding: '3px 6px', borderRadius: '6px',
+            font: '600 10px/1.2 system-ui', color: theme.text,
+            background: theme.background, border: '1px solid ' + theme.border,
+            opacity: '.90', pointerEvents: 'none',
+        }});
+        const markerAccounts = Array.from(payload.marker_accounts || []);
+        for (const account of markerAccounts) {{
+            const item = document.createElement('span');
+            item.style.whiteSpace = 'nowrap';
+            const label = document.createElement('span');
+            label.textContent = String(account.label || account.account_id || 'konto');
+            const up = document.createElement('span');
+            up.textContent = ' ▲';
+            up.style.color = String(account.light || '#c084fc');
+            up.style.fontSize = '12px';
+            const down = document.createElement('span');
+            down.textContent = '▼';
+            down.style.color = String(account.dark || '#7e22ce');
+            down.style.fontSize = '12px';
+            item.append(label, up, down);
+            markerLegend.appendChild(item);
+        }}
+        if (markerAccounts.length) {{
+            const hint = document.createElement('span');
+            hint.textContent = 'stor=øk/åpne · liten=reduser/lukke';
+            hint.style.fontWeight = '500';
+            hint.style.opacity = '.72';
+            markerLegend.appendChild(hint);
+            root.appendChild(markerLegend);
+        }}
+
         const chart = LWC.createChart(root, {{
             autoSize: true,
             layout: {{
