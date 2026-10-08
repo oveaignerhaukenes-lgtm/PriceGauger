@@ -60,7 +60,7 @@ export default function(component) {
                     position: up ? 'belowBar' : 'aboveBar',
                     shape: up ? 'arrowUp' : 'arrowDown',
                     color: up ? String(marker.account_light || '#c084fc') : String(marker.account_dark || '#7e22ce'),
-                    text: ['REVERSE', 'FLIP'].includes(String(marker.action || '').toUpperCase()) ? 'F' : '',
+                    text: '',
                     size: Number(marker.marker_size || 0.42),
                     id: `${marker.id || raw}:${index}:execution`,
                 }];
