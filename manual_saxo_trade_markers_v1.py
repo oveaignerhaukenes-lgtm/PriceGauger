@@ -423,7 +423,7 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
             rows = db.execute(
                 """
                 SELECT executed_at, execution_price, direction, amount,
-                       order_id, position_id
+                       order_id, position_id, account_id
                 FROM pg_v2_saxo_manual_trade_markers
                 WHERE market_name = ?
                   AND executed_at >= ?
@@ -449,6 +449,7 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
             "amount": row[3],
             "order_id": row[4],
             "position_id": row[5],
+            "account_id": row[6],
         }
         result.append(
             AutoTraderTradeMarkerV1(
@@ -462,6 +463,7 @@ def load_manual_saxo_trade_markers_v1(market_name: str, *, days: int = 14):
                 ),
                 active=False,
                 source="SAXO_MANUAL_FILL",
+                account_id=str(values.get("account_id") or ""),
             )
         )
     return tuple(result)
