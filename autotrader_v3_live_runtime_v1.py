@@ -308,6 +308,32 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                         pending.get('updated_at'),pending.get('submitted_side'),
                         pending.get('submitted_amount'),fresh_actual.amount,expected_amount,
                     )
+                    if broker_ref:
+                        # One extra READ request per unresolved order on worker
+                        # start. Failure or missing evidence MUST keep PENDING.
+                        try:
+                            audit=broker.order_activity_exact(
+                                account_id=e.account_id,order_id=broker_ref,
+                                uic=int(e.uic),asset_type=str(e.asset_type))
+                            LOGGER.warning(
+                                'v3 LIVE Saxo ORDER_HISTORY trader=%s '
+                                'account_label=%s order_suffix=%s '
+                                'available=%s status=%s sub_status=%s '
+                                'filled_amount=%s order_amount=%s order_side=%s '
+                                'activity_time=%s action=READ_ONLY_KEEP_PENDING',
+                                e.pilot_key,account_labels.get(e.account_id) or '(not reported)',
+                                broker_ref[-8:],audit.get('available'),
+                                audit.get('status') or audit.get('reason') or 'UNKNOWN',
+                                audit.get('sub_status'),audit.get('filled_amount'),
+                                audit.get('amount'),audit.get('side'),
+                                audit.get('activity_time'),
+                            )
+                        except Exception as exc:
+                            LOGGER.warning(
+                                'v3 LIVE Saxo ORDER_HISTORY_UNAVAILABLE trader=%s '
+                                'order_suffix=%s error_type=%s '
+                                'action=READ_ONLY_KEEP_PENDING',
+                                e.pilot_key,broker_ref[-8:],type(exc).__name__)
                     _PENDING_AUDIT_LOGGED_V3.add(e.pilot_key)
                 _record_runtime(e.pilot_key,'PENDING',
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=waiting; no retry sent',
