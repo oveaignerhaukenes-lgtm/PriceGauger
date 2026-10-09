@@ -95,6 +95,9 @@ export default function(component) {{
 
     function markerPayload() {{
         return Array.from(payload.markers || []).map((marker) => {{
+            // V3 execution markers already encode the broker BUY/SELL side.
+            // Never overwrite them with the resulting inventory direction.
+            if (String(marker.source || '') === 'AUTOTRADER_V3') return marker;
             const direction = String(marker.direction || '').toUpperCase();
             if (!['LONG', 'SHORT', 'FLAT'].includes(direction)) return marker;
             const isFlat = direction === 'FLAT';
@@ -438,6 +441,8 @@ export default function(component) {
             })));
         }
         entry.markers?.setMarkers?.(Array.from(payload.markers || []).map(marker => {
+            // Keep V3 broker execution-side arrows intact on 1s fragment refreshes.
+            if (String(marker.source || '') === 'AUTOTRADER_V3') return marker;
             const direction = String(marker.direction || '').toUpperCase();
             if (!['LONG', 'SHORT', 'FLAT'].includes(direction)) return marker;
             const isFlat = direction === 'FLAT';

@@ -72,7 +72,7 @@ def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...
                 ORDER BY b.bar_time DESC LIMIT 1
               ) anchor ON TRUE
               WHERE e.market_name=? AND e.executed_at>=now()-INTERVAL '14 days'
-              ORDER BY e.executed_at ASC LIMIT 1000""",(str(market_name),)).fetchall()
+              ORDER BY e.executed_at DESC, e.request_key DESC LIMIT 1000""",(str(market_name),)).fetchall()
     except Exception as exc:
         LOGGER.warning(
             "V3 chart marker projection unavailable market=%s error=%s",
@@ -109,6 +109,8 @@ def load_v3_trade_markers_v1(market_name:str)->tuple[AutoTraderTradeMarkerV1,...
             account_id=str(v["account_id"]),
             instance_id=str(v["instance_id"]),
         ))
+    # The SQL caps the most recent executions; return ascending chronological order.
+    result.sort(key=lambda marker: (marker.executed_at, marker.net_position_id))
     return tuple(result)
 
 
