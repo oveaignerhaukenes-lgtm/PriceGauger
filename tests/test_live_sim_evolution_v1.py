@@ -141,6 +141,38 @@ def test_retirement_requires_multi_regime_evidence_and_consecutive_checks(tmp_pa
                           (first,)).fetchone()["status"]=="RETIRED"
 
 
+
+def test_negative_absolute_return_does_not_retire_regime_superior_variant(tmp_path):
+    path=str(tmp_path/"lab.db")
+    ensure_lab_schema(path)
+    with connect(path) as db:
+        ensure_evolution_schema(db)
+        seed_default_experiments(db,instrument_id=17,market_name="Tech100",
+                                 now=_time(0).isoformat())
+        seed_trial_ledger(db,instrument_id=17,now=_time(0).isoformat())
+        keys=[r["experiment_id"] for r in db.execute(
+            "SELECT experiment_id FROM lsim_experiments ORDER BY experiment_id LIMIT 2"
+        ).fetchall()]
+        parent,challenger=keys
+        db.execute("UPDATE lsim_perturbation_trials SET parent_id=? WHERE experiment_id=?",
+                   (parent,challenger))
+        def weak_stats(factor):
+            return {"equity":8000.0,"peak":10000.0,"trades":20,
+                    "_evo":{"bars":1800,"regime_stats":{
+                        "TREND":{"bars":500,"sum_return_fraction":-0.03*factor},
+                        "RANGE":{"bars":500,"sum_return_fraction":-0.04*factor}}}}
+        challenger_state=weak_stats(0.5)
+        parent_state=weak_stats(1.0)
+        assert _retire_weak(db,17,{parent:parent_state,challenger:challenger_state},
+                            _time(2400))==0
+        assert db.execute(
+            "SELECT weak_checks FROM lsim_perturbation_trials WHERE experiment_id=?",
+            (challenger,)).fetchone()["weak_checks"]==0
+        assert db.execute(
+            "SELECT status FROM lsim_experiments WHERE experiment_id=?",
+            (challenger,)).fetchone()["status"]=="ACTIVE"
+
+
 def test_new_trials_are_prospective_rate_limited_and_never_exceed_cap(tmp_path):
     path=str(tmp_path/"lab.db")
     ensure_lab_schema(path)
