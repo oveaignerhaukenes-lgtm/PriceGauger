@@ -261,6 +261,13 @@ def _queue_configs():
 
 def seed_trial_ledger(db, *, instrument_id, now):
     """Complete tried/queued journal, deterministic IDs, never replay retired IDs."""
+    count = db.execute(
+        "SELECT COUNT(*) AS n FROM lsim_perturbation_trials WHERE instrument_id=?",
+        (instrument_id,)).fetchone()["n"]
+    # The grid is 2 families × 3 signal periods × 3 regime periods ×
+    # 7 modifiers × 2 exposure levels; 72 are seeded historical baselines.
+    if int(count) >= 252:
+        return
     rows = db.execute(
         "SELECT experiment_id,config_json,started_at,status FROM lsim_experiments WHERE instrument_id=?",
         (instrument_id,)).fetchall()
