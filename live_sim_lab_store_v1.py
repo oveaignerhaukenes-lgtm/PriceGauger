@@ -278,7 +278,12 @@ def lab_snapshot(*, db_path="pricegauger.db"):
         results.append({k: row[k] for k in (
             "experiment_id","market_name","family","signal_tf","regime_tf",
             "modifier","max_exposure","cost_bps","started_at","status")})
+        evo = state.get("_evo") or {}
+        observed = int(evo.get("bars",0))
         results[-1].update(
+            observed_bars=observed,
+            above_start_pct=100.0 * int(evo.get("positive_since_start_bars",0))/observed if observed else 0.0,
+            positive_bar_pct=100.0 * int(evo.get("positive_bar_returns",0))/observed if observed else 0.0,
             equity=float(state.get("equity",10000.0)),
             return_pct=(float(state.get("equity",10000.0))/10000.0-1)*100.0,
             max_drawdown_pct=float(state.get("max_drawdown",0))*100.0,
