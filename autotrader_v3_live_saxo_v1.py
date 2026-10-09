@@ -40,6 +40,52 @@ class SaxoLivePilotClientV3:
         if len(matches)!=1:
             raise SaxoTradingSafetyError("v3 LIVE account identity is missing or ambiguous")
         return matches[0]
+    def order_activity_exact(self, *,account_id:str,order_id:str,uic:int,asset_type:str):
+        """Read the broker's historical LAST order activity for one exact Saxo boundary.
+
+        A missing activity is UNKNOWN, never evidence of cancellation.  This
+        method neither submits nor mutates orders and never authorizes retries.
+        Saxo: GET /cs/v1/audit/orderactivities?AccountKey=...&OrderId=...&
+              EntryType=Last (Personal:Read).
+        """
+        identity=str(account_id or '').strip()
+        order=str(order_id or '').strip()
+        if not identity or not order:
+            raise SaxoTradingSafetyError("order activity requires exact account and OrderId")
+        account_key,_=self._account_context_exact(identity)
+        body=self.client._get("cs/v1/audit/orderactivities",params={
+            "AccountKey":account_key,"OrderId":order,"EntryType":"Last","$top":20,
+        })
+        if not isinstance(body,Mapping) or body.get("__next"):
+            raise SaxoTradingSafetyError("Saxo order audit response missing or incomplete")
+        entries=body.get("Data")
+        if not isinstance(entries,list):
+            raise SaxoTradingSafetyError("Saxo order audit Data missing")
+        if len(entries)>1:
+            raise SaxoTradingSafetyError("Saxo exact OrderId returned multiple latest order states")
+        if not entries:
+            return {"available":False,"reason":"NO_ORDER_ACTIVITY"}
+        row=entries[0]
+        if not isinstance(row,Mapping) or str(row.get("OrderId") or '')!=order:
+            raise SaxoTradingSafetyError("Saxo historical order identity mismatch")
+        reported_account=str(row.get("AccountId") or "").strip()
+        if not reported_account or reported_account!=identity:
+            raise SaxoTradingSafetyError("Saxo historical order account identity unverified")
+        if row.get("Uic") is not None and int(row["Uic"])!=int(uic):
+            raise SaxoTradingSafetyError("Saxo historical order UIC mismatch")
+        if row.get("AssetType") is not None and str(row["AssetType"])!=str(asset_type):
+            raise SaxoTradingSafetyError("Saxo historical order asset type mismatch")
+        return {
+            "available":True,
+            "status":str(row.get("Status") or "").strip() or "UNKNOWN",
+            "sub_status":str(row.get("SubStatus") or "").strip(),
+            "filled_amount":row.get("FilledAmount"),
+            "amount":row.get("Amount"),
+            "side":str(row.get("BuySell") or "").strip(),
+            "activity_time":str(row.get("ActivityTime") or "").strip(),
+            "order_id_suffix":order[-8:],
+        }
+
     def market_status_exact(self, *,account_id:str,uic:int,asset_type:str)->SaxoMarketStatusV3:
         """Read Saxo's account-scoped market state without relying on local schedules."""
         account_key,_=self._account_context_exact(account_id)
