@@ -158,7 +158,13 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
     cutoff = (moment - timedelta(minutes=1, seconds=5)).isoformat()
     now_stamp = moment.isoformat()
     processed = 0
+    from live_sim_lab_evolution_v1 import (
+        ensure_evolution_schema, load_shadow_states, settle_shadow,
+        update_observation, persist_shadow_states, seed_trial_ledger,
+        run_evolution_maintenance,
+    )
     with connect(db_path) as db:
+        ensure_evolution_schema(db)
         for instrument_id, market in _eligible_instruments(db):
             row = db.execute("SELECT state_json FROM lsim_feature_cursors WHERE instrument_id=?",
                              (instrument_id,)).fetchone()
@@ -168,6 +174,7 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                     continue
                 seed_default_experiments(db, instrument_id=instrument_id,
                                          market_name=market, now=now_stamp)
+                seed_trial_ledger(db,instrument_id=instrument_id,now=now_stamp)
                 continue
             features = json.loads(row["state_json"])
             experiments = db.execute("""
@@ -183,6 +190,7 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                 s = db.execute("SELECT state_json FROM lsim_states WHERE experiment_id=?",
                                (exp["experiment_id"],)).fetchone()
                 states[exp["experiment_id"]] = json.loads(s["state_json"]) if s else {}
+            shadows = load_shadow_states(db, instrument_id)
             bars = _load_bars(db, instrument_id, features["last_bar"], cutoff)
             for bar in bars:
                 bar_at = utc(bar["bar_time"]).isoformat()
@@ -194,10 +202,12 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                         continue
                     key = exp["experiment_id"]
                     cfg = json.loads(exp["config_json"])
+                    before_state = states[key]
                     state, result = settle_bar(
                         cfg, states[key], features, bar_time=bar_at,
                         open_price=bar["open"], close_price=bar["close"])
-                    states[key] = state
+                    states[key] = update_observation(
+                        state,before_state,prior_regime=prior_regime,bar_time=bar_at)
                     if result["trade"] or (int(utc(bar_at).timestamp()) // 60) % 5 == 0:
                         db.execute("""
                             INSERT INTO lsim_points(
@@ -215,6 +225,14 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                           observed_bars=lsim_regime_memory.observed_bars+1,
                           sum_delta_nav=lsim_regime_memory.sum_delta_nav+excluded.sum_delta_nav
                     """, (key, prior_regime, result["delta_equity"]))
+                # Selector observes today's settled candidate evidence only after
+                # the candle closes. Chosen exposure is filled at NEXT open.
+                available = {e["experiment_id"]:states[e["experiment_id"]]
+                             for e in experiments if states.get(e["experiment_id"])}
+                settle_shadow(
+                    db,instrument_id=instrument_id,states=shadows,candidates=available,
+                    features=features,prior_regime=prior_regime,bar_time=bar_at,
+                    open_price=bar["open"],close_price=bar["close"])
             if bars:
                 db.execute("""
                     UPDATE lsim_feature_cursors SET last_bar_time=?,state_json=?,
@@ -228,6 +246,10 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                         VALUES(?,?) ON CONFLICT(experiment_id) DO UPDATE SET
                           state_json=excluded.state_json,updated_at=CURRENT_TIMESTAMP
                     """, (key, json.dumps(state)))
+                persist_shadow_states(db,instrument_id,shadows)
+            run_evolution_maintenance(
+                db,instrument_id=instrument_id,market_name=market,
+                states=states,now=moment)
     return processed
 
 
@@ -256,7 +278,12 @@ def lab_snapshot(*, db_path="pricegauger.db"):
         results.append({k: row[k] for k in (
             "experiment_id","market_name","family","signal_tf","regime_tf",
             "modifier","max_exposure","cost_bps","started_at","status")})
+        evo = state.get("_evo") or {}
+        observed = int(evo.get("bars",0))
         results[-1].update(
+            observed_bars=observed,
+            above_start_pct=100.0 * int(evo.get("positive_since_start_bars",0))/observed if observed else 0.0,
+            positive_bar_pct=100.0 * int(evo.get("positive_bar_returns",0))/observed if observed else 0.0,
             equity=float(state.get("equity",10000.0)),
             return_pct=(float(state.get("equity",10000.0))/10000.0-1)*100.0,
             max_drawdown_pct=float(state.get("max_drawdown",0))*100.0,

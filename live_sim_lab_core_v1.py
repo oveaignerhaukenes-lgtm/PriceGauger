@@ -136,6 +136,18 @@ def experiment_decision(config, state, features, *, bar_time):
         recent = features["returns"][-5:]
         if sum(recent) * current < 0:
             target, reason = 0.0, "ADVERSE_IMPULSE_EXIT"
+    if config["modifier"] == "trend_only" and abs(target) > abs(current):
+        if not any(x in features["tags"] for x in ("TREND", "IMPULSE")):
+            target, reason = current, "TREND_ONLY_PAUSE"
+    if config["modifier"] == "volatility_pause" and abs(target) > abs(current):
+        if "HIGH_VOL" in features["tags"]:
+            target, reason = current, "VOLATILITY_PAUSE"
+    if config["modifier"] == "momentum_confirm" and abs(target) > abs(current):
+        if side * hist <= 0:
+            target, reason = current, "MOMENTUM_CONFIRM_WAIT"
+    if config["modifier"] == "adverse_exit" and current:
+        if current * momentum < 0 and current * hist < 0:
+            target, reason = 0.0, "ADVERSE_EXIT"
     return round(target, 6), reason
 
 

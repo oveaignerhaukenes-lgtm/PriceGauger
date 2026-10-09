@@ -16,7 +16,7 @@ MIN_OBSERVATION_BARS = 30
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 
-def prepare_evidence(variants, regime_memory):
+def prepare_evidence(variants, regime_memory, *, selector_summary=None, trial_summary=None):
     """Small, numeric report with paired controls to prevent narrative-only conclusions."""
     usable = [v for v in variants if v["last_bar"]]
     by_config = {
@@ -63,6 +63,8 @@ def prepare_evidence(variants, regime_memory):
             "regimes":regimes_by_id.get(v["experiment_id"],[]),
         } for v in usable],
         "paired_modifier_ablations":pairs,
+        "shadow_selectors":selector_summary or [],
+        "perturbation_history":trial_summary or {},
     }
 
 
@@ -91,6 +93,10 @@ def analyst_instructions():
         "anbefalt test. Hvis regimedata eller handler er få, si eksplisitt at "
         "det ikke er nok belegg til en konklusjon. Mange varianter innebærer "
         "multiple testing og seleksjonsskjevhet. Ikke påstå signifikans uten "
+        "evaluer selectorens kostede resultat mot faste kontroller og risikoen "
+        "for å jage historiske vinnere. Bruk historikken over prøvde, "
+        "pensjonerte og ventende perturbasjoner slik at du ikke foreslår "
+        "å gjenta mislykkede forsøk uten ny falsifiserbar hypotese. "
         "grunnlag. Du har INGEN execution authority, og skal IKKE oppdatere "
         "strategier, modifikatorer, markedsregler eller risikorammer. "
         "Forslag er bare kandidater for fremtidige versjonerte forsøk."
@@ -139,7 +145,32 @@ def run_daily_analyst(report_date, *, db_path="pricegauger.db",
     if payload.get("interpretation_status") != "PENDING_AI":
         return str(payload.get("interpretation_status"))
     variants, memory, _ = lab_snapshot(db_path=db_path)
-    evidence = prepare_evidence(variants, memory)
+    # Evolving research inventory is evidence, not executable instructions.
+    from live_sim_lab_evolution_v1 import evolution_snapshot
+    selectors, trials, _ = evolution_snapshot(db_path=db_path)
+    observed_selectors = [{
+        "kind":s["selector_kind"],"nav_return_pct":round(
+            (float(s.get("equity",10000.0))/10000.0-1)*100.0,5),
+        "max_drawdown_pct":round(float(s.get("max_drawdown",0))*100,5),
+        "switches":int(s.get("switches",0)),
+        "current_experiment_id":s.get("selected_id"),
+        "last_observation":s.get("last_bar"),
+    } for s in selectors]
+    retired=[{
+        "id":t["experiment_id"],"config":t["config"],
+        "outcome":t["outcome"]
+    } for t in trials if t["status"]=="RETIRED"]
+    queued=[{"id":t["experiment_id"],"config":t["config"],
+              "parent":t.get("parent_id")}
+            for t in trials if t["status"]=="QUEUED"]
+    evidence = prepare_evidence(variants, memory,
+        selector_summary=observed_selectors,
+        trial_summary={
+            "statuses":{status:sum(t["status"]==status for t in trials)
+                        for status in ("RUNNING","QUEUED","RETIRED")},
+            "recent_retired":retired[-12:],
+            "next_untried":queued[:12],
+        })
     if not enough_evidence(evidence):
         return "TOO_EARLY"
     # Claim the daily API budget first, so process crashes/restarts do not

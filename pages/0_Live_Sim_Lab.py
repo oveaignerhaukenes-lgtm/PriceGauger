@@ -71,7 +71,11 @@ visible = pd.DataFrame([{
     "Eksponering": row["max_exposure"],
     "Avkastning %": round(row["return_pct"], 3),
     "Maks fall %": round(row["max_drawdown_pct"], 3),
-    "Sim-handler": row["trades"], "Siste datapunkt": row["last_bar"] or "Ingen",
+    "Sim-handler": row["trades"],
+    "1m-barer":row.get("observed_bars",0),
+    "Tid over 0 %":round(row.get("above_start_pct",0),1),
+    "Positive 1m-barer %":round(row.get("positive_bar_pct",0),1),
+    "Siste datapunkt": row["last_bar"] or "Ingen",
 } for row in filtered])
 st.dataframe(visible, hide_index=True, use_container_width=True, height=380)
 
@@ -116,6 +120,91 @@ if memory:
     st.dataframe(regime_df,hide_index=True,use_container_width=True,height=260)
 else:
     st.caption("Regimeminne bygges når første fremtidige 1m-bar observeres.")
+
+st.subheader("Adaptiv strategiselektor (SHADOW)")
+st.caption(
+    "Tre uavhengige papirporteføljer: nylig ytelse, regimeminne og hybrid. "
+    "Valg skjer etter ferdig bar og trer i kraft ved neste baråpning, med "
+    "transaksjonskostnad og bytteslitasje. Ingen LIVE-tilgang eller Saxo-ordrer."
+)
+try:
+    from live_sim_lab_evolution_v1 import evolution_snapshot, selector_equity_points
+    selectors, trials, switching = evolution_snapshot()
+except Exception as exc:
+    st.warning("Evolusjonspanelet er foreløpig utilgjengelig.")
+    st.caption(type(exc).__name__)
+    selectors, trials, switching = [], [], []
+if selectors:
+    info = pd.DataFrame([{
+        "Velger": row["selector_kind"],
+        "Valgt strategi": str(row.get("selected_id") or "Ikke valgt")[:10],
+        "Venter på": str(row.get("pending_id") or "Ingen")[:10],
+        "Avkastning %": round((float(row.get("equity",10000.0))/10000-1)*100,3),
+        "Maks fall %": round(float(row.get("max_drawdown",0))*100,3),
+        "Bytter": int(row.get("switches",0)),
+        "Kostede handler": int(row.get("trades",0)),
+        "Siste bar": row.get("last_bar") or "Ingen",
+    } for row in selectors])
+    st.dataframe(info,hide_index=True,use_container_width=True)
+    shadow_points = selector_equity_points()
+    if shadow_points:
+        frame=pd.DataFrame([{
+            "Tid":pd.to_datetime(x["bar_time"],utc=True),
+            "Selector":x["selector_kind"],
+            "Papiravkastning %":(float(x["equity"])/10000-1)*100
+        } for x in shadow_points])
+        st.line_chart(frame.pivot_table(
+            index="Tid",columns="Selector",values="Papiravkastning %",
+            aggfunc="last").sort_index(),use_container_width=True)
+    with st.expander("Siste selektorbeslutninger"):
+        if switching:
+            st.dataframe(pd.DataFrame([{
+                "Tid":x["decision_bar"],"Velger":x["selector_kind"],
+                "Fra":str(x.get("prior_id") or "Ingen")[:10],
+                "Til":str(x.get("proposed_id") or "Ingen")[:10],
+                "Årsak":x["reason"],
+            } for x in switching]),hide_index=True,use_container_width=True)
+        else:
+            st.caption("Ingen strategibytter er foreslått ennå.")
+else:
+    st.caption("Selectorene begynner å evaluere etter tilstrekkelige fremoverrettede data.")
+
+st.subheader("Evolusjon og perturbasjoner")
+if trials:
+    counts = {name:sum(t["status"]==name for t in trials)
+              for name in ("QUEUED","RUNNING","RETIRED")}
+    col1,col2,col3=st.columns(3)
+    col1.metric("Aktive / undersøkes",counts["RUNNING"])
+    col2.metric("På forskningskø",counts["QUEUED"])
+    col3.metric("Pensjonert",counts["RETIRED"])
+    st.caption(
+        "Varianter får uforanderlig forsøks-ID. Svake varianter kan pensjoneres "
+        "først etter omfattende data fra flere regimer og gjentatte kontroller. "
+        "Pensjonerte forsøk slettes aldri og kjøres ikke automatisk om igjen."
+    )
+    stage=st.selectbox("Vis forsøksstatus",("QUEUED","RUNNING","RETIRED"))
+    records=[x for x in trials if x["status"]==stage]
+    st.dataframe(pd.DataFrame([{
+        "ID":t["experiment_id"][:10],
+        "Forelder":str(t.get("parent_id") or "Opprinnelig")[:10],
+        "Familie":t["config"]["family"],
+        "Signal":f'{t["config"]["signal_tf"]}m',
+        "Regime":f'{t["config"]["regime_tf"]}m',
+        "Modifikator":t["config"]["modifier"],
+        "Eksponering":t["config"]["max_exposure"],
+        "Start":t.get("started_at") or "Ikke testet",
+        "Avsluttet":t.get("ended_at") or "—",
+        "Avkastning %":round((t.get("outcome") or {}).get("return_pct",0),3)
+            if t.get("outcome") else None,
+    } for t in records]),hide_index=True,use_container_width=True,height=310)
+    with st.expander("Fullstendige resultatdata fra pensjonerte forsøk"):
+        if counts["RETIRED"]:
+            st.json([{"ID":t["experiment_id"],**(t.get("outcome") or {})}
+                     for t in trials if t["status"]=="RETIRED"][:30])
+        else:
+            st.caption("Ingen pensjoneringer. Kravene til evidens er bevisst strenge.")
+else:
+    st.caption("Perturbasjonskø bygges når worker har initialisert fremoverrettede varianter.")
 
 st.subheader("Kveldsrapport og forskningskø")
 with connect() as db:
