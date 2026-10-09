@@ -300,7 +300,7 @@ def seed_trial_ledger(db, *, instrument_id, now):
 
 def _retire_weak(db, instrument_id, states, now):
     trials = db.execute("""
-        SELECT experiment_id,weak_checks,last_checked_at FROM lsim_perturbation_trials
+        SELECT experiment_id,parent_id,weak_checks,last_checked_at FROM lsim_perturbation_trials
         WHERE instrument_id=? AND status='RUNNING'
     """, (instrument_id,)).fetchall()
     retired = 0
@@ -317,8 +317,28 @@ def _retire_weak(db, instrument_id, states, now):
         # A regime is a rescue only if it has demonstrated POSITIVE forward net
         # expectancy. Negative or zero across all sufficiently observed regimes
         # plus never positive total return is an operational failure.
-        weak = (float(state.get("peak",10000.0)) <= 10000.0 and
-                all(float(v["sum_return_fraction"]) <= 0.0 for v in enough))
+        # A variant that is losing in absolute terms can still be a valuable
+        # regime expert relative to its same-family control. Never discard
+        # that evidence merely because cumulative NAV is below its start.
+        parent_id = trial["parent_id"]
+        parent_evo = (states.get(parent_id) or {}).get("_evo") or {}
+        relative_edge = False
+        matched = bool(parent_id and parent_evo)
+        for label, own in (evo.get("regime_stats") or {}).items():
+            if int(own.get("bars",0)) < RETIRE_REGIME_BARS:
+                continue
+            other = (parent_evo.get("regime_stats") or {}).get(label) or {}
+            if matched and int(other.get("bars",0)) < RETIRE_REGIME_BARS:
+                matched = False
+                break  # insufficient control evidence: conservatively retain
+            if int(other.get("bars",0)) >= RETIRE_REGIME_BARS:
+                own_rate = float(own["sum_return_fraction"]) / own["bars"]
+                control_rate = float(other["sum_return_fraction"]) / other["bars"]
+                if own_rate > control_rate + 1e-6:
+                    relative_edge = True
+        weak = (float(state.get("peak",10000.0)) <= 10000.0
+                and all(float(v["sum_return_fraction"]) <= 0.0 for v in enough)
+                and not relative_edge and (not parent_id or matched))
         last = trial["last_checked_at"]
         if last and (utc(now)-utc(last)).total_seconds() < 60*60:
             continue
