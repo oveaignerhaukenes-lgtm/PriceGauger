@@ -489,7 +489,20 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         request_key=str(uuid5(NAMESPACE_URL,
             f'{e.pilot_key}:{decision.decision_key}:{mutation.action}:{side}:'
             f'{actual.amount:.10g}:{mutation.amount:.10g}'))
-        if order_state_v3(request_key=request_key,db_path=db_path)=='REJECTED':
+        prior_state=order_state_v3(request_key=request_key,db_path=db_path)
+        if prior_state=='RECONCILED':
+            # A successful closed-bar intent may be evaluated again after restart.
+            # Never replay an already reconciled broker mutation.
+            _record_runtime(e.pilot_key,'MANAGING',
+                f'Closed-bar intent already RECONCILED; no duplicate order; actual={actual.amount:g}',
+                db_path=db_path)
+            continue
+        if prior_state in {'RESERVED','SUBMITTING','SUBMITTED','UNKNOWN'}:
+            _record_runtime(e.pilot_key,'PENDING',
+                f'Closed-bar intent already {prior_state}; reconcile before another order',
+                db_path=db_path)
+            continue
+        if prior_state=='REJECTED':
             rejected_detail=order_detail_v3(request_key=request_key,db_path=db_path)
             if (
                 mutation.action in {'OPEN','ADD'}
@@ -558,10 +571,27 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 f'action={mutation.action} amount={mutation.amount:g} '
                 f'capital_required_nok={capital_required:g} cap_nok={policy.max_notional_nok:g}',
                 db_path=db_path)
-        reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
+        inserted=reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
             account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,
             expected_inventory=actual.amount+signed_delta,
-            submitted_amount=mutation.amount,submitted_side=side,db_path=db_path)
+            submitted_amount=mutation.amount,submitted_side=side,db_path=db_path,
+            idempotent=True)
+        if not inserted:
+            # Handles both same-key replay and a concurrent unresolved boundary
+            # reservation atomically. The broker must NEVER be called on conflict.
+            existing_state=order_state_v3(request_key=request_key,db_path=db_path)
+            competing=pending_order_v3(account_id=e.account_id,uic=e.uic,
+                asset_type=e.asset_type,db_path=db_path)
+            if existing_state is not None or competing is not None:
+                _record_runtime(
+                    e.pilot_key,'PENDING' if competing is not None else 'MANAGING',
+                    f'Durable V3 reservation already exists (state={existing_state or "other pending"}); '
+                    'no duplicate Saxo order sent',
+                    db_path=db_path)
+                continue
+            raise RuntimeError(
+                'V3 order reservation conflicted without a readable matching intent; '
+                'stopping before Saxo submission')
         mark_order_v3(request_key=request_key,state='SUBMITTING',db_path=db_path)
         try:
             result=broker.place_order(order,confirm_live=True)

@@ -23,11 +23,22 @@ def ensure_schema(db_path="pricegauger.db"):
         ensure_v3_instance_registry_v1(db_path=db_path)
         ensure_v3_execution_event_schema_v1(db_path=db_path)
 
-def reserve(*,request_key,trader_id,account_id,uic,asset_type,expected_inventory=None,submitted_amount=None,submitted_side=None,db_path="pricegauger.db"):
+def reserve(*,request_key,trader_id,account_id,uic,asset_type,expected_inventory=None,submitted_amount=None,submitted_side=None,db_path="pricegauger.db",idempotent=False):
+    """Reserve an order before broker submission.
+
+    Ordinary callers retain the strict duplicate exception. The V3 LIVE runtime
+    opts into an atomic do-nothing-on-conflict write and must check the boolean
+    result against durable request/boundary state before deciding what to do.
+    False never grants permission to submit an order.
+    """
     ensure_schema(db_path)
+    sql="""INSERT INTO autotrader_v3_order_guard(request_key,trader_id,account_id,uic,asset_type,state,expected_inventory,submitted_amount,submitted_side)
+            VALUES(?,?,?,?,?,'RESERVED',?,?,?)"""
+    if idempotent:
+        sql += " ON CONFLICT DO NOTHING"
     with connect(db_path) as db:
-        db.execute("""INSERT INTO autotrader_v3_order_guard(request_key,trader_id,account_id,uic,asset_type,state,expected_inventory,submitted_amount,submitted_side)
-            VALUES(?,?,?,?,?,'RESERVED',?,?,?)""",(request_key,trader_id,account_id,int(uic),asset_type,expected_inventory,submitted_amount,submitted_side))
+        cursor=db.execute(sql,(request_key,trader_id,account_id,int(uic),asset_type,expected_inventory,submitted_amount,submitted_side))
+        return cursor.rowcount == 1
 
 def mark(*,request_key,state,broker_order_id=None,detail=None,db_path="pricegauger.db"):
     if state not in (*UNRESOLVED,"RECONCILED","REJECTED"): raise ValueError("invalid V3 order state")
