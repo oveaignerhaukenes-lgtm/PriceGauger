@@ -7,6 +7,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
+from database import connect
+from live_sim_lab_analyst_v1 import run_daily_analyst
 from live_sim_lab_store_v1 import process_lab_cycle, produce_daily_summary
 
 LOGGER = logging.getLogger("pricegauger.live_sim_lab")
@@ -18,7 +20,16 @@ def run_once(*, db_path="pricegauger.db", now=None):
     oslo = moment.astimezone(ZoneInfo("Europe/Oslo"))
     # A frozen factual evening snapshot, not an AI-generated interpretation.
     if oslo.hour >= 20:
-        produce_daily_summary(oslo.date().isoformat(), db_path=db_path)
+        date = oslo.date().isoformat()
+        with connect(db_path) as db:
+            existing = db.execute(
+                "SELECT 1 FROM lsim_daily_reports WHERE report_date=?", (date,)
+            ).fetchone()
+        if existing is None:
+            produce_daily_summary(date, db_path=db_path)
+        result = run_daily_analyst(date, db_path=db_path)
+        if result == "READY":
+            LOGGER.info("Live-Sim Lab daily four-task AI report ready date=%s", date)
     return evaluated
 
 
