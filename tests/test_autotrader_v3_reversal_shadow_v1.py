@@ -22,12 +22,13 @@ def _r(now=0.5, before=0.6, deadband=0.1):
 
 
 def _s(earlier=0.6, before=0.4, now=0.05):
+    complete = all(value is not None for value in (earlier, before, now))
     return StickySignalSnapshotV3(
         spread=now, previous_spread=before, previous_previous_spread=earlier,
-        favorable_bull=now > before,
-        favorable_bear=now < before,
-        persistent_adverse_bull=now < before < earlier,
-        persistent_adverse_bear=now > before > earlier,
+        favorable_bull=bool(complete and now > before),
+        favorable_bear=bool(complete and now < before),
+        persistent_adverse_bull=bool(complete and now < before < earlier),
+        persistent_adverse_bear=bool(complete and now > before > earlier),
         timeframe_minutes=2,
     )
 
