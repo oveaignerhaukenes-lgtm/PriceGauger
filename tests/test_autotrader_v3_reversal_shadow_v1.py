@@ -43,10 +43,10 @@ def _evaluate(position, base, regime=None, signal=None):
 
 def test_shadow_observer_never_enters_the_live_registry():
     from autotrader_v3_registry_v1 import LIVE_MODIFIERS_V3
-    from autotrader_v3_strategy_registry_v1 import LIVE_STRATEGY_KEYS_V3
+    from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3
 
     assert "reversal-shadow-v1" not in LIVE_MODIFIERS_V3
-    assert "reversal-shadow-v1" not in LIVE_STRATEGY_KEYS_V3
+    assert "reversal-shadow-v1" not in STRATEGIES_V3
 
 
 def test_flat_inventory_is_not_subject_to_defensive_shadow():
