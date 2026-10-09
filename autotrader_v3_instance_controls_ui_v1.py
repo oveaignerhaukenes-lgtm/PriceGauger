@@ -12,6 +12,7 @@ from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
+from autotrader_v3_live_truth_v1 import inventory_label_v1,load_v3_live_truth_v1
 from autotrader_v3_registry_v1 import (
     CONTROL_MODES_V3, MODIFIERS_V3, REGIME_STRATEGIES_V3, REGIME_TIMEFRAMES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
     LIVE_CONTROL_MODES_V3, LIVE_MODIFIERS_V3, LIVE_TIMEFRAMES_V3,
@@ -81,6 +82,23 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         f'Aktiv nå: {active_label} · konto {instance.account_id} · UIC {instance.uic} · '
         f'V3 {trader_id[:8]} · {instance.asset_type} · instrument {instance.instrument_id}'
     )
+    truth=load_v3_live_truth_v1(
+        instance_id=trader_id,account_id=str(instance.account_id),
+        uic=int(instance.uic),asset_type=str(instance.asset_type))
+    st.markdown('**LIVE-tilstand · sist lagret, kun lesing**')
+    cap_label=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'
+    st.caption(
+        f'Worker: {truth.status} · faktisk {inventory_label_v1(truth.actual)} · '
+        f'mål {inventory_label_v1(truth.target)} · '
+        f'kapitalramme {cap_label}'
+        + (f' · oppdatert {truth.updated_at}' if truth.updated_at else ' · heartbeat mangler')
+    )
+    if truth.status.upper()=='BLOCKED' or 'grense' in truth.reason.casefold():
+        st.warning(truth.reason + (f' · {truth.detail}' if truth.detail else ''))
+    else:
+        st.caption(truth.reason + (f' · {truth.detail}' if truth.detail else ''))
+    st.caption('Siste bekreftede handel: '+(truth.last_execution or 'ingen tilgjengelig i eventloggen'))
+    st.caption('Tallene er forrige worker-heartbeat, ikke en sanntids-Saxo-posisjonsforespørsel.')
     keys=tuple(x.key for x in STRATEGIES_V3)
     a,b=st.columns(2)
     strategy=a.selectbox(
