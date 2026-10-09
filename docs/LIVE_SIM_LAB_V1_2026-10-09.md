@@ -20,7 +20,7 @@ Dedicated research-only engine for comparing up to 100 **simultaneous** strategy
 - Virtual NAV uses exposure-normalized returns. Fixed 5bps turnover friction is only a provisional substitute for spread/slippage; financing, broker lot contract value, margin availability and market impact are not yet modelled. Do not interpret NAV results as executable Saxo P&L.
 - Each variant has an immutable configuration/version/started_at and unique id. A future modification MUST get a new id. `lsim_regime_memory` attributes next-minute paper NAV changes to the **previous bar's** already-known regime (no ex-post regime tagging).
 - Classification: warmup, range, trend, impulsive motion, whipsaw and relative high volatility, derived exclusively from returns available at each point.
-- `lsim_daily_reports` stores frozen descriptive 20:00 Europe/Oslo snapshots for later LLM analysis. **AI interpretation and autonomous idea generation are NOT yet enabled**. Explicit human approval and separate versioned experiment IDs are required for new model proposals.
+- `lsim_daily_reports` stores frozen descriptive 20:00 Europe/Oslo snapshots. A **single optional daily AI interpretation** is attempted when at least six variants have observations and at least one variant has 30 already-attributed bars. The evidence contains matched modifier/control deltas plus regime memory; the prompt demands all four lab questions and explicit uncertainty. Set OPENAI_API_KEY and optionally OPENAI_MARKET_MODEL on the **lab worker only**. No key means data collection and factual snapshots continue with no AI cost. API attempts are claimed durably BEFORE requesting to prevent restart-induced repeat charges. Failed attempts are not retried automatically.
 - The worker and the Streamlit Lab page share the existing PostgreSQL connection. Deploy only as a separate worker service (with DATABASE_URL) after CI, never start it in the LIVE worker loop.
 - Without the dedicated worker, the UI displays an idle lab; it must not falsely claim experiments are active.
 
@@ -30,7 +30,7 @@ Dedicated research-only engine for comparing up to 100 **simultaneous** strategy
 2. Validate same-timeframe MACD parity against canonical indicators and verify exact execution timing, market closure gaps and idempotence in production observations. Resolve gaps and backfill contamination before publishing rankings.
 3. Upgrade ledger to instrument-specific contract point value, quoted bid/ask spreads, slippage distribution, financing and margin normalization; expose realized vs marked NAV.
 4. Add locked experiment enrollment/pause UI and distinct new-variant creation for controls/modifier ablations.
-5. Introduce daily evidence-driven AI writer that must cite experiment ids and sample sizes; four sections: comparison, improvements, new candidates for architect, and conditional technical regime memory; do not alter live configs.
+5. Calibrate the new bounded daily AI analyst; confirm sample-size caveats, matched controls, output quality and operational API cost. Proposed models must remain draft research with no automatic strategy mutations.
 6. Holdout forward validation and multiple-comparison safeguards before strategy promotion.
 
 ## Parallel development
