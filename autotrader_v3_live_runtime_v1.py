@@ -45,6 +45,8 @@ from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
+# Read-only audit: one entry per unresolved instance per worker lifetime.
+_PENDING_AUDIT_LOGGED_V3=set()
 REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY}
 
 def _definitive_saxo_rejection_v3(exc:Exception)->bool:
@@ -224,6 +226,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
     accounts={}
     account_currencies={}
     account_contexts={}
+    account_labels={}
     for row in broker.accounts():
         if not isinstance(row,dict):
             continue
@@ -233,6 +236,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             accounts[account_id]=account_key
             account_currencies[account_id]=str(row.get('Currency') or '').upper()
             account_contexts[account_id]=(account_key,str(row.get('ClientKey') or ''))
+            account_labels[account_id]=str(row.get('AccountName') or row.get('DisplayName') or row.get('Name') or '').strip()
     executed=0; end=now or datetime.now(timezone.utc)
     for e in enrollments:
         pending=pending_order_v3(account_id=e.account_id,uic=e.uic,
@@ -288,6 +292,23 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=confirmed; next cycle may evaluate target',
                     db_path=db_path)
             elif reconciliation.state=='WAIT':
+                # Never auto-expire an unknown Saxo mutation. Emit one read-only
+                # account/name+durable-intent audit so an operator can reconcile it.
+                if e.pilot_key not in _PENDING_AUDIT_LOGGED_V3:
+                    broker_ref=str(pending.get('broker_order_id') or '')
+                    LOGGER.warning(
+                        'v3 LIVE unresolved order AUDIT trader=%s account_label=%s '
+                        'account_suffix=%s uic=%s asset_type=%s market=%s '
+                        'guard_state=%s broker_order_suffix=%s guard_updated=%s '
+                        'submitted_side=%s submitted_amount=%s actual=%s expected=%s '
+                        'action=READ_ONLY_NO_RETRY',
+                        e.pilot_key,account_labels.get(e.account_id) or '(not reported)',
+                        str(e.account_id)[-4:],int(e.uic),str(e.asset_type),e.market_name,
+                        pending.get('state'),broker_ref[-8:] if broker_ref else '(none)',
+                        pending.get('updated_at'),pending.get('submitted_side'),
+                        pending.get('submitted_amount'),fresh_actual.amount,expected_amount,
+                    )
+                    _PENDING_AUDIT_LOGGED_V3.add(e.pilot_key)
                 _record_runtime(e.pilot_key,'PENDING',
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=waiting; no retry sent',
                     db_path=db_path)
