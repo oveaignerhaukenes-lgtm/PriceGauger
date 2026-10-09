@@ -71,7 +71,11 @@ visible = pd.DataFrame([{
     "Eksponering": row["max_exposure"],
     "Avkastning %": round(row["return_pct"], 3),
     "Maks fall %": round(row["max_drawdown_pct"], 3),
-    "Sim-handler": row["trades"], "Siste datapunkt": row["last_bar"] or "Ingen",
+    "Sim-handler": row["trades"],
+    "1m-barer":row.get("observed_bars",0),
+    "Tid over 0 %":round(row.get("above_start_pct",0),1),
+    "Positive 1m-barer %":round(row.get("positive_bar_pct",0),1),
+    "Siste datapunkt": row["last_bar"] or "Ingen",
 } for row in filtered])
 st.dataframe(visible, hide_index=True, use_container_width=True, height=380)
 
