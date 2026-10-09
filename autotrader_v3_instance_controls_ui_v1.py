@@ -86,10 +86,11 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         instance_id=trader_id,account_id=str(instance.account_id),
         uic=int(instance.uic),asset_type=str(instance.asset_type))
     st.markdown('**LIVE-tilstand · sist lagret, kun lesing**')
+    cap_label=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'
     st.caption(
         f'Worker: {truth.status} · faktisk {inventory_label_v1(truth.actual)} · '
         f'mål {inventory_label_v1(truth.target)} · '
-        f'kapitalramme {(policy.max_notional_nok if policy else 0):,.0f} NOK'
+        f'kapitalramme {cap_label}'
         + (f' · oppdatert {truth.updated_at}' if truth.updated_at else ' · heartbeat mangler')
     )
     if truth.status.upper()=='BLOCKED' or 'grense' in truth.reason.casefold():
