@@ -127,10 +127,16 @@ if item is None:
 else:
     report = json.loads(item["data_json"])
     st.write(f"**Siste rapport: {item['report_date']}** · {report.get('observed',0)} observerte varianter")
-    st.caption(
-        "Automatisk AI-tolkning, forbedringsforslag og forslag til nye strategier er neste fase. "
-        "Ingen konfigurasjon endres automatisk."
-    )
+    if report.get("interpretation_status") == "READY" and report.get("ai_interpretation"):
+        st.markdown(report["ai_interpretation"])
+        st.caption("Research-notat fra AI. Hypoteser må verifiseres prospektivt. Ingen automatiske strategiendringer.")
+    elif report.get("interpretation_status") == "AI_FAILED":
+        st.warning("AI-analysen feilet. Faktagrunnlaget er bevart, men rapporten ble ikke generert.")
+    else:
+        st.caption(
+            "Automatisk AI-rapport aktiveres når nok nye data finnes etter oppstart. "
+            "Den analyserer kombinasjoner, forbedringer, nye idéer og tekniske regimer."
+        )
     with st.expander("Se dokumentert datagrunnlag"):
         st.json(report)
 
