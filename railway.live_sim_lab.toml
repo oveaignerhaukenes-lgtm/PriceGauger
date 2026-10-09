@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python runtime_entrypoint.py live_sim_lab_worker_v1.py --interval 60"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
