@@ -163,8 +163,12 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
         update_observation, persist_shadow_states, seed_trial_ledger,
         run_evolution_maintenance,
     )
+    from live_sim_lab_context_ablation_v1 import (
+        ensure_context_lab_schema,settle_context_ablations,
+    )
     with connect(db_path) as db:
         ensure_evolution_schema(db)
+        ensure_context_lab_schema(db)
         for instrument_id, market in _eligible_instruments(db):
             row = db.execute("SELECT state_json FROM lsim_feature_cursors WHERE instrument_id=?",
                              (instrument_id,)).fetchone()
@@ -233,6 +237,12 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                     db,instrument_id=instrument_id,states=shadows,candidates=available,
                     features=features,prior_regime=prior_regime,bar_time=bar_at,
                     open_price=bar["open"],close_price=bar["close"])
+                # Independently score five frozen paired research candidates.
+                # Context can only alter NEXT bar's paper exposure.
+                settle_context_ablations(
+                    db,instrument_id=instrument_id,states=available,
+                    bar_time=bar_at,open_price=bar["open"],
+                    close_price=bar["close"])
             if bars:
                 db.execute("""
                     UPDATE lsim_feature_cursors SET last_bar_time=?,state_json=?,

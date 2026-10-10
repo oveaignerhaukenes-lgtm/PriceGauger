@@ -10,12 +10,22 @@ from zoneinfo import ZoneInfo
 from database import connect
 from live_sim_lab_analyst_v1 import run_daily_analyst
 from live_sim_lab_store_v1 import process_lab_cycle, produce_daily_summary
+from live_sim_lab_context_ablation_v1 import refresh_macro_schedule
 
 LOGGER = logging.getLogger("pricegauger.live_sim_lab")
 
 
 def run_once(*, db_path="pricegauger.db", now=None):
     moment = now or datetime.now(timezone.utc)
+    # A bounded, at-most-12-hour official calendar refresh. Failures are
+    # evidence gaps, not execution failures or a reason to stop paper sampling.
+    try:
+        macro_state = refresh_macro_schedule(db_path=db_path, now=moment)
+        if macro_state not in ("UNCHANGED",):
+            LOGGER.info("Context Lab macro calendar state=%s",macro_state)
+    except Exception as exc:
+        LOGGER.warning("Context Lab calendar unavailable error_type=%s",
+                       type(exc).__name__)
     evaluated = process_lab_cycle(db_path=db_path, now=moment)
     oslo = moment.astimezone(ZoneInfo("Europe/Oslo"))
     # A frozen factual evening snapshot, not an AI-generated interpretation.
