@@ -97,7 +97,13 @@ def analyst_instructions():
         "for å jage historiske vinnere. Bruk historikken over prøvde, "
         "pensjonerte og ventende perturbasjoner slik at du ikke foreslår "
         "å gjenta mislykkede forsøk uten ny falsifiserbar hypotese. "
-        "grunnlag. Du har INGEN execution authority, og skal IKKE oppdatere "
+        "Undersøk også makro/geopolitikk ablasjonen bare når fremoverrettet "
+        "evidens faktisk finnes. Sammenlign samme kandidat mot BASE etter "
+        "kostnader, rapporter datadekning, antall aktive hendelsesbarer, "
+        "mistede trender og usikkerhet. Dersom alle fire armer er like og "
+        "ingen kontekstsignaler er observert, kan ingen kontekstverdi "
+        "tilskrives AI. Dette er risikofiltre, ikke retning eller makrooverraskelser. "
+        "Du har INGEN execution authority, og skal IKKE oppdatere "
         "strategier, modifikatorer, markedsregler eller risikorammer. "
         "Forslag er bare kandidater for fremtidige versjonerte forsøk."
     )
@@ -171,6 +177,41 @@ def run_daily_analyst(report_date, *, db_path="pricegauger.db",
             "recent_retired":retired[-12:],
             "next_untried":queued[:12],
         })
+    # Evaluate exact paired four-arm context overlay evidence without asking the
+    # model to hallucinate geopolitical news or infer nonexistent macro surprises.
+    from live_sim_lab_context_ablation_v1 import context_ablation_snapshot
+    _, context_arms, macro_health, _ = context_ablation_snapshot(db_path=db_path)
+    by_parent = {}
+    for item in context_arms:
+        by_parent.setdefault(item["experiment_id"],{})[item["arm"]] = item
+    comparisons = []
+    for parent, runs in by_parent.items():
+        control = runs.get("BASE")
+        if not control or not int(control.get("bars",0)):
+            continue
+        row={"experiment_id":parent,"bars":int(control["bars"]),
+             "macro_data_coverage_pct":round(
+                 100*int(control.get("macro_known",0))/control["bars"],2),
+             "geopolitical_data_coverage_pct":round(
+                 100*int(control.get("geo_known",0))/control["bars"],2),
+             "macro_trigger_bars":int(control.get("macro_triggered",0)),
+             "geo_trigger_bars":int(control.get("geo_triggered",0)),
+             "arms":[]}
+        for kind, track in sorted(runs.items()):
+            row["arms"].append({
+                "name":kind,
+                "nav_return_pct":round((float(track["equity"])/10000-1)*100,5),
+                "delta_vs_base_pp":round(
+                    (float(track["equity"])-float(control["equity"]))/100,5),
+                "max_drawdown_pct":round(float(track["max_drawdown"])*100,5),
+                "trades":int(track["trades"]),
+            })
+        comparisons.append(row)
+    evidence["macro_geopolitical_ablation"]={
+        "macro_calendar_status":macro_health["status"] if macro_health else "MISSING",
+        "method":"prospective_same_parent_four_arm_next_open_with_cost",
+        "pairs":comparisons,
+    }
     if not enough_evidence(evidence):
         return "TOO_EARLY"
     # Claim the daily API budget first, so process crashes/restarts do not
