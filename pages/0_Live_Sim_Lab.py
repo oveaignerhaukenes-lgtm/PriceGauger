@@ -206,6 +206,64 @@ if trials:
 else:
     st.caption("Perturbasjonskø bygges når worker har initialisert fremoverrettede varianter.")
 
+st.subheader("Kontekstlab: makro × geopolitikk")
+st.caption(
+    "Fem på forhånd utvalgte kandidater måles parallelt som original, "
+    "makrofilter, geopolitisk AI-kontekstfilter og begge samlet. "
+    "Alle fire starter med samme papir-NAV, fylles først neste bar "
+    "og belastes samme omsetningskostnad. Ingen LIVE-tilknytning."
+)
+try:
+    from live_sim_lab_context_ablation_v1 import context_ablation_snapshot
+    cohort, contextual, macro_health, paper_points = context_ablation_snapshot()
+except Exception as exc:
+    st.warning("Kontekstforsøket er foreløpig utilgjengelig.")
+    st.caption(type(exc).__name__)
+    cohort, contextual, macro_health, paper_points = [],[],None,[]
+if macro_health:
+    st.caption(f"Makrokalender: {macro_health['status']} · sist kontrollert "
+               f"{macro_health['checked_at']}")
+if not cohort:
+    st.info("Kontekstforsøket starter når fem varianter har minst "
+            "120 prospektive 1m-barer, nok handelshistorikk og sammenlignbar evidens.")
+else:
+    st.caption("Fast kohort: "+", ".join(x["experiment_id"][:8] for x in cohort))
+    baselines={x["experiment_id"]:x for x in contextual if x["arm"]=="BASE"}
+    report=[]
+    for x in contextual:
+        base=baselines.get(x["experiment_id"])
+        nav=float(x.get("equity",10000.0))
+        parent_nav=float(base.get("equity",10000.0)) if base else 10000.0
+        bars=max(1,int(x.get("bars",0)))
+        report.append({
+            "Kandidat":x["experiment_id"][:10],"Arm":x["arm"],
+            "Avkastning %":round((nav/10000-1)*100,3),
+            "Vs. kontroll pp":round((nav-parent_nav)/100,3),
+            "Maks fall %":round(float(x.get("max_drawdown",0))*100,3),
+            "Handler":x.get("trades",0),"1m-barer":x.get("bars",0),
+            "Makrodata %":round(100*x.get("macro_known",0)/bars,1),
+            "Geopolitisk data %":round(100*x.get("geo_known",0)/bars,1),
+            "Makrohendelser":x.get("macro_triggered",0),
+            "Geopolitiske varsler":x.get("geo_triggered",0),
+        })
+    st.dataframe(pd.DataFrame(report),hide_index=True,use_container_width=True,height=380)
+    if paper_points:
+        chart=pd.DataFrame([{
+            "Tid":pd.to_datetime(x["bar_time"],utc=True),
+            "Forsøk":x["experiment_id"][:6]+" "+x["arm"],
+            "Avkastning %":(float(x["equity"])/10000.0-1)*100
+        } for x in paper_points])
+        st.line_chart(chart.pivot_table(
+            index="Tid",columns="Forsøk",values="Avkastning %",
+            aggfunc="last").sort_index(),use_container_width=True)
+    st.caption(
+        "Manglende eller foreldet kilde gir ingen kontekstendring. "
+        "Et risikofilter er ikke en retningsprediksjon. "
+        "Geopolitiske mål gjenbruker eksisterende AI-genererte Context v2-"
+        "snapshots med dokumentert opphav og tilgjengelighetstid. "
+        "Datadekning og aktivitet må vurderes før rangering."
+    )
+
 st.subheader("Kveldsrapport og forskningskø")
 with connect() as db:
     item = db.execute(
