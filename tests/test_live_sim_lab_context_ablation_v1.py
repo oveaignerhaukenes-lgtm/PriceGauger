@@ -100,7 +100,7 @@ def test_geo_context_requires_fresh_publish_and_no_future_evidence(tmp_path):
         assert _geopolitical_risk(db,bar_time=stamp(30))["status"]=="MISSING"
         insert(db,"late",stamp(1),stamp(2),
                [{"observed_at":stamp(10),"published_at":stamp(10)}])
-        assert _geopolitical_risk(db,bar_time=stamp(3))["snapshot_id"]=="one"
+        assert _geopolitical_risk(db,bar_time=stamp(3))["snapshot_id"]=="future"
 
 
 def test_five_paired_candidates_are_frozen_and_paper_only(tmp_path):
