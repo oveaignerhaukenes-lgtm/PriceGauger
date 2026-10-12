@@ -3,7 +3,9 @@ from pathlib import Path
 
 def test_v3_live_has_dedicated_fast_loop_in_continuous_worker():
     source = Path("worker.py").read_text(encoding="utf-8")
-    assert "V3_LIVE_INTERVAL_SECONDS = 30" in source
+    assert "V3_LIVE_INTERVAL_SECONDS = 1" in source
+    assert "V3_LIVE_RECONCILE_SECONDS = 30" in source
+    assert "closed_instrument_cursors_v3" in source
     assert "def run_v3_live_fast_loop_v1(" in source
     assert 'name="pricegauger-v3-live"' in source
     assert "include_v3_live=False" in source
