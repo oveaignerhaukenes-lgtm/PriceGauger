@@ -575,6 +575,174 @@ with ai_right:
 
     _render_ai_decision_ticker()
 
+st.divider()
+st.subheader("AI-strategilab · nyheter, makro og geopolitikk")
+st.caption(
+    "Velg én eller flere eksisterende LAB-grunnstrategier. For hver av dem "
+    "kjører tre samtidige, uavhengig kostnadsførte PAPER-baner: "
+    "**Original**, **Teknisk AI** og **AI + nyheter/makro/geopolitikk**. "
+    "AI er et risikolag over den valgte strategien (behold, halver eller flat), "
+    "og kan ikke åpne en posisjon mot grunnstrategiens retning."
+)
+
+try:
+    from live_sim_lab_ai_context_pairs_v1 import (
+        available_parents, pair_snapshot, enroll_pairs, MAX_ENROLLED,
+    )
+    context_candidates=available_parents()
+    context_enrolled, context_runs, context_points, context_reviews=pair_snapshot()
+    context_error=None
+except Exception as exc:
+    context_candidates,context_enrolled,context_runs,context_points,context_reviews=[],[],[],[],[]
+    context_error=type(exc).__name__
+if context_error:
+    st.warning("AI-strategilaboratoriet er foreløpig ikke tilgjengelig.")
+    st.caption("Databasestatus: "+context_error)
+else:
+    selected_context_ids=[x["experiment_id"] for x in context_enrolled]
+    def _parent_display(row):
+        return (
+            f"{row['family']} · S{row['signal_tf']}m/R{row['regime_tf']}m · "
+            f"{row['modifier']} · x{row['max_exposure']} · {row['experiment_id'][:7]}"
+        )
+    choices={_parent_display(x):x["experiment_id"] for x in context_candidates}
+    reverse_choices={v:k for k,v in choices.items()}
+    preselected=[reverse_choices[x] for x in selected_context_ids
+                 if x in reverse_choices]
+    with st.form("ai_context_parent_selection",clear_on_submit=False):
+        selected_labels=st.multiselect(
+            "Grunnstrategier for AI-eksperimentet (1–6 samtidig)",
+            options=list(choices),default=preselected,max_selections=MAX_ENROLLED,
+            help="Hver strategi starter som et nytt prospektivt PAPER-par. "
+                 "Velg flere for separate resultatgrafer per strategi.",
+        )
+        apply_choices=st.form_submit_button(
+            "Bruk strategivalget",type="primary"
+        )
+    if apply_choices:
+        try:
+            changed=enroll_pairs([choices[label] for label in selected_labels])
+            st.success(
+                f"Strategiutvalget er lagret. {changed} nye sammenligninger "
+                "starter på kommende markedsbarer."
+            )
+            st.rerun()
+        except Exception as exc:
+            st.error("Kunne ikke lagre PAPER-strategivalget: "+type(exc).__name__)
+
+    with st.expander("Hva vet kontekst-AI faktisk?"):
+        st.markdown(
+            "**Generelle nyheter:** eksisterende PriceGauger-/Telegram-"
+            "nyhetsvurderinger, når de har dokumentert kilde og ferskhet. "
+            "Dette er ikke full dekning av verdens nyheter.\n\n"
+            "**Makro:** offisiell kalender for kommende og nylige "
+            "publiseringer (BLS, BEA, Fed). Kalenderen inneholder "
+            "**ikke** automatisk de faktiske publiserte tallene eller "
+            "avvik fra forventningene.\n\n"
+            "**Geopolitikk:** ferske Context v2-snapshots med registrert "
+            "tilgjengelighetstid og proveniens.\n\n"
+            "Modellen kan bare foreslå **BEHOLD / HALVER / FLAT** "
+            "for en grunnstrategi. De tre PAPER-banene har identisk "
+            "start, neste baråpning som utførelse og samme "
+            "transaksjonskostnader. Ingen AI-beslutning brukes bakover i tid. "
+            "Manglende eller foreldede kilder vises som manglende "
+            "datadekning, ikke som bevis på et rolig marked."
+        )
+    if not context_enrolled:
+        st.info(
+            "Velg minst én grunnstrategi ovenfor og trykk «Bruk "
+            "strategivalget». Ingen historiske gevinster simuleres "
+            "tilbake til før du valgte strategien."
+        )
+    else:
+        context_tabs=st.tabs([
+            "Teknisk AI mot grunnstrategi",
+            "AI + nyheter / makro / geopolitikk",
+        ])
+        by_trial={}
+        for item in context_runs:
+            by_trial.setdefault(item["trial_id"],{})[item["arm"]]=item
+        for tab_index,tab in enumerate(context_tabs):
+            arm="TECH_AI" if tab_index==0 else "CONTEXT_AI"
+            with tab:
+                st.caption(
+                    ("Samme grunnstrategi, med AI som vurderer teknisk risiko."
+                     if arm=="TECH_AI" else
+                     "Samme grunnstrategi, med AI som også vurderer "
+                     "tidfestede nyheter, makrokalender og geopolitikk.")
+                    +" AI kan ikke øke risikoen eller reversere parent."
+                )
+                rows=[]
+                for item in context_enrolled:
+                    tracks=by_trial.get(item["trial_id"],{})
+                    base=tracks.get("BASE")
+                    modified=tracks.get(arm)
+                    rows.append({
+                        "Grunnstrategi":_parent_display(item),
+                        "Valgt":item["selected_at"],
+                        "Base P/L %":round(100*(float(base["equity"])/10000-1),3)
+                                      if base else None,
+                        "AI P/L %":round(100*(float(modified["equity"])/10000-1),3)
+                                    if modified else None,
+                        "AI vs basis pp":round(
+                            (float(modified["equity"])-float(base["equity"]))/100,3)
+                            if base and modified else None,
+                        "AI maks DD %":round(float(modified["max_drawdown"])*100,3)
+                                        if modified else None,
+                        "Paperhandler":modified["trades"] if modified else None,
+                        "Kostnader kr":round(float(modified["costs"]),2)
+                                        if modified else None,
+                        "AI-inngrep":modified["ai_applied"] if modified else None,
+                        "Uten fersk AI":modified["ai_missing"] if modified else None,
+                        "Barer":modified["bars"] if modified else 0,
+                    })
+                st.dataframe(pd.DataFrame(rows),hide_index=True,
+                             use_container_width=True,height=235)
+                for item in context_enrolled:
+                    trial=item["trial_id"]
+                    title=_parent_display(item)
+                    st.markdown(f"**{title}**")
+                    sampled=[x for x in context_points
+                             if x["trial_id"]==trial
+                             and x["arm"] in ("BASE",arm)]
+                    if not sampled:
+                        st.caption("Venter på nye ferdige markedsbarer for denne strategien.")
+                        continue
+                    paired=pd.DataFrame([{
+                        "Tid":pd.to_datetime(x["bar_time"],utc=True),
+                        "Modell":"Uendret" if x["arm"]=="BASE" else (
+                            "Teknisk AI" if arm=="TECH_AI" else "Kontekst-AI"),
+                        "Avkastning %":100*(float(x["equity"])/10000-1),
+                    } for x in sampled])
+                    st.line_chart(
+                        paired.pivot_table(index="Tid",columns="Modell",
+                            values="Avkastning %",aggfunc="last").sort_index(),
+                        use_container_width=True,
+                    )
+                recent=[x for x in context_reviews if x["arm"]==arm]
+                st.markdown("**Siste faktiske AI-vurderinger**")
+                if not recent:
+                    st.caption("Ingen modellvurderinger ennå. Nye signaler "
+                               "registreres først etter prospektiv oppstart.")
+                else:
+                    st.dataframe(pd.DataFrame([{
+                        "Tid":x["requested_at"],
+                        "Strategi":x["trial_id"][:8],
+                        "Status":x["status"],"Handling":x["action"],
+                        "Konfidens":x["confidence"],"Vurdering":x["reason"],
+                        "Nyheter":x["coverage"].get("news"),
+                        "Makro":x["coverage"].get("macro"),
+                        "Geo":x["coverage"].get("geopolitics"),
+                    } for x in recent[:30]]),hide_index=True,
+                        use_container_width=True,height=230)
+        st.caption(
+            "Resultater er normalisert PAPER-NAV, ikke ekte Saxo-P/L. "
+            "Strategiene er LAB-prototyper, ikke produksjonsmotorenes "
+            "identiske signalimplementasjoner. AI-evaluering er "
+            "maksimalt ca. hvert 15. minutt per valgt strategi/variant, "
+            "med totalt anropsbudsjett og eksplisitt manglende datadekning."
+        )
+
 st.subheader("Kveldsrapport og forskningskø")
 with connect() as db:
     item = db.execute(
