@@ -432,6 +432,103 @@ else:
         "Dette er ikke Saxo-posisjoner, og ingen modell har LIVE-fullmakt."
     )
 
+st.subheader("AI Trader v1 · teknisk PAPER")
+st.caption(
+    "Selvstendig AI-beslutningstaker som kan foreslå LONG, SHORT, FLAT "
+    "eller å redusere eksisterende posisjoner. Kun teknisk analyse: "
+    "pris, Stochastic, MACD, whipsaw, volatilitet og papirresultater. "
+    "Ingen nyheter, geopolitikk eller makroøkonomi."
+)
+with st.expander("Når vurderer AI – og hva får den lov til?"):
+    st.markdown(
+        "En ny vurdering kan skje hvert **180. sekund**, eller når en "
+        "åpen posisjon har hatt minst **60 sekunder** sammenhengende "
+        "ugunstig bevegelse større enn normal spread/støy. "
+        "Mellom vurderingene overvåkes hver mottatte kurs for "
+        "fiktivt papirresultat.\n\n"
+        "Minst **90 sekunder mellom AI-forespørsler**, høyst 80 per "
+        "dag og marked. Modellen foreslår ønsket posisjon i "
+        "trinnene -1 / -0,5 / 0 / +0,5 / +1. "
+        "Risikogaten begrenser nye økninger til 0,5 om gangen, "
+        "krever flat før reversering og blokkerer økt eksponering "
+        "ved whipsaw. Lav konfidens betyr ingen endring.\n\n"
+        "Hver forespørsel har datatidsstempel og lagret begrunnelse. "
+        "Et sent svar forkastes. Papirordren fylles **tidligst på neste "
+        "faktiske observerte bid/ask-kurs** med spread- og "
+        "transaksjonskostnad. Ingen Saxo-ordre eller LIVE-fullmakt."
+    )
+try:
+    from live_sim_ai_technical_trader_v1 import ai_technical_snapshot
+    ai_accounts,ai_decisions,ai_points=ai_technical_snapshot()
+except Exception as exc:
+    st.warning("AI Trader PAPER kan foreløpig ikke laste sine data.")
+    st.caption(type(exc).__name__)
+    ai_accounts,ai_decisions,ai_points=[],[],[]
+if not ai_accounts:
+    st.info(
+        "Venter på første ferske Tech100-kurs fra opptakeren. "
+        "AI forsøker ikke å handle på tidligere observerte data."
+    )
+else:
+    import os
+    if not os.getenv("OPENAI_API_KEY"):
+        st.warning(
+            "OPENAI_API_KEY er ikke tilgjengelig her. "
+            "PAPER-porteføljen overvåkes, men nye AI-vurderinger "
+            "krever nøkkel på Live-Sim-worker."
+        )
+    ai_rows=[]
+    hyper_reference={x["provider_uic"]:x for x in hv_tracks
+                     if x.get("arm")=="STOCH_PRICE"}
+    for account in ai_accounts:
+        baseline=hyper_reference.get(account["provider_uic"])
+        initial=account.get("paired_baseline_equity")
+        paired_delta=None
+        if baseline and initial and float(initial)>0:
+            paired_return=(float(baseline["equity"])/float(initial)-1)*100
+            ai_return=(float(account["equity"])/10000-1)*100
+            paired_delta=round(ai_return-paired_return,3)
+        ai_rows.append({
+            "Saxo UIC":account["provider_uic"],
+            "PAPER P/L %":round((float(account["equity"])/10000-1)*100,3),
+            "Mot Stoch+pris (pp)":paired_delta,
+            "Maks drawdown %":round(100*float(account["max_drawdown"]),3),
+            "Eksponering":account["exposure"],
+            "Papirhandler":account["trades"],
+            "Samlede kostnader kr":round(
+                float(account["fees_nok"])+float(account["spread_cost_nok"]),2),
+            "AI-vurderinger":account["ai_calls"],
+            "Akseptert":account["accepted_decisions"],
+            "Tapsvurderinger":account["loss_triggers"],
+            "Forkastede AI-svar":account["rejected_requests"],
+            "Databrudd":account["data_gaps"],
+            "Siste status":account["last_model_status"],
+        })
+    st.dataframe(pd.DataFrame(ai_rows),hide_index=True,
+                 use_container_width=True,height=200)
+    if ai_decisions:
+        st.markdown("**Siste tekniske AI-beslutninger**")
+        st.dataframe(pd.DataFrame([{
+            "Tid":x["as_of"],"Hendelse":x["event_kind"],
+            "Status":x["model_status"],"Mål":x["target"],
+            "Konfidens":x["confidence"],"Risikogate":x["gate_reason"],
+            "Begrunnelse":x["reason"],
+        } for x in ai_decisions[:35]]),hide_index=True,
+            use_container_width=True,height=230)
+    if ai_points:
+        ai_plot=pd.DataFrame([{
+            "Tid":pd.to_datetime(x["quote_at"],utc=True),
+            "PAPER P/L %":(float(x["equity"])/10000-1)*100,
+        } for x in ai_points])
+        st.line_chart(ai_plot.set_index("Tid")[["PAPER P/L %"]].sort_index(),
+                      use_container_width=True)
+    st.caption(
+        "AI Trader er et uavhengig, kostnadsbelastet PAPER-eksperiment. "
+        "Kontrollsporet STOCH_PRICE vises kun som relativ avkastning fra "
+        "AI-start hvis samme datasett er tilgjengelig. "
+        "Ingen AI-forslag kan endre V3 LIVE-kontoer eller Saxo-ordrer."
+    )
+
 st.subheader("Kveldsrapport og forskningskø")
 with connect() as db:
     item = db.execute(
