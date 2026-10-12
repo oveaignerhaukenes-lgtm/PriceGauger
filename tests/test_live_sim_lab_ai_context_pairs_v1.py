@@ -62,7 +62,7 @@ def setup_lab(tmp_path):
 
 def test_multi_enrollment_is_explicit_bounded_and_restart_is_new_trial(tmp_path):
     path=setup_lab(tmp_path)
-    assert len(available_parents(db_path=path))==5
+    assert len(available_parents(db_path=path))==3
     assert enroll_pairs(["research-0","research-1"],
                         db_path=path,now=BASE)==2
     cohorts,tracks,points,reviews=pair_snapshot(db_path=path)
@@ -85,7 +85,7 @@ def test_multi_enrollment_is_explicit_bounded_and_restart_is_new_trial(tmp_path)
         enroll_pairs([str(x) for x in range(7)],db_path=path)
 
 
-def test_same_start_three_costed_tracks_apply_ai_only_later(tmp_path):
+def test_same_start_five_costed_tracks_apply_ai_only_later(tmp_path):
     path=setup_lab(tmp_path)
     enroll_pairs(["research-0"],db_path=path,now=BASE)
     with connect(path) as db:
