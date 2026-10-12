@@ -159,7 +159,6 @@ def gate_parent_target(parent,action):
 def settle_selected_pairs(db,*,instrument_id,states,bar_time,
                           open_price,close_price):
     """Atomic with the canonical LAB bar cursor and base strategy settlement."""
-    ensure_pair_schema(db)
     moment=utc(bar_time)
     bar_close=moment+timedelta(minutes=1)
     active=db.execute("""
