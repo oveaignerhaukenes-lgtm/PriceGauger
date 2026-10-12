@@ -579,10 +579,11 @@ st.divider()
 st.subheader("AI-strategilab · nyheter, makro og geopolitikk")
 st.caption(
     "Velg én eller flere eksisterende LAB-grunnstrategier. For hver av dem "
-    "kjører tre samtidige, uavhengig kostnadsførte PAPER-baner: "
-    "**Original**, **Teknisk AI** og **AI + nyheter/makro/geopolitikk**. "
-    "AI er et risikolag over den valgte strategien (behold, halver eller flat), "
-    "og kan ikke åpne en posisjon mot grunnstrategiens retning."
+    "kjører fem samtidige, uavhengig kostnadsførte PAPER-baner: "
+    "**Original**, **teknisk AI-risikolag**, **autonom teknisk AI**, "
+    "**kontekst-AI-risikolag** og **autonom kontekst-AI**. "
+    "De autonome variantene kan gå LONG/SHORT/FLAT selv om "
+    "grunnstrategien mener noe annet; bare PAPER, aldri Saxo."
 )
 
 try:
@@ -641,9 +642,10 @@ else:
             "avvik fra forventningene.\n\n"
             "**Geopolitikk:** ferske Context v2-snapshots med registrert "
             "tilgjengelighetstid og proveniens.\n\n"
-            "Modellen kan bare foreslå **BEHOLD / HALVER / FLAT** "
-            "for en grunnstrategi. De tre PAPER-banene har identisk "
-            "start, neste baråpning som utførelse og samme "
+            "Hver AI-vurdering gir både en begrenset beslutning "
+            "(**BEHOLD / HALVER / FLAT**) og en uavhengig PAPER-posisjon "
+            "(**SHORT / FLAT / LONG** i 50 %-trinn). De fem PAPER-banene "
+            "har identisk start, neste baråpning som utførelse og samme "
             "transaksjonskostnader. Ingen AI-beslutning brukes bakover i tid. "
             "Manglende eller foreldede kilder vises som manglende "
             "datadekning, ikke som bevis på et rolig marked."
@@ -664,19 +666,22 @@ else:
             by_trial.setdefault(item["trial_id"],{})[item["arm"]]=item
         for tab_index,tab in enumerate(context_tabs):
             arm="TECH_AI" if tab_index==0 else "CONTEXT_AI"
+            autonomous_arm="TECH_AUTO" if tab_index==0 else "CONTEXT_AUTO"
             with tab:
                 st.caption(
                     ("Samme grunnstrategi, med AI som vurderer teknisk risiko."
                      if arm=="TECH_AI" else
                      "Samme grunnstrategi, med AI som også vurderer "
                      "tidfestede nyheter, makrokalender og geopolitikk.")
-                    +" AI kan ikke øke risikoen eller reversere parent."
+                    +" Risikolaget kan ikke reversere parent, mens autonom "
+                    "AI kan velge egen LONG, SHORT eller FLAT i simulatoren."
                 )
                 rows=[]
                 for item in context_enrolled:
                     tracks=by_trial.get(item["trial_id"],{})
                     base=tracks.get("BASE")
                     modified=tracks.get(arm)
+                    autonomous=tracks.get(autonomous_arm)
                     rows.append({
                         "Grunnstrategi":_parent_display(item),
                         "Valgt":item["selected_at"],
@@ -687,6 +692,13 @@ else:
                         "AI vs basis pp":round(
                             (float(modified["equity"])-float(base["equity"]))/100,3)
                             if base and modified else None,
+                        "Autonom P/L %":round(
+                            100*(float(autonomous["equity"])/10000-1),3)
+                            if autonomous else None,
+                        "Autonom vs basis pp":round(
+                            (float(autonomous["equity"])-float(base["equity"]))/100,3)
+                            if base and autonomous else None,
+                        "Autonom handler":autonomous["trades"] if autonomous else None,
                         "AI maks DD %":round(float(modified["max_drawdown"])*100,3)
                                         if modified else None,
                         "Paperhandler":modified["trades"] if modified else None,
@@ -704,14 +716,17 @@ else:
                     st.markdown(f"**{title}**")
                     sampled=[x for x in context_points
                              if x["trial_id"]==trial
-                             and x["arm"] in ("BASE",arm)]
+                             and x["arm"] in ("BASE",arm,autonomous_arm)]
                     if not sampled:
                         st.caption("Venter på nye ferdige markedsbarer for denne strategien.")
                         continue
                     paired=pd.DataFrame([{
                         "Tid":pd.to_datetime(x["bar_time"],utc=True),
-                        "Modell":"Uendret" if x["arm"]=="BASE" else (
-                            "Teknisk AI" if arm=="TECH_AI" else "Kontekst-AI"),
+                        "Modell":(
+                            "Original" if x["arm"]=="BASE"
+                            else "AI risikolag" if x["arm"]==arm
+                            else "AI autonom PAPER"
+                        ),
                         "Avkastning %":100*(float(x["equity"])/10000-1),
                     } for x in sampled])
                     st.line_chart(
@@ -728,7 +743,8 @@ else:
                     st.dataframe(pd.DataFrame([{
                         "Tid":x["requested_at"],
                         "Strategi":x["trial_id"][:8],
-                        "Status":x["status"],"Handling":x["action"],
+                        "Status":x["status"],"Risikolag":x["action"],
+                        "Autonom målposisjon":x.get("autonomous_target"),
                         "Konfidens":x["confidence"],"Vurdering":x["reason"],
                         "Nyheter":x["coverage"].get("news"),
                         "Makro":x["coverage"].get("macro"),
@@ -740,7 +756,10 @@ else:
             "Strategiene er LAB-prototyper, ikke produksjonsmotorenes "
             "identiske signalimplementasjoner. AI-evaluering er "
             "maksimalt ca. hvert 15. minutt per valgt strategi/variant, "
-            "med totalt anropsbudsjett og eksplisitt manglende datadekning."
+            "med globalt anropsbudsjett og eksplisitt manglende datadekning. "
+            "Autonome AI-varianter får ikke Saxo-fullmakt; de kan velge "
+            "egen papirretning innen valgt strategis eksponeringsgrense. "
+            "API-kall gir reelle modellkostnader."
         )
 
 st.subheader("Kveldsrapport og forskningskø")
