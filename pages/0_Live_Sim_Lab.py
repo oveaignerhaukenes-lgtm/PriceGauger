@@ -264,6 +264,67 @@ else:
         "Datadekning og aktivitet må vurderes før rangering."
     )
 
+st.subheader("Whipsaw Lab: Pause / Reduce / Flat")
+st.caption(
+    "Tester den eksisterende WHIPSAW-detektoren på fem fastlåste, "
+    "umodifiserte LAB-strategier. Fire parallelle PAPER-spor: original, "
+    "pause av nye innganger, halv eksponering og flat med karantene. "
+    "Alle bruker samme lukkede 1m-signaler, neste baråpning og 5 bp kostnad."
+)
+try:
+    from live_sim_lab_whipsaw_ablation_v1 import whipsaw_snapshot
+    whip_parents, whip_tracks, whip_points = whipsaw_snapshot()
+except Exception as exc:
+    st.warning("Whipsaw-eksperimentet er ennå ikke tilgjengelig.")
+    st.caption(type(exc).__name__)
+    whip_parents, whip_tracks, whip_points = [], [], []
+if not whip_parents:
+    st.info("Samler kvalifikasjonsdata for fem strategier med minst 120 "
+            "fremoverrettede barer og dokumenterte papirhandler. "
+            "Tidligere markedssvingninger spilles ikke inn med etterpåklokskap.")
+else:
+    whip_controls={r["experiment_id"]:r for r in whip_tracks if r["arm"]=="BASE"}
+    overview=[]
+    for item in whip_tracks:
+        control=whip_controls.get(item["experiment_id"])
+        gain=100*(float(item.get("equity",10000.0))/10000-1)
+        delta=(float(item.get("equity",10000.0))-
+               float(control.get("equity",10000.0)))/100 if control else 0
+        overview.append({
+            "Strategi":item["experiment_id"][:10],
+            "Policy":item["arm"],
+            "P/L %":round(gain,3),
+            "Mot BASE pp":round(delta,3),
+            "Maks drawdown %":round(100*float(item.get("max_drawdown",0)),3),
+            "Kostnader kr":round(float(item.get("transaction_cost_nok",0)),3),
+            "Handler":item.get("trades",0),
+            "Observerte barer":item.get("bars",0),
+            "Whipsaw-barer":item.get("raw_whipsaw_bars",0),
+            "Aktive risikobarer":item.get("effective_whipsaw_bars",0),
+            "Blokkerte økninger":item.get("blocked_increases",0),
+            "Reduksjoner":item.get("forced_reductions",0),
+            "Tvungne flat":item.get("forced_flats",0),
+        })
+    st.dataframe(pd.DataFrame(overview),hide_index=True,
+                 use_container_width=True,height=365)
+    if whip_points:
+        chart=pd.DataFrame([{
+            "Tid":pd.to_datetime(x["bar_time"],utc=True),
+            "Variant":x["experiment_id"][:5]+" "+x["arm"],
+            "Papir-P/L %":100*(float(x["equity"])/10000-1),
+        } for x in whip_points])
+        st.line_chart(chart.pivot_table(index="Tid",columns="Variant",
+            values="Papir-P/L %",aggfunc="last").sort_index(),
+            use_container_width=True)
+    st.caption(
+        "Samme detektor som eksisterende WHIPSAW: ≥7 fortegnsskifter "
+        "på 12 lukkede 1m-returer og Efficiency Ratio <0,35. "
+        "Umiddelbar aktivering, tre rolige barer før frigjøring. "
+        "REDUCE har maks 50 % nominell eksponering i whipsaw; "
+        "FLAT krever også tre rolige barer før ny oppbygging. "
+        "LAB-proxy, ikke Saxo-realiserte resultater. Ingen LIVE-effekt."
+    )
+
 st.subheader("Kveldsrapport og forskningskø")
 with connect() as db:
     item = db.execute(
