@@ -135,7 +135,12 @@ def _mark_account(state,quote):
         updated["last_reason"]="AI_FILLED_NEXT_QUOTE"
         updated["pending_as_of"]=None
     # Set entry's marked price conservatively: never reset on reductions.
-    updated["pending"]=before
+    # A quote at the same timestamp as the model's completed response
+    # cannot execute the intent, but must NOT silently erase it. Only a
+    # later genuine quote may fill the pending exposure change.
+    still_pending=bool(allowed and planned_at and
+                       stamp<=_utc(planned_at) and abs(target-before)>1e-9)
+    updated["pending"]=target if still_pending else before
     updated["exposure"]=before
     updated["equity"]=equity
     updated["peak"]=max(float(updated["peak"]),equity)
