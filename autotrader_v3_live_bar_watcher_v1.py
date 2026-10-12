@@ -34,7 +34,7 @@ def closed_instrument_cursors_v3(
                WHERE bar_time>=? AND bar_time<?
                GROUP BY instrument_id
                ORDER BY instrument_id""",
-            (lower, minute),
+            (lower.isoformat(), minute.isoformat()),
         ).fetchall()
     return tuple(
         (int(row["instrument_id"]), str(row["last_closed"]))
