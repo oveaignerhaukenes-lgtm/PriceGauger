@@ -526,7 +526,10 @@ def process_ai_paper_cycle(*,db_path="pricegauger.db",now=None,
                     proposal=recommendation,current=float(state["exposure"]),
                     whipsaw=whipsaw)
                 state["pending"]=proposed
-                state["pending_as_of"]=claimed_as_of if abs(proposed-state["exposure"])>1e-9 else None
+                # Fill eligibility begins when the model returned, never
+                # when its earlier evidence quote was observed.
+                state["pending_as_of"]=(response_at.isoformat()
+                    if abs(proposed-state["exposure"])>1e-9 else None)
                 state["accepted_decisions"]+=1
                 state["last_reason"]=recommendation["reason"]
                 state["last_model_status"]="READY"
