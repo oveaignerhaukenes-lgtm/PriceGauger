@@ -14,6 +14,7 @@ from live_sim_lab_store_v1 import process_lab_cycle, produce_daily_summary
 from live_sim_lab_context_ablation_v1 import refresh_macro_schedule
 from live_sim_hyper_vigilant_v1 import process_hyper_cycle
 from live_sim_ai_technical_trader_v1 import process_ai_paper_cycle
+from live_sim_ai_technical_status_v1 import record_ai_heartbeat
 
 LOGGER = logging.getLogger("pricegauger.live_sim_lab")
 
@@ -82,14 +83,31 @@ def run_ai_technical_research_loop(*,db_path="pricegauger.db",stop_event,interva
     last_error=0.0
     while not stop_event.is_set():
         started=time.monotonic()
+        status="OK"
+        error_type=""
         try:
             process_ai_paper_cycle(db_path=db_path)
         except Exception as exc:
+            status="ERROR"
+            error_type=type(exc).__name__
             if started-last_error>=30.0:
                 LOGGER.warning(
                     "AI Trader PAPER loop unavailable error_type=%s",
-                    type(exc).__name__,
+                    error_type,
                 )
+                last_error=started
+        # Separate worker-side proof of liveness; model key availability is
+        # measured here, not guessed from the public web app's environment.
+        try:
+            import os
+            record_ai_heartbeat(
+                db_path=db_path,key_configured=bool(os.getenv("OPENAI_API_KEY")),
+                result=status,error_type=error_type,
+            )
+        except Exception as exc:
+            if started-last_error>=30.0:
+                LOGGER.warning("AI Trader heartbeat write unavailable error_type=%s",
+                               type(exc).__name__)
                 last_error=started
         stop_event.wait(max(0.1,interval-(time.monotonic()-started)))
 
