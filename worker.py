@@ -28,7 +28,10 @@ from telegram_query_builder import TelegramSearchPlan, fetch_search_plans
 LOGGER = logging.getLogger("pricegauger.worker")
 DEFAULT_DB_PATH = "pricegauger.db"
 DEFAULT_INTERVAL_SECONDS = 60
-V3_LIVE_INTERVAL_SECONDS = 30
+# One-second lightweight price cursor checks; expensive Saxo/account inventory
+# reconciliation is rate-bounded separately. No new intrabar trading authority.
+V3_LIVE_INTERVAL_SECONDS = 1
+V3_LIVE_RECONCILE_SECONDS = 30
 FLOW_HEARTBEAT_SECONDS = 600
 FLOW_SCORE_DELTA = 0.02
 
@@ -299,22 +302,55 @@ def run_v3_live_fast_loop_v1(
     stop_event: threading.Event,
     interval_seconds: int = V3_LIVE_INTERVAL_SECONDS,
 ) -> None:
-    """Run V3 LIVE independently from slow news/AI/materialization work.
+    """Check canonical closed 1m bars every second, broker cycle on progress.
 
-    A 2m strategy therefore sees every newly closed 2m bar with at most roughly
-    one fast-loop interval of scheduling latency under normal operation.
+    The full Saxo-account cycle is unchanged, still single-threaded and never
+    duplicated. Idle checks read the database only; pending orders and manual
+    Saxo position changes still get a 30s heartbeat. One-second polling does
+    NOT mean intrabar strategies or guaranteed 1s broker order execution.
     """
-    interval=max(10,int(interval_seconds))
-    LOGGER.info("v3 LIVE fast loop started interval=%ss", interval)
+    from autotrader_v3_live_bar_watcher_v1 import (
+        closed_instrument_cursors_v3, has_new_closed_bar_v3,
+    )
+
+    interval=max(1.0,float(interval_seconds))
+    reconciliation=float(V3_LIVE_RECONCILE_SECONDS)
+    last_cycle_at=None
+    last_closed=()
+    errors_at=0.0
+    LOGGER.info(
+        "v3 LIVE closed-bar watch started poll=%ss reconciliation=%ss",
+        interval,reconciliation,
+    )
     while not stop_event.is_set():
         started=time.monotonic()
+        changed=False
         try:
-            executed=run_v3_live_cycle_v1(db_path=str(db_path))
-            if executed:
-                LOGGER.info("v3 LIVE fast loop executed mutations=%d", executed)
+            current=closed_instrument_cursors_v3(db_path=str(db_path))
+            changed=has_new_closed_bar_v3(last_closed,current)
+            last_closed=current
         except Exception as exc:
-            LOGGER.warning("v3 LIVE fast loop failed; retrying: %s", exc, exc_info=True)
-        remaining=max(0.5,interval-(time.monotonic()-started))
+            # Startup schema/DB failures fall back to the bounded Saxo heartbeat.
+            # Never turn a database outage into a network retry storm.
+            if started-errors_at>=60:
+                LOGGER.warning(
+                    "v3 LIVE closed-bar watcher unavailable; keeping heartbeat: %s",
+                    type(exc).__name__,
+                )
+                errors_at=started
+        heartbeat=(last_cycle_at is None or
+                   started-last_cycle_at>=reconciliation)
+        if changed or heartbeat:
+            last_cycle_at=started
+            if changed:
+                LOGGER.info("v3 LIVE canonical closed-bar advanced; evaluating now")
+            try:
+                executed=run_v3_live_cycle_v1(db_path=str(db_path))
+                if executed:
+                    LOGGER.info("v3 LIVE fast loop executed mutations=%d", executed)
+            except Exception as exc:
+                LOGGER.warning("v3 LIVE fast loop failed; retrying: %s", exc, exc_info=True)
+        remaining=max(0.1,interval-(time.monotonic()-started))
         stop_event.wait(remaining)
 
 
