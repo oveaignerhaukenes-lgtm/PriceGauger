@@ -468,18 +468,9 @@ def process_ai_paper_cycle(*,db_path="pricegauger.db",now=None,
                 INSERT INTO lsim_ai_technical_decisions(
                     provider_uic,as_of,event_kind,requested_at,model,
                     model_status,target,confidence,reason,gate_reason,evidence_json)
-                VALUES(?,?,?,?,?,'CLAIMED',NULL,NULL,'','','?')
-                ON CONFLICT(provider_uic,as_of) DO NOTHING
-            """,(uic,updated["last_quote"],event,moment.isoformat(),model,
-                 )) if False else db.execute("""
-                INSERT INTO lsim_ai_technical_decisions(
-                    provider_uic,as_of,event_kind,requested_at,model,
-                    model_status,target,confidence,reason,gate_reason,evidence_json)
-                VALUES(?,?,?,?,?,'CLAIMED',NULL,NULL,'','','?')
+                VALUES(?,?,?,?,?,'CLAIMED',NULL,NULL,'','','')
                 ON CONFLICT(provider_uic,as_of) DO NOTHING
             """,(uic,updated["last_quote"],event,moment.isoformat(),model))
-            # Replace placeholder evidence after claim. The "?" string is not
-            # used as evidence for model decisions and is overwritten before exit.
             if result.rowcount!=1:
                 continue
             db.execute("""
@@ -513,7 +504,8 @@ def process_ai_paper_cycle(*,db_path="pricegauger.db",now=None,
                 "SELECT MAX(quote_at) AS stamp FROM lsim_hyper_quotes_1s WHERE provider_uic=?",
                 (uic,)).fetchone()["stamp"]
             age=(_utc(newest)-_utc(claimed_as_of)).total_seconds() if newest else 9999
-            if age>MAX_REQUEST_AGE_SECONDS:
+            if (age>MAX_REQUEST_AGE_SECONDS or
+                    (response_at-_utc(claimed_as_of)).total_seconds()>MAX_REQUEST_AGE_SECONDS):
                 status="STALE_RESPONSE"
             if recommendation is None or status!="READY":
                 state["rejected_requests"]+=1
