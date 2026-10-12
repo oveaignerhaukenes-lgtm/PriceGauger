@@ -149,3 +149,18 @@ def load_ai_technical_status(*,db_path="pricegauger.db",now=None):
         decision=dict(decision) if decision else None,
         now=now,
     )
+
+
+def load_ai_decision_feed(*,db_path="pricegauger.db",limit=30):
+    """Latest first for the scrolling Lab ticker; strict read-only path."""
+    with connect(db_path) as db:
+        try:
+            rows=db.execute("""
+                SELECT provider_uic,as_of,requested_at,event_kind,
+                       model,model_status,target,confidence,reason,gate_reason
+                FROM lsim_ai_technical_decisions
+                ORDER BY requested_at DESC LIMIT ?
+            """,(min(100,max(1,int(limit))),)).fetchall()
+        except Exception:
+            return []
+    return [dict(row) for row in rows]
