@@ -121,6 +121,39 @@ c3.metric("Ferdige 4t", len(completed_4h))
 c4.metric("Siste worker-hendelse", _compact_timestamp(latest_worker))
 c5.metric("Siste Telegram Flow", _compact_timestamp(flow_snapshot.as_of if flow_snapshot else None))
 
+st.subheader("AI Trader · PAPER-helsekontroll")
+try:
+    from live_sim_ai_technical_status_v1 import (
+        load_ai_technical_status,load_ai_decision_feed,
+    )
+    ai_health=load_ai_technical_status()
+    ai_feed=load_ai_decision_feed(limit=12)
+except Exception as exc:
+    ai_health={"label":"Ukjent","detail":"Kunne ikke lese AI-status",
+               "last_tick":None,"last_quote":None,
+               "last_model_status":None,"last_decision":None}
+    ai_feed=[]
+    st.caption("Lesefeil: "+type(exc).__name__)
+h1,h2,h3=st.columns(3)
+h1.metric("AI-motor",ai_health["label"])
+h2.metric("Worker-heartbeat",_compact_timestamp(ai_health.get("last_tick")))
+h3.metric("Siste AI-vurdering",_compact_timestamp(ai_health.get("last_decision")))
+st.caption(ai_health["detail"])
+st.caption(
+    "Kontrollen leser både workerens siste heartbeat, "
+    "AI-nøkkelens tilgjengelighet på workeren, faktisk prisstrøm "
+    "og siste modellresultat. Feil her påvirker ikke LIVE-ordrevern."
+)
+if ai_feed:
+    st.dataframe(pd.DataFrame([{
+        "Tid":_compact_timestamp(item["requested_at"]),
+        "Hendelse":item["event_kind"],"Status":item["model_status"],
+        "Mål":item["target"],"Risikokontroll":item["gate_reason"],
+        "Begrunnelse":item["reason"],
+    } for item in ai_feed]),hide_index=True,use_container_width=True,height=210)
+else:
+    st.info("Ingen AI Trader-vurderinger registrert ennå.")
+
 st.subheader("Saxo realtime-stream")
 realtime_store = RealtimeMarketDataStore()
 stream_statuses = realtime_store.load_statuses()
