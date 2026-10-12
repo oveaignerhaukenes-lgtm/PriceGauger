@@ -15,6 +15,7 @@ from live_sim_lab_context_ablation_v1 import refresh_macro_schedule
 from live_sim_hyper_vigilant_v1 import process_hyper_cycle
 from live_sim_ai_technical_trader_v1 import process_ai_paper_cycle
 from live_sim_ai_technical_status_v1 import record_ai_heartbeat
+from live_sim_lab_ai_context_reviewer_v1 import review_selected_pairs
 
 LOGGER = logging.getLogger("pricegauger.live_sim_lab")
 
@@ -112,6 +113,27 @@ def run_ai_technical_research_loop(*,db_path="pricegauger.db",stop_event,interva
         stop_event.wait(max(0.1,interval-(time.monotonic()-started)))
 
 
+def run_ai_context_pair_loop(*,db_path="pricegauger.db",stop_event,interval=60.0):
+    """Source-verified contextual AI review, research-only and rate-bounded.
+
+    Never blocks the main 60s LAB settlement or the 1s Hyper stream.
+    """
+    LOGGER.info("AI context paired PAPER reviewer started poll=%.1fs",interval)
+    last_error=0.0
+    while not stop_event.is_set():
+        started=time.monotonic()
+        try:
+            done=review_selected_pairs(db_path=db_path)
+            if done:
+                LOGGER.info("AI context pair reviews requested=%d",done)
+        except Exception as exc:
+            if started-last_error>=60:
+                LOGGER.warning("AI context pair reviewer unavailable error_type=%s",
+                               type(exc).__name__)
+                last_error=started
+        stop_event.wait(max(0.1,interval-(time.monotonic()-started)))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="pricegauger.db")
@@ -135,6 +157,13 @@ def main():
         daemon=True,
     )
     ai_thread.start()
+    pair_thread=threading.Thread(
+        target=run_ai_context_pair_loop,
+        kwargs={"db_path":args.db,"stop_event":stop_event,"interval":60.0},
+        name="pricegauger-ai-context-paper",
+        daemon=True,
+    )
+    pair_thread.start()
     while True:
         started = time.monotonic()
         try:
