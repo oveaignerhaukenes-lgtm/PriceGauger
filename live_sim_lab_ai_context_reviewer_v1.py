@@ -278,7 +278,7 @@ def request_review(evidence,*,arm,key,model=MODEL,post=requests.post):
 
 def review_selected_pairs(*,db_path="pricegauger.db",now=None,
                           api_key=None,model=None,post=requests.post):
-    """At most two calls / cycle, globally <=36/day, one per arm/15 minutes.
+    """At most two calls / cycle, globally <=480/day, one per arm/15 minutes.
 
     Remote AI runs OUTSIDE any DB transaction. Reservation is durable before
     calling the API and results only become usable at their completion time.
