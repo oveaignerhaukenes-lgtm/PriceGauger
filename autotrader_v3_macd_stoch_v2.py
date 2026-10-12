@@ -113,7 +113,7 @@ def macd_stoch_v2_target_v3(
 
     # Existing inventory cannot remain opposed to the composite sign,
     # nor be trailed slowly through a near-zero score.
-    if current != 0.0 and current * score <= 0.0:
+    if current != 0.0 and current * score < 0.0:
         return decision(0.0, "OPPOSITE_FLAT", "opposite composite signal; flatten before reversing")
     if abs(score) <= EXIT_THRESHOLD:
         return decision(0.0, "WEAK_FLAT", "inside exit deadband; suppress noise exposure")
