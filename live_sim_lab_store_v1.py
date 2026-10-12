@@ -169,10 +169,14 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
     from live_sim_lab_whipsaw_ablation_v1 import (
         ensure_whipsaw_schema,settle_whipsaw_ablation,
     )
+    from live_sim_lab_ai_context_pairs_v1 import (
+        ensure_pair_schema,settle_selected_pairs,
+    )
     with connect(db_path) as db:
         ensure_evolution_schema(db)
         ensure_context_lab_schema(db)
         ensure_whipsaw_schema(db)
+        ensure_pair_schema(db)
         for instrument_id, market in _eligible_instruments(db):
             row = db.execute("SELECT state_json FROM lsim_feature_cursors WHERE instrument_id=?",
                              (instrument_id,)).fetchone()
@@ -253,6 +257,12 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                     db,instrument_id=instrument_id,parent_states=available,
                     features=features,bar_time=bar_at,
                     open_price=bar["open"],close_price=bar["close"])
+                # User-selected research comparisons use the same canonical bar,
+                # parent target and next-open cost model. No LIVE authority.
+                settle_selected_pairs(
+                    db,instrument_id=instrument_id,states=available,
+                    bar_time=bar_at,open_price=bar["open"],
+                    close_price=bar["close"])
             if bars:
                 db.execute("""
                     UPDATE lsim_feature_cursors SET last_bar_time=?,state_json=?,
