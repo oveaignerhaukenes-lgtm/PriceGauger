@@ -107,6 +107,17 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             + ('' if next(x for x in STRATEGIES_V3 if x.key==k).runtime_ready else ' · ikke LIVE'),
         key=f'{key_prefix}:strategy:{trader_id}',
     )
+    # One context-sensitive help control serves every catalog strategy.
+    # Keep the actual names and summaries in the canonical registry to avoid
+    # TradingDesk vs fleet discrepancies.
+    help_spec=next(x for x in STRATEGIES_V3 if x.key==strategy)
+    with a.popover("❔", help="Hva gjør den valgte strategien?"):
+        st.markdown(f"**{help_spec.label}**")
+        st.write(help_spec.description)
+        st.caption(
+            "Signalperiode velges separat. Nye strategier endrer ingen "
+            "eksisterende LIVE-konto før du uttrykkelig lagrer/aktiverer dem."
+        )
     timeframe=b.selectbox(
         'Signalperiode (S)', TIMEFRAMES_V3, index=TIMEFRAMES_V3.index(config.timeframe),
         format_func=lambda value: value if value in LIVE_TIMEFRAMES_V3 else f'{value} · ikke LIVE',
