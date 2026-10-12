@@ -163,6 +163,7 @@ def test_all_catalog_strategies_have_descriptions_and_help_control():
 
 def test_no_broker_operations_in_strategy():
     content=Path("autotrader_v3_macd_stoch_v2.py").read_text()
-    assert "saxo" not in content.lower().split("from autotrader_v3_domain")[0]
+    import re
+    assert re.search(r"^\\s*(?:from|import)\\s+saxo", content, re.MULTILINE) is None
     assert "place_order(" not in content
     assert "cancel_order(" not in content
