@@ -28,6 +28,17 @@ export default function(component) {
       ${x.pending_state?`<small class="warn">Ordre ${esc(x.pending_state)} · ${esc(age(x.pending_age_seconds))}${x.broker_order_id?` · Saxo ${esc(x.broker_order_id)}`:''}</small>`:''}
       ${x.issue_message?`<small class="err">${esc(x.issue_message)}</small>`:''}
     </div>`).join('');
+  const ai=p.ai_trader||{};
+  const aiSeverity=String(ai.severity||'IDLE').toLowerCase();
+  const aiRow=`
+    <div class="row" aria-label="AI Trader status">
+      <div><span class="dot ${esc(aiSeverity)}"></span><b>AI Trader · PAPER</b>
+        <span class="right">${esc(ai.label||'Ikke startet')}</span></div>
+      <small>${esc(ai.detail||'Ingen forskningsstatus')}</small>
+      <small>Worker ${esc(when(ai.last_tick))} · Siste quote ${esc(when(ai.last_quote))}</small>
+      <small>Modell ${esc(ai.last_model_status||'Ingen vurderinger')}
+        · Siste beslutning ${esc(when(ai.last_decision))}</small>
+    </div>`;
   const critical=Array.from(p.critical_messages||[]);
   const active=Array.from(p.instances||[]).filter(x=>x.live_armed);
   const palette={GREEN:'#22c55e',YELLOW:'#f59e0b',RED:'#ef4444',IDLE:'#64748b'};
@@ -60,7 +71,7 @@ export default function(component) {
     </style>
     <button id="fab" class="fab ${state}" style="background:${healthGradient}" title="AutoTrader: ${esc(p.label||p.state)}">${String(p.state).toUpperCase()==='RED'?'!':'A'}</button>
     <div id="panel" class="panel"><h3>AutoTrader</h3><div class="summary">${esc(p.label)} · canonical V3 LIVE health</div>
-      <div class="stats"><div class="stat"><b>${esc(p.live_count||0)}</b>LIVE</div><div class="stat"><b>${esc(pnl(p.open_pnl))}</b>Åpen P/L</div><div class="stat"><b>${esc(p.trades_24h||0)}</b>Handler 24t</div><div class="stat"><b>${esc(p.unresolved_orders||0)}</b>Uavklart</div></div>${rows||'<small>Ingen V3-instanser.</small>'}</div>
+      <div class="stats"><div class="stat"><b>${esc(p.live_count||0)}</b>LIVE</div><div class="stat"><b>${esc(pnl(p.open_pnl))}</b>Åpen P/L</div><div class="stat"><b>${esc(p.trades_24h||0)}</b>Handler 24t</div><div class="stat"><b>${esc(p.unresolved_orders||0)}</b>Uavklart</div></div>${aiRow}${rows||'<small>Ingen V3-instanser.</small>'}</div>
     <div id="back" class="back"><div class="alert"><h3>AutoTrader krever oppmerksomhet</h3><div>En LIVE-feil eller ubekreftet ordre er oppdaget.</div>${critical.map(x=>`<div class="msg">${esc(x)}</div>`).join('')}<div class="actions"><button id="close">Lukk</button><button id="open">Åpne status</button></div></div></div>`;
   const panel=root.querySelector('#panel'),back=root.querySelector('#back');
   root.querySelector('#fab')?.addEventListener('click',()=>panel?.classList.toggle('open'));
@@ -86,7 +97,18 @@ def _payload():
         if isinstance(item.runtime_updated_at,datetime):
             row["runtime_updated_at"]=item.runtime_updated_at.isoformat()
         rows.append(row)
+    # Research AI is observational. Its health MUST NOT affect LIVE severity,
+    # alert fingerprint, unresolved-order counts, or green/yellow/red fleet pin.
+    try:
+        from live_sim_ai_technical_status_v1 import load_ai_technical_status
+        ai=load_ai_technical_status()
+    except Exception as exc:
+        ai={"code":"UNAVAILABLE","label":"Kan ikke leses","severity":"YELLOW",
+            "detail":"Statusdatabase utilgjengelig: "+type(exc).__name__,
+            "last_tick":None,"last_quote":None,"last_decision":None,
+            "last_model_status":None}
     return {
+        "ai_trader":ai,
         "state":s.state,"label":s.label,"live_count":s.live_count,"sim_count":s.sim_count,
         "unresolved_orders":s.unresolved_orders,"trades_24h":s.trades_24h,"open_pnl":s.open_pnl,
         "critical_messages":list(s.critical_messages),"alert_fingerprint":s.alert_fingerprint,"instances":rows,
@@ -100,7 +122,9 @@ def _fragment():
         name=type(exc).__name__
         payload={"state":"RED","label":"Health-feil","live_count":0,"sim_count":0,"unresolved_orders":0,
                  "trades_24h":0,"open_pnl":None,"critical_messages":[f"AutoTrader health kunne ikke leses: {name}"],
-                 "alert_fingerprint":f"health-read-{name}","instances":[]}
+                 "alert_fingerprint":f"health-read-{name}","instances":[],
+                 "ai_trader":{"code":"UNAVAILABLE","label":"Kan ikke leses",
+                              "severity":"YELLOW","detail":"Status kunne ikke lastes"}}
     _component(key="pricegauger-autotrader-global-health-v1",data={"payload":payload},height=0)
 
 def render_autotrader_status_widget_v1()->None:
