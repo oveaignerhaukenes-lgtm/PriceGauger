@@ -62,7 +62,7 @@ def setup_lab(tmp_path):
 
 def test_multi_enrollment_is_explicit_bounded_and_restart_is_new_trial(tmp_path):
     path=setup_lab(tmp_path)
-    assert len(available_parents(db_path=path))==3
+    assert len(available_parents(db_path=path))==5
     assert enroll_pairs(["research-0","research-1"],
                         db_path=path,now=BASE)==2
     cohorts,tracks,points,reviews=pair_snapshot(db_path=path)
@@ -121,6 +121,8 @@ def test_same_start_three_costed_tracks_apply_ai_only_later(tmp_path):
         results={x["arm"]:json.loads(x["state_json"]) for x in rows}
         assert set(results)==set(ARMS)
         assert results["BASE"]["equity"]==pytest.approx(results["CONTEXT_AI"]["equity"])
+        assert results["CONTEXT_AUTO"]["pending"]==0
+        assert results["TECH_AUTO"]["pending"]==0
         assert results["BASE"]["pending"]==1.0
         assert results["CONTEXT_AI"]["pending"]==0.0
         assert results["TECH_AI"]["pending"]==1.0
@@ -135,6 +137,8 @@ def test_same_start_three_costed_tracks_apply_ai_only_later(tmp_path):
         assert tracks["CONTEXT_AI"]["exposure"]==0
         assert tracks["BASE"]["exposure"]==1
         assert tracks["CONTEXT_AI"]["equity"]>tracks["BASE"]["equity"]
+        assert tracks["TECH_AUTO"]["exposure"]==0
+        assert tracks["CONTEXT_AUTO"]["exposure"]==0
     assert pair_snapshot(db_path=path)[0][0]["experiment_id"]=="research-0"
 
 
@@ -193,7 +197,7 @@ def test_llm_is_contextual_only_when_requested_and_strict_schema():
             pass
         def json(self):
             return {"output_text":json.dumps({
-                "action":"HALF","confidence":0.93,
+                "action":"HALF","autonomous_target":-1,"confidence":0.93,
                 "reason":"Source coverage suggests more volatility"})}
     def post(url,**kw):
         seen.update(kw)
@@ -203,6 +207,7 @@ def test_llm_is_contextual_only_when_requested_and_strict_schema():
          "context":{"coverage":{"macro":"MISSING"}}},
         arm="CONTEXT_AI",key="test",post=post)
     assert result["action"]=="HALF"
+    assert result["autonomous_target"]==-1
     assert seen["json"]["store"] is False
     assert "tools" not in seen["json"]
     assert seen["json"]["text"]["format"]["type"]=="json_schema"
@@ -212,7 +217,7 @@ def test_llm_is_contextual_only_when_requested_and_strict_schema():
         post=lambda url,**kw:type("R",(),{
             "raise_for_status":lambda self:None,
             "json":lambda self:{"output_text":json.dumps({
-                "action":"FLAT","confidence":0.3,"reason":"uncertain"})}
+                "action":"FLAT","autonomous_target":1,"confidence":0.3,"reason":"uncertain"})}
         })()
     )["action"]=="KEEP"
 
@@ -234,7 +239,7 @@ def test_technical_input_has_no_news_and_reviewer_is_bounded(tmp_path):
             def raise_for_status(self):pass
             def json(self):
                 return {"output_text":json.dumps({
-                    "action":"KEEP","confidence":0.95,"reason":"No clear reason to intervene"})}
+                    "action":"KEEP","autonomous_target":1,"confidence":0.95,"reason":"No clear reason to intervene"})}
         return R()
     now=BASE+timedelta(minutes=5)
     assert review_selected_pairs(
@@ -265,5 +270,46 @@ def test_no_real_trading_imports_and_ui_selects_multiple_baselines():
     assert "context_tabs=st.tabs([" in ui
     assert 'arm="TECH_AI" if tab_index==0 else "CONTEXT_AI"' in ui
     assert "st.line_chart(" in ui
+    assert "Autonom P/L %" in ui
+    assert "TECH_AUTO" in ui and "CONTEXT_AUTO" in ui
     worker=(root/"live_sim_lab_worker_v1.py").read_text()
     assert "run_ai_context_pair_loop" in worker
+
+
+
+def test_autonomous_ai_may_short_against_long_parent_with_full_paper_fills(tmp_path):
+    path=setup_lab(tmp_path)
+    enroll_pairs(["research-0"],db_path=path,now=BASE)
+    with connect(path) as db:
+        trial=db.execute("SELECT trial_id FROM lsim_ai_pair_enrollments").fetchone()["trial_id"]
+        parent={"research-0":{"pending":1.0,"exposure":1.0}}
+        assert settle_selected_pairs(
+            db,instrument_id=4912,states=parent,bar_time=stamp(1),
+            open_price=30000,close_price=30000)==5
+        db.execute("""
+            INSERT INTO lsim_ai_pair_reviews(
+              trial_id,arm,source_bar,requested_at,completed_at,
+              status,model,action,autonomous_target,confidence,reason,
+              evidence_json,coverage_json)
+            VALUES(?,'TECH_AI',?,?,?,'READY','test','KEEP',-1,0.95,
+                   'independent bearish technical model','{}','{}')
+        """,(trial,stamp(1),stamp(1),stamp(2)))
+        assert settle_selected_pairs(
+            db,instrument_id=4912,states=parent,bar_time=stamp(2),
+            open_price=30000,close_price=30000)==5
+        state={x["arm"]:json.loads(x["state_json"]) for x in db.execute(
+            "SELECT arm,state_json FROM lsim_ai_pair_tracks").fetchall()}
+        assert state["BASE"]["pending"]==1
+        assert state["TECH_AI"]["pending"]==1
+        assert state["TECH_AUTO"]["pending"]==-1
+        assert state["CONTEXT_AUTO"]["pending"]==0
+        assert settle_selected_pairs(
+            db,instrument_id=4912,states=parent,bar_time=stamp(3),
+            open_price=30000,close_price=29700)==5
+        state={x["arm"]:json.loads(x["state_json"]) for x in db.execute(
+            "SELECT arm,state_json FROM lsim_ai_pair_tracks").fetchall()}
+        assert state["BASE"]["exposure"]==1
+        assert state["TECH_AUTO"]["exposure"]==-1
+        assert state["TECH_AUTO"]["equity"]>state["BASE"]["equity"]
+        assert state["TECH_AUTO"]["trades"]==1
+        assert state["TECH_AUTO"]["costs"]>0
