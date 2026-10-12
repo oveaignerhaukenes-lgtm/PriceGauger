@@ -103,6 +103,11 @@ def analyst_instructions():
         "mistede trender og usikkerhet. Dersom alle fire armer er like og "
         "ingen kontekstsignaler er observert, kan ingen kontekstverdi "
         "tilskrives AI. Dette er risikofiltre, ikke retning eller makrooverraskelser. "
+        "Sammenlign også WHIPSAW-policyene PAUSE, REDUCE og FLAT mot "
+        "egen BASE med samme oppstart, kostnader, drawdown og handler. "
+        "Rapporter faktiske whipsaw-barer og inngrep. Uten hendelser "
+        "kan ingen forbedring tilskrives detektoren. V3 LIVE har ikke "
+        "denne modifikatoren aktivert. "
         "Du har INGEN execution authority, og skal IKKE oppdatere "
         "strategier, modifikatorer, markedsregler eller risikorammer. "
         "Forslag er bare kandidater for fremtidige versjonerte forsøk."
@@ -211,6 +216,37 @@ def run_daily_analyst(report_date, *, db_path="pricegauger.db",
         "macro_calendar_status":macro_health["status"] if macro_health else "MISSING",
         "method":"prospective_same_parent_four_arm_next_open_with_cost",
         "pairs":comparisons,
+    }
+    from live_sim_lab_whipsaw_ablation_v1 import whipsaw_snapshot
+    _, whipsaw_tracks, _ = whipsaw_snapshot(db_path=db_path)
+    whip_groups={}
+    for item in whipsaw_tracks:
+        whip_groups.setdefault(item["experiment_id"],{})[item["arm"]]=item
+    whip_comparisons=[]
+    for parent,arms in whip_groups.items():
+        control=arms.get("BASE")
+        if not control or not control.get("bars"):
+            continue
+        whip_comparisons.append({
+            "experiment_id":parent,
+            "observed_bars":int(control["bars"]),
+            "raw_whipsaw_bars":int(control["raw_whipsaw_bars"]),
+            "policies":[{
+                "policy":kind,
+                "return_pct":round((float(arm["equity"])/10000-1)*100,5),
+                "delta_vs_base_pp":round(
+                    (float(arm["equity"])-float(control["equity"]))/100,5),
+                "max_drawdown_pct":round(100*float(arm["max_drawdown"]),5),
+                "transactions":int(arm["trades"]),
+                "paper_cost_nok":round(float(arm["transaction_cost_nok"]),4),
+                "blocked_entries":int(arm["blocked_increases"]),
+                "forced_reductions":int(arm["forced_reductions"]),
+                "forced_flats":int(arm["forced_flats"]),
+            } for kind,arm in sorted(arms.items())]
+        })
+    evidence["whipsaw_policy_ablation"]={
+        "method":"five_frozen_parent_same_market_four_arm_next_open_with_cost",
+        "parents":whip_comparisons,
     }
     if not enough_evidence(evidence):
         return "TOO_EARLY"
