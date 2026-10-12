@@ -97,7 +97,7 @@ def test_same_start_five_costed_tracks_apply_ai_only_later(tmp_path):
             bar_time=stamp(0),open_price=30000,close_price=30000)==0
         assert settle_selected_pairs(
             db,instrument_id=4912,states=parents,
-            bar_time=stamp(1),open_price=30000,close_price=30000)==3
+            bar_time=stamp(1),open_price=30000,close_price=30000)==5
         # Future model review cannot influence this or earlier bar decisions.
         db.execute("""
             INSERT INTO lsim_ai_pair_reviews(
@@ -109,12 +109,12 @@ def test_same_start_five_costed_tracks_apply_ai_only_later(tmp_path):
         assert _known_review(db,trial,"CONTEXT_AI",as_of=stamp(2)) is None
         assert settle_selected_pairs(
             db,instrument_id=4912,states=parents,
-            bar_time=stamp(2),open_price=30000,close_price=30100)==3
+            bar_time=stamp(2),open_price=30000,close_price=30100)==5
         # Review becomes actionable at bar close >= its recorded completion;
         # it changes pending inventory for the NEXT bar opening.
         assert settle_selected_pairs(
             db,instrument_id=4912,states=parents,
-            bar_time=stamp(3),open_price=30100,close_price=30100)==3
+            bar_time=stamp(3),open_price=30100,close_price=30100)==5
         rows=db.execute(
             "SELECT arm,state_json FROM lsim_ai_pair_tracks"
         ).fetchall()
@@ -131,7 +131,7 @@ def test_same_start_five_costed_tracks_apply_ai_only_later(tmp_path):
             bar_time=stamp(3),open_price=30100,close_price=30100)==0
         assert settle_selected_pairs(
             db,instrument_id=4912,states=parents,
-            bar_time=stamp(4),open_price=30100,close_price=30000)==3
+            bar_time=stamp(4),open_price=30100,close_price=30000)==5
         tracks={x["arm"]:json.loads(x["state_json"]) for x in db.execute(
             "SELECT arm,state_json FROM lsim_ai_pair_tracks").fetchall()}
         assert tracks["CONTEXT_AI"]["exposure"]==0
