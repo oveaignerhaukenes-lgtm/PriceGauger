@@ -357,6 +357,18 @@ class SaxoRealtimeService:
         self.instruments = instruments if instruments is not None else configured_instruments()
         self.refresh_ms = max(250, int(refresh_ms))
         self.store = RealtimeMarketDataStore(db_path)
+        # Dedicated research-only one-second BBO recorder, isolated from every
+        # order/strategy runtime. Capture failure NEVER interrupts Saxo streaming.
+        self._hyper_recorder = None
+        self._hyper_recorder_error_logged = False
+        try:
+            from live_sim_hyper_quotes_v1 import HyperQuoteRecorder
+            self._hyper_recorder = HyperQuoteRecorder(db_path)
+        except Exception as exc:
+            LOGGER.warning(
+                "Hyper Stochastic PAPER capture unavailable error_type=%s",
+                type(exc).__name__,
+            )
         self.aggregators = {market: MinuteBarAggregator() for market in self.instruments}
         # Diagnostic shadow only: Hunter has no broker order authority.
         self._hunter = {market: Hunter() for market, instrument in self.instruments.items()
@@ -476,6 +488,21 @@ class SaxoRealtimeService:
         completed = self.aggregators[quote.market].add(quote)
         if completed is not None:
             self.store.save_bar(completed)
+        # Capture at most one genuine tradable undelayed BBO per second.
+        # No artificial ticks, no fetch, no broker order authority.
+        recorder=getattr(self,"_hyper_recorder",None)
+        if recorder is not None:
+            try:
+                recorder.observe(
+                    quote,tradable=self._hunter_tradable.get(quote.market,False)
+                )
+            except Exception as exc:
+                if not getattr(self,"_hyper_recorder_error_logged",False):
+                    LOGGER.warning(
+                        "Hyper Stochastic PAPER quote capture failed; "
+                        "price stream continues error_type=%s",type(exc).__name__
+                    )
+                    self._hyper_recorder_error_logged=True
         hunter = self._hunter.get(quote.market)
         if hunter is not None and self._hunter_tradable.get(quote.market, False) and quote.bid is not None and quote.ask is not None:
             try:

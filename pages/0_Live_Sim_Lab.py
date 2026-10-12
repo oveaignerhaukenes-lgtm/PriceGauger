@@ -325,6 +325,113 @@ else:
         "LAB-proxy, ikke Saxo-realiserte resultater. Ingen LIVE-effekt."
     )
 
+st.subheader("Hyper-Vigilant Stochastic · sekundsignaler")
+st.caption(
+    "Eget PAPER-forsøk på faktiske, omsettelige Saxo bid/ask-kurser (maks 1 per "
+    "sekund). Stochastic styrer retningen, MACD brukes bare når Stochastic "
+    "flater ut, og pris kan overstyre ved tilstrekkelig motbevegelse. "
+    "Alle handler simuleres først på neste observerte kurs."
+)
+with st.expander("Hvordan fungerer Hyper-Vigilant – og whipsaw-beskyttelsen?"):
+    st.markdown(
+        "**STOCH_ONLY:** følger retningen i Stochastic K (60 sekunder) "
+        "med D-utjevning, uten ytterligere filtre.\n\n"
+        "**STOCH_MACD:** lar MACD-histogrammet bestemme retning når "
+        "Stochastic beveger seg sidelengs.\n\n"
+        "**STOCH_PRICE:** legger til prisbasert nødutgang. En motbevegelse "
+        "over maks(0,06 %, adaptiv 15s-støygrense) eller 0,12 % fra inngang "
+        "sender posisjonen mot FLAT.\n\n"
+        "**WHIP_PAUSE:** hindrer nye innganger under identifisert whipsaw. "
+        "**WHIP_REDUCE:** begrenser posisjonen til halv størrelse. "
+        "**WHIP_FLAT:** går flat og venter på tre rolige 5s-perioder "
+        "før ny oppbygging.\n\n"
+        "Fast whipsaw: minst 7 fortegnsskifter i 12 ferdige 5s-avkastninger "
+        "og Efficiency Ratio under 0,35; hysterese før frigivelse. "
+        "Minimum 8 sekunder mellom posisjonsøkninger, men tapstruende "
+        "utganger kan skje raskere. "
+        "Pris-/whipsaw-filter sammenlignes alltid med samme STOCH_PRICE-kontroll. "
+        "Dette er forskning, ikke LIVE."
+    )
+try:
+    from live_sim_hyper_vigilant_v1 import hyper_snapshot
+    from live_sim_hyper_quotes_v1 import hyper_quote_status
+    hv_feeds,hv_tracks,hv_points=hyper_snapshot()
+    hv_quotes=hyper_quote_status()
+except Exception as exc:
+    st.warning("Hyper-Vigilant-data kan ikke leses ennå.")
+    st.caption(type(exc).__name__)
+    hv_feeds,hv_tracks,hv_points,hv_quotes=[],[],[],[]
+if not hv_quotes:
+    st.info(
+        "Venter på første nye, udela­yede og omsettelige Tech100-kurs fra "
+        "Saxo-strømmen. Ingen historiske sekunder konstrueres."
+    )
+else:
+    for q in hv_quotes:
+        st.caption(
+            f"Prisstrøm {q['market_name']} / Saxo UIC {q['provider_uic']}: "
+            f"{q['captured_quotes']} ekte 1s-punkter, siste {q['last_quote']}"
+        )
+if not hv_tracks:
+    st.info(
+        "Papirsporene initialiseres først etter at kursstrømmen har startet. "
+        "Tidligere kurser kan varme indikatorene, men får aldri kunstig P/L."
+    )
+else:
+    groups={}
+    for row in hv_tracks:
+        groups.setdefault(row["provider_uic"],{})[row["arm"]]=row
+    results=[]
+    for market,arms in groups.items():
+        baseline=arms.get("STOCH_PRICE")
+        for row in arms.values():
+            delta=(float(row["equity"])-float(baseline["equity"]))/100 if baseline else 0
+            results.append({
+                "Saxo UIC":market,
+                "Variant":row["arm"],
+                "Netto P/L %":round((float(row["equity"])/10000-1)*100,3),
+                "Mot pris-kontroll (pp)":round(delta,3),
+                "Maks drawdown %":round(100*float(row["max_drawdown"]),3),
+                "Papirhandler":row["trades"],
+                "Bid/ask-kostnad kr":round(row["spread_cost_nok"],2),
+                "Andre kostnader kr":round(row["fees_nok"],2),
+                "Kurspunkter":row["ticks"],
+                "Prisoverstyringer":row["price_guards"],
+                "Whipsaw-punkter":row["whipsaw_bars"],
+                "Whipsaw-blokkeringer":row["whipsaw_blocks"],
+                "Whipsaw-reduksjoner":row["whipsaw_reductions"],
+                "Whipsaw-flat":row["whipsaw_flats"],
+                "MACD-reserver":row["macd_fallbacks"],
+                "Databrudd":row["stale_ticks"],
+                "Siste beslutning":row["last_reason"],
+            })
+    st.dataframe(pd.DataFrame(results),hide_index=True,use_container_width=True,
+                 height=310)
+    if hv_points:
+        pointframe=pd.DataFrame([{
+            "Tid":pd.to_datetime(x["quote_at"],utc=True),
+            "Arm":x["arm"],
+            "Netto P/L %":100*(float(x["equity"])/10000-1),
+        } for x in hv_points])
+        for market in sorted({x["provider_uic"] for x in hv_points}):
+            eligible=pointframe.copy() if len(groups)==1 else pd.DataFrame([
+                {"Tid":pd.to_datetime(x["quote_at"],utc=True),
+                 "Arm":x["arm"],"Netto P/L %":100*(float(x["equity"])/10000-1)}
+                for x in hv_points if x["provider_uic"]==market
+            ])
+            if not eligible.empty:
+                st.line_chart(eligible.pivot_table(
+                    index="Tid",columns="Arm",values="Netto P/L %",
+                    aggfunc="last").sort_index(),use_container_width=True)
+    st.caption(
+        "Utvalget er prospektivt, med en papirportefølje på 10 000 "
+        "normaliserte kroner per variant. Signal ved observert kurs t kan "
+        "fylles tidligst på neste faktiske quote; ingen interpolerte ticks. "
+        "Estimert bid/ask-halvspread + 2 bp per absolutt eksponeringsendring. "
+        "Datagap over 5s stanser nye sim-ordre til ekte data igjen foreligger. "
+        "Dette er ikke Saxo-posisjoner, og ingen modell har LIVE-fullmakt."
+    )
+
 st.subheader("Kveldsrapport og forskningskø")
 with connect() as db:
     item = db.execute(
