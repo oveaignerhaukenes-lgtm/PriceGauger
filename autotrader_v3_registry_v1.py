@@ -22,7 +22,12 @@ class ModifierSpecV3:
 
 STRATEGIES_V3 = (
     StrategySpecV3("macd", "MACD", "MACD-regime: motsatt kryss går direkte FLAT; impuls skalerer kun innen aktiv retning.", "macd-trailing-v1", True),
-    StrategySpecV3("macd-stoch-v1", "MACD-Stoch", "MACD bygger eksponering trinnvis; motsatt Stochastic K/D-rollover går FLAT uten å reversere.", "macd-stoch-v1", True),
+    StrategySpecV3("macd-stoch-v1", "MACD-Stoch v1", "MACD bestemmer retning og bygger eksponering. Motsatt Stochastic K/D-kryss lukker posisjonen; Stochastic kan ikke reversere.", "macd-stoch-v1", True),
+    StrategySpecV3(
+        "macd-stoch-v2", "MACD+Stoch v2",
+        "Én vektet momentumscore: 70 % ATR-normalisert MACD-histogram og 30 % normalisert Stochastic K–D. To ferdige barer bekrefter nye innganger; svak score gir flat eller hold, og motsatt score lukker før mulig ny posisjon. Ingen innebygd whipsaw-filter.",
+        "macd-stoch-v2", True,
+    ),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
