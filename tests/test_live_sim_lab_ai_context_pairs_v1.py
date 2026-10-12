@@ -110,6 +110,12 @@ def test_same_start_five_costed_tracks_apply_ai_only_later(tmp_path):
         assert settle_selected_pairs(
             db,instrument_id=4912,states=parents,
             bar_time=stamp(2),open_price=30000,close_price=30100)==5
+        at_decision={x["arm"]:json.loads(x["state_json"]) for x in db.execute(
+            "SELECT arm,state_json FROM lsim_ai_pair_tracks").fetchall()}
+        # Model decision may set a future pending target but cannot alter
+        # the return earned on the same bar as the evidence.
+        assert at_decision["BASE"]["equity"]==pytest.approx(
+            at_decision["CONTEXT_AI"]["equity"])
         # Review becomes actionable at bar close >= its recorded completion;
         # it changes pending inventory for the NEXT bar opening.
         assert settle_selected_pairs(
@@ -120,7 +126,9 @@ def test_same_start_five_costed_tracks_apply_ai_only_later(tmp_path):
         ).fetchall()
         results={x["arm"]:json.loads(x["state_json"]) for x in rows}
         assert set(results)==set(ARMS)
-        assert results["BASE"]["equity"]==pytest.approx(results["CONTEXT_AI"]["equity"])
+        # On the NEXT bar, the context overlay is already flat and pays
+        # its additional exit turnover cost, so the NAVs may differ.
+        assert results["BASE"]["equity"]>results["CONTEXT_AI"]["equity"]
         assert results["CONTEXT_AUTO"]["pending"]==0
         assert results["TECH_AUTO"]["pending"]==0
         assert results["BASE"]["pending"]==1.0
