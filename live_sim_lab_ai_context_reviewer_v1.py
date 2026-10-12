@@ -18,6 +18,7 @@ from database import connect
 from live_sim_lab_core_v1 import utc
 from live_sim_lab_ai_context_pairs_v1 import ensure_pair_schema
 from live_sim_ai_technical_trader_v1 import _response_text
+from live_sim_ai_technical_trader_v1 import _response_text
 
 MODEL="gpt-5-mini"
 URL="https://api.openai.com/v1/responses"
