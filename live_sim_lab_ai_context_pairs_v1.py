@@ -15,7 +15,9 @@ from datetime import datetime, timedelta, timezone
 from database import connect
 from live_sim_lab_core_v1 import utc
 
-ARMS=("BASE","TECH_AI","CONTEXT_AI")
+ARMS=("BASE","TECH_AI","TECH_AUTO","CONTEXT_AI","CONTEXT_AUTO")
+REVIEW_SOURCE={"TECH_AUTO":"TECH_AI","CONTEXT_AUTO":"CONTEXT_AI"}
+AUTO_ARMS=frozenset(REVIEW_SOURCE)
 VERSION="lsim-ai-context-pairs-v1"
 MAX_ENROLLED=6
 MAX_POINTS=2400
@@ -49,7 +51,8 @@ def ensure_pair_schema(db):
             trial_id TEXT NOT NULL,arm TEXT NOT NULL,source_bar TEXT NOT NULL,
             requested_at TEXT NOT NULL,completed_at TEXT,
             status TEXT NOT NULL,model TEXT NOT NULL,
-            action TEXT NOT NULL,confidence REAL,reason TEXT NOT NULL,
+            action TEXT NOT NULL,autonomous_target REAL,
+            confidence REAL,reason TEXT NOT NULL,
             evidence_json TEXT NOT NULL,coverage_json TEXT NOT NULL,
             PRIMARY KEY(trial_id,arm,source_bar)
         );
@@ -135,17 +138,20 @@ def _known_review(db,trial_id,arm,*,as_of):
     bar. A future record cannot alter earlier replayed bar state.
     """
     rows=db.execute("""
-        SELECT completed_at,status,action FROM lsim_ai_pair_reviews
+        SELECT completed_at,status,action,autonomous_target FROM lsim_ai_pair_reviews
         WHERE trial_id=? AND arm=? AND status='READY'
           AND completed_at<=?
         ORDER BY completed_at DESC LIMIT 1
-    """,(trial_id,arm,utc(as_of).isoformat())).fetchall()
+    """,(trial_id,REVIEW_SOURCE.get(arm,arm),utc(as_of).isoformat())).fetchall()
     if not rows:
         return None
     chosen=rows[0]
     age=(utc(as_of)-utc(chosen["completed_at"])).total_seconds()
     if age<0 or age>REVIEW_TTL_SECONDS:
         return None
+    if arm in AUTO_ARMS:
+        value=chosen["autonomous_target"]
+        return None if value is None else float(value)
     return str(chosen["action"])
 
 
@@ -205,7 +211,15 @@ def settle_selected_pairs(db,*,instrument_id,states,bar_time,
             nav*=1+desired*(cl/op-1)
             action=(_known_review(db,trial,arm,as_of=bar_close)
                     if arm!="BASE" else "KEEP")
-            new_target=gate_parent_target(parent_target,action)
+            if arm in AUTO_ARMS:
+                # Autonomous paper decisions may LONG/SHORT/FLAT against
+                # parent, but never exceed THIS parent trial's gross cap.
+                # Missing or expired AI => flat, not a fabricated parent trade.
+                new_target=(round(max(-1.0,min(1.0,float(action))) *
+                                  float(cfg_row["max_exposure"]),8)
+                            if action is not None else 0.0)
+            else:
+                new_target=gate_parent_target(parent_target,action)
             peak=max(float(state["peak"]),nav)
             state.update(
                 equity=nav,peak=peak,exposure=desired,pending=new_target,
@@ -216,12 +230,17 @@ def settle_selected_pairs(db,*,instrument_id,states,bar_time,
                 trades=int(state["trades"])+int(turnover>1e-9),
                 costs=float(state["costs"])+cost,
                 ai_applied=int(state["ai_applied"])+int(
-                    arm!="BASE" and action in ("HALF","FLAT")),
+                    arm!="BASE" and (action is not None) and
+                    (arm in AUTO_ARMS or action in ("HALF","FLAT"))),
                 ai_missing=int(state["ai_missing"])+int(
                     arm!="BASE" and action is None),
-                ai_half=int(state["ai_half"])+int(arm!="BASE" and action=="HALF"),
-                ai_flat=int(state["ai_flat"])+int(arm!="BASE" and action=="FLAT"),
-                last_reason=(action or "NO_RECENT_AI") if arm!="BASE" else "BASE",
+                ai_half=int(state["ai_half"])+int(arm not in AUTO_ARMS
+                                                   and action=="HALF"),
+                ai_flat=int(state["ai_flat"])+int(
+                    (arm in AUTO_ARMS and action == 0.0) or
+                    (arm not in AUTO_ARMS and action=="FLAT")),
+                last_reason=(str(action) if action is not None else "NO_RECENT_AI")
+                            if arm!="BASE" else "BASE",
             )
             db.execute("""
                 INSERT INTO lsim_ai_pair_tracks(trial_id,arm,state_json)
@@ -266,7 +285,7 @@ def pair_snapshot(*,db_path="pricegauger.db",limit=MAX_POINTS):
         """,(max(1,min(10000,int(limit))),)).fetchall()]
         reviews=[dict(x) for x in db.execute("""
             SELECT r.trial_id,r.arm,r.source_bar,r.requested_at,r.completed_at,
-                   r.status,r.action,r.confidence,r.reason,r.coverage_json
+                   r.status,r.action,r.autonomous_target,r.confidence,r.reason,r.coverage_json
             FROM lsim_ai_pair_reviews r
             JOIN lsim_ai_pair_enrollments e ON e.trial_id=r.trial_id
             WHERE e.status='ACTIVE'
