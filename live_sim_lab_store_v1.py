@@ -166,9 +166,13 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
     from live_sim_lab_context_ablation_v1 import (
         ensure_context_lab_schema,settle_context_ablations,
     )
+    from live_sim_lab_whipsaw_ablation_v1 import (
+        ensure_whipsaw_schema,settle_whipsaw_ablation,
+    )
     with connect(db_path) as db:
         ensure_evolution_schema(db)
         ensure_context_lab_schema(db)
+        ensure_whipsaw_schema(db)
         for instrument_id, market in _eligible_instruments(db):
             row = db.execute("SELECT state_json FROM lsim_feature_cursors WHERE instrument_id=?",
                              (instrument_id,)).fetchone()
@@ -243,6 +247,12 @@ def process_lab_cycle(*, db_path="pricegauger.db", now=None):
                     db,instrument_id=instrument_id,states=available,
                     bar_time=bar_at,open_price=bar["open"],
                     close_price=bar["close"])
+                # Five matched controls, three causal whipsaw policies;
+                # no strategy-state or LIVE account mutations.
+                settle_whipsaw_ablation(
+                    db,instrument_id=instrument_id,parent_states=available,
+                    features=features,bar_time=bar_at,
+                    open_price=bar["open"],close_price=bar["close"])
             if bars:
                 db.execute("""
                     UPDATE lsim_feature_cursors SET last_bar_time=?,state_json=?,
