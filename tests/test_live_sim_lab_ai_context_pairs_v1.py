@@ -179,8 +179,9 @@ def test_news_and_macro_sources_are_point_in_time_and_not_surprises(tmp_path):
         assert ctx["coverage"]["news"]=="MISSING"
         assert ctx["coverage"]["macro"]=="READY"
         assert ctx["coverage"]["geopolitics"]=="MISSING"
-        assert "consensus" not in str(ctx["sources"]["macro"]).lower()
-        assert "actual" not in str(ctx["sources"]["macro"]).lower()
+        assert ctx["sources"]["macro"]["events"][0]["event_type"]=="US_CPI"
+        assert all("actual_value" not in event and "surprise" not in event
+                   for event in ctx["sources"]["macro"]["events"])
         ctx2=context_evidence(db,as_of=stamp(10))
         assert ctx2["coverage"]["news"]=="AVAILABLE"
         assert ctx2["sources"]["news"]["source_posts"]==3
