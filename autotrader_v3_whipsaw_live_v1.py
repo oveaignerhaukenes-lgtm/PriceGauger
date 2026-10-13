@@ -156,6 +156,57 @@ def evaluate_whipsaw_live_v3(*,trader_id,bars,now=None,
 
 
 
+
+
+
+@dataclass(frozen=True,slots=True)
+class VolatilityPauseLiveModifierV3:
+    """Same HIGH_VOL proxy as LAB; never mutates opposite risk/exits."""
+    actual_inventory: float
+    data_ok: bool
+    high_vol: bool
+    key: str = "volatility-pause"
+
+    def apply(self,trader,target:TargetInventoryV3):
+        current=float(self.actual_inventory)
+        wanted=float(target.amount)
+        if self.data_ok and not self.high_vol:
+            return target,"volatility normal; allow strategy"
+        cause=("HIGH_VOL" if self.high_vol else
+               "volatility input stale/gapped/missing")
+        if abs(current)>1e-12 and wanted*current<0:
+            return TargetInventoryV3(0.0),cause+"; opposite -> FLAT"
+        if abs(wanted)<=abs(current)+1e-10 and (
+            abs(wanted)<1e-12 or wanted*current>=0):
+            return target,cause+"; reduce/exit allowed"
+        return TargetInventoryV3(current),cause+"; new entry/ADD blocked"
+
+
+def assess_volatility_live_v3(*,bars,now=None):
+    """Closed, contiguous 1m returns; HIGH_VOL exactly as Lab proxy."""
+    from statistics import pstdev
+    moment=_utc(now or datetime.now(timezone.utc))
+    data=[]
+    for bar in bars:
+        try:
+            stamp=_utc(bar.bar_time)
+            close=float(bar.close)
+        except (TypeError,ValueError,OverflowError,AttributeError):
+            continue
+        if math.isfinite(close) and close>0 and stamp+timedelta(minutes=1)<=moment:
+            data.append((stamp,close))
+    data=sorted(set(data))[-61:]
+    if len(data)<61 or any(
+        b[0]-a[0]!=timedelta(minutes=1) for a,b in zip(data,data[1:])
+    ):
+        return False,False
+    age=moment-(data[-1][0]+timedelta(minutes=1))
+    if not timedelta(0)<=age<=timedelta(minutes=3):
+        return False,False
+    changes=[b[1]/a[1]-1 for a,b in zip(data,data[1:])]
+    high=pstdev(changes[-12:])>max(0.00001,1.5*pstdev(changes))
+    return True,high
+
 def ensure_whipsaw_approval_schema_v3(db_path="pricegauger.db"):
     """Separate opt-in from legacy modifier selections saved before LIVE existed."""
     with connect(db_path) as db:
