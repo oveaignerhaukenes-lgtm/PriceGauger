@@ -193,7 +193,9 @@ class LegacyMigrationV3:
     modifiers: tuple[str, ...] = ()
 
 
-# Never silently migrate old MACD Flip controls to 'macd' (Trailing). The\n# policies are not semantically equivalent. Those identifiers remain Legacy.\nLEGACY_V2_TO_V3: dict[str, LegacyMigrationV3] = {
+# Never silently migrate old MACD Flip controls to 'macd' (Trailing). The
+# policies are not semantically equivalent. Those identifiers remain Legacy.
+LEGACY_V2_TO_V3: dict[str, LegacyMigrationV3] = {
     "family-macd-v1": LegacyMigrationV3("macd", "30m"),
     "macd-a-v1": LegacyMigrationV3("macd", "Adaptiv"),
     "macd-norm-v1": LegacyMigrationV3("macd", "5m", ("normalize",)),
