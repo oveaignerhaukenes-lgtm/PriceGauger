@@ -21,7 +21,7 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
-    StrategySpecV3("macd", "MACD", "MACD-regime: motsatt kryss går direkte FLAT; impuls skalerer kun innen aktiv retning.", "macd-trailing-v1", True),
+    StrategySpecV3("macd", "MACD Trailing · Legacy", "Eldre MACD-impulsmotor: motsatt kryss går til FLAT, impuls skalerer innen aktiv retning. Dette er IKKE MACD Flip i SIM.", "macd-trailing-v1", True),
     StrategySpecV3("macd-stoch-v1", "MACD-Stoch v1", "MACD bestemmer retning og bygger eksponering. Motsatt Stochastic K/D-kryss lukker posisjonen; Stochastic kan ikke reversere.", "macd-stoch-v1", True),
     StrategySpecV3(
         "macd-stoch-v2", "MACD+Stoch v2",
@@ -193,6 +193,8 @@ class LegacyMigrationV3:
     modifiers: tuple[str, ...] = ()
 
 
+# Never silently migrate old MACD Flip controls to 'macd' (Trailing). The
+# policies are not semantically equivalent. Those identifiers remain Legacy.
 LEGACY_V2_TO_V3: dict[str, LegacyMigrationV3] = {
     "family-macd-v1": LegacyMigrationV3("macd", "30m"),
     "macd-a-v1": LegacyMigrationV3("macd", "Adaptiv"),
@@ -204,10 +206,6 @@ LEGACY_V2_TO_V3: dict[str, LegacyMigrationV3] = {
     "sfl-2m-v1": LegacyMigrationV3("sfl", "2m"),
     "sfl-5m-v1": LegacyMigrationV3("sfl", "5m"),
     "sfl-10m-v1": LegacyMigrationV3("sfl", "10m"),
-    "macd-1m-flip-control-shadow-v1": LegacyMigrationV3("macd", "1m"),
-    "macd-2m-flip-control-shadow-v1": LegacyMigrationV3("macd", "2m"),
-    "macd-5m-flip-control-shadow-v1": LegacyMigrationV3("macd", "5m"),
-    "macd-15m-flip-control-shadow-v1": LegacyMigrationV3("macd", "15m"),
 }
 
 
