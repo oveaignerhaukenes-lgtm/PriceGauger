@@ -42,7 +42,7 @@ def render_v3_fleet_management_v1():
         try: pnl=broker.open_pnl_exact(account_id=item.account_id,uic=item.uic,asset_type=item.asset_type) if broker else None
         except Exception: pnl=None
         rows.append((item,config,policy,auth,status,detail,updated,pnl,_event_count(item.instance_id)))
-    st.subheader('V3 Fleet'); st.caption('Samlet oversikt over aktive autotradere. TradingDesk er den raske arbeidsflaten for én instans; begge bruker samme canonical config.')
+    st.subheader('V3 Fleet'); st.caption('Samlet oversikt over aktive autotradere. TradingDesk er den raske arbeidsflaten for én instans; begge bruker samme canonical config. Handler 24t inkluderer også handler før eventuelle strategibytter.')
     m=st.columns(4); m[0].metric('Instanser',len(rows)); m[1].metric('LIVE',sum(r[3].live_armed for r in rows)); m[2].metric('SIM',sum(r[3].sim_armed for r in rows)); m[3].metric('Handler 24t',sum(r[8] for r in rows))
     comparable=[{'Instans':f'{r[0].market_name} · {account_names.get(r[0].account_id) or r[0].account_id}','Åpen P/L':float(r[7])} for r in rows if r[7] is not None]
     if comparable:
