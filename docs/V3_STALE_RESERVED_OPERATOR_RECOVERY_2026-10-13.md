@@ -6,7 +6,7 @@ V3 lagrer ordrelåsen i `autotrader_v3_order_guard` i PostgreSQL, ikke i minnet 
 ## Statuspanelet (PR #698)
 1. Åpne den flytende AutoTrader-statusen nederst til høyre.
 2. På en bestemt instans vises **Kontroller / reset lås** bare hvis ordren er `RESERVED` eldre enn to minutter, uten Saxo OrderId. Ingen reset for `SUBMITTING`, `SUBMITTED` eller `UNKNOWN`.
-3. Bruker skriver operatørkoden (skjult inndata). Koden må være satt i Railway **pricegauger-web** som `PG_V3_ORDER_RECOVERY_PIN` (minst 12 tegn). Ikke legg kode i GitHub, logg eller handoff.
+3. Étt klikk starter serverens automatiske Saxo-avstemming. Ingen PIN/dialog kreves.
 4. Server kontrollerer eksakt instans/konto/UIC, at reservasjonen er gammel, at posisjonen fortsatt er lik den før forsøkt ordre, og at Saxo ikke har aktive ordre på kontoen. Ved manglende eller tvetydig informasjon blir ordren **ikke frigjort**.
 5. Dersom alt stemmer, endres kun akkurat denne gamle reserverte forespørselen atomisk til `REJECTED` med revisjonsspor. **Ingen Saxo-ordre sendes fra knappen**.
 6. Worker sjekker heretter overgang `RESERVED -> SUBMITTING` atomisk. En samtidig reset kan derfor ikke få den til å sende ordren etterpå.
