@@ -153,3 +153,36 @@ def evaluate_whipsaw_live_v3(*,trader_id,bars,now=None,
     return WhipsawEvidenceV3(
         active,True,last_time,changes,round(efficiency,6),quiet,
         "whipsaw active" if active else "clear")
+
+
+
+def ensure_whipsaw_approval_schema_v3(db_path="pricegauger.db"):
+    """Separate opt-in from legacy modifier selections saved before LIVE existed."""
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_whipsaw_live_approval(
+            trader_id TEXT PRIMARY KEY,
+            approved INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+
+
+def is_whipsaw_live_approved_v3(trader_id,*,db_path="pricegauger.db"):
+    ensure_whipsaw_approval_schema_v3(db_path)
+    with connect(db_path) as db:
+        row=db.execute("""
+            SELECT approved FROM autotrader_v3_whipsaw_live_approval
+            WHERE trader_id=?
+        """,(str(trader_id),)).fetchone()
+    return bool(row["approved"]) if row else False
+
+
+def set_whipsaw_live_approval_v3(trader_id,approved,*,db_path="pricegauger.db"):
+    """Only called from an explicit human UI action, never migrations/deploys."""
+    ensure_whipsaw_approval_schema_v3(db_path)
+    with connect(db_path) as db:
+        db.execute("""
+            INSERT INTO autotrader_v3_whipsaw_live_approval(trader_id,approved)
+            VALUES(?,?) ON CONFLICT(trader_id) DO UPDATE
+            SET approved=excluded.approved,updated_at=CURRENT_TIMESTAMP
+        """,(str(trader_id),int(bool(approved))))
+    return bool(approved)
