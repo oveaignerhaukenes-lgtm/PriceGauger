@@ -15,6 +15,7 @@ DEFAULTS_V3: dict[str, dict[str, Any]] = {
     "take-profit": {"giveback_pct": 10.0, "min_peak_profit_pct": 0.20, "reentry_cooldown_seconds": 30},
     "reset-on-loss": {},  # Threshold is deliberately fixed at open P/L < 0 for v1.
     "whipsaw": {"lookback_bars": 12, "max_direction_changes": 6, "cooldown_bars": 3},
+    "volatility-pause": {},  # Exactly same fixed HIGH_VOL proxy as LAB.
     "regime": {"lookback_bars": 30, "trend_threshold": 0.60},
 }
 
