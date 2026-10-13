@@ -131,3 +131,16 @@ def test_new_family_ui_isolated_from_legacy_and_readonly():
     assert "configured_client" not in engine
     assert "place_order" not in engine
     assert "from database import" not in engine
+
+
+def test_no_semantic_conversion_of_legacy_macd_flip_to_trailing():
+    from autotrader_v3_registry_v1 import migrate_legacy_strategy_v3, strategy_v3
+    for minutes in (1,2,5,15):
+        assert migrate_legacy_strategy_v3(
+            "macd-%dm-flip-control-shadow-v1" % minutes
+        ) is None
+    spec=strategy_v3("macd")
+    assert "Trailing" in spec.label
+    assert spec.runtime_key=="macd-trailing-v1"
+    selector=Path("autotrader_v3_instance_controls_ui_v1.py").read_text(encoding="utf-8")
+    assert "'Legacy strategies', keys" in selector
