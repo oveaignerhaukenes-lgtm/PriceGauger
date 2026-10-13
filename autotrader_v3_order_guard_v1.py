@@ -47,6 +47,19 @@ def mark(*,request_key,state,broker_order_id=None,detail=None,db_path="pricegaug
         cursor=db.execute("""UPDATE autotrader_v3_order_guard SET state=?,broker_order_id=COALESCE(?,broker_order_id),detail=?,updated_at=CURRENT_TIMESTAMP WHERE request_key=?""",(state,broker_order_id,detail,request_key))
         if cursor.rowcount!=1: raise LookupError("missing V3 order reservation")
 
+def claim_reserved_for_submission_v3(*,request_key,db_path="pricegauger.db"):
+    """Atomic RESERVED -> SUBMITTING. Prevent POST after operator CAS recovery.
+
+    Returns False when a reservation was recovered, retired or changed.
+    """
+    with connect(db_path) as db:
+        cursor=db.execute("""UPDATE autotrader_v3_order_guard
+            SET state='SUBMITTING',updated_at=CURRENT_TIMESTAMP
+            WHERE request_key=? AND state='RESERVED' AND broker_order_id IS NULL""",
+            (str(request_key),))
+        return cursor.rowcount==1
+
+
 def unresolved(*,account_id,uic,asset_type,db_path="pricegauger.db"):
     ensure_schema(db_path)
     with connect(db_path) as db:

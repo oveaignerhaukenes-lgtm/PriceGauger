@@ -12,7 +12,7 @@ from autotrader_v3_domain import AccountBoundaryV3,ControlModeV3,TargetInventory
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_legacy_ownership_migration_v1 import backfill_legacy_v3_live_ownership_v1
-from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3, order_state as order_state_v3, order_detail as order_detail_v3
+from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3, order_state as order_state_v3, order_detail as order_detail_v3, claim_reserved_for_submission_v3
 from database import connect,using_postgres
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
@@ -707,7 +707,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             raise RuntimeError(
                 'V3 order reservation conflicted without a readable matching intent; '
                 'stopping before Saxo submission')
-        mark_order_v3(request_key=request_key,state='SUBMITTING',db_path=db_path)
+        if not claim_reserved_for_submission_v3(request_key=request_key,db_path=db_path):
+            _record_runtime(e.pilot_key,'PENDING',
+                'Reserved intent changed before submission; NO SAXO POST',db_path=db_path)
+            continue
         try:
             result=broker.place_order(order,confirm_live=True)
         except Exception as exc:
