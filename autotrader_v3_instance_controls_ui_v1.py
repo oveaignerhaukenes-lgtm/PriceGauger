@@ -116,10 +116,11 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']='30m'
         st.session_state[f'{key_prefix}:mod:{trader_id}:volatility-pause']=True
         st.rerun()
+    st.caption("Eksisterende V3-strategier er Legacy. Nye MACD-varianter utvikles og sammenlignes først i Live-Sim Lab · Nye strategier. Ingen konvertering til LIVE.")
     keys=tuple(x.key for x in STRATEGIES_V3)
     a,b=st.columns(2)
     strategy=a.selectbox(
-        'Strategi', keys, index=keys.index(config.strategy_key),
+        'Legacy strategies', keys, index=keys.index(config.strategy_key),
         format_func=lambda k: next(x.label for x in STRATEGIES_V3 if x.key==k)
             + ('' if next(x for x in STRATEGIES_V3 if x.key==k).runtime_ready else ' · ikke LIVE'),
         key=f'{key_prefix}:strategy:{trader_id}',
