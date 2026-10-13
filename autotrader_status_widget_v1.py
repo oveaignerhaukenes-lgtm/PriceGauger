@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime
+import json
 import streamlit as st
 
 from autotrader_health_v1 import load_autotrader_health_snapshot_v1
@@ -9,7 +10,7 @@ from autotrader_health_v1 import load_autotrader_health_snapshot_v1
 
 _WIDGET_JS = r"""
 export default function(component) {
-  const {data,parentElement}=component, p=data.payload||{};
+  const {data,parentElement,setTriggerValue}=component, p=data.payload||{};
   const id='pg-at-health-v1', store='pg-at-alert-v1';
   const esc=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
   const pnl=v=>Number.isFinite(Number(v))?`${Number(v)>=0?'+':''}${Number(v).toFixed(2)}`:'—';
@@ -27,6 +28,9 @@ export default function(component) {
       <small>Marked ${esc(x.market_state||(x.market_open===true?'Open':(x.market_open===false?'Closed':'ukjent')))}</small>
       ${x.pending_state?`<small class="warn">Ordre ${esc(x.pending_state)} · ${esc(age(x.pending_age_seconds))}${x.broker_order_id?` · Saxo ${esc(x.broker_order_id)}`:''}</small>`:''}
       ${x.issue_message?`<small class="err">${esc(x.issue_message)}</small>`:''}
+      ${x.pending_state==='RESERVED' && Number(x.pending_age_seconds)>=120 && !x.broker_order_id
+        ?`<button type="button" class="recover" data-id="${esc(x.instance_id)}" data-key="${esc(x.pending_request_key)}" data-account="${esc(x.account_name)}">Kontroller / reset lås</button>`
+        :(x.pending_state?`<small class="warn">Reset sperret: krever Saxo-avstemming.</small>`:'')}
     </div>`).join('');
   const ai=p.ai_trader||{};
   const aiSeverity=String(ai.severity||'IDLE').toLowerCase();
@@ -62,7 +66,12 @@ export default function(component) {
     #${id} .panel.open{display:block}#${id} h3{margin:0 0 4px}#${id} .summary{font-size:12px;margin-bottom:8px;opacity:.72}
     #${id} .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}#${id} .stat{text-align:center;border:1px solid #94a3b844;border-radius:8px;padding:6px;font-size:10px}#${id} .stat b{display:block;font-size:14px}
     #${id} .row{border:1px solid #94a3b844;border-radius:9px;padding:8px;margin-top:7px;font-size:12px}#${id} small{display:block;margin-top:3px;overflow-wrap:anywhere}#${id} .right{float:right}#${id} .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
-    #${id} .warn{color:#b45309}#${id} .err{color:#dc2626;font-weight:650}
+    #${id} .recover{display:block;margin-top:7px;border:1px solid #64748b;background:transparent;color:inherit;padding:7px 10px;border-radius:8px;cursor:pointer}
+    #${id} .recover:hover{background:#64748b22}
+    #${id} .pin-dialog{position:fixed;inset:0;z-index:1000004;background:#0f172abb;display:none;align-items:center;justify-content:center}
+    #${id} .pin-dialog.open{display:flex}#${id} .pin-card{width:min(400px,calc(100vw - 28px));background:#111827;color:#fff;padding:16px;border-radius:12px}
+    #${id} .pin-card input{width:100%;padding:10px;background:#fff;color:#111827;border-radius:7px;border:1px solid #94a3b8;box-sizing:border-box}
+    #${id} .pin-card button{padding:8px;margin:8px 6px 0 0;border-radius:7px}
     #${id} .back{position:fixed;inset:0;z-index:1000003;display:none;background:#0f172a66;align-items:center;justify-content:center;padding:16px}#${id} .back.open{display:flex}
     #${id} .alert{width:min(500px,calc(100vw - 28px));background:#fff;color:#111827;border:2px solid #ef4444;border-radius:14px;padding:16px;box-shadow:0 18px 55px #0006}#${id} .msg{margin:8px 0;padding:7px;border-left:4px solid #ef4444;background:#ef444411}
     #${id} .actions{text-align:right;margin-top:12px}#${id} .actions button{margin-left:6px;padding:7px 10px;border-radius:8px;border:1px solid #94a3b8;background:#fff;cursor:pointer}
@@ -72,9 +81,33 @@ export default function(component) {
     <button id="fab" class="fab ${state}" style="background:${healthGradient}" title="AutoTrader: ${esc(p.label||p.state)}">${String(p.state).toUpperCase()==='RED'?'!':'A'}</button>
     <div id="panel" class="panel"><h3>AutoTrader</h3><div class="summary">${esc(p.label)} · canonical V3 LIVE health</div>
       <div class="stats"><div class="stat"><b>${esc(p.live_count||0)}</b>LIVE</div><div class="stat"><b>${esc(pnl(p.open_pnl))}</b>Åpen P/L</div><div class="stat"><b>${esc(p.trades_24h||0)}</b>Handler 24t</div><div class="stat"><b>${esc(p.unresolved_orders||0)}</b>Uavklart</div></div>${aiRow}${rows||'<small>Ingen V3-instanser.</small>'}</div>
+    <div id="pin-dialog" class="pin-dialog"><div class="pin-card">
+      <h3>Sikker ordrekontroll</h3><p>Kun gamle RESERVED kan frigjøres etter verifisering mot Saxo. Ingen ordre sendes.</p>
+      <small id="reset-account"></small><input id="recovery-pin" type="password" autocomplete="off" placeholder="Operatørkode fra Railway"/>
+      <button id="recovery-confirm" type="button">Kontroller og reset</button><button id="recovery-cancel" type="button">Avbryt</button>
+    </div></div>
     <div id="back" class="back"><div class="alert"><h3>AutoTrader krever oppmerksomhet</h3><div>En LIVE-feil eller ubekreftet ordre er oppdaget.</div>${critical.map(x=>`<div class="msg">${esc(x)}</div>`).join('')}<div class="actions"><button id="close">Lukk</button><button id="open">Åpne status</button></div></div></div>`;
   const panel=root.querySelector('#panel'),back=root.querySelector('#back');
   root.querySelector('#fab')?.addEventListener('click',()=>panel?.classList.toggle('open'));
+  const recovery=root.querySelector('#pin-dialog');
+  let selected=null;
+  root.querySelectorAll('button.recover').forEach(button=>button.addEventListener('click',()=>{
+    selected={instance_id:button.dataset.id,request_key:button.dataset.key};
+    root.querySelector('#reset-account').textContent=button.dataset.account||'Valgt konto';
+    root.querySelector('#recovery-pin').value='';
+    recovery?.classList.add('open');
+  }));
+  root.querySelector('#recovery-cancel')?.addEventListener('click',()=>{selected=null;recovery?.classList.remove('open')});
+  root.querySelector('#recovery-confirm')?.addEventListener('click',()=>{
+    if(!selected)return;
+    const pin=root.querySelector('#recovery-pin').value;
+    if(!pin)return;
+    const request={...selected,pin,nonce:String(Date.now())};
+    root.querySelector('#recovery-pin').value='';
+    selected=null;
+    recovery?.classList.remove('open');
+    setTriggerValue('recovery_request',JSON.stringify(request));
+  });
   root.querySelector('#close')?.addEventListener('click',()=>back?.classList.remove('open'));
   root.querySelector('#open')?.addEventListener('click',()=>{back?.classList.remove('open');panel?.classList.add('open')});
   const fp=String(p.alert_fingerprint||'');
@@ -125,7 +158,29 @@ def _fragment():
                  "alert_fingerprint":f"health-read-{name}","instances":[],
                  "ai_trader":{"code":"UNAVAILABLE","label":"Kan ikke leses",
                               "severity":"YELLOW","detail":"Status kunne ikke lastes"}}
-    _component(key="pricegauger-autotrader-global-health-v1",data={"payload":payload},height=0)
+    response=_component(key="pricegauger-autotrader-global-health-v1",data={"payload":payload},
+                        height=0,on_recovery_request_change=lambda: None)
+    raw=getattr(response,"recovery_request",None)
+    if not raw:
+        return
+    try:
+        event=json.loads(str(raw))
+        nonce=str(event["nonce"])
+        if st.session_state.get("v3_last_recovery_nonce")==nonce:
+            return
+        st.session_state["v3_last_recovery_nonce"]=nonce
+        from autotrader_v3_operator_order_recovery_v1 import recover_stale_reserved_v3
+        detail=recover_stale_reserved_v3(
+            instance_id=str(event["instance_id"]),
+            request_key=str(event["request_key"]),
+            operator_pin=str(event["pin"]),
+        )
+    except Exception as exc:
+        st.toast("Ordrelåsen ble IKKE resatt: "+str(exc),icon="⚠️")
+    else:
+        _payload.clear()
+        st.toast("Ordreavstemming: "+detail,icon="✅")
+        st.rerun(scope="fragment")
 
 def render_autotrader_status_widget_v1()->None:
     """Mount global floating health status. Read-only; never sends execution requests."""
