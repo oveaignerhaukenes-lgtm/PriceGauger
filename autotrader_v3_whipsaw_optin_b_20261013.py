@@ -15,7 +15,7 @@ from database import connect
 from autotrader_v3_config_v1 import load_autotrader_config_v3, save_autotrader_config_v3
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
 from autotrader_v3_registry_v1 import live_config_issues_v3
-from autotrader_v3_order_guard_v1 import pending_order_v3
+from autotrader_v3_order_guard_v1 import pending_order as pending_order_v3
 from autotrader_v3_whipsaw_live_v1 import (
     is_whipsaw_live_approved_v3, set_whipsaw_live_approval_v3,
 )
