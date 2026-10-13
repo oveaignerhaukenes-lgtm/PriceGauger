@@ -11,6 +11,7 @@ from autotrader_v3_instance_binding_v1 import remove_unarmed_v3_instance_v1
 from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v3
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
+from autotrader_v3_whipsaw_live_v1 import is_whipsaw_live_approved_v3,set_whipsaw_live_approval_v3
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_live_truth_v1 import inventory_label_v1,load_v3_live_truth_v1
 from autotrader_v3_registry_v1 import (
@@ -99,6 +100,22 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption(truth.reason + (f' · {truth.detail}' if truth.detail else ''))
     st.caption('Siste bekreftede handel: '+(truth.last_execution or 'ingen tilgjengelig i eventloggen'))
     st.caption('Tallene er forrige worker-heartbeat, ikke en sanntids-Saxo-posisjonsforespørsel.')
+    st.caption(
+        "Forsøksoppsett: Fast Exit S10/R30 + Volatility Pause er inspirert "
+        "av LAB-varianten, men LIVE-motoren bruker Aen#2.1 Fast Exit og "
+        "er ikke en matematisk identisk LAB-strategi."
+    )
+    if st.button(
+        "Forhåndsvelg Fast Exit S10/R30 + Volatility Pause",
+        key=f'{key_prefix}:preset-fast-exit-10-30:{trader_id}',
+        help="Setter bare verdier i skjemaet. Ingen LIVE-konfigurasjon "
+             "lagres, og ingen ordrer opprettes uten et separat lagreklikk.",
+    ):
+        st.session_state[f'{key_prefix}:strategy:{trader_id}']='aen21-sticky-fast-exit'
+        st.session_state[f'{key_prefix}:timeframe:{trader_id}']='10m'
+        st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']='30m'
+        st.session_state[f'{key_prefix}:mod:{trader_id}:volatility-pause']=True
+        st.rerun()
     keys=tuple(x.key for x in STRATEGIES_V3)
     a,b=st.columns(2)
     strategy=a.selectbox(
@@ -181,9 +198,36 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption('Slå den aktive motoren av før du lagrer en config som den ikke støtter.')
     if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
+        # A removed safety option cannot retain previously granted approval.
+        if 'whipsaw' in config.modifiers and 'whipsaw' not in desired.modifiers:
+            set_whipsaw_live_approval_v3(trader_id,False)
         st.session_state[f'{key_prefix}:flash:{trader_id}']=f'Aktiv config lagret: {desired_label}'
         st.rerun()
 
+    if 'whipsaw' in config.modifiers:
+        approved=is_whipsaw_live_approved_v3(trader_id)
+        if approved:
+            st.success("LIVE Whipsaw Detector godkjent på denne instansen.")
+            if st.button("Tilbakekall Whipsaw LIVE-godkjenning",
+                         key=f'{key_prefix}:whip-revoke:{trader_id}'):
+                set_whipsaw_live_approval_v3(trader_id,False)
+                st.rerun()
+        else:
+            st.warning(
+                "Whipsaw er valgt i config, men mangler separat LIVE-godkjenning. "
+                "Nye innganger og ADD holdes sperret til du godkjenner. "
+                "REDUCE og CLOSE tillates fortsatt."
+            )
+            if st.button("Godkjenn Whipsaw Detector for LIVE på denne instansen",
+                         key=f'{key_prefix}:whip-authorize:{trader_id}'):
+                set_whipsaw_live_approval_v3(trader_id,True)
+                st.rerun()
+    if 'volatility-pause' in config.modifiers:
+        st.caption(
+            "Volatility Pause er aktiv i denne instansens LIVE-config: "
+            "blokkerer nye innganger/ADD ved HIGH_VOL. "
+            "Utganger og reduksjoner er alltid tillatt."
+        )
     flash_key=f'{key_prefix}:flash:{trader_id}'
     if flash_key in st.session_state:
         st.success(st.session_state.pop(flash_key))

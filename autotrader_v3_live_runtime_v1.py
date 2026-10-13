@@ -24,6 +24,12 @@ from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, live_config_issues_v3
 from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
+from autotrader_v3_whipsaw_live_v1 import (
+    WhipsawEvidenceV3, WhipsawLiveModifierV3,
+    VolatilityPauseLiveModifierV3, evaluate_whipsaw_live_v3,
+    assess_volatility_live_v3, is_whipsaw_live_approved_v3,
+)
+from autotrader_v3_modifier_settings_v1 import load_modifier_settings_v3
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
 from autotrader_v3_live_sizing_v1 import (
@@ -438,7 +444,69 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     LOGGER.warning("v3 Reset on Loss skipped pilot=%s: P/L unavailable: %s", e.pilot_key, type(exc).__name__)
                 else:
                     modifiers.append(ResetOnLossModifierV3(open_pnl=open_pnl,actual_inventory=actual.amount))
+        if 'whipsaw' in config.modifiers or 'volatility-pause' in config.modifiers:
+            try:
+                # The same genuine fully closed, contiguous 1m market data
+                # feed is used for every V3 strategy/timeframe and instrument.
+                closed_1m=closed_bars_v2(
+                    tuple(b.point for b in bars),market=e.market_name,
+                    timeframe_minutes=1,
+                ) if bars else ()
+            except Exception as exc:
+                LOGGER.warning("v3 LIVE 1m safety source unavailable trader=%s error_type=%s",
+                               e.pilot_key,type(exc).__name__)
+                closed_1m=()
+            if 'whipsaw' in config.modifiers:
+                try:
+                    approved=is_whipsaw_live_approved_v3(e.pilot_key,db_path=db_path)
+                    if approved:
+                        settings=load_modifier_settings_v3(
+                            e.pilot_key,'whipsaw',db_path=db_path)
+                        whip=evaluate_whipsaw_live_v3(
+                            trader_id=e.pilot_key,bars=closed_1m,now=end,
+                            db_path=db_path,**settings)
+                    else:
+                        whip=WhipsawEvidenceV3(
+                            False,False,None,None,None,0,
+                            "not explicitly approved for LIVE; no new exposure")
+                except Exception as exc:
+                    LOGGER.warning("v3 LIVE whipsaw evidence failure trader=%s error_type=%s",
+                                   e.pilot_key,type(exc).__name__)
+                    whip=WhipsawEvidenceV3(
+                        False,False,None,None,None,0,
+                        "whipsaw check unavailable; no new exposure")
+                modifiers.append(WhipsawLiveModifierV3(
+                    actual_inventory=actual.amount,evidence=whip))
+                LOGGER.info(
+                    "v3 LIVE whipsaw trader=%s active=%s data_ok=%s changes=%s "
+                    "efficiency=%s reason=%s",
+                    e.pilot_key,whip.active,whip.data_ok,whip.changes,
+                    whip.efficiency,whip.reason)
+            if 'volatility-pause' in config.modifiers:
+                try:
+                    vol_ok,high_vol=assess_volatility_live_v3(
+                        bars=closed_1m,now=end)
+                except Exception as exc:
+                    LOGGER.warning("v3 LIVE volatility evidence failure trader=%s error_type=%s",
+                                   e.pilot_key,type(exc).__name__)
+                    vol_ok,high_vol=False,False
+                modifiers.append(VolatilityPauseLiveModifierV3(
+                    actual_inventory=actual.amount,data_ok=vol_ok,high_vol=high_vol))
+                LOGGER.info("v3 LIVE volatility-pause trader=%s data_ok=%s high_vol=%s",
+                            e.pilot_key,vol_ok,high_vol)
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
+        if (
+            any(k in config.modifiers for k in ('whipsaw','volatility-pause'))
+            and abs(snapshot.risk_approved_target.amount-actual.amount)<1e-10
+            and abs(decision.decision.target.amount)>abs(actual.amount)+1e-10
+            and (abs(actual.amount)<1e-10 or
+                 decision.decision.target.amount*actual.amount>0)
+        ):
+            # Drop vetoed build intent from durable closed-bar driver. It must
+            # not reappear as an obsolete ADD during the next 30s reconcile.
+            align_closed_bar_target_v3(
+                trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+
         plan=plan_execution_v3(snapshot)
         _record_runtime(e.pilot_key,'READY',
             f'actual={actual.amount:g} target={snapshot.risk_approved_target.amount:g} delta={snapshot.pending_delta:g} timeframe={config.timeframe}'
