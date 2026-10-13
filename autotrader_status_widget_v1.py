@@ -20,6 +20,24 @@ export default function(component) {
   if(!root){root=document.createElement('div');root.id=id;document.body.appendChild(root)}
   const wasPanelOpen=!!root.querySelector('#panel.open');
   const state=String(p.state||'IDLE').toLowerCase();
+  // A recent SUBMITTED state is a normal order in transit, not a reset failure.
+  const orderStatus=x=>{
+    const status=String(x.pending_state||'').toUpperCase();
+    if(!status)return '';
+    const seconds=Number(x.pending_age_seconds);
+    const elapsed=Number.isFinite(seconds)?seconds:0;
+    const brokerId=x.broker_order_id?` · Saxo ${esc(x.broker_order_id)}`:'';
+    const name=`Ordre ${esc(status)} · ${esc(age(elapsed))}${brokerId}`;
+    if(status==='SUBMITTED' && elapsed<15)
+      return `<small class="neutral">${name} · Avstemmer med Saxo (normalt)</small>`;
+    if(status==='SUBMITTED' && x.broker_working===true)
+      return `<small class="neutral">${name} · Ordren er aktiv hos Saxo</small>`;
+    if(status==='SUBMITTING' && elapsed<15)
+      return `<small class="neutral">${name} · Sender til Saxo</small>`;
+    if(status==='RESERVED' && elapsed<15)
+      return `<small class="neutral">${name} · Forbereder ordre</small>`;
+    return `<small class="warn">${name} · Avventer ordreavstemming</small>`;
+  };
   const rows=Array.from(p.instances||[]).map(x=>`
     <div class="row">
       <div><span class="dot ${String(x.severity||'IDLE').toLowerCase()}"></span><b>${esc(x.account_name||x.account_id)}</b><span class="right">${x.live_armed?'LIVE':(x.sim_armed?'SIM':'AV')}</span></div>
@@ -27,11 +45,10 @@ export default function(component) {
       <small><b>Strategi:</b> ${esc(x.strategy_label||x.strategy_key||'—')}</small>
       <small>Sist ${esc(when(x.runtime_updated_at))} · Handler 24t ${esc(x.trades_24h)}</small>
       <small>Marked ${esc(x.market_state||(x.market_open===true?'Open':(x.market_open===false?'Closed':'ukjent')))}</small>
-      ${x.pending_state?`<small class="warn">Ordre ${esc(x.pending_state)} · ${esc(age(x.pending_age_seconds))}${x.broker_order_id?` · Saxo ${esc(x.broker_order_id)}`:''}</small>`:''}
+      ${orderStatus(x)}
       ${x.issue_message?`<small class="err">${esc(x.issue_message)}</small>`:''}
       ${x.pending_state==='RESERVED' && Number(x.pending_age_seconds)>=120 && !x.broker_order_id
-        ?`<button type="button" class="recover" data-id="${esc(x.instance_id)}" data-key="${esc(x.pending_request_key)}" data-account="${esc(x.account_name)}">Reset ordre</button>`
-        :(x.pending_state?`<small class="warn">Reset sperret: krever Saxo-avstemming.</small>`:'')}
+        ?`<button type="button" class="recover" data-id="${esc(x.instance_id)}" data-key="${esc(x.pending_request_key)}" data-account="${esc(x.account_name)}">Reset ordre</button>`:''}
     </div>`).join('');
   const ai=p.ai_trader||{};
   const aiSeverity=String(ai.severity||'IDLE').toLowerCase();
@@ -67,6 +84,7 @@ export default function(component) {
     #${id} .panel.open{display:block}#${id} h3{margin:0 0 4px}#${id} .summary{font-size:12px;margin-bottom:8px;opacity:.72}
     #${id} .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}#${id} .stat{text-align:center;border:1px solid #94a3b844;border-radius:8px;padding:6px;font-size:10px}#${id} .stat b{display:block;font-size:14px}
     #${id} .row{border:1px solid #94a3b844;border-radius:9px;padding:8px;margin-top:7px;font-size:12px}#${id} small{display:block;margin-top:3px;overflow-wrap:anywhere}#${id} .right{float:right}#${id} .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+    #${id} .neutral{opacity:.73}
     #${id} .recover{display:block;margin-top:7px;border:1px solid #64748b;background:transparent;color:inherit;padding:7px 10px;border-radius:8px;cursor:pointer}
     #${id} .recover:hover{background:#64748b22}
     #${id} .back{position:fixed;inset:0;z-index:1000003;display:none;background:#0f172a66;align-items:center;justify-content:center;padding:16px}#${id} .back.open{display:flex}
