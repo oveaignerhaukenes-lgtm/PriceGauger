@@ -146,3 +146,17 @@ def test_global_build_chrome_mounts_read_only_autotrader_widget():
     assert "x.account_name||x.account_id" in widget
     assert "place_order(" not in widget
     assert "set_live_enabled_v3" not in widget
+
+
+def test_inflight_saxo_order_is_not_called_a_reset_failure():
+    """The operator UI should not present ordinary 3-second SUBMITTED as stuck."""
+    widget = Path("autotrader_status_widget_v1.py").read_text(encoding="utf-8")
+    assert "const orderStatus=x=>" in widget
+    assert "status==='SUBMITTED' && elapsed<15" in widget
+    assert "Avstemmer med Saxo (normalt)" in widget
+    assert "status==='SUBMITTED' && x.broker_working===true" in widget
+    assert "Ordren er aktiv hos Saxo" in widget
+    assert "Reset sperret: krever Saxo-avstemming." not in widget
+    # Never enable one-click reset for potentially submitted orders.
+    assert "x.pending_state==='RESERVED' && Number(x.pending_age_seconds)>=120" in widget
+    assert "place_order(" not in widget
