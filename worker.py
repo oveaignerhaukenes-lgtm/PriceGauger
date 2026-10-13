@@ -312,6 +312,7 @@ def run_v3_live_fast_loop_v1(
     from autotrader_v3_live_bar_watcher_v1 import (
         closed_instrument_cursors_v3, has_new_closed_bar_v3,
     )
+    from autotrader_v3_whipsaw_optin_b_20261013 import apply_authorized_whipsaw_b_once
 
     interval=max(1.0,float(interval_seconds))
     reconciliation=float(V3_LIVE_RECONCILE_SECONDS)
@@ -344,6 +345,13 @@ def run_v3_live_fast_loop_v1(
             last_cycle_at=started
             if changed:
                 LOGGER.info("v3 LIVE canonical closed-bar advanced; evaluating now")
+            try:
+                # One-shot, exact-instance, user-authorized risk-reducing config
+                # change; no Saxo mutation. Other LIVE engines are untouched.
+                apply_authorized_whipsaw_b_once(db_path=str(db_path))
+            except Exception as exc:
+                LOGGER.warning("Tech100-B LIVE whipsaw opt-in deferred error_type=%s",
+                               type(exc).__name__)
             try:
                 executed=run_v3_live_cycle_v1(db_path=str(db_path))
                 if executed:
