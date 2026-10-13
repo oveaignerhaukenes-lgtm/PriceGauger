@@ -100,6 +100,22 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption(truth.reason + (f' · {truth.detail}' if truth.detail else ''))
     st.caption('Siste bekreftede handel: '+(truth.last_execution or 'ingen tilgjengelig i eventloggen'))
     st.caption('Tallene er forrige worker-heartbeat, ikke en sanntids-Saxo-posisjonsforespørsel.')
+    st.caption(
+        "Forsøksoppsett: Fast Exit S10/R30 + Volatility Pause er inspirert "
+        "av LAB-varianten, men LIVE-motoren bruker Aen#2.1 Fast Exit og "
+        "er ikke en matematisk identisk LAB-strategi."
+    )
+    if st.button(
+        "Forhåndsvelg Fast Exit S10/R30 + Volatility Pause",
+        key=f'{key_prefix}:preset-fast-exit-10-30:{trader_id}',
+        help="Setter bare verdier i skjemaet. Ingen LIVE-konfigurasjon "
+             "lagres, og ingen ordrer opprettes uten et separat lagreklikk.",
+    ):
+        st.session_state[f'{key_prefix}:strategy:{trader_id}']='aen21-sticky-fast-exit'
+        st.session_state[f'{key_prefix}:timeframe:{trader_id}']='10m'
+        st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']='30m'
+        st.session_state[f'{key_prefix}:mod:{trader_id}:volatility-pause']=True
+        st.rerun()
     keys=tuple(x.key for x in STRATEGIES_V3)
     a,b=st.columns(2)
     strategy=a.selectbox(
