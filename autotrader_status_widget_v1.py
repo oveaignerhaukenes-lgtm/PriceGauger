@@ -19,8 +19,6 @@ export default function(component) {
   let root=document.getElementById(id);
   if(!root){root=document.createElement('div');root.id=id;document.body.appendChild(root)}
   const wasPanelOpen=!!root.querySelector('#panel.open');
-  const wasRecoveryOpen=!!root.querySelector('#pin-dialog.open');
-  const typedOperatorPin=wasRecoveryOpen?(root.querySelector('#recovery-pin')?.value||''):'';
   const state=String(p.state||'IDLE').toLowerCase();
   const rows=Array.from(p.instances||[]).map(x=>`
     <div class="row">
@@ -32,7 +30,7 @@ export default function(component) {
       ${x.pending_state?`<small class="warn">Ordre ${esc(x.pending_state)} · ${esc(age(x.pending_age_seconds))}${x.broker_order_id?` · Saxo ${esc(x.broker_order_id)}`:''}</small>`:''}
       ${x.issue_message?`<small class="err">${esc(x.issue_message)}</small>`:''}
       ${x.pending_state==='RESERVED' && Number(x.pending_age_seconds)>=120 && !x.broker_order_id
-        ?`<button type="button" class="recover" data-id="${esc(x.instance_id)}" data-key="${esc(x.pending_request_key)}" data-account="${esc(x.account_name)}">Kontroller / reset lås</button>`
+        ?`<button type="button" class="recover" data-id="${esc(x.instance_id)}" data-key="${esc(x.pending_request_key)}" data-account="${esc(x.account_name)}">Reset ordre</button>`
         :(x.pending_state?`<small class="warn">Reset sperret: krever Saxo-avstemming.</small>`:'')}
     </div>`).join('');
   const ai=p.ai_trader||{};
@@ -71,10 +69,6 @@ export default function(component) {
     #${id} .row{border:1px solid #94a3b844;border-radius:9px;padding:8px;margin-top:7px;font-size:12px}#${id} small{display:block;margin-top:3px;overflow-wrap:anywhere}#${id} .right{float:right}#${id} .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
     #${id} .recover{display:block;margin-top:7px;border:1px solid #64748b;background:transparent;color:inherit;padding:7px 10px;border-radius:8px;cursor:pointer}
     #${id} .recover:hover{background:#64748b22}
-    #${id} .pin-dialog{position:fixed;inset:0;z-index:1000004;background:#0f172abb;display:none;align-items:center;justify-content:center}
-    #${id} .pin-dialog.open{display:flex}#${id} .pin-card{width:min(400px,calc(100vw - 28px));background:#111827;color:#fff;padding:16px;border-radius:12px}
-    #${id} .pin-card input{width:100%;padding:10px;background:#fff;color:#111827;border-radius:7px;border:1px solid #94a3b8;box-sizing:border-box}
-    #${id} .pin-card button{padding:8px;margin:8px 6px 0 0;border-radius:7px}
     #${id} .back{position:fixed;inset:0;z-index:1000003;display:none;background:#0f172a66;align-items:center;justify-content:center;padding:16px}#${id} .back.open{display:flex}
     #${id} .alert{width:min(500px,calc(100vw - 28px));background:#fff;color:#111827;border:2px solid #ef4444;border-radius:14px;padding:16px;box-shadow:0 18px 55px #0006}#${id} .msg{margin:8px 0;padding:7px;border-left:4px solid #ef4444;background:#ef444411}
     #${id} .actions{text-align:right;margin-top:12px}#${id} .actions button{margin-left:6px;padding:7px 10px;border-radius:8px;border:1px solid #94a3b8;background:#fff;cursor:pointer}
@@ -84,44 +78,20 @@ export default function(component) {
     <button id="fab" class="fab ${state}" style="background:${healthGradient}" title="AutoTrader: ${esc(p.label||p.state)}">${String(p.state).toUpperCase()==='RED'?'!':'A'}</button>
     <div id="panel" class="panel"><h3>AutoTrader</h3><div class="summary">${esc(p.label)} · canonical V3 LIVE health</div>
       <div class="stats"><div class="stat"><b>${esc(p.live_count||0)}</b>LIVE</div><div class="stat"><b>${esc(pnl(p.open_pnl))}</b>Åpen P/L</div><div class="stat"><b>${esc(p.trades_24h||0)}</b>Handler 24t</div><div class="stat"><b>${esc(p.unresolved_orders||0)}</b>Uavklart</div></div>${aiRow}${rows||'<small>Ingen V3-instanser.</small>'}</div>
-    <div id="pin-dialog" class="pin-dialog"><div class="pin-card">
-      <h3>Sikker ordrekontroll</h3><p>Kun gamle RESERVED kan frigjøres etter verifisering mot Saxo. Ingen ordre sendes.</p>
-      <small id="reset-account"></small><input id="recovery-pin" type="password" autocomplete="off" placeholder="Operatørkode fra Railway"/>
-      <button id="recovery-confirm" type="button">Kontroller og reset</button><button id="recovery-cancel" type="button">Avbryt</button>
-    </div></div>
     <div id="back" class="back"><div class="alert"><h3>AutoTrader krever oppmerksomhet</h3><div>En LIVE-feil eller ubekreftet ordre er oppdaget.</div>${critical.map(x=>`<div class="msg">${esc(x)}</div>`).join('')}<div class="actions"><button id="close">Lukk</button><button id="open">Åpne status</button></div></div></div>`;
   const panel=root.querySelector('#panel'),back=root.querySelector('#back');
   if(wasPanelOpen)panel?.classList.add('open');
   root.querySelector('#fab')?.addEventListener('click',()=>panel?.classList.toggle('open'));
-  const recovery=root.querySelector('#pin-dialog');
-  let selected=wasRecoveryOpen&&root.dataset.recoveryId?
-    {instance_id:root.dataset.recoveryId,request_key:root.dataset.recoveryKey}:null;
-  if(wasRecoveryOpen&&selected){
-    recovery?.classList.add('open');
-    root.querySelector('#recovery-pin').value=typedOperatorPin;
-  }
   root.querySelectorAll('button.recover').forEach(button=>button.addEventListener('click',()=>{
-    selected={instance_id:button.dataset.id,request_key:button.dataset.key};
-    root.dataset.recoveryId=selected.instance_id;
-    root.dataset.recoveryKey=selected.request_key;
-    root.querySelector('#reset-account').textContent=button.dataset.account||'Valgt konto';
-    root.querySelector('#recovery-pin').value='';
-    recovery?.classList.add('open');
+    if(button.disabled)return;
+    button.disabled=true;
+    button.textContent='Kontrollerer Saxo …';
+    setTriggerValue('recovery_request',JSON.stringify({
+      instance_id:button.dataset.id,
+      request_key:button.dataset.key,
+      nonce:String(Date.now())
+    }));
   }));
-  root.querySelector('#recovery-cancel')?.addEventListener('click',()=>{
-    selected=null;delete root.dataset.recoveryId;delete root.dataset.recoveryKey;
-    root.querySelector('#recovery-pin').value='';recovery?.classList.remove('open');
-  });
-  root.querySelector('#recovery-confirm')?.addEventListener('click',()=>{
-    if(!selected)return;
-    const pin=root.querySelector('#recovery-pin').value;
-    if(!pin)return;
-    const request={...selected,pin,nonce:String(Date.now())};
-    root.querySelector('#recovery-pin').value='';
-    selected=null;delete root.dataset.recoveryId;delete root.dataset.recoveryKey;
-    recovery?.classList.remove('open');
-    setTriggerValue('recovery_request',JSON.stringify(request));
-  });
   root.querySelector('#close')?.addEventListener('click',()=>back?.classList.remove('open'));
   root.querySelector('#open')?.addEventListener('click',()=>{back?.classList.remove('open');panel?.classList.add('open')});
   const fp=String(p.alert_fingerprint||'');
@@ -187,7 +157,6 @@ def _fragment():
         detail=recover_stale_reserved_v3(
             instance_id=str(event["instance_id"]),
             request_key=str(event["request_key"]),
-            operator_pin=str(event["pin"]),
         )
     except Exception as exc:
         st.toast("Ordrelåsen ble IKKE resatt: "+str(exc),icon="⚠️")
@@ -197,7 +166,7 @@ def _fragment():
         st.rerun(scope="fragment")
 
 def render_autotrader_status_widget_v1()->None:
-    """Mount global floating health status. Read-only; never sends execution requests."""
+    """Mount global V3 status and broker-verified nontrading recovery control."""
     _fragment()
 
 __all__=["render_autotrader_status_widget_v1"]

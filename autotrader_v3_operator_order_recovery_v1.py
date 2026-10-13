@@ -1,4 +1,4 @@
-"""Operator-confirmed recovery of provably unsubmitted V3 RESERVED intents.
+"""One-click recovery of provably unsubmitted V3 RESERVED intents.
 
 Fail closed for SUBMITTING, SUBMITTED and UNKNOWN: those may have reached Saxo.
 No broker POST, no deletion, no position changes and no implicit recovery.
@@ -6,9 +6,7 @@ No broker POST, no deletion, no position changes and no implicit recovery.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from hmac import compare_digest
 from math import isfinite
-import os
 
 from database import connect
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
@@ -72,14 +70,11 @@ def _assert_no_working_orders_v3(broker, *, account_id, account_key, uic, asset_
             raise OrderRecoveryDeniedV3("Saxo har aktiv ordre på samme konto; behold låsen.")
 
 
-def recover_stale_reserved_v3(*, instance_id, request_key, operator_pin, db_path="pricegauger.db", broker=None, now=None):
-    """Release exactly one pre-submit reservation with human operator authority.
+def recover_stale_reserved_v3(*, instance_id, request_key, db_path="pricegauger.db", broker=None, now=None):
+    """One click runs all Saxo + durable-state checks without a second prompt.
 
-    An explicit Railway-only secret is required. This path never places an order.
+    No broker order is placed. SUBMITTING/SUBMITTED/UNKNOWN always stay locked.
     """
-    secret = os.environ.get("PG_V3_ORDER_RECOVERY_PIN", "")
-    if len(secret) < 12 or not compare_digest(str(operator_pin or ""), secret):
-        raise OrderRecoveryDeniedV3("Manglende/ugyldig operatørkode for ordreavstemming.")
     instances = tuple(i for i in load_v3_instances_v1(db_path=db_path) if i.instance_id == str(instance_id))
     if len(instances) != 1:
         raise OrderRecoveryDeniedV3("Finner ikke nøyaktig én aktiv V3-instans.")
