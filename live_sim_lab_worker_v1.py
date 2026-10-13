@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import time
 import threading
@@ -19,6 +20,68 @@ from live_sim_lab_ai_context_reviewer_v1 import review_selected_pairs
 
 LOGGER = logging.getLogger("pricegauger.live_sim_lab")
 
+# A one-time read-only performance audit per LAB worker boot.
+# Emit only research-paper metrics and configuration labels, never account data.
+_SIM_AUDIT_EMITTED = False
+
+
+def emit_sim_performance_audit_v1(*, db_path="pricegauger.db"):
+    """Print factual, forward-only SIM ledger snapshots to project owner logs.
+
+    This does not create SIM history, alter strategies, or touch Saxo/LIVE.
+    Results from different starting dates or fill/cost models MUST NOT be
+    interpreted as a head-to-head profitability ranking.
+    """
+    from live_sim_lab_store_v1 import lab_snapshot
+    experiments, regimes, feeds = lab_snapshot(db_path=db_path)
+    LOGGER.info("SIM_AUDIT_META %s", json.dumps({
+        "at_utc": datetime.now(timezone.utc).isoformat(),
+        "variants": len(experiments), "feeds": feeds,
+        "regime_rows": len(regimes),
+        "note": "research-only: normalized NAV; 5bps turnover; no Saxo fills or funding",
+    }, default=str, separators=(",", ":"), ensure_ascii=False))
+    for row in experiments:
+        # Keep the complete cohort, not only winners: prevents cherry-picking.
+        fields=("experiment_id","market_name","family","signal_tf","regime_tf",
+                "modifier","max_exposure","started_at","status","observed_bars",
+                "last_bar","return_pct","max_drawdown_pct","trades",
+                "above_start_pct","positive_bar_pct","exposure")
+        LOGGER.info("SIM_AUDIT_VARIANT %s",json.dumps(
+            {k:row.get(k) for k in fields},separators=(",",":"),ensure_ascii=False,default=str))
+    # Each optional family is logged separately, because a paper 1s bid/ask
+    # strategy is not directly comparable with a 1m next-bar open strategy.
+    modules=(
+        ("HYPER","live_sim_hyper_vigilant_v1","hyper_snapshot",1),
+        ("SELECTOR","live_sim_lab_evolution_v1","evolution_snapshot",0),
+        ("WHIP","live_sim_lab_whipsaw_ablation_v1","whipsaw_snapshot",1),
+        ("CONTEXT","live_sim_lab_context_ablation_v1","context_ablation_snapshot",1),
+        ("AI_PAIR","live_sim_lab_ai_context_pairs_v1","pair_snapshot",1),
+        ("AI_TECH","live_sim_ai_technical_trader_v1","ai_technical_snapshot",0),
+    )
+    from importlib import import_module
+    for label,module,method,index in modules:
+        try:
+            result=getattr(import_module(module),method)(db_path=db_path)
+            rows=result[index]
+            LOGGER.info("SIM_AUDIT_GROUP group=%s rows=%d",label,len(rows))
+            for row in rows:
+                # Curate numeric evidence without dumping model prompts,
+                # generated news or raw source/provider data into logs.
+                fields=("provider_uic","market_name","experiment_id","trial_id",
+                        "arm","selector_kind","selected_id","equity","return_pct",
+                        "max_drawdown","trades","ticks","bars","last_bar",
+                        "started_at","updated_at","first_bar","last_quote",
+                        "spread_cost_nok","fees_nok","costs","transaction_cost_nok",
+                        "raw_whipsaw_bars","effective_whipsaw_bars","blocked_increases",
+                        "forced_reductions","forced_flats","macro_known","geo_known",
+                        "macro_triggered","geo_triggered","model_status","switches")
+                LOGGER.info("SIM_AUDIT_%s %s",label,json.dumps(
+                    {k:row.get(k) for k in fields if k in row},
+                    separators=(",",":"),ensure_ascii=False,default=str))
+        except Exception as exc:
+            LOGGER.warning("SIM_AUDIT_GROUP_FAILED group=%s error_type=%s",label,type(exc).__name__)
+
+
 
 def run_once(*, db_path="pricegauger.db", now=None):
     moment = now or datetime.now(timezone.utc)
@@ -32,6 +95,13 @@ def run_once(*, db_path="pricegauger.db", now=None):
         LOGGER.warning("Context Lab calendar unavailable error_type=%s",
                        type(exc).__name__)
     evaluated = process_lab_cycle(db_path=db_path, now=moment)
+    global _SIM_AUDIT_EMITTED
+    if not _SIM_AUDIT_EMITTED:
+        try:
+            emit_sim_performance_audit_v1(db_path=db_path)
+            _SIM_AUDIT_EMITTED = True
+        except Exception as exc:
+            LOGGER.warning("SIM_AUDIT_FAILED error_type=%s",type(exc).__name__)
     oslo = moment.astimezone(ZoneInfo("Europe/Oslo"))
     # A frozen factual evening snapshot, not an AI-generated interpretation.
     if oslo.hour >= 20:
