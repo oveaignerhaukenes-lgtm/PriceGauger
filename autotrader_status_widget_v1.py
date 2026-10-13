@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import streamlit as st
 
@@ -18,6 +18,11 @@ export default function(component) {
   const when=v=>{try{return v?new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(v)):'—'}catch(_){return String(v||'—')}};
   let root=document.getElementById(id);
   if(!root){root=document.createElement('div');root.id=id;document.body.appendChild(root)}
+  // The Streamlit fragment may disconnect (e.g. after deployment). Continue
+  // checking client-side freshness even when JS render callbacks stop arriving.
+  const generatedAt=Date.parse(String(p.snapshot_at||''));
+  root.dataset.snapshotAt=Number.isFinite(generatedAt)?String(generatedAt):'';
+  root.dataset.receivedAt=String(Date.now());
   const wasPanelOpen=!!root.querySelector('#panel.open');
   const state=String(p.state||'IDLE').toLowerCase();
   // A recent SUBMITTED state is a normal order in transit, not a reset failure.
@@ -85,6 +90,8 @@ export default function(component) {
     #${id} .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}#${id} .stat{text-align:center;border:1px solid #94a3b844;border-radius:8px;padding:6px;font-size:10px}#${id} .stat b{display:block;font-size:14px}
     #${id} .row{border:1px solid #94a3b844;border-radius:9px;padding:8px;margin-top:7px;font-size:12px}#${id} small{display:block;margin-top:3px;overflow-wrap:anywhere}#${id} .right{float:right}#${id} .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
     #${id} .neutral{opacity:.73}
+    #${id} .stale-note{display:none;margin-bottom:8px;padding:10px;border:1px solid #f59e0b;background:#f59e0b1a;color:inherit;border-radius:9px;font-size:12px}
+    #${id} .stale-note button{margin:7px 0 0;padding:6px 9px;display:block;border-radius:6px;border:1px solid #d97706;background:transparent;color:inherit;cursor:pointer}
     #${id} .recover{display:block;margin-top:7px;border:1px solid #64748b;background:transparent;color:inherit;padding:7px 10px;border-radius:8px;cursor:pointer}
     #${id} .recover:hover{background:#64748b22}
     #${id} .back{position:fixed;inset:0;z-index:1000003;display:none;background:#0f172a66;align-items:center;justify-content:center;padding:16px}#${id} .back.open{display:flex}
@@ -94,7 +101,10 @@ export default function(component) {
     @media(max-width:700px){#${id} .stats{grid-template-columns:repeat(2,1fr)}}
     </style>
     <button id="fab" class="fab ${state}" style="background:${healthGradient}" title="AutoTrader: ${esc(p.label||p.state)}">${String(p.state).toUpperCase()==='RED'?'!':'A'}</button>
-    <div id="panel" class="panel"><h3>AutoTrader</h3><div class="summary">${esc(p.label)} · canonical V3 LIVE health</div>
+    <div id="panel" class="panel"><h3>AutoTrader</h3><div class="summary">${esc(p.label)} · Hentet ${esc(when(p.snapshot_at))} · canonical V3 LIVE health</div>
+      <div id="health-stale" class="stale-note" role="alert"><b>Foreldet status — ikke stol på den grønne indikatoren.</b>
+        <div id="health-stale-detail">Ingen nye oppdateringer fra statuspanelet.</div>
+        <button id="health-reload" type="button">Oppdater siden</button></div>
       <div class="stats"><div class="stat"><b>${esc(p.live_count||0)}</b>LIVE</div><div class="stat"><b>${esc(pnl(p.open_pnl))}</b>Åpen P/L</div><div class="stat"><b>${esc(p.trades_24h||0)}</b>Handler 24t</div><div class="stat"><b>${esc(p.unresolved_orders||0)}</b>Uavklart</div></div>${aiRow}${rows||'<small>Ingen V3-instanser.</small>'}</div>
     <div id="back" class="back"><div class="alert"><h3>AutoTrader krever oppmerksomhet</h3><div>En LIVE-feil eller ubekreftet ordre er oppdaget.</div>${critical.map(x=>`<div class="msg">${esc(x)}</div>`).join('')}<div class="actions"><button id="close">Lukk</button><button id="open">Åpne status</button></div></div></div>`;
   const panel=root.querySelector('#panel'),back=root.querySelector('#back');
@@ -112,7 +122,47 @@ export default function(component) {
   }));
   root.querySelector('#close')?.addEventListener('click',()=>back?.classList.remove('open'));
   root.querySelector('#open')?.addEventListener('click',()=>{back?.classList.remove('open');panel?.classList.add('open')});
-  const fp=String(p.alert_fingerprint||'');
+  root.querySelector('#health-reload')?.addEventListener('click',()=>window.location.reload());
+  const refreshFreshness=()=>{
+    // Use both the server-issued timestamp and the last client receipt: if
+    // Streamlit stops producing updates, the interval remains alive in body.
+    const now=Date.now();
+    const snapshotTime=Number(root.dataset.snapshotAt);
+    const receivedAt=Number(root.dataset.receivedAt);
+    const serverAge=root.dataset.snapshotAt?Math.max(0,now-snapshotTime):Infinity;
+    const clientAge=Number.isFinite(receivedAt)?Math.max(0,now-receivedAt):Infinity;
+    const ageMs=Math.max(serverAge,clientAge);
+    const stale=ageMs>=60000;
+    const warning=root.querySelector('#health-stale');
+    if(warning)warning.style.display=stale?'block':'none';
+    const fab=root.querySelector('#fab');
+    if(fab){
+      if(stale){
+        fab.style.background='#f59e0b';
+        fab.textContent='!';
+        fab.title='AutoTrader: FORELDET STATUS — trykk for å oppdatere siden';
+      }else{
+        fab.style.background=root.dataset.normalGradient||'#64748b';
+        fab.textContent=root.dataset.normalSymbol||'A';
+        fab.title=root.dataset.normalTitle||'AutoTrader';
+      }
+    }
+    root.querySelectorAll('button.recover').forEach(button=>{
+      button.disabled=stale;
+      if(stale)button.title='Oppdater siden før du forsøker ordre-reset';
+    });
+    const desc=root.querySelector('#health-stale-detail');
+    if(desc&&stale)desc.textContent='Siste mottatte status er minst '+Math.floor(ageMs/60000)+' min gammel. LIVE kan likevel handle. Last siden på nytt for fersk status.';
+  };
+  root.dataset.normalGradient=healthGradient;
+  root.dataset.normalSymbol=String(p.state).toUpperCase()==='RED'?'!':'A';
+  root.dataset.normalTitle='AutoTrader: '+String(p.label||p.state||'ukjent');
+  // Persistent element is deliberately attached to document.body and may
+  // survive a Streamlit iframe/component remount or a suspended fragment.
+  if(root._pgHealthTimer)clearInterval(root._pgHealthTimer);
+  root._pgHealthTimer=setInterval(refreshFreshness,5000);
+  refreshFreshness();
+    const fp=String(p.alert_fingerprint||'');
   try{const prev=localStorage.getItem(store)||'';if(fp&&fp!==prev){back?.classList.add('open');localStorage.setItem(store,fp)}else if(!fp&&prev)localStorage.removeItem(store)}catch(_){if(fp)back?.classList.add('open')}
   parentElement.style.display='none';
   return()=>{};
@@ -144,6 +194,7 @@ def _payload():
             "last_model_status":None}
     return {
         "ai_trader":ai,
+        "snapshot_at":datetime.now(timezone.utc).isoformat(),
         "state":s.state,"label":s.label,"live_count":s.live_count,"sim_count":s.sim_count,
         "unresolved_orders":s.unresolved_orders,"trades_24h":s.trades_24h,"open_pnl":s.open_pnl,
         "critical_messages":list(s.critical_messages),"alert_fingerprint":s.alert_fingerprint,"instances":rows,
@@ -155,7 +206,7 @@ def _fragment():
         payload=_payload()
     except Exception as exc:
         name=type(exc).__name__
-        payload={"state":"RED","label":"Health-feil","live_count":0,"sim_count":0,"unresolved_orders":0,
+        payload={"state":"RED","label":"Health-feil","snapshot_at":datetime.now(timezone.utc).isoformat(),"live_count":0,"sim_count":0,"unresolved_orders":0,
                  "trades_24h":0,"open_pnl":None,"critical_messages":[f"AutoTrader health kunne ikke leses: {name}"],
                  "alert_fingerprint":f"health-read-{name}","instances":[],
                  "ai_trader":{"code":"UNAVAILABLE","label":"Kan ikke leses",

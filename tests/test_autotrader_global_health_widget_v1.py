@@ -160,3 +160,23 @@ def test_inflight_saxo_order_is_not_called_a_reset_failure():
     # Never enable one-click reset for potentially submitted orders.
     assert "x.pending_state==='RESERVED' && Number(x.pending_age_seconds)>=120" in widget
     assert "place_order(" not in widget
+
+
+def test_client_will_mark_disconnected_fragment_stale_instead_of_green():
+    """A disconnected Streamlit browser session must not stay GREEN indefinitely."""
+    widget = Path("autotrader_status_widget_v1.py").read_text(encoding="utf-8")
+    assert "snapshot_at" in widget and "datetime.now(timezone.utc).isoformat()" in widget
+    assert "root.dataset.snapshotAt" in widget
+    assert "root.dataset.receivedAt" in widget
+    assert "const serverAge=" in widget and "const clientAge=" in widget
+    assert "const ageMs=Math.max(serverAge,clientAge)" in widget
+    assert "ageMs>=60000" in widget
+    assert "setInterval(refreshFreshness,5000)" in widget
+    assert "clearInterval(root._pgHealthTimer)" in widget
+    assert "Foreldet status" in widget
+    assert "fab.style.background='#f59e0b'" in widget
+    assert "button.disabled=stale" in widget
+    assert "window.location.reload()" in widget
+    assert 'run_every="10s"' in widget
+    # The status panel must remain read-only with respect to LIVE arming.
+    assert "set_live_enabled_v3" not in widget
