@@ -18,6 +18,9 @@ export default function(component) {
   const when=v=>{try{return v?new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(v)):'—'}catch(_){return String(v||'—')}};
   let root=document.getElementById(id);
   if(!root){root=document.createElement('div');root.id=id;document.body.appendChild(root)}
+  const wasPanelOpen=!!root.querySelector('#panel.open');
+  const wasRecoveryOpen=!!root.querySelector('#pin-dialog.open');
+  const typedOperatorPin=wasRecoveryOpen?(root.querySelector('#recovery-pin')?.value||''):'';
   const state=String(p.state||'IDLE').toLowerCase();
   const rows=Array.from(p.instances||[]).map(x=>`
     <div class="row">
@@ -88,23 +91,34 @@ export default function(component) {
     </div></div>
     <div id="back" class="back"><div class="alert"><h3>AutoTrader krever oppmerksomhet</h3><div>En LIVE-feil eller ubekreftet ordre er oppdaget.</div>${critical.map(x=>`<div class="msg">${esc(x)}</div>`).join('')}<div class="actions"><button id="close">Lukk</button><button id="open">Åpne status</button></div></div></div>`;
   const panel=root.querySelector('#panel'),back=root.querySelector('#back');
+  if(wasPanelOpen)panel?.classList.add('open');
   root.querySelector('#fab')?.addEventListener('click',()=>panel?.classList.toggle('open'));
   const recovery=root.querySelector('#pin-dialog');
-  let selected=null;
+  let selected=wasRecoveryOpen&&root.dataset.recoveryId?
+    {instance_id:root.dataset.recoveryId,request_key:root.dataset.recoveryKey}:null;
+  if(wasRecoveryOpen&&selected){
+    recovery?.classList.add('open');
+    root.querySelector('#recovery-pin').value=typedOperatorPin;
+  }
   root.querySelectorAll('button.recover').forEach(button=>button.addEventListener('click',()=>{
     selected={instance_id:button.dataset.id,request_key:button.dataset.key};
+    root.dataset.recoveryId=selected.instance_id;
+    root.dataset.recoveryKey=selected.request_key;
     root.querySelector('#reset-account').textContent=button.dataset.account||'Valgt konto';
     root.querySelector('#recovery-pin').value='';
     recovery?.classList.add('open');
   }));
-  root.querySelector('#recovery-cancel')?.addEventListener('click',()=>{selected=null;recovery?.classList.remove('open')});
+  root.querySelector('#recovery-cancel')?.addEventListener('click',()=>{
+    selected=null;delete root.dataset.recoveryId;delete root.dataset.recoveryKey;
+    root.querySelector('#recovery-pin').value='';recovery?.classList.remove('open');
+  });
   root.querySelector('#recovery-confirm')?.addEventListener('click',()=>{
     if(!selected)return;
     const pin=root.querySelector('#recovery-pin').value;
     if(!pin)return;
     const request={...selected,pin,nonce:String(Date.now())};
     root.querySelector('#recovery-pin').value='';
-    selected=null;
+    selected=null;delete root.dataset.recoveryId;delete root.dataset.recoveryKey;
     recovery?.classList.remove('open');
     setTriggerValue('recovery_request',JSON.stringify(request));
   });
