@@ -80,7 +80,6 @@ def setup_reservation(monkeypatch, tmp_path):
     monkeypatch.setattr(recovery,"load_v3_instances_v1",lambda **kwargs:(
         SimpleNamespace(instance_id="trader-C",account_id="acct-C",uic=4912,asset_type="CfdOnIndex"),))
     monkeypatch.setattr(recovery,"pending_order_v3",lambda **kwargs: pending())
-    monkeypatch.setenv("PG_V3_ORDER_RECOVERY_PIN","test-operator-pin-long")
     return db_path
 
 
@@ -88,7 +87,7 @@ def test_verified_operator_recovery_is_atomic_and_nontrading(monkeypatch,tmp_pat
     db_path=setup_reservation(monkeypatch,tmp_path)
     broker=FakeBroker()
     result=recover_stale_reserved_v3(instance_id="trader-C",request_key="test-order-1",
-        operator_pin="test-operator-pin-long",db_path=db_path,broker=broker,now=NOW)
+        db_path=db_path,broker=broker,now=NOW)
     assert "Ingen ordre sendt" in result
     from database import connect
     with connect(db_path) as db:
@@ -101,28 +100,29 @@ def test_verified_operator_recovery_is_atomic_and_nontrading(monkeypatch,tmp_pat
     assert not claim_reserved_for_submission_v3(request_key="test-order-1",db_path=db_path)
 
 
-@pytest.mark.parametrize("pin,working,inventory",[
-    ("wrong",[],-0.02),
-    ("test-operator-pin-long",[{"AccountId":"acct-C","OrderId":"active"}],-0.02),
-    ("test-operator-pin-long",[{"OrderId":"identity-missing"}],-0.02),
-    ("test-operator-pin-long",[],-0.01),
+@pytest.mark.parametrize("working,inventory",[
+    ([{"AccountId":"acct-C","OrderId":"active"}],-0.02),
+    ([{"OrderId":"identity-missing"}],-0.02),
+    ([], -0.01),
 ])
-def test_recovery_fails_closed_without_mutating_reservation(monkeypatch,tmp_path,pin,working,inventory):
+def test_recovery_fails_closed_without_mutating_reservation(monkeypatch,tmp_path,working,inventory):
     db_path=setup_reservation(monkeypatch,tmp_path)
     broker=FakeBroker(working=working,inventory=inventory)
     with pytest.raises(OrderRecoveryDeniedV3):
         recover_stale_reserved_v3(instance_id="trader-C",request_key="test-order-1",
-            operator_pin=pin,db_path=db_path,broker=broker,now=NOW)
+            db_path=db_path,broker=broker,now=NOW)
     from database import connect
     with connect(db_path) as db:
         row=db.execute("SELECT state FROM autotrader_v3_order_guard WHERE request_key=?",("test-order-1",)).fetchone()
     assert row[0]=="RESERVED"
 
 
-def test_order_claim_is_one_shot_and_reset_widget_requires_operator_pin():
+def test_order_claim_is_one_shot_and_reset_widget_is_one_click():
     widget=Path("autotrader_status_widget_v1.py").read_text(encoding="utf-8")
     runtime=Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
-    assert "data-key=" in widget and 'type="password"' in widget
+    assert "data-key=" in widget and "Reset ordre" in widget
+    assert 'recovery-pin' not in widget
+    assert 'PG_V3_ORDER_RECOVERY_PIN' not in widget
     assert "on_recovery_request_change=" in widget
     assert "recover_stale_reserved_v3" in widget
     assert "claim_reserved_for_submission_v3(request_key=request_key" in runtime
