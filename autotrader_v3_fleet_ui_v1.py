@@ -53,7 +53,16 @@ def render_v3_fleet_management_v1():
         with st.container(border=True):
             account_name=account_names.get(item.account_id,''); account_title=account_name or item.account_id
             active_label=strategy_display_label_v3(config.strategy_key,config.timeframe,config.regime_timeframe)
-            c=st.columns([2,1,1,1,1]); c[0].markdown(f'### {account_title} · {item.market_name}'); c[1].metric('Strategi',active_label); c[2].metric('LIVE','ON' if auth.live_armed else 'OFF'); c[3].metric('Åpen P/L','—' if pnl is None else f'{pnl:+.2f}'); c[4].metric('Handler 24t',count)
+            # Streamlit st.metric truncates values with CSS ellipsis in narrow
+            # columns. Strategy labels (R/S timeframes and variants) must be
+            # readable in full, even on mobile; render in a separate full-width
+            # text row instead of squeezing them into a metric value.
+            c=st.columns([2,1,1,1])
+            c[0].markdown(f'### {account_title} · {item.market_name}')
+            c[1].metric('LIVE','ON' if auth.live_armed else 'OFF')
+            c[2].metric('Åpen P/L','—' if pnl is None else f'{pnl:+.2f}')
+            c[3].metric('Handler 24t',count)
+            st.markdown(f'**Strategi:** {active_label}')
             st.caption(f'V3 {item.instance_id[:8]} · konto {item.account_id} · UIC {item.uic} · {item.asset_type} · instrument {item.instrument_id}')
             cap=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'; st.caption(f'{status} · {detail} · aktiv {active_label} · options {", ".join(config.modifiers) or "ingen"} · ramme {cap}')
             try:
