@@ -278,7 +278,7 @@ def test_no_real_trading_imports_and_ui_selects_multiple_baselines():
     assert "enroll_pairs([" in ui
     assert "context_tabs=st.tabs([" in ui
     assert 'arm="TECH_AI" if tab_index==0 else "CONTEXT_AI"' in ui
-    assert "st.line_chart(" in ui
+    assert "render_lab_tv_series(" in ui
     assert "Autonom P/L %" in ui
     assert "TECH_AUTO" in ui and "CONTEXT_AUTO" in ui
     worker=(root/"live_sim_lab_worker_v1.py").read_text()
