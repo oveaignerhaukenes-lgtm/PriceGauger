@@ -129,8 +129,6 @@ def test_against_impulse_with_real_rising_volume_exits_next_open(monkeypatch):
     cfg=aen.AEnPaperConfig(minutes=1,structure_minutes=1,impulse_enabled=True,
                            impulse_pct=.3,max_units=1)
     result=aen.replay(cfg,bars,started_at=BASE)
-    assert any(reason=="IMPULSE_VOLUME_EXIT" for *_other,reason,_tf in result.decisions) is False
-    assert any(reason=="IMPULSE_VOLUME_EXIT" for _t,_prev,_new,reason,_tf in []) is False
     assert any(d[1]=="IMPULSE_VOLUME_EXIT" for d in result.decisions)
     exit_fill=next(x for x in result.fills if x[2]=="IMPULSE_VOLUME_EXIT")
     assert exit_fill[0]==(BASE+timedelta(minutes=9)).isoformat()
