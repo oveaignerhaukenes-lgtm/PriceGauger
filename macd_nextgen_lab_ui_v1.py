@@ -210,3 +210,8 @@ def render_nextgen_macd_lab_v1():
     st.caption("Legenden nedenfor sorteres etter avkastning i valgt periode. "
                "Dobbeltklikk en kurve eller klikk legend-navn for å isolere; gjenta for alle.")
     _plot_reports(reports)
+
+    # Completely isolated AEn PAPER workspace; no changes to NextGen execution.
+    with st.expander("AEn Core · Adaptive Engine (SIM)", expanded=True):
+        from aen_lab_ui_v1 import render_aen_core_lab_v1
+        render_aen_core_lab_v1()
