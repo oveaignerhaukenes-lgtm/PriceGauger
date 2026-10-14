@@ -300,6 +300,65 @@ def render_aen_core_lab_v1():
             st.dataframe(pd.DataFrame(results),hide_index=True,
                          use_container_width=True)
 
+    with st.expander("Walk-forward · velg på treningsdata, mål på holdout"):
+        st.caption("Frosset eksperiment med 13 kandidater: 4 strategifamilier × "
+                   "2/5/10m og én regelbasert AUTO 10m. Alle bruker maks 1 enhet, "
+                   "samme HH/HL-periode og kostnader PÅ. Tidsrammen velges kun "
+                   "på første 65 %; siste 35 % er urørt holdout.")
+        st.caption("Resultatene er historisk ut-av-utvalg på én kronologisk splitt, "
+                   "ikke en uavhengig fremoverskuende PAPER-måling. "
+                   "Gjentatt parameterjustering på samme holdout kan overtilpasse.")
+        if st.button("Kjør walk-forward på valgt tidsvindu",type="secondary",
+                     key=keybase+"walkforward"):
+            from aen_walk_forward_v1 import candidate_configs,evaluate_walk_forward
+            with st.spinner("Sammenligner identiske kostnader, datavinduer og én-enhetsposisjoner…"):
+                try:
+                    split=since+(anchor-since)*0.65
+                    w=evaluate_walk_forward(
+                        bars,started_at=since,split_at=split,ended_at=anchor,
+                        configs=candidate_configs(
+                            structure_minutes=int(structure_tf),
+                            unit_exposure=float(nominal),
+                            commission_side_bps=float(fee)*100,
+                            quoted_spread_bps=float(spread)*100,
+                        ))
+                    st.session_state[keybase+"walk_result"]=w
+                    st.session_state[keybase+"walk_dataset"]=(since,anchor,int(structure_tf),
+                                         float(nominal),float(fee),float(spread))
+                except Exception as exc:
+                    st.error("Walk-forward kunne ikke beregnes: "+type(exc).__name__)
+        w=st.session_state.get(keybase+"walk_result")
+        pinned=(since,anchor,int(structure_tf),float(nominal),float(fee),float(spread))
+        if w is not None and st.session_state.get(keybase+"walk_dataset")!=pinned:
+            st.info("Markedsdata, kostnader eller periode er endret. Kjør walk-forward på nytt.")
+        elif w is not None:
+            st.caption(f"Train {w.start_utc} → {w.split_utc} ({w.train_bars} 1m-barer) · "
+                       f"Holdout → {w.end_utc} ({w.test_bars} 1m-barer)")
+            if w.status!="SCORED":
+                st.warning("Ingen gyldig treningsvinner: "+w.status+
+                           ". Ingen strategi bør anbefales fra denne splitt.")
+            else:
+                winner=next(c for c in w.candidates if c.selected_on_training)
+                st.metric("Valgt fra treningsdata",winner.name)
+                a1,a2,a3=st.columns(3)
+                a1.metric("Holdout netto",f"{winner.holdout_net_pct:+.3f}%")
+                a2.metric("Holdout maks DD",f"{winner.holdout_drawdown_pct:.3f}%")
+                a3.metric("Holdout handler",winner.holdout_executions)
+            if w.candidates:
+                table=pd.DataFrame([{
+                    "Valgt på train":"JA" if x.selected_on_training else "",
+                    "Strategi":x.name,
+                    "Train netto %":round(x.training_net_pct,3),
+                    "Train DD %":round(x.training_drawdown_pct,3),
+                    "Train ordreendringer":x.training_executions,
+                    "Holdout netto %":round(x.holdout_net_pct,3),
+                    "Holdout DD %":round(x.holdout_drawdown_pct,3),
+                    "Holdout ordreendringer":x.holdout_executions,
+                    "Holdout kostnad %":round(x.holdout_cost_pct,3),
+                } for x in w.candidates])
+                st.dataframe(table.sort_values("Train netto %",ascending=False),
+                             hide_index=True,use_container_width=True)
+
     with st.expander("Revisjon: alle signaler, fills og tidsrammebytter"):
         st.caption("En flat-posisjon bekreftes her i SIM. Den er IKKE Saxo-verifisert.")
         st.dataframe(pd.DataFrame(focus.decisions,
