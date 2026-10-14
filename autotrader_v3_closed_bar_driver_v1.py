@@ -67,6 +67,14 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
         )""")
         # Separate, persistent peak/trough memory. Each completed candle
         # advances the normal target and this state in the SAME transaction.
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_aen_core_state (
+          trader_id TEXT PRIMARY KEY, context_key TEXT NOT NULL,
+          last_bar_end TEXT NOT NULL, target_amount DOUBLE PRECISION NOT NULL,
+          signal_minutes INTEGER NOT NULL, arm TEXT NOT NULL,
+          active_break INTEGER NOT NULL, protected_level DOUBLE PRECISION,
+          cooling_count INTEGER NOT NULL, strength_count INTEGER NOT NULL,
+          last_switch TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
         db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_histogram_peak_state (
           trader_id TEXT PRIMARY KEY,
           last_bar_time TEXT NOT NULL,
@@ -111,6 +119,10 @@ def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
                 db.execute("""UPDATE autotrader_v3_closed_bar_state
                     SET previous_spread=NULL WHERE trader_id=?""",
                     (str(trader_id),))
+            # AEn's independent HH/HL/auto memory must be re-bootstrapped
+            # following any risk veto / external broker target alignment.
+            db.execute("DELETE FROM autotrader_v3_aen_core_state WHERE trader_id=?",
+                       (str(trader_id),))
     return cursor.rowcount == 1
 
 
