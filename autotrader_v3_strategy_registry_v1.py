@@ -10,6 +10,7 @@ from typing import Callable
 
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
 from autotrader_v3_macd_histogram_flip_build_v1 import STRATEGY_KEY_V3 as HISTOGRAM_FLIP_BUILD_KEY
+from autotrader_v3_macd_histogram_peak_flip_v1 import STRATEGY_KEY_V3 as PEAK_FLIP_KEY
 from autotrader_v3_macd_flip_v1 import STRATEGY_KEY_V3 as FLIP_KEY
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
@@ -31,8 +32,14 @@ class StrategyAdapterV3:
 STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
     key: StrategyAdapterV3(key=key, evaluate_closed_bar=evaluate_closed_bar_once_v3,
                            live_route_enabled=True)
-    for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY)
+    for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY)
 }
+# This research adapter is callable by the SIM decision engine, but must
+# never be routed to V3 LIVE until separately validated and authorized.
+STRATEGIES_V3[PEAK_FLIP_KEY] = StrategyAdapterV3(
+    key=PEAK_FLIP_KEY, evaluate_closed_bar=evaluate_closed_bar_once_v3,
+    live_route_enabled=False,
+)
 
 
 def strategy_adapter_v3(key: str) -> StrategyAdapterV3:
