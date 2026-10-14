@@ -34,8 +34,8 @@ def structure(indexes):
 def test_aggregation_discards_incomplete_bucket_and_bad_time():
     bars = [bar(0),bar(1),bar(3),bar(4),bar(5)]
     aggregated = aen._aggregate(bars,2)
-    assert len(aggregated) == 1
-    assert aggregated[0].end == BASE + timedelta(minutes=2)
+    assert len(aggregated) == 2  # buckets [0,1] and [4,5] are complete; [2,3] is not
+    assert [b.end for b in aggregated] == [BASE + timedelta(minutes=2), BASE + timedelta(minutes=6)]
 
 
 def test_indicator_no_future_bar_access():
