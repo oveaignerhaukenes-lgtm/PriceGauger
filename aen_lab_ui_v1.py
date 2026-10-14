@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 from types import SimpleNamespace
 
 import altair as alt
@@ -254,6 +255,51 @@ def render_aen_core_lab_v1():
         exposure=pd.DataFrame([{"Tid":pd.to_datetime(t,utc=True),"Enheter":units}
                                for t,_net,_gross,units in focus.points]).set_index("Tid")
         st.line_chart(exposure, height=180, use_container_width=True)
+    from aen_diagnostics_v1 import turnover_diagnostics
+    diag=turnover_diagnostics(focus)
+    st.markdown("#### Kostnads- og whipsaw-diagnose")
+    m1,m2,m3,m4=st.columns(4)
+    m1.metric("Omsatte enheter",diag.total_units)
+    m2.metric("Flat→ny posisjon ≤2m",diag.exit_to_reentry_under_2m)
+    m3.metric("Flat→ny posisjon ≤5m",diag.exit_to_reentry_under_5m)
+    m4.metric("Brutto–netto %-poeng",f"{diag.estimated_cost_drag_pct:+.3f}")
+    st.caption("Re-entry telles bare etter en registrert flat-posisjon; tallene "
+               "forklarer mulig churn, ikke gevinst per enkeltordre.")
+    with st.expander("AEn modulablasjon · like historiske data"):
+        st.caption("Sammenlign basis, struktur, impuls og AUTO uten å velge "
+                   "historisk beste variant som fremoverskuende vinner. "
+                   "Kjøres kun når du aktiverer kontrollen.")
+        if st.toggle("Beregn fem kontrollvarianter",value=False,
+                     key=keybase+"ablate"):
+            from aen_replay_v1 import prepare_replay_inputs
+            base=next((cfg for cfg in configs if cfg.family in focus.label), configs[0])
+            common=replace(base,adaptive=False,impulse_enabled=False,
+                           confirmation_ladder=False,structure_scaling=False)
+            trials=[
+                ("BASE · én enhet",replace(common,max_units=1)),
+                ("STRUCTURE",replace(common,structure_scaling=True)),
+                ("STRUCTURE + IMPULSE",replace(common,structure_scaling=True,
+                                              impulse_enabled=True)),
+                ("STRUCTURE + AUTO",replace(common,structure_scaling=True,
+                                           adaptive=True)),
+                ("FULL",base),
+            ]
+            results=[]
+            for label,cfg in trials:
+                candidate=replay(cfg,bars,started_at=since,prepared=prepared)
+                d=turnover_diagnostics(candidate)
+                results.append({
+                    "Kontroll":label,"Netto %":round(candidate.return_pct,3),
+                    "Brutto %":round(candidate.gross_pct,3),
+                    "Kostnad %":round(candidate.total_cost_pct,3),
+                    "Maks DD %":round(candidate.max_drawdown_pct,3),
+                    "Omsatte enheter":candidate.turnover_units,
+                    "Re-entry ≤5m":d.exit_to_reentry_under_5m,
+                    "Timeframe-skift":len(candidate.timeframe_changes),
+                })
+            st.dataframe(pd.DataFrame(results),hide_index=True,
+                         use_container_width=True)
+
     with st.expander("Revisjon: alle signaler, fills og tidsrammebytter"):
         st.caption("En flat-posisjon bekreftes her i SIM. Den er IKKE Saxo-verifisert.")
         st.dataframe(pd.DataFrame(focus.decisions,
