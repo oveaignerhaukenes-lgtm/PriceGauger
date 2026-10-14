@@ -151,7 +151,7 @@ def test_outside_inventory_alignment_discards_old_breakout_level(tmp_path):
         strategy_key=STRATEGY_KEY_V3,trader_id=trader,
         observation=obs(-3.4,4),db_path=path)
     assert r.decision.target.amount==0
-    assert r.decision.action=="HOLD"
+    assert r.decision.action=="HOLD_BOOTSTRAP"
 
 
 def test_instances_do_not_share_thresholds(tmp_path):
