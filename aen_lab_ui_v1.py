@@ -8,7 +8,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from aen_replay_v1 import AEnPaperConfig, FAMILIES, TIMEFRAMES, ENGINE_VERSION, replay
+from aen_replay_v1 import AEnPaperConfig, FAMILIES, TIMEFRAMES, ENGINE_VERSION, replay, prepare_replay_inputs
 from live_sim_lab_store_v1 import lab_snapshot
 from macd_nextgen_lab_ui_v1 import _recent_bars, _plot_reports
 
@@ -150,7 +150,7 @@ def render_aen_core_lab_v1():
         if not bars:
             st.warning("Ingen kanoniske 1m-data for dette markedet.")
             return
-        reports=[replay(AEnPaperConfig(
+        configs=[AEnPaperConfig(
             family=family,minutes=int(signal_tf),structure_minutes=int(structure_tf),
             pivot_left=int(left),pivot_right=int(right),max_units=int(st.session_state[capkey]),
             adaptive=auto,structure_scaling=scale,confirmation_ladder=ladder,
@@ -159,7 +159,9 @@ def render_aen_core_lab_v1():
             retrace_wait_bars=int(wait_bars),hysteresis_ratio=float(hysteresis),
             unit_exposure=float(nominal),costs_enabled=charge,
             commission_side_bps=fee*100,quoted_spread_bps=spread*100
-        ),bars,started_at=since) for family in choices]
+        ) for family in choices]
+        prepared=prepare_replay_inputs(bars,configs[0])
+        reports=[replay(cfg,bars,started_at=since,prepared=prepared) for cfg in configs]
     except Exception as exc:
         st.error("AEn replay ble avbrutt: "+type(exc).__name__+" · "+str(exc)[:180])
         return
