@@ -83,15 +83,19 @@ def _run_id(instrument_id, cfg):
 def _eligible(db):
     """Use an actual, already-subscribed LAB feed; no account or Saxo mapping."""
     try:
+        # Psycopg parses literal '%' in query text as parameter syntax, even
+        # when the statement has no qmark values. Perform a small bounded
+        # lookup and filter names in Python instead of SQL LIKE wildcards.
         rows = db.execute("""
             SELECT instrument_id,market_name FROM lsim_feature_cursors
-            WHERE UPPER(market_name) LIKE '%TECH%' OR UPPER(market_name) LIKE '%NAS%'
-            ORDER BY instrument_id LIMIT 1
+            ORDER BY instrument_id LIMIT 50
         """).fetchall()
     except Exception:
         # No LAB feed/schema yet: do not create a speculative paper market.
         return []
-    return [(int(x["instrument_id"]),str(x["market_name"])) for x in rows]
+    return [(int(x["instrument_id"]),str(x["market_name"])) for x in rows
+            if ("TECH" in str(x["market_name"]).upper() or
+                "NAS" in str(x["market_name"]).upper())][:1]
 
 
 def _seed(db, instrument_id, market, now):
