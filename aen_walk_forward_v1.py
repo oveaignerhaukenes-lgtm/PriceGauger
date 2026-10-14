@@ -76,6 +76,12 @@ def evaluate_walk_forward(bars: Sequence, *, started_at, split_at, ended_at,
     Only the training scores determine the selected strategy.
     """
     start,split,end=map(utc,(started_at,split_at,ended_at))
+    # A training cutoff must never contain a candle that was still forming
+    # at the cutoff: align all evaluation boundaries to full 1m bars.
+    if start.second or start.microsecond:
+        start=(start+timedelta(minutes=1)).replace(second=0,microsecond=0)
+    split=split.replace(second=0,microsecond=0)
+    end=end.replace(second=0,microsecond=0)
     if not start < split < end:
         raise ValueError("walk-forward requires start < split < end")
     if min_train_executions < 1 or min_train_bars < 1 or min_holdout_bars < 1:
