@@ -122,7 +122,9 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     strategy=a.selectbox(
         'Legacy strategies', keys, index=keys.index(config.strategy_key),
         format_func=lambda k: next(x.label for x in STRATEGIES_V3 if x.key==k)
-            + ('' if next(x for x in STRATEGIES_V3 if x.key==k).runtime_ready else ' · ikke LIVE'),
+            + (' · bare SIM' if k == 'macd-histogram-peak-flip'
+               else '' if next(x for x in STRATEGIES_V3 if x.key==k).runtime_ready
+               else ' · ikke LIVE'),
         key=f'{key_prefix}:strategy:{trader_id}',
     )
     # One context-sensitive help control serves every catalog strategy.
