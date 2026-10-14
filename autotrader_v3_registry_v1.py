@@ -21,6 +21,11 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
+    StrategySpecV3("aen-core-hold", "AEn Core · MACD Hold", "AEn Core LIVE: MACD-retning med bekreftet HH/HL eller LL/LH, 5m prisstruktur og én Saxo-lovlig enhet. Ingen impulse eller pyramidering.", "aen-core-hold-v1", True),
+    StrategySpecV3("aen-core-histogram", "AEn Core · Histogram", "AEn Core LIVE: MACD-histogramets endring styrer regime; bekreftet HH/HL og LL/LH åpner én enhet. Ingen impulse eller pyramidering.", "aen-core-histogram-v1", True),
+    StrategySpecV3("aen-core-hysteresis", "AEn Core · Hysteresis", "AEn Core LIVE: MACD med hysterese-filter og bekreftede 5m strukturvendinger; én enhet, ingen impulse/pyramidering.", "aen-core-hysteresis-v1", True),
+    StrategySpecV3("aen-core-stoch", "AEn Core · MACD+Stochastic", "AEn Core LIVE: MACD og Stoch K/D som retningsfilter for bekreftede 5m strukturvendinger; én enhet.", "aen-core-stoch-v1", True),
+    StrategySpecV3("aen-core-auto", "AEn Core · Adaptive Hold", "AEn Core LIVE: deterministisk skift mellom MACD-tidsrammer med dwell/hysterese, bekreftet 5m struktur og én enhet. Ikke AI, impulse eller pyramidering.", "aen-core-auto-v1", True),
     StrategySpecV3("macd-flip", "MACD Flip · V3", "Ren MACD 12/26/9 på ferdige signallys. Ett minste Saxo-inkrement, LONG ved bullish kryss og SHORT ved bearish kryss; ellers HOLD. Ingen trailing/pyramidering. V3 lukker gammel side og bekrefter FLAT før ny side.", "macd-flip-v1", True),
     StrategySpecV3("macd", "MACD Trailing · Legacy", "Eldre MACD-impulsmotor: motsatt kryss går til FLAT, impuls skalerer innen aktiv retning. Dette er IKKE MACD Flip i SIM.", "macd-trailing-v1", True),
     StrategySpecV3("macd-stoch-v1", "MACD-Stoch v1", "MACD bestemmer retning og bygger eksponering. Motsatt Stochastic K/D-kryss lukker posisjonen; Stochastic kan ikke reversere.", "macd-stoch-v1", True),
@@ -98,6 +103,11 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
     "1m": 1, "2m": 2, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60,
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
+AEN_CORE_CATALOG_KEYS_V3 = frozenset({
+    "aen-core-hold", "aen-core-histogram", "aen-core-hysteresis",
+    "aen-core-stoch", "aen-core-auto",
+})
+AEN_CORE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m")
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
 REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
@@ -132,6 +142,8 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
+        issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
         issues.append(f"regime timeframe {regime_timeframe} is not LIVE runtime-ready")
     if control_mode not in LIVE_CONTROL_MODES_V3:
@@ -159,6 +171,8 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
+        issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
         issues.append(f"regime timeframe {regime_timeframe} is not SIM runtime-ready")
     if control_mode not in SIM_CONTROL_MODES_V3:
