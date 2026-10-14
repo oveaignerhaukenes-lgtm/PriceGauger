@@ -20,7 +20,7 @@ def test_v3_registry_routes_all_strategies_through_same_decision_contract():
     driver = strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(HISTOGRAM_FLIP_BUILD_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(PEAK_FLIP_KEY).evaluate_closed_bar
-    assert strategy_adapter_v3(PEAK_FLIP_KEY).live_route_enabled is False
+    assert strategy_adapter_v3(PEAK_FLIP_KEY).live_route_enabled is True
     assert driver is strategy_adapter_v3(VWAP_REGIME_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(MACD_REGIME_HIST_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(AEN2_STICKY_KEY).evaluate_closed_bar
