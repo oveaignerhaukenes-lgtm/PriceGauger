@@ -299,3 +299,32 @@ def forward_snapshot(*,db_path="pricegauger.db",instrument_id=None,limit=1500):
             """,(run_id,max(1,min(2500,int(limit))))).fetchall()
             points.extend(dict(row) for row in found)
         return [dict(row) for row in runs],points
+
+
+def forward_health_snapshot(*, db_path="pricegauger.db"):
+    """Read-only bounded liveness evidence without user/account or strategy secrets.
+
+    The existing SIM worker calls this after process_forward_cycle; the health
+    reader neither seeds cohorts nor mutates the database.
+    """
+    with connect(db_path) as db:
+        feeds=_eligible(db)
+        states=db.execute("""
+            SELECT instrument_id,status,COUNT(*) AS n,
+                   MAX(last_bar_end) AS last_bar,
+                   MIN(enrolled_at) AS first_enrol
+            FROM aen_forward_runs
+            GROUP BY instrument_id,status
+            ORDER BY instrument_id,status LIMIT 20
+        """).fetchall()
+        return {
+            "feeds":len(feeds),
+            "markets":[market for _,market in feeds],
+            "cohorts":[{
+                "instrument_id":int(row["instrument_id"]),
+                "status":str(row["status"]),
+                "count":int(row["n"]),
+                "last_bar":row["last_bar"],
+                "first_enrol":row["first_enrol"],
+            } for row in states],
+        }
