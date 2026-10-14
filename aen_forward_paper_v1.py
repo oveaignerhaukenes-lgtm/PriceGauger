@@ -1,0 +1,264 @@
+"""AEn: bounded, durable FORWARD PAPER evidence, completely separate from Saxo.
+
+Enrolment happens at the NEXT minute boundary. No earlier return is persisted.
+The worker consumes only already-completed canonical bars. It never trades.
+Historical recomputation is used to audit each prospective point; committed
+observations are append-only and a data revision suspends the cohort, instead
+of silently rewriting its forward result.
+"""
+from __future__ import annotations
+
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+import logging
+
+from database import connect
+from aen_replay_v1 import (
+    AEnPaperConfig, ENGINE_VERSION, FAMILIES, replay, prepare_replay_inputs, utc,
+)
+
+LOGGER = logging.getLogger("pricegauger.aen.forward")
+FORWARD_VERSION = "aen-forward-v1"
+LIFETIME_DAYS = 14
+LOOKBACK_DAYS = 3
+MAX_COHORTS = 5
+SAMPLE_MINUTES = 5
+
+# Frozen comparisons start with the minimal 1-unit risk budget, not the
+# optimistic 5-unit historical presets.
+FROZEN_PRESETS = (
+    AEnPaperConfig(family="MACD Hold",minutes=5,structure_minutes=5,max_units=1),
+    AEnPaperConfig(family="MACD Histogram",minutes=5,structure_minutes=5,max_units=1),
+    AEnPaperConfig(family="MACD Hysteresis",minutes=5,structure_minutes=5,max_units=1),
+    AEnPaperConfig(family="MACD + Stochastic",minutes=5,structure_minutes=5,max_units=1),
+    AEnPaperConfig(family="MACD Hold",minutes=10,structure_minutes=5,max_units=1,
+                   adaptive=True,dwell_minutes=20),
+)
+
+
+def ensure_schema(db_path="pricegauger.db"):
+    with connect(db_path) as db:
+        db.executescript("""
+        CREATE TABLE IF NOT EXISTS aen_forward_runs (
+            run_id TEXT PRIMARY KEY,
+            instrument_id INTEGER NOT NULL,
+            market_name TEXT NOT NULL,
+            engine_version TEXT NOT NULL,
+            config_json TEXT NOT NULL,
+            enrolled_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            last_bar_end TEXT,
+            net_pct REAL NOT NULL DEFAULT 0,
+            gross_pct REAL NOT NULL DEFAULT 0,
+            max_dd_pct REAL NOT NULL DEFAULT 0,
+            units INTEGER NOT NULL DEFAULT 0,
+            executions INTEGER NOT NULL DEFAULT 0,
+            turnover_units INTEGER NOT NULL DEFAULT 0,
+            cost_pct REAL NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS aen_forward_runs_status
+          ON aen_forward_runs(status, instrument_id);
+        CREATE TABLE IF NOT EXISTS aen_forward_points (
+            run_id TEXT NOT NULL,
+            bar_end TEXT NOT NULL,
+            net_pct REAL NOT NULL,
+            gross_pct REAL NOT NULL,
+            units INTEGER NOT NULL,
+            executions INTEGER NOT NULL,
+            PRIMARY KEY(run_id, bar_end)
+        );
+        """)
+
+
+def _run_id(instrument_id, cfg):
+    payload = json.dumps([FORWARD_VERSION, ENGINE_VERSION, instrument_id,
+                          asdict(cfg)],sort_keys=True,separators=(",",":"))
+    return hashlib.sha256(payload.encode()).hexdigest()[:32]
+
+
+def _eligible(db):
+    """Use an actual, already-subscribed LAB feed; no account or Saxo mapping."""
+    try:
+        rows = db.execute("""
+            SELECT instrument_id,market_name FROM lsim_feature_cursors
+            WHERE UPPER(market_name) LIKE '%TECH%' OR UPPER(market_name) LIKE '%NAS%'
+            ORDER BY instrument_id LIMIT 1
+        """).fetchall()
+    except Exception:
+        # No LAB feed/schema yet: do not create a speculative paper market.
+        return []
+    return [(int(x["instrument_id"]),str(x["market_name"])) for x in rows]
+
+
+def _seed(db, instrument_id, market, now):
+    # Deterministic immutable enrolment; old runs never get reset at deploy.
+    enrolled = (utc(now).replace(second=0,microsecond=0)
+                + timedelta(minutes=1)).isoformat()
+    for cfg in FROZEN_PRESETS[:MAX_COHORTS]:
+        db.execute("""
+            INSERT INTO aen_forward_runs(
+                run_id,instrument_id,market_name,engine_version,config_json,
+                enrolled_at,status)
+            VALUES(?,?,?,?,?,?,'ACTIVE')
+            ON CONFLICT(run_id) DO NOTHING
+        """,(_run_id(instrument_id,cfg),instrument_id,market,
+             ENGINE_VERSION,json.dumps(asdict(cfg),sort_keys=True),
+             enrolled))
+
+
+def _load_closed(db,instrument_id,enrolled,now):
+    """Limit read amplification: at most 17 days, no incomplete candle."""
+    lower = (utc(enrolled)-timedelta(days=LOOKBACK_DAYS)).isoformat()
+    cutoff = (utc(now)-timedelta(minutes=1,seconds=5)).isoformat()
+    return db.execute("""
+        SELECT b.bar_time,b.open,b.high,b.low,b.close,b.volume
+        FROM pg_v2_market_bars_1m b
+        WHERE b.instrument_id=? AND b.bar_time>=? AND b.bar_time<=?
+        ORDER BY b.bar_time ASC LIMIT 25000
+    """,(instrument_id,lower,cutoff)).fetchall()
+
+
+class _Bar:
+    """Minimal broker-free shape consumed by canonical replay."""
+    def __init__(self,row,market):
+        self.bar_time = utc(row["bar_time"]).isoformat()
+        self.market_name = market
+        self.open = float(row["open"])
+        self.high = float(row["high"])
+        self.low = float(row["low"])
+        self.close = float(row["close"])
+        self.volume = None if row["volume"] is None else float(row["volume"])
+
+
+def _settle_group(db,runs,now):
+    instrument_id=int(runs[0]["instrument_id"])
+    enrolled=min(utc(row["enrolled_at"]) for row in runs)
+    # No need to reread and replay on cycles with zero new closed 1m bars.
+    cutoff=(utc(now)-timedelta(minutes=1,seconds=5)).isoformat()
+    latest=db.execute("""
+        SELECT MAX(bar_time) AS t FROM pg_v2_market_bars_1m
+        WHERE instrument_id=? AND bar_time<=?
+    """,(instrument_id,cutoff)).fetchone()
+    if not latest or not latest["t"]:
+        return 0
+    latest_closed=utc(latest["t"])+timedelta(minutes=1)
+    if latest_closed <= enrolled:
+        return 0
+    if all(row["last_bar_end"] is not None and
+           latest_closed <= utc(row["last_bar_end"]) for row in runs):
+        return 0
+    raw=_load_closed(db,instrument_id,enrolled,now)
+    if not raw:
+        return 0
+    bars=tuple(_Bar(row,str(runs[0]["market_name"])) for row in raw)
+    # All published cohorts share structure resolution; compute indicators ONCE.
+    first=AEnPaperConfig(**json.loads(runs[0]["config_json"]))
+    prepared=prepare_replay_inputs(bars,first)
+    settled=0
+    for row in runs:
+        run_id=str(row["run_id"])
+        cfg=AEnPaperConfig(**json.loads(row["config_json"]))
+        started=utc(row["enrolled_at"])
+        if row["engine_version"]!=ENGINE_VERSION:
+            db.execute("UPDATE aen_forward_runs SET status='PAUSED_VERSION' WHERE run_id=?",
+                       (run_id,))
+            continue
+        if utc(now)-started > timedelta(days=LIFETIME_DAYS):
+            db.execute("UPDATE aen_forward_runs SET status='COMPLETED' WHERE run_id=?",
+                       (run_id,))
+            continue
+        if started < utc(bars[0].bar_time)+timedelta(days=LOOKBACK_DAYS-1):
+            # Historical warmup has been truncated. Never invent baseline equity.
+            db.execute("UPDATE aen_forward_runs SET status='PAUSED_HISTORY' WHERE run_id=?",
+                       (run_id,))
+            continue
+        report=replay(cfg,bars,started_at=started,prepared=prepared)
+        if not report.points:
+            continue
+        last_end=utc(report.points[-1][0])
+        if last_end <= started or (row["last_bar_end"] and
+                                 last_end<=utc(row["last_bar_end"])):
+            continue
+        points_by_end={utc(x[0]):x for x in report.points}
+        if row["last_bar_end"]:
+            cursor=utc(row["last_bar_end"])
+            previous=points_by_end.get(cursor)
+            # Even a tiny mismatch means historical data/rules changed:
+            # fail closed rather than silently restating forward returns.
+            if previous is None or abs(float(previous[1])-float(row["net_pct"]))>1e-7:
+                db.execute("""
+                    UPDATE aen_forward_runs SET status='PAUSED_REVISION',
+                    updated_at=CURRENT_TIMESTAMP WHERE run_id=?
+                """,(run_id,))
+                LOGGER.warning("AEn forward paused for revised past run=%s",run_id)
+                continue
+        cursor=utc(row["last_bar_end"]) if row["last_bar_end"] else started
+        fill_close_times={utc(fill[0])+timedelta(minutes=1) for fill in report.fills}
+        for at,(stamp,net,gross,units) in points_by_end.items():
+            if at<=cursor:
+                continue
+            if int(at.timestamp()//60)%SAMPLE_MINUTES!=0 and at not in fill_close_times:
+                continue
+            # The last known execution count at each sampled point, not the
+            # final replay total, is recorded for correct temporal attribution.
+            executions=sum(utc(f[0])+timedelta(minutes=1)<=at for f in report.fills)
+            db.execute("""
+                INSERT INTO aen_forward_points(
+                    run_id,bar_end,net_pct,gross_pct,units,executions)
+                VALUES(?,?,?,?,?,?)
+                ON CONFLICT(run_id,bar_end) DO NOTHING
+            """,(run_id,stamp,float(net),float(gross),int(units),executions))
+        db.execute("""
+            UPDATE aen_forward_runs
+            SET last_bar_end=?,net_pct=?,gross_pct=?,max_dd_pct=?,
+                units=?,executions=?,turnover_units=?,cost_pct=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE run_id=? AND status='ACTIVE'
+        """,(report.points[-1][0],float(report.return_pct),float(report.gross_pct),
+             float(report.max_drawdown_pct),int(report.points[-1][3]),
+             int(report.executions),int(report.turnover_units),
+             float(report.total_cost_pct),run_id))
+        settled+=1
+    return settled
+
+
+def process_forward_cycle(*,db_path="pricegauger.db",now=None):
+    """Append immutable future evidence only; idempotent across restarts."""
+    moment=utc(now or datetime.now(timezone.utc))
+    ensure_schema(db_path)
+    total=0
+    with connect(db_path) as db:
+        for instrument_id,market in _eligible(db):
+            _seed(db,instrument_id,market,moment)
+            rows=db.execute("""
+                SELECT * FROM aen_forward_runs
+                WHERE instrument_id=? AND status='ACTIVE'
+                ORDER BY run_id LIMIT ?
+            """,(instrument_id,MAX_COHORTS)).fetchall()
+            if rows:
+                total+=_settle_group(db,rows,moment)
+    return total
+
+
+def forward_snapshot(*,db_path="pricegauger.db",instrument_id=None,limit=1500):
+    """Read-only UI query: reporting does not seed, reset or change any run."""
+    with connect(db_path) as db:
+        selector="WHERE instrument_id=?" if instrument_id is not None else ""
+        params=(int(instrument_id),) if instrument_id is not None else ()
+        runs=db.execute(f"""
+            SELECT * FROM aen_forward_runs {selector}
+            ORDER BY enrolled_at DESC,run_id LIMIT 50
+        """,params).fetchall()
+        ids=[str(row["run_id"]) for row in runs]
+        points=[]
+        for run_id in ids:
+            found=db.execute("""
+                SELECT run_id,bar_end,net_pct,gross_pct,units,executions
+                FROM aen_forward_points WHERE run_id=?
+                ORDER BY bar_end DESC LIMIT ?
+            """,(run_id,max(1,min(2500,int(limit))))).fetchall()
+            points.extend(dict(row) for row in found)
+        return [dict(row) for row in runs],points
