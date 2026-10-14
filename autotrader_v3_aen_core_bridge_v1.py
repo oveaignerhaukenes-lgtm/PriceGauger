@@ -67,7 +67,7 @@ class AEnStepV3:
 def aen_core_step_v3(*, state: AEnV3State, config: AEnPaperConfig,
                      at: datetime, indicator_sets: dict,
                      events: Sequence[StructureEvent],
-                     tranche: float) -> AEnStepV3:
+                     tranche: float, bar_close: float | None = None) -> AEnStepV3:
     """Exactly ONE freshly completed 1m candle; pure, no fills or DB.
 
     Missing 1m bars reset provisional structure and SUPPRESS retroactive signals.
@@ -150,11 +150,14 @@ def aen_core_step_v3(*, state: AEnV3State, config: AEnPaperConfig,
             if side=="SHORT" and not broken:
                 protected=ev.level
 
-    if reason=="HOLD" and side!="HOLD" and protected is not None:
-        bar_close = None
-        # Supplied by caller after a completed candle; only price breach
-        # check if it has the explicitly corresponding 1m close.
-        # (The separate main entry helper below supplies this parameter.)
+    if reason=="HOLD" and side!="HOLD" and protected is not None and bar_close is not None:
+        price=float(bar_close)
+        if not isfinite(price) or price<=0:
+            raise ValueError("invalid completed-bar close")
+        breach=(price<protected if side=="LONG" else price>protected)
+        if breach:
+            target=0.0
+            reason="PROTECTED_SWING_FLAT"
     if reason=="HOLD" and side!="HOLD" and fresh and desired in ("LONG","SHORT"):
         if desired!=side:
             target=0.0
@@ -260,7 +263,7 @@ def evaluate_aen_core_v3(*, trader_id, strategy_key, observation, bars=(),
             step=aen_core_step_v3(
                 state=state,config=cfg,at=end,
                 indicator_sets=prepared.indicators,events=events,
-                tranche=config.tranche,
+                tranche=config.tranche,bar_close=prepared.minute_bars[-1].close,
             )
             action=step.reason
             updated=step.state
