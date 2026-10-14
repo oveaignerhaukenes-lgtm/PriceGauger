@@ -523,6 +523,28 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation is None:
             _record_runtime(e.pilot_key,"MANAGING",f"target={snapshot.risk_approved_target.amount:g} actual={actual.amount:g}",db_path=db_path)
             continue
+        if e.strategy_key in AEN_CORE_KEYS_V3 and mutation.action in {'OPEN','ADD'}:
+            # V3 may revisit an older desired target after Saxo precheck
+            # blocks or a market pause. AEn must never open from such a stale
+            # historical state; it needs recent completed canonical 1m data.
+            try:
+                stamp=decision.decision_key.split(':',2)[2]
+                evaluated_at=datetime.fromisoformat(stamp.replace('Z','+00:00'))
+                if evaluated_at.tzinfo is None:
+                    evaluated_at=evaluated_at.replace(tzinfo=timezone.utc)
+                age=end.astimezone(timezone.utc)-evaluated_at.astimezone(timezone.utc)
+                fresh_aen_signal=timedelta(0)<=age<=timedelta(minutes=2)
+            except (ValueError,IndexError,AttributeError):
+                fresh_aen_signal=False
+            if not fresh_aen_signal or decision.decision.action in {
+                'HOLD_NO_DATA','HOLD_MISSING_1M'
+            }:
+                align_closed_bar_target_v3(
+                    trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    'AEn incomplete/stale 1m input; discard unexecuted OPEN/ADD target',
+                    db_path=db_path)
+                continue
         if mutation.action in {'REDUCE','CLOSE'}:
             if actual.amount == 0 or mutation.amount > abs(actual.amount) + 1e-9:
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction exceeds exact current position',db_path=db_path)
