@@ -271,7 +271,8 @@ def render_aen_core_lab_v1():
                    "Kjøres kun når du aktiverer kontrollen.")
         if st.toggle("Beregn fem kontrollvarianter",value=False,
                      key=keybase+"ablate"):
-            from aen_replay_v1 import prepare_replay_inputs
+            # Reuse module-level prepare_replay_inputs; a function-level import
+            # would shadow it and raise UnboundLocalError on the main replay path.
             base=next((cfg for cfg in configs if cfg.family in focus.label), configs[0])
             common=replace(base,adaptive=False,impulse_enabled=False,
                            confirmation_ladder=False,structure_scaling=False)
