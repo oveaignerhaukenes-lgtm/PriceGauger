@@ -3,6 +3,7 @@ import pytest
 
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
 from autotrader_v3_macd_histogram_flip_build_v1 import STRATEGY_KEY_V3 as HISTOGRAM_FLIP_BUILD_KEY
+from autotrader_v3_macd_histogram_peak_flip_v1 import STRATEGY_KEY_V3 as PEAK_FLIP_KEY
 from autotrader_v3_macd_flip_v1 import STRATEGY_KEY_V3 as FLIP_KEY
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
@@ -15,9 +16,11 @@ from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, strategy_adapter_v
 
 
 def test_v3_registry_routes_all_strategies_through_same_decision_contract():
-    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY}
+    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY}
     driver = strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(HISTOGRAM_FLIP_BUILD_KEY).evaluate_closed_bar
+    assert driver is strategy_adapter_v3(PEAK_FLIP_KEY).evaluate_closed_bar
+    assert strategy_adapter_v3(PEAK_FLIP_KEY).live_route_enabled is False
     assert driver is strategy_adapter_v3(VWAP_REGIME_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(MACD_REGIME_HIST_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(AEN2_STICKY_KEY).evaluate_closed_bar
