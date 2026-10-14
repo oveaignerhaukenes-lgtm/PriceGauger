@@ -64,7 +64,8 @@ def test_2m_confirmation_does_not_reuse_stale_signal(monkeypatch):
         high=100.5,low=(99 if i==50 else 99.5),volume=10)
         for i in range(58)]
     def indicators(candles):
-        tf=int((candles[1].end-candles[0].end).total_seconds()/60)
+        tf=(int((candles[1].end-candles[0].end).total_seconds()/60)
+            if len(candles)>1 else 30)
         obs={}
         for c in candles:
             minute=int((c.end-START).total_seconds()/60)
