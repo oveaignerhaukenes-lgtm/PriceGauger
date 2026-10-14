@@ -34,12 +34,6 @@ STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
                            live_route_enabled=True)
     for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY)
 }
-# This research adapter is callable by the SIM decision engine, but must
-# never be routed to V3 LIVE until separately validated and authorized.
-STRATEGIES_V3[PEAK_FLIP_KEY] = StrategyAdapterV3(
-    key=PEAK_FLIP_KEY, evaluate_closed_bar=evaluate_closed_bar_once_v3,
-    live_route_enabled=False,
-)
 
 
 def strategy_adapter_v3(key: str) -> StrategyAdapterV3:
