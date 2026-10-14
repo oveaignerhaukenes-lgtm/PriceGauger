@@ -104,25 +104,62 @@ def test_revised_past_is_paused_not_silently_rewritten(tmp_path,monkeypatch):
 
 
 
-def test_revision_is_detected_even_if_strategy_was_flat(tmp_path):
+def test_late_upstream_revision_does_not_rewrite_as_seen_paper(tmp_path):
+    """A canonical correction may not alter a PAPER point already consumed."""
     path=str(tmp_path/"forward.sqlite")
     setup_feed(path)
     forward.process_forward_cycle(db_path=path,now=START+timedelta(minutes=610))
     forward.process_forward_cycle(db_path=path,now=START+timedelta(minutes=621))
     before,_=forward.forward_snapshot(db_path=path,instrument_id=101)
-    assert all(r["prefix_sha"] for r in before)
-    # Modify a completed input candle in the immutable observation prefix.
-    # A P/L-only comparator could miss this when all variants are flat.
     with connect(path,force_sqlite=True) as db:
+        old=db.execute("""
+            SELECT high FROM aen_forward_frozen_bars
+            WHERE series_version=? AND instrument_id=? AND bar_time=?
+        """,(forward.FORWARD_VERSION,101,
+             (START+timedelta(minutes=606)).isoformat())).fetchone()["high"]
         db.execute("""
             UPDATE pg_v2_market_bars_1m SET high=high+0.0001
             WHERE instrument_id=? AND bar_time=?
         """,(101,(START+timedelta(minutes=606)).isoformat()))
-    forward.process_forward_cycle(db_path=path,now=START+timedelta(minutes=626))
+    # A later source correction is not an event that the historical PAPER
+    # strategy could have known about. Keep exactly the recorded input.
+    assert forward.process_forward_cycle(db_path=path,
+            now=START+timedelta(minutes=626))==5
     current,_=forward.forward_snapshot(db_path=path,instrument_id=101)
-    assert all(r["status"]=="PAUSED_REVISION" for r in current)
-    assert {r["run_id"]:r["last_bar_end"] for r in current}=={
-           r["run_id"]:r["last_bar_end"] for r in before}
+    assert all(row["status"]=="ACTIVE" for row in current)
+    assert all(row["last_bar_end"]>before[i]["last_bar_end"]
+               for i,row in enumerate(current))
+    with connect(path,force_sqlite=True) as db:
+        observed=db.execute("""
+            SELECT high FROM aen_forward_frozen_bars
+            WHERE series_version=? AND instrument_id=? AND bar_time=?
+        """,(forward.FORWARD_VERSION,101,
+             (START+timedelta(minutes=606)).isoformat())).fetchone()["high"]
+        assert observed==old
+        assert db.execute("SELECT COUNT(*) AS n FROM aen_forward_frozen_bars"
+                          ).fetchone()["n"]>0
+
+
+def test_paused_v1_cohorts_are_preserved_and_v2_enrols_separately(tmp_path):
+    path=str(tmp_path/"cohorts.sqlite")
+    setup_feed(path)
+    forward.ensure_schema(path)
+    with connect(path,force_sqlite=True) as db:
+        db.execute("""
+            INSERT INTO aen_forward_runs(
+                run_id,instrument_id,market_name,engine_version,
+                config_json,enrolled_at,status)
+            VALUES(?,?,?,?,?,?,?)
+        """,("legacy-v1",101,"US Tech 100 NAS",forward.ENGINE_VERSION,
+             "{}",(START+timedelta(minutes=605)).isoformat(),
+             "PAUSED_REVISION"))
+    forward.process_forward_cycle(db_path=path,
+        now=START+timedelta(minutes=610))
+    runs,points=forward.forward_snapshot(db_path=path,instrument_id=101)
+    assert len(runs)==6
+    assert len([x for x in runs if x["status"]=="ACTIVE"])==5
+    assert [x for x in runs if x["run_id"]=="legacy-v1"][0]["status"]=="PAUSED_REVISION"
+    assert not points
 
 
 def test_expired_cohorts_stop_without_deleting_history(tmp_path):

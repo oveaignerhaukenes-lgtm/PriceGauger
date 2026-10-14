@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import logging
+from math import isfinite
 
 from database import connect
 from aen_replay_v1 import (
@@ -20,7 +21,7 @@ from aen_replay_v1 import (
 )
 
 LOGGER = logging.getLogger("pricegauger.aen.forward")
-FORWARD_VERSION = "aen-forward-v1"
+FORWARD_VERSION = "aen-forward-v2-frozen-input"
 LIFETIME_DAYS = 14
 LOOKBACK_DAYS = 3
 MAX_COHORTS = 5
@@ -62,6 +63,19 @@ def ensure_schema(db_path="pricegauger.db"):
         );
         CREATE INDEX IF NOT EXISTS aen_forward_runs_status
           ON aen_forward_runs(status, instrument_id);
+        -- Reproducible AS-SEEN evidence: later upstream OHLCV corrections
+        -- never rewrite what the PAPER simulator actually consumed.
+        CREATE TABLE IF NOT EXISTS aen_forward_frozen_bars (
+            series_version TEXT NOT NULL,
+            instrument_id INTEGER NOT NULL,
+            bar_time TEXT NOT NULL,
+            open REAL NOT NULL,
+            high REAL NOT NULL,
+            low REAL NOT NULL,
+            close REAL NOT NULL,
+            volume REAL,
+            PRIMARY KEY (series_version,instrument_id,bar_time)
+        );
         CREATE TABLE IF NOT EXISTS aen_forward_points (
             run_id TEXT NOT NULL,
             bar_end TEXT NOT NULL,
@@ -117,16 +131,65 @@ def _seed(db, instrument_id, market, now):
                         market,_run_id(instrument_id,cfg)[:8],cfg.minutes)
 
 
-def _load_closed(db,instrument_id,enrolled,now):
-    """Limit read amplification: at most 17 days, no incomplete candle."""
-    lower = (utc(enrolled)-timedelta(days=LOOKBACK_DAYS)).isoformat()
-    cutoff = (utc(now)-timedelta(minutes=1,seconds=5)).isoformat()
-    return db.execute("""
+def _capture_new_bars(db,instrument_id,enrolled,now):
+    """Snapshot exactly what was observable at this run, never revise old rows.
+
+    Historical warmup is captured only once. Later cycles append NEW completed
+    market bars, not updates to previously seen bars. This makes PAPER data
+    causal/as-seen even when the canonical ingestion feed is later corrected.
+    One Tech100 series is bounded to the 14-day experiment + 3-day warmup.
+    """
+    previous=db.execute("""
+        SELECT MAX(bar_time) AS t FROM aen_forward_frozen_bars
+        WHERE series_version=? AND instrument_id=?
+    """,(FORWARD_VERSION,instrument_id)).fetchone()
+    lower=(utc(previous["t"])+timedelta(minutes=1) if previous and previous["t"]
+           else utc(enrolled)-timedelta(days=LOOKBACK_DAYS)).isoformat()
+    cutoff=(utc(now)-timedelta(minutes=1,seconds=5)).isoformat()
+    if lower>cutoff:
+        return 0
+    # Bounded read: at most 3 days initial warmup, then ~1 new bar/cycle.
+    rows=db.execute("""
         SELECT b.bar_time,b.open,b.high,b.low,b.close,b.volume
         FROM pg_v2_market_bars_1m b
         WHERE b.instrument_id=? AND b.bar_time>=? AND b.bar_time<=?
         ORDER BY b.bar_time ASC LIMIT 25000
     """,(instrument_id,lower,cutoff)).fetchall()
+    copied=0
+    for row in rows:
+        price=(float(row["open"]),float(row["high"]),
+               float(row["low"]),float(row["close"]))
+        if not all(isfinite(x) for x in price):
+            continue
+        if price[2]<=0 or not price[2]<=price[3]<=price[1]:
+            continue
+        # Normalize timestamps across PG TIMESTAMPTZ / SQLite TEXT to
+        # stable UTC text. ON CONFLICT DO NOTHING is deliberate evidence policy.
+        volume=None if row["volume"] is None else float(row["volume"])
+        if volume is not None and (not isfinite(volume) or volume < 0):
+            volume=None
+        cursor=db.execute("""
+            INSERT INTO aen_forward_frozen_bars(
+                series_version,instrument_id,bar_time,open,high,low,close,volume)
+            VALUES(?,?,?,?,?,?,?,?)
+            ON CONFLICT(series_version,instrument_id,bar_time) DO NOTHING
+        """,(FORWARD_VERSION,instrument_id,utc(row["bar_time"]).isoformat(),
+             *price,volume))
+        copied+=max(0,int(cursor.rowcount or 0))
+    return copied
+
+
+def _load_closed(db,instrument_id,enrolled,now):
+    """Load frozen-as-seen OHLCV, not today's corrected source history."""
+    lower=(utc(enrolled)-timedelta(days=LOOKBACK_DAYS)).isoformat()
+    cutoff=(utc(now)-timedelta(minutes=1,seconds=5)).isoformat()
+    return db.execute("""
+        SELECT b.bar_time,b.open,b.high,b.low,b.close,b.volume
+        FROM aen_forward_frozen_bars b
+        WHERE b.series_version=? AND b.instrument_id=?
+          AND b.bar_time>=? AND b.bar_time<=?
+        ORDER BY b.bar_time ASC LIMIT 25000
+    """,(FORWARD_VERSION,instrument_id,lower,cutoff)).fetchall()
 
 
 class _Bar:
@@ -161,9 +224,9 @@ def _settle_group(db,runs,now):
     # No need to reread and replay on cycles with zero new closed 1m bars.
     cutoff=(utc(now)-timedelta(minutes=1,seconds=5)).isoformat()
     latest=db.execute("""
-        SELECT MAX(bar_time) AS t FROM pg_v2_market_bars_1m
-        WHERE instrument_id=? AND bar_time<=?
-    """,(instrument_id,cutoff)).fetchone()
+        SELECT MAX(bar_time) AS t FROM aen_forward_frozen_bars
+        WHERE series_version=? AND instrument_id=? AND bar_time<=?
+    """,(FORWARD_VERSION,instrument_id,cutoff)).fetchone()
     if not latest or not latest["t"]:
         return 0
     latest_closed=utc(latest["t"])+timedelta(minutes=1)
@@ -215,7 +278,13 @@ def _settle_group(db,runs,now):
                     UPDATE aen_forward_runs SET status='PAUSED_REVISION',
                     updated_at=CURRENT_TIMESTAMP WHERE run_id=?
                 """,(run_id,))
-                LOGGER.warning("AEn forward paused for revised past run=%s",run_id)
+                LOGGER.warning(
+                    "AEn forward replay divergence run=%s input_changed=%s "
+                    "pnl_changed=%s prior_pct=%.8f recomputed_pct=%s",
+                    run_id,revision,
+                    previous is None or abs(float(previous[1])-float(row["net_pct"]))>1e-7,
+                    float(row["net_pct"]),
+                    "MISSING" if previous is None else "%.8f"%float(previous[1]))
                 continue
         cursor=utc(row["last_bar_end"]) if row["last_bar_end"] else started
         fill_close_times={utc(fill[0])+timedelta(minutes=1) for fill in report.fills}
@@ -255,6 +324,14 @@ def process_forward_cycle(*,db_path="pricegauger.db",now=None):
     with connect(db_path) as db:
         for instrument_id,market in _eligible(db):
             _seed(db,instrument_id,market,moment)
+            # Expiration is an independent, wall-clock event. A flat/stale
+            # feed must not keep a 14-day cohort ACTIVE forever.
+            expiry=(moment-timedelta(days=LIFETIME_DAYS)).isoformat()
+            db.execute("""
+                UPDATE aen_forward_runs SET status='COMPLETED'
+                WHERE instrument_id=? AND status='ACTIVE'
+                  AND enrolled_at<?
+            """,(instrument_id,expiry))
             # A previous build could pause brand-new runs for insufficient
             # prehistory. They contain no observed points or inventory.
             # They may safely resume at their ORIGINAL prospective start.
@@ -269,6 +346,11 @@ def process_forward_cycle(*,db_path="pricegauger.db",now=None):
                 ORDER BY run_id LIMIT ?
             """,(instrument_id,MAX_COHORTS)).fetchall()
             if rows:
+                enrolled=min(utc(row["enrolled_at"]) for row in rows)
+                captured=_capture_new_bars(db,instrument_id,enrolled,moment)
+                if captured:
+                    LOGGER.info("AEn forward immutable input captured=%d market=%s",
+                                captured,market)
                 total+=_settle_group(db,rows,moment)
                 latest=max((str(row["last_bar_end"]) for row in rows
                             if row["last_bar_end"]),default="WAITING")
