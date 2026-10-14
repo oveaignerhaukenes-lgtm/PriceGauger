@@ -76,6 +76,64 @@ def _filled_chart(bars, report):
     st.altair_chart(line.interactive(), use_container_width=True)
 
 
+
+@st.fragment(run_every="60s")
+def render_aen_forward_panel_v1(instrument_id: int):
+    """Actual prospective, frozen cohort evidence; no backfilled leaderboard."""
+    st.markdown("#### AEn Forward PAPER · registrert fra oppstart")
+    st.caption("Fastlåste 1-enhetskonfigurasjoner evalueres etter hvert som nye "
+               "1m-candles ferdigstilles. Ingen Saxo-ordrer, ingen historiske "
+               "avkastningstall registreres som fremoverskuende resultat.")
+    try:
+        import json
+        from aen_forward_paper_v1 import forward_snapshot
+        runs,points=forward_snapshot(instrument_id=instrument_id,limit=1500)
+    except Exception as exc:
+        st.info("Fremoverskuende PAPER starter når SIM-workeren har "
+                "initialisert kohortene: "+type(exc).__name__)
+        return
+    if not runs:
+        st.info("Ingen AEn Forward-kohorter er registrert ennå. "
+                "SIM-workeren starter dem ved neste ferdige minutt.")
+        return
+    view=[]
+    names={}
+    for run in runs:
+        cfg=json.loads(run["config_json"])
+        name=(cfg["family"]+" · "+str(cfg["minutes"])+"m"+
+              (" AUTO" if cfg.get("adaptive") else "")+
+              " · "+str(run["run_id"])[:6])
+        names[run["run_id"]]=name
+        view.append({
+            "Strategi":name,
+            "Startet UTC":run["enrolled_at"],
+            "Status":run["status"],
+            "Netto PAPER %":round(float(run["net_pct"]),4),
+            "Brutto %":round(float(run["gross_pct"]),4),
+            "Maks DD %":round(float(run["max_dd_pct"]),4),
+            "Omsatte enheter":int(run["turnover_units"]),
+            "Aktive enheter":int(run["units"]),
+            "Siste lukket bar":run["last_bar_end"] or "Venter på fremtidige data",
+        })
+    st.dataframe(pd.DataFrame(view),hide_index=True,use_container_width=True)
+    if points:
+        frame=pd.DataFrame([{
+            "Tid":pd.to_datetime(x["bar_end"],utc=True),
+            "Strategi":names.get(x["run_id"],x["run_id"]),
+            "Netto PAPER %":float(x["net_pct"]),
+        } for x in points])
+        st.line_chart(frame.pivot_table(
+            index="Tid",columns="Strategi",values="Netto PAPER %",
+            aggfunc="last").sort_index(),use_container_width=True)
+    else:
+        st.caption("Kohortene er registrert. Kurver tegnes etter nye "
+                   "fullførte og kostnadsjusterte PAPER-observasjoner.")
+    st.caption("Låst 14-dagers observasjonsvindu. 5-minutters sampling "
+               "samt separate eksekveringspunkter. Fastlagte proxykostnader "
+               "og syntetisk notional; ikke Saxo-verifisert P/L. "
+               "Historiske replayresultater nedenfor holdes adskilt.")
+
+
 def render_aen_core_lab_v1():
     st.subheader("AEn Core · Adaptive Engine")
     st.caption("Ny, isolert historisk PAPER-motor. Simulering, ikke virkelig handel. "
@@ -92,6 +150,8 @@ def render_aen_core_lab_v1():
     selected = st.selectbox("AEn-marked",list(sources),
                             format_func=lambda k:sources[k]["market_name"],key="aen:market")
     market = sources[selected]
+    render_aen_forward_panel_v1(int(selected))
+    st.divider()
     # Each market keeps its own SIM controls within this Streamlit session.
     keybase = f"aen:{selected}:"
     if "tech" not in str(market["market_name"]).lower() or "100" not in str(market["market_name"]):
