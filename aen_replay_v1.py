@@ -238,15 +238,39 @@ def _propose(current: int, indicator: Indicator, *, cooling_count: int,
     return current
 
 
-def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
+
+@dataclass(frozen=True)
+class ReplayInputs:
+    minute_bars: tuple[Candle, ...]
+    indicators: dict[int, dict[datetime, Indicator]]
+    structure_events: dict[datetime, tuple[StructureEvent, ...]]
+    structure_minutes: int
+    pivot_left: int
+    pivot_right: int
+
+
+def prepare_replay_inputs(bars: Sequence, config: AEnPaperConfig) -> ReplayInputs:
+    """Precalculate immutable-history indicators ONCE for fair side-by-side variants."""
+    aggregated = {tf:_aggregate(bars, tf) for tf in TIMEFRAMES}
+    return ReplayInputs(aggregated[1],
+                        {tf:_indicators(candles) for tf,candles in aggregated.items()},
+                        _structure(aggregated[config.structure_minutes], config),
+                        config.structure_minutes, config.pivot_left, config.pivot_right)
+
+
+def replay(config: AEnPaperConfig, bars: Sequence, *, started_at,
+           prepared: ReplayInputs | None = None) -> AEnReport:
     ordered = sorted(bars, key=lambda b: utc(b.bar_time))
     since = utc(started_at)
     if not ordered:
         return AEnReport(config.identity, config.label, (), 0, 0, 0, 0, 0, 0, (), 0, (), (), 0)
-    minute_bars = _aggregate(ordered, 1)
-    # Strict enough for a canonical feed; gaps never create artificial signal bars.
-    indicator_sets = {tf: _indicators(_aggregate(ordered, tf)) for tf in TIMEFRAMES}
-    structure_events = _structure(_aggregate(ordered, config.structure_minutes), config)
+    research = prepared if prepared is not None else prepare_replay_inputs(ordered, config)
+    if (research.structure_minutes, research.pivot_left, research.pivot_right) != (
+            config.structure_minutes, config.pivot_left, config.pivot_right):
+        raise ValueError("prepared AEn structure parameters do not match config")
+    minute_bars = research.minute_bars
+    indicator_sets = research.indicators
+    structure_events = research.structure_events
     signal_tf = config.minutes
     latest_indicators: dict[int, Indicator] = {}
     inventory = Inventory()
