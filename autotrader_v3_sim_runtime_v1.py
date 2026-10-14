@@ -13,6 +13,7 @@ from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAS
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
+from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 
@@ -60,6 +61,8 @@ def _prepare_sim_decision_context_v3(*, instance_id: str, strategy_key: str,
                 or int(get("timeframe_minutes", 1)) != int(timeframe_minutes)
             )
         if changed:
+            db.execute("DELETE FROM autotrader_v3_aen_core_state WHERE trader_id=?",
+                       (state_id,))
             db.execute(
                 "UPDATE autotrader_v3_closed_bar_state SET previous_spread=NULL WHERE trader_id=?",
                 (state_id,),
@@ -167,6 +170,8 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             regime_timeframe_minutes=regime_timeframe_minutes,
             market_name=instance.market_name,
             db_path=db_path,
+            **({"signal_timeframe_minutes":timeframe_minutes,
+                "now":end} if instance.strategy_key in AEN_CORE_KEYS_V3 else {}),
         )
         processed += int(result.is_new)
         _record_sim_runtime_v3(
