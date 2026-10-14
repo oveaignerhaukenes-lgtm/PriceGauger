@@ -1,6 +1,6 @@
-# Histogram Peak Flip · V3 SIM
+# Histogram Peak Flip · V3 (SIM + LIVE)
 
-**Dato:** 2026-10-14 · **Status:** forskningsstrategi, kun V3 SIM.
+**Dato:** 2026-10-14 · **Status:** V3-strategi tilgjengelig i SIM og LIVE. Verken LIVE-motorer eller Saxo-posisjoner aktiveres/endras ved kodeutrulling.
 
 ## Strategiregler (lukket MACD 12/26/9 histogram)
 
@@ -22,9 +22,9 @@ Ved overgang mellom negative/positive histogramregimer gjelder samme symmetriske
 - Ingen pyramidering, trailing, ekstra indikatorer, AI eller volumbetingelser. Maks **én Saxo-lovlig tranche**, typisk 0,01 lot på Tech100, men instrumentet bestemmer faktisk minstekvantum.
 - Hver beslutning krever ferdig signallys. Minnet om topp/bunn persisteres atomisk med V3s candle-cursor og målposisjon. Duplikater og omstarter gir ingen ny signalevaluering.
 - Ekstern posisjonskorreksjon fra risiko/broker sletter tidligere låste peak/trough-minner og tvinger en ny bootstrap, slik at det ikke oppstår uønsket re-entry.
-- Den nye strategien ligger i V3 som **Histogram Peak Flip · SIM**. V3 LIVE-capability returnerer eksplisitt sperre; `live_route_enabled=False`. Ingen eksisterende LIVE-konfigurasjon er endret.
+- Den nye strategien ligger i V3 som **Histogram Peak Flip · V3**, tilgjengelig i SIM og LIVE. V3 LIVE-capability godtar Manuell/faste tidsrammer; `live_route_enabled=True`. Ingen eksisterende LIVE-konfigurasjon eller arming er endret. Ordreutførelse følger V3s sikkerhetsporter og bekreftet FLAT før motsatt side.
 - Den eksisterende **MACD Histogram**, **Histogram Flip+Build** og **MACD Flip** påvirkes ikke.
 - Dette er en hypotese, ikke dokumentert nettoavkastning. Reverseringer og spread/kurtasje må måles mot eksisterende histogramvarianter i samme datasett før LIVE eventuelt vurderes.
 
 ## Neste evalueringsfase
-Sammenlign Peak Flip mot Histogram og Histogram Flip+Build med like candles, én enhet, spread/avgifter og samme lukket-bar-simulering. Se på antall reverseringer, netto-P/L, gevinst gitt tilbake fra maksimal urealiserte gevinst og max drawdown. Ingen automatiske LIVE-endringer eller markedsparameteroptimalisering i denne PR-en.
+Sammenlign Peak Flip mot Histogram og Histogram Flip+Build med like candles, én enhet, spread/avgifter og samme lukket-bar-simulering. Se på antall reverseringer, netto-P/L, gevinst gitt tilbake fra maksimal urealiserte gevinst og max drawdown. Ingen automatisk LIVE-aktivering ved deploy eller endring av eksisterende instanser. LIVE innebærer fortsatt risiko for tap, særlig ved mange reverseringer og latency.
