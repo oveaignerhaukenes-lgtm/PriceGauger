@@ -95,6 +95,16 @@ def run_once(*, db_path="pricegauger.db", now=None):
         LOGGER.warning("Context Lab calendar unavailable error_type=%s",
                        type(exc).__name__)
     evaluated = process_lab_cycle(db_path=db_path, now=moment)
+    # AEn has NO Saxo imports or broker authority. 5 frozen 0.01-unit
+    # PAPER cohorts enrol prospectively on the next minute boundary.
+    # Its failure must not interrupt the existing research ecosystem.
+    try:
+        from aen_forward_paper_v1 import process_forward_cycle
+        settled=process_forward_cycle(db_path=db_path,now=moment)
+        if settled:
+            LOGGER.info("AEn forward PAPER settled cohorts=%d",settled)
+    except Exception as exc:
+        LOGGER.warning("AEn forward PAPER unavailable error_type=%s",type(exc).__name__)
     global _SIM_AUDIT_EMITTED
     if not _SIM_AUDIT_EMITTED:
         try:
