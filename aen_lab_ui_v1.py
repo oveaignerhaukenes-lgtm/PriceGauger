@@ -92,52 +92,57 @@ def render_aen_core_lab_v1():
     selected = st.selectbox("AEn-marked",list(sources),
                             format_func=lambda k:sources[k]["market_name"],key="aen:market")
     market = sources[selected]
+    # Each market keeps its own SIM controls within this Streamlit session.
+    keybase = f"aen:{selected}:"
+    if "tech" not in str(market["market_name"]).lower() or "100" not in str(market["market_name"]):
+        st.info("0,01 lot er verifisert som minimum for Tech100 i dette prosjektet, "
+                "men ikke for dette markedet. Enhetene her er kun syntetisk PAPER-notional.")
     a,b,c,d = st.columns(4)
-    signal_tf = a.selectbox("MACD-oppløsning (min)",TIMEFRAMES,index=2,key="aen:signal_tf")
-    structure_tf = b.selectbox("HH/HL-candles (min)",TIMEFRAMES,index=2,key="aen:structure_tf")
-    days = c.selectbox("Analyseperiode (dager)",(1,3,7,14),index=1,key="aen:days")
-    auto = d.toggle("AUTO timeframe",value=False,key="aen:auto",
+    signal_tf = a.selectbox("MACD-oppløsning (min)",TIMEFRAMES,index=2,key=keybase+"signal_tf")
+    structure_tf = b.selectbox("HH/HL-candles (min)",TIMEFRAMES,index=2,key=keybase+"structure_tf")
+    days = c.selectbox("Analyseperiode (dager)",(1,3,7,14),index=1,key=keybase+"days")
+    auto = d.toggle("AUTO timeframe",value=False,key=keybase+"auto",
                     help="Regelbasert PAPER-controller med hysterese. AI har ingen kontroll i denne versjonen.")
-    capkey="aen:max_units"
+    capkey=keybase+"max_units"
     st.session_state.setdefault(capkey,1)
     cols = st.columns([2,1,1,2,2])
     cols[0].markdown(f"**Tillatt eksponering:** {st.session_state[capkey]} × 0,01 lot")
-    if cols[1].button("↓ −1",key="aen:less",disabled=st.session_state[capkey]<=1):
+    if cols[1].button("↓ −1",key=keybase+"less",disabled=st.session_state[capkey]<=1):
         st.session_state[capkey]-=1
-    if cols[2].button("↑ +1",key="aen:more",disabled=st.session_state[capkey]>=20):
+    if cols[2].button("↑ +1",key=keybase+"more",disabled=st.session_state[capkey]>=20):
         st.session_state[capkey]+=1
-    scale = cols[3].toggle("Structure Scaling",value=True,key="aen:scale")
-    impulse = cols[4].toggle("Impulse Detector",value=False,key="aen:impulse")
+    scale = cols[3].toggle("Structure Scaling",value=True,key=keybase+"scale")
+    impulse = cols[4].toggle("Impulse Detector",value=False,key=keybase+"impulse")
     ladder_col, pulse_col = st.columns([1,2])
-    ladder = ladder_col.toggle("1m→2m→5m bekreftelse",value=False,key="aen:ladder",
+    ladder = ladder_col.toggle("1m→2m→5m bekreftelse",value=False,key=keybase+"ladder",
                     help="Valgfri 0,01-lot pulsprobe, deretter én enhet på 2m og 5m bekreftelse.")
     pulse_pct = pulse_col.slider("Minst 1m-puls (%)",0.05,1.0,0.12,0.01,
-                                 disabled=not ladder,key="aen:pulse")
+                                 disabled=not ladder,key=keybase+"pulse")
     settings = st.columns(3)
-    left = settings[0].number_input("Swing: venstre candles",min_value=1,max_value=8,value=2,key="aen:left")
-    right = settings[1].number_input("Swing: bekreftelsescandles",min_value=1,max_value=8,value=2,key="aen:right")
-    hysteresis = settings[2].slider("MACD hysterese",0.0,2.0,0.5,0.1,key="aen:hysteresis")
+    left = settings[0].number_input("Swing: venstre candles",min_value=1,max_value=8,value=2,key=keybase+"left")
+    right = settings[1].number_input("Swing: bekreftelsescandles",min_value=1,max_value=8,value=2,key=keybase+"right")
+    hysteresis = settings[2].slider("MACD hysterese",0.0,2.0,0.5,0.1,key=keybase+"hysteresis")
     x,y,z = st.columns(3)
     impulse_pct = x.number_input("Impulse candle (%)",min_value=0.05,max_value=5.0,
-                                 value=0.30,step=0.05,disabled=not impulse,key="aen:impulse_pct")
+                                 value=0.30,step=0.05,disabled=not impulse,key=keybase+"impulse_pct")
     vol_factor = y.number_input("Relativt volum ×",min_value=1.0,max_value=5.0,
-                                value=1.4,step=0.1,disabled=not impulse,key="aen:vol")
+                                value=1.4,step=0.1,disabled=not impulse,key=keybase+"vol")
     wait_bars = z.number_input("Maks retrace-venting (min)",min_value=1,max_value=30,
-                               value=3,disabled=not impulse,key="aen:wait")
+                               value=3,disabled=not impulse,key=keybase+"wait")
     with st.expander("Kostnader og risikoforutsetninger",expanded=False):
-        charge=st.toggle("Inkluder kostnader",value=True,key="aen:costs")
+        charge=st.toggle("Inkluder kostnader",value=True,key=keybase+"costs")
         f,s,notional=st.columns(3)
         fee=f.number_input("Kommisjon per side (%)",0.0,2.0,0.08,0.01,format="%.3f",
-                           key="aen:fee",disabled=not charge)
+                           key=keybase+"fee",disabled=not charge)
         spread=s.number_input("Full spread (%)",0.0,1.0,0.01,0.005,format="%.3f",
-                              key="aen:spread",disabled=not charge)
+                              key=keybase+"spread",disabled=not charge)
         nominal=notional.number_input("SIM-notional per 0,01 lot (× NAV)",0.01,1.0,0.20,0.01,
-                                      key="aen:unit_exposure")
+                                      key=keybase+"unit_exposure")
         st.caption("0,08 %/side, 0,01 % spread og notional/NAV er FORUTSETNINGER – ikke "
                    "bekreftede Saxo-priser eller reell kontraktseksponering. "
                    "Fremtidig LIVE krever instrumentspesifikk NOK-/marginmodell.")
     choices=st.multiselect("Sammenlign strategier",FAMILIES,default=FAMILIES,
-                           key="aen:families",max_selections=4)
+                           key=keybase+"families",max_selections=4)
     if not choices:
         st.info("Velg minst én AEn-strategi.")
         return
@@ -182,7 +187,7 @@ def render_aen_core_lab_v1():
                    for r in reports])
     variants={r.label:r for r in reports}
     name=st.selectbox("Vis markedspris, SIM-fills og eksponering",list(variants),
-                      key="aen:detail")
+                      key=keybase+"detail")
     focus=variants[name]
     _filled_chart(bars,focus)
     if focus.points:
