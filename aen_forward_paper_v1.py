@@ -170,7 +170,7 @@ def _settle_group(db,runs,now):
             db.execute("UPDATE aen_forward_runs SET status='COMPLETED' WHERE run_id=?",
                        (run_id,))
             continue
-        if started < utc(bars[0].bar_time)+timedelta(days=LOOKBACK_DAYS-1):
+        if started < utc(bars[0].bar_time)+timedelta(hours=8):
             # Historical warmup has been truncated. Never invent baseline equity.
             db.execute("UPDATE aen_forward_runs SET status='PAUSED_HISTORY' WHERE run_id=?",
                        (run_id,))
