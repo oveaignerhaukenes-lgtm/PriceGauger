@@ -34,6 +34,8 @@ class AEnPaperConfig:
     max_units: int = 1
     adaptive: bool = False
     structure_scaling: bool = True
+    confirmation_ladder: bool = False
+    pulse_min_pct: float = 0.12
     impulse_enabled: bool = False
     impulse_pct: float = 0.3
     volume_factor: float = 1.4
@@ -51,7 +53,7 @@ class AEnPaperConfig:
                   self.pivot_right, self.max_units)
         if self.family not in FAMILIES:
             raise ValueError("unsupported AEn strategy")
-        vals = (self.impulse_pct, self.volume_factor, self.hard_adverse_pct,
+        vals = (self.pulse_min_pct, self.impulse_pct, self.volume_factor, self.hard_adverse_pct,
                 self.hysteresis_ratio, self.unit_exposure,
                 self.commission_side_bps, self.quoted_spread_bps)
         if any(not isfinite(float(v)) or v < 0 for v in vals):
@@ -68,7 +70,7 @@ class AEnPaperConfig:
         # Complete parameter identity ensures UI never merges mismatched curves.
         return (f"{ENGINE_VERSION}:{self.family}:m{self.minutes}:s{self.structure_minutes}"
                 f":p{self.pivot_left}-{self.pivot_right}:n{self.max_units}:a{int(self.adaptive)}"
-                f":sc{int(self.structure_scaling)}:im{int(self.impulse_enabled)}"
+                f":sc{int(self.structure_scaling)}:lad{int(self.confirmation_ladder)}:pulse{self.pulse_min_pct}:im{int(self.impulse_enabled)}"
                 f":ip{self.impulse_pct}:vf{self.volume_factor}:wait{self.retrace_wait_bars}"
                 f":stop{self.hard_adverse_pct}:h{self.hysteresis_ratio}"
                 f":dw{self.dwell_minutes}:unit{self.unit_exposure}:c{int(self.costs_enabled)}"
@@ -261,6 +263,7 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
     executions = orders = completed = turnover = 0
     total_cost = 0.0
     last_decision_at = None
+    ladder_level = 0
 
     for minute_index, bar in enumerate(minute_bars):
         end = bar.end
@@ -296,10 +299,16 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
                     protected_level = None
                     active_break = False
                     impulse_watch = None
+                    ladder_level = 0
                 elif old_units == 0:
                     protected_level = None
                     active_break = False
                     impulse_watch = None
+                    ladder_level = 1 if reason == "PULSE_1M_PROBE" else 0
+                elif reason == "PULSE_2M_CONFIRM":
+                    ladder_level = 2
+                elif reason == "PULSE_5M_CONFIRM":
+                    ladder_level = 5
                 fills.append((start.isoformat(), new_units, reason, pending_tf, bar.open))
             pending = None
         units = inventory.units * (1 if inventory.side == "LONG" else -1 if inventory.side == "SHORT" else 0)
@@ -453,6 +462,40 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
                 protected_level = event.level
             if pending is not None:
                 break
+
+        # Optional causally ordered 1m -> 2m -> 5m confirmation ladder.
+        # A probe uses ONE unit only. Confirmation can add ONE unit per step;
+        # further exposure is earned by confirmed structure HL/LH events.
+        if config.confirmation_ladder and pending is None:
+            fast = indicator_sets[1].get(end)
+            slow2 = indicator_sets[2].get(end)
+            slow5 = indicator_sets[5].get(end)
+            if inventory.side == "HOLD" and fast is not None:
+                direction = ("LONG" if fast.histogram > 0 > fast.previous_histogram
+                             else "SHORT" if fast.histogram < 0 < fast.previous_histogram
+                             else "HOLD")
+                candle_matches = (direction == "LONG" and bar.close > bar.open or
+                                  direction == "SHORT" and bar.close < bar.open)
+                pulse = abs(bar.close / bar.open - 1) * 100 >= config.pulse_min_pct
+                main_cooling = (obs is not None and
+                                obs.histogram * (obs.histogram - obs.previous_histogram) < 0)
+                if direction != "HOLD" and candle_matches and pulse and (
+                        arm == direction or main_cooling):
+                    enqueue(Inventory(direction,1,False,-1), "PULSE_1M_PROBE")
+            elif inventory.side != "HOLD" and ladder_level == 1 and slow2 is not None:
+                aligned = ((slow2.histogram > 0 and inventory.side == "LONG") or
+                           (slow2.histogram < 0 and inventory.side == "SHORT"))
+                if aligned and inventory.units < config.max_units:
+                    enqueue(Inventory(inventory.side, inventory.units + 1,
+                                      inventory.structure_break, inventory.last_add_event),
+                            "PULSE_2M_CONFIRM")
+            elif inventory.side != "HOLD" and ladder_level == 2 and slow5 is not None:
+                aligned = ((slow5.histogram > 0 and inventory.side == "LONG") or
+                           (slow5.histogram < 0 and inventory.side == "SHORT"))
+                if aligned and inventory.units < config.max_units:
+                    enqueue(Inventory(inventory.side, inventory.units + 1,
+                                      inventory.structure_break, inventory.last_add_event),
+                            "PULSE_5M_CONFIRM")
 
         # Last protected HL/LH breaches are checked at completed bar close.
         if pending is None and inventory.side != "HOLD" and protected_level is not None:
