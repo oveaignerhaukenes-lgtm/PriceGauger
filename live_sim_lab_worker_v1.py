@@ -23,6 +23,7 @@ LOGGER = logging.getLogger("pricegauger.live_sim_lab")
 # A one-time read-only performance audit per LAB worker boot.
 # Emit only research-paper metrics and configuration labels, never account data.
 _SIM_AUDIT_EMITTED = False
+_AEN_HEALTH_LAST = None
 
 
 def emit_sim_performance_audit_v1(*, db_path="pricegauger.db"):
@@ -103,6 +104,15 @@ def run_once(*, db_path="pricegauger.db", now=None):
         settled=process_forward_cycle(db_path=db_path,now=moment)
         if settled:
             LOGGER.info("AEn forward PAPER settled cohorts=%d",settled)
+        # The main SIM logger is explicitly visible on Railway, unlike
+        # submodule INFO loggers on installations with restrictive levels.
+        global _AEN_HEALTH_LAST
+        if _AEN_HEALTH_LAST is None or moment-_AEN_HEALTH_LAST>=timedelta(minutes=5):
+            from aen_forward_paper_v1 import forward_health_snapshot
+            LOGGER.info("AEN_FORWARD_HEALTH %s",json.dumps(
+                forward_health_snapshot(db_path=db_path),
+                separators=(",",":"),default=str))
+            _AEN_HEALTH_LAST=moment
     except Exception as exc:
         LOGGER.warning("AEn forward PAPER unavailable error_type=%s",type(exc).__name__)
     global _SIM_AUDIT_EMITTED
