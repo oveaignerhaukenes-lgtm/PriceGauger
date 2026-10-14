@@ -117,6 +117,9 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.session_state[f'{key_prefix}:mod:{trader_id}:volatility-pause']=True
         st.rerun()
     st.caption("MACD Flip · V3 er separat fra MACD Trailing · Legacy og følger V2s rene kryss-signaler. Valg eller lagring alene aktiverer ikke LIVE.")
+    st.caption("AEn Core: fem valgbare V3 LIVE-varianter (Hold, Histogram, Hysteresis, MACD+Stoch og Adaptive Hold). "
+               "Foreløpig én ny handelsenhet og fast 5m-struktur; ingen AEn-pyramidering, Impulse Detector eller AI-ordrestyring. "
+               "Valg alene aktiverer ikke handel.")
     keys=tuple(x.key for x in STRATEGIES_V3)
     a,b=st.columns(2)
     strategy=a.selectbox(

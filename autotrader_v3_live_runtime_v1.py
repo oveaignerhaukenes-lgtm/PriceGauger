@@ -46,6 +46,7 @@ from autotrader_v3_capacity_hold_v1 import (
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
+from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -122,6 +123,8 @@ def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
             previous_timeframe=int(row["timeframe_minutes"] if isinstance(row,dict) else row[1])
         changed=(previous_strategy!=str(strategy_key) or previous_timeframe!=int(timeframe_minutes))
         if changed:
+            db.execute("DELETE FROM autotrader_v3_aen_core_state WHERE trader_id=?",
+                       (str(trader_id),))
             db.execute(
                 """UPDATE autotrader_v3_closed_bar_state
                    SET target_amount=?,previous_spread=NULL,updated_at=CURRENT_TIMESTAMP
@@ -426,7 +429,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             source_bars=tuple(bars),
             regime_timeframe_minutes=regime_timeframe_minutes,
             market_name=e.market_name,
-            strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path)
+            strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path,
+            **({"actual_inventory":actual.amount,
+                "signal_timeframe_minutes":timeframe_minutes,
+                "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
@@ -517,6 +523,28 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation is None:
             _record_runtime(e.pilot_key,"MANAGING",f"target={snapshot.risk_approved_target.amount:g} actual={actual.amount:g}",db_path=db_path)
             continue
+        if e.strategy_key in AEN_CORE_KEYS_V3 and mutation.action in {'OPEN','ADD'}:
+            # V3 may revisit an older desired target after Saxo precheck
+            # blocks or a market pause. AEn must never open from such a stale
+            # historical state; it needs recent completed canonical 1m data.
+            try:
+                stamp=decision.decision_key.split(':',2)[2]
+                evaluated_at=datetime.fromisoformat(stamp.replace('Z','+00:00'))
+                if evaluated_at.tzinfo is None:
+                    evaluated_at=evaluated_at.replace(tzinfo=timezone.utc)
+                age=end.astimezone(timezone.utc)-evaluated_at.astimezone(timezone.utc)
+                fresh_aen_signal=timedelta(0)<=age<=timedelta(minutes=2)
+            except (ValueError,IndexError,AttributeError):
+                fresh_aen_signal=False
+            if not fresh_aen_signal or decision.decision.action in {
+                'HOLD_NO_DATA','HOLD_MISSING_1M'
+            }:
+                align_closed_bar_target_v3(
+                    trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    'AEn incomplete/stale 1m input; discard unexecuted OPEN/ADD target',
+                    db_path=db_path)
+                continue
         if mutation.action in {'REDUCE','CLOSE'}:
             if actual.amount == 0 or mutation.amount > abs(actual.amount) + 1e-9:
                 _record_runtime(e.pilot_key,'BLOCKED','Reduction exceeds exact current position',db_path=db_path)
