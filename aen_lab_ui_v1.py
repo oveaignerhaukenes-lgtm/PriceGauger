@@ -108,6 +108,11 @@ def render_aen_core_lab_v1():
         st.session_state[capkey]+=1
     scale = cols[3].toggle("Structure Scaling",value=True,key="aen:scale")
     impulse = cols[4].toggle("Impulse Detector",value=False,key="aen:impulse")
+    ladder_col, pulse_col = st.columns([1,2])
+    ladder = ladder_col.toggle("1m→2m→5m bekreftelse",value=False,key="aen:ladder",
+                    help="Valgfri 0,01-lot pulsprobe, deretter én enhet på 2m og 5m bekreftelse.")
+    pulse_pct = pulse_col.slider("Minst 1m-puls (%)",0.05,1.0,0.12,0.01,
+                                 disabled=not ladder,key="aen:pulse")
     settings = st.columns(3)
     left = settings[0].number_input("Swing: venstre candles",min_value=1,max_value=8,value=2,key="aen:left")
     right = settings[1].number_input("Swing: bekreftelsescandles",min_value=1,max_value=8,value=2,key="aen:right")
@@ -148,7 +153,8 @@ def render_aen_core_lab_v1():
         reports=[replay(AEnPaperConfig(
             family=family,minutes=int(signal_tf),structure_minutes=int(structure_tf),
             pivot_left=int(left),pivot_right=int(right),max_units=int(st.session_state[capkey]),
-            adaptive=auto,structure_scaling=scale,impulse_enabled=impulse,
+            adaptive=auto,structure_scaling=scale,confirmation_ladder=ladder,
+            pulse_min_pct=float(pulse_pct),impulse_enabled=impulse,
             impulse_pct=float(impulse_pct),volume_factor=float(vol_factor),
             retrace_wait_bars=int(wait_bars),hysteresis_ratio=float(hysteresis),
             unit_exposure=float(nominal),costs_enabled=charge,
