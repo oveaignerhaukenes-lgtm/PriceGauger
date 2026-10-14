@@ -136,6 +136,38 @@ def test_expired_cohorts_stop_without_deleting_history(tmp_path):
     assert len(runs)==5
 
 
+
+def test_short_prehistory_stays_active_and_warms_up_causally(tmp_path):
+    """A sparse feed may start a valid forward cohort without 8h of history."""
+    path=str(tmp_path/"short.sqlite")
+    setup_feed(path,count=160)
+    launched=START+timedelta(minutes=70,seconds=10)
+    assert forward.process_forward_cycle(db_path=path,now=launched)==0
+    # New observations are after future enrolment, not retrofitted returns.
+    moment=START+timedelta(minutes=105,seconds=10)
+    assert forward.process_forward_cycle(db_path=path,now=moment)==5
+    runs,points=forward.forward_snapshot(db_path=path,instrument_id=101)
+    assert len(runs)==5
+    assert all(r["status"]=="ACTIVE" for r in runs)
+    assert all(forward.utc(r["last_bar_end"])>
+               forward.utc(r["enrolled_at"]) for r in runs)
+    assert all(forward.utc(p["bar_end"])>
+               forward.utc(next(r["enrolled_at"] for r in runs
+                                if r["run_id"]==p["run_id"])) for p in points)
+    # Old releases paused never-started runs with no fills: resume without
+    # touching original start or any actual performance evidence.
+    with connect(path,force_sqlite=True) as db:
+        db.execute("UPDATE aen_forward_runs SET status='PAUSED_HISTORY',last_bar_end=NULL,"
+                   "net_pct=0,gross_pct=0 WHERE instrument_id=101")
+        db.execute("DELETE FROM aen_forward_points WHERE 1=1")
+    assert forward.process_forward_cycle(db_path=path,
+                   now=START+timedelta(minutes=120,seconds=10))==5
+    resumed,_=forward.forward_snapshot(db_path=path,instrument_id=101)
+    assert all(r["status"]=="ACTIVE" for r in resumed)
+    assert {r["run_id"]:r["enrolled_at"] for r in resumed}=={
+           r["run_id"]:r["enrolled_at"] for r in runs}
+
+
 def test_missing_lab_feed_does_not_seed_fictitious_market(tmp_path):
     path=str(tmp_path/"empty.sqlite")
     assert forward.process_forward_cycle(db_path=path,now=START)==0

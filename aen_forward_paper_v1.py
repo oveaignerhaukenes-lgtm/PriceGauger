@@ -99,7 +99,7 @@ def _seed(db, instrument_id, market, now):
     enrolled = (utc(now).replace(second=0,microsecond=0)
                 + timedelta(minutes=1)).isoformat()
     for cfg in FROZEN_PRESETS[:MAX_COHORTS]:
-        db.execute("""
+        cursor=db.execute("""
             INSERT INTO aen_forward_runs(
                 run_id,instrument_id,market_name,engine_version,config_json,
                 enrolled_at,status)
@@ -108,6 +108,9 @@ def _seed(db, instrument_id, market, now):
         """,(_run_id(instrument_id,cfg),instrument_id,market,
              ENGINE_VERSION,json.dumps(asdict(cfg),sort_keys=True),
              enrolled))
+        if cursor.rowcount:
+            LOGGER.info("AEn forward enrolled market=%s run=%s tf=%dm",
+                        market,_run_id(instrument_id,cfg)[:8],cfg.minutes)
 
 
 def _load_closed(db,instrument_id,enrolled,now):
@@ -185,11 +188,9 @@ def _settle_group(db,runs,now):
             db.execute("UPDATE aen_forward_runs SET status='COMPLETED' WHERE run_id=?",
                        (run_id,))
             continue
-        if started < utc(bars[0].bar_time)+timedelta(hours=8):
-            # Historical warmup has been truncated. Never invent baseline equity.
-            db.execute("UPDATE aen_forward_runs SET status='PAUSED_HISTORY' WHERE run_id=?",
-                       (run_id,))
-            continue
+        # Never reject the cohort merely for short pre-enrolment history.
+        # 12/26/9 MACD and swing pivots warm up causally; until then replay
+        # stays FLAT. Enrolment and observations still begin prospectively.
         report=replay(cfg,bars,started_at=started,prepared=prepared)
         if not report.points:
             continue
@@ -250,6 +251,14 @@ def process_forward_cycle(*,db_path="pricegauger.db",now=None):
     with connect(db_path) as db:
         for instrument_id,market in _eligible(db):
             _seed(db,instrument_id,market,moment)
+            # A previous build could pause brand-new runs for insufficient
+            # prehistory. They contain no observed points or inventory.
+            # They may safely resume at their ORIGINAL prospective start.
+            db.execute("""
+                UPDATE aen_forward_runs SET status='ACTIVE'
+                WHERE instrument_id=? AND status='PAUSED_HISTORY'
+                  AND last_bar_end IS NULL
+            """,(instrument_id,))
             rows=db.execute("""
                 SELECT * FROM aen_forward_runs
                 WHERE instrument_id=? AND status='ACTIVE'
@@ -257,6 +266,17 @@ def process_forward_cycle(*,db_path="pricegauger.db",now=None):
             """,(instrument_id,MAX_COHORTS)).fetchall()
             if rows:
                 total+=_settle_group(db,rows,moment)
+                latest=max((str(row["last_bar_end"]) for row in rows
+                            if row["last_bar_end"]),default="WAITING")
+                LOGGER.info("AEn forward heartbeat market=%s active=%d last_bar=%s settled=%d",
+                            market,len(rows),latest,total)
+            else:
+                summary=db.execute("""
+                    SELECT status,COUNT(*) AS n FROM aen_forward_runs
+                    WHERE instrument_id=? GROUP BY status
+                """,(instrument_id,)).fetchall()
+                LOGGER.info("AEn forward no-active market=%s statuses=%s",
+                            market,[(x["status"],x["n"]) for x in summary])
     return total
 
 
