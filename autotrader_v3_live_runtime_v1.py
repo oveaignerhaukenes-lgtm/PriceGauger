@@ -46,6 +46,7 @@ from autotrader_v3_capacity_hold_v1 import (
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
+from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -122,6 +123,8 @@ def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
             previous_timeframe=int(row["timeframe_minutes"] if isinstance(row,dict) else row[1])
         changed=(previous_strategy!=str(strategy_key) or previous_timeframe!=int(timeframe_minutes))
         if changed:
+            db.execute("DELETE FROM autotrader_v3_aen_core_state WHERE trader_id=?",
+                       (str(trader_id),))
             db.execute(
                 """UPDATE autotrader_v3_closed_bar_state
                    SET target_amount=?,previous_spread=NULL,updated_at=CURRENT_TIMESTAMP
@@ -426,7 +429,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             source_bars=tuple(bars),
             regime_timeframe_minutes=regime_timeframe_minutes,
             market_name=e.market_name,
-            strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path)
+            strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path,
+            **({"actual_inventory":actual.amount,
+                "signal_timeframe_minutes":timeframe_minutes,
+                "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
