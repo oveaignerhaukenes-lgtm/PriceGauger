@@ -186,6 +186,7 @@ def _structure(candles: Sequence[Candle], config: AEnPaperConfig) -> dict[dateti
     """Split irregular candles into contiguous segments; never bridge market gaps."""
     grouped: dict[datetime, list[StructureEvent]] = {}
     run: list[Candle] = []
+    segment_start = 0
     def flush():
         if not run:
             return
@@ -193,10 +194,13 @@ def _structure(candles: Sequence[Candle], config: AEnPaperConfig) -> dict[dateti
         cfg = AEnConfig(config.minutes, config.structure_minutes,
                         config.pivot_left, config.pivot_right, config.max_units)
         for event in confirmed_structure_events(converted, cfg):
-            grouped.setdefault(run[event.known_index].end, []).append(event)
+            unique = StructureEvent(event.kind, segment_start + event.pivot_index,
+                                    segment_start + event.known_index, event.level)
+            grouped.setdefault(run[event.known_index].end, []).append(unique)
     for candle in candles:
         if run and candle.end - run[-1].end != timedelta(minutes=config.structure_minutes):
             flush()
+            segment_start += len(run)
             run = []
         run.append(candle)
     flush()
@@ -258,7 +262,7 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
     total_cost = 0.0
     last_decision_at = None
 
-    for bar in minute_bars:
+    for minute_index, bar in enumerate(minute_bars):
         end = bar.end
         start = end - timedelta(minutes=1)
         if bar.open <= 0 or bar.close <= 0:
@@ -288,6 +292,14 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
                     total_cost += amount
                     net *= max(0, 1 - fraction)
                 inventory = target
+                if inventory.side == "HOLD":
+                    protected_level = None
+                    active_break = False
+                    impulse_watch = None
+                elif old_units == 0:
+                    protected_level = None
+                    active_break = False
+                    impulse_watch = None
                 fills.append((start.isoformat(), new_units, reason, pending_tf, bar.open))
             pending = None
         units = inventory.units * (1 if inventory.side == "LONG" else -1 if inventory.side == "SHORT" else 0)
@@ -359,12 +371,10 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
         # Impulse warning/exit: candle against current position, with reliable
         # rising real volume. Missing/weak volume => bounded retrace wait.
         if inventory.side != "HOLD" and config.impulse_enabled:
-            adverse_move = (bar.close / bar.open - 1) * (1 if inventory.side == "SHORT" else -1)
-            # Positive adverse_move denotes a move AGAINST inventory.
             is_against = (bar.close < bar.open if inventory.side == "LONG"
                           else bar.close > bar.open)
             if is_against and abs(bar.close / bar.open - 1) * 100 >= config.impulse_pct:
-                recent = [x.volume for x in minute_bars[max(0, minute_bars.index(bar) - 10):minute_bars.index(bar)]
+                recent = [x.volume for x in minute_bars[max(0, minute_index - 10):minute_index]
                           if x.volume is not None]
                 high_volume = (bar.volume is not None and len(recent) >= 5 and
                                sum(recent) > 0 and bar.volume >=
@@ -398,6 +408,11 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at) -> AEnReport:
             if event.kind == "HH":
                 arm = "LONG"
                 active_break = False if inventory.side == "HOLD" else active_break
+                if inventory.side == "SHORT" and not active_break:
+                    active_break = True
+                    if inventory.units > 1:
+                        enqueue(Inventory("SHORT", inventory.units - 1, True,
+                                          inventory.last_add_event), "STRUCTURE_HH_REDUCE")
             elif event.kind == "LL":
                 arm = "SHORT"
                 if inventory.side == "LONG" and not active_break:
