@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 from types import SimpleNamespace
 
 import altair as alt
@@ -76,6 +77,64 @@ def _filled_chart(bars, report):
     st.altair_chart(line.interactive(), use_container_width=True)
 
 
+
+@st.fragment(run_every="60s")
+def render_aen_forward_panel_v1(instrument_id: int):
+    """Actual prospective, frozen cohort evidence; no backfilled leaderboard."""
+    st.markdown("#### AEn Forward PAPER · registrert fra oppstart")
+    st.caption("Fastlåste 1-enhetskonfigurasjoner evalueres etter hvert som nye "
+               "1m-candles ferdigstilles. Ingen Saxo-ordrer, ingen historiske "
+               "avkastningstall registreres som fremoverskuende resultat.")
+    try:
+        import json
+        from aen_forward_paper_v1 import forward_snapshot
+        runs,points=forward_snapshot(instrument_id=instrument_id,limit=1500)
+    except Exception as exc:
+        st.info("Fremoverskuende PAPER starter når SIM-workeren har "
+                "initialisert kohortene: "+type(exc).__name__)
+        return
+    if not runs:
+        st.info("Ingen AEn Forward-kohorter er registrert ennå. "
+                "SIM-workeren starter dem ved neste ferdige minutt.")
+        return
+    view=[]
+    names={}
+    for run in runs:
+        cfg=json.loads(run["config_json"])
+        name=(cfg["family"]+" · "+str(cfg["minutes"])+"m"+
+              (" AUTO" if cfg.get("adaptive") else "")+
+              " · "+str(run["run_id"])[:6])
+        names[run["run_id"]]=name
+        view.append({
+            "Strategi":name,
+            "Startet UTC":run["enrolled_at"],
+            "Status":run["status"],
+            "Netto PAPER %":round(float(run["net_pct"]),4),
+            "Brutto %":round(float(run["gross_pct"]),4),
+            "Maks DD %":round(float(run["max_dd_pct"]),4),
+            "Omsatte enheter":int(run["turnover_units"]),
+            "Aktive enheter":int(run["units"]),
+            "Siste lukket bar":run["last_bar_end"] or "Venter på fremtidige data",
+        })
+    st.dataframe(pd.DataFrame(view),hide_index=True,use_container_width=True)
+    if points:
+        frame=pd.DataFrame([{
+            "Tid":pd.to_datetime(x["bar_end"],utc=True),
+            "Strategi":names.get(x["run_id"],x["run_id"]),
+            "Netto PAPER %":float(x["net_pct"]),
+        } for x in points])
+        st.line_chart(frame.pivot_table(
+            index="Tid",columns="Strategi",values="Netto PAPER %",
+            aggfunc="last").sort_index(),use_container_width=True)
+    else:
+        st.caption("Kohortene er registrert. Kurver tegnes etter nye "
+                   "fullførte og kostnadsjusterte PAPER-observasjoner.")
+    st.caption("Låst 14-dagers observasjonsvindu. 5-minutters sampling "
+               "samt separate eksekveringspunkter. Fastlagte proxykostnader "
+               "og syntetisk notional; ikke Saxo-verifisert P/L. "
+               "Historiske replayresultater nedenfor holdes adskilt.")
+
+
 def render_aen_core_lab_v1():
     st.subheader("AEn Core · Adaptive Engine")
     st.caption("Ny, isolert historisk PAPER-motor. Simulering, ikke virkelig handel. "
@@ -92,6 +151,8 @@ def render_aen_core_lab_v1():
     selected = st.selectbox("AEn-marked",list(sources),
                             format_func=lambda k:sources[k]["market_name"],key="aen:market")
     market = sources[selected]
+    render_aen_forward_panel_v1(int(selected))
+    st.divider()
     # Each market keeps its own SIM controls within this Streamlit session.
     keybase = f"aen:{selected}:"
     if "tech" not in str(market["market_name"]).lower() or "100" not in str(market["market_name"]):
@@ -194,6 +255,51 @@ def render_aen_core_lab_v1():
         exposure=pd.DataFrame([{"Tid":pd.to_datetime(t,utc=True),"Enheter":units}
                                for t,_net,_gross,units in focus.points]).set_index("Tid")
         st.line_chart(exposure, height=180, use_container_width=True)
+    from aen_diagnostics_v1 import turnover_diagnostics
+    diag=turnover_diagnostics(focus)
+    st.markdown("#### Kostnads- og whipsaw-diagnose")
+    m1,m2,m3,m4=st.columns(4)
+    m1.metric("Omsatte enheter",diag.total_units)
+    m2.metric("Flat→ny posisjon ≤2m",diag.exit_to_reentry_under_2m)
+    m3.metric("Flat→ny posisjon ≤5m",diag.exit_to_reentry_under_5m)
+    m4.metric("Brutto–netto %-poeng",f"{diag.estimated_cost_drag_pct:+.3f}")
+    st.caption("Re-entry telles bare etter en registrert flat-posisjon; tallene "
+               "forklarer mulig churn, ikke gevinst per enkeltordre.")
+    with st.expander("AEn modulablasjon · like historiske data"):
+        st.caption("Sammenlign basis, struktur, impuls og AUTO uten å velge "
+                   "historisk beste variant som fremoverskuende vinner. "
+                   "Kjøres kun når du aktiverer kontrollen.")
+        if st.toggle("Beregn fem kontrollvarianter",value=False,
+                     key=keybase+"ablate"):
+            from aen_replay_v1 import prepare_replay_inputs
+            base=next((cfg for cfg in configs if cfg.family in focus.label), configs[0])
+            common=replace(base,adaptive=False,impulse_enabled=False,
+                           confirmation_ladder=False,structure_scaling=False)
+            trials=[
+                ("BASE · én enhet",replace(common,max_units=1)),
+                ("STRUCTURE",replace(common,structure_scaling=True)),
+                ("STRUCTURE + IMPULSE",replace(common,structure_scaling=True,
+                                              impulse_enabled=True)),
+                ("STRUCTURE + AUTO",replace(common,structure_scaling=True,
+                                           adaptive=True)),
+                ("FULL",base),
+            ]
+            results=[]
+            for label,cfg in trials:
+                candidate=replay(cfg,bars,started_at=since,prepared=prepared)
+                d=turnover_diagnostics(candidate)
+                results.append({
+                    "Kontroll":label,"Netto %":round(candidate.return_pct,3),
+                    "Brutto %":round(candidate.gross_pct,3),
+                    "Kostnad %":round(candidate.total_cost_pct,3),
+                    "Maks DD %":round(candidate.max_drawdown_pct,3),
+                    "Omsatte enheter":candidate.turnover_units,
+                    "Re-entry ≤5m":d.exit_to_reentry_under_5m,
+                    "Timeframe-skift":len(candidate.timeframe_changes),
+                })
+            st.dataframe(pd.DataFrame(results),hide_index=True,
+                         use_container_width=True)
+
     with st.expander("Revisjon: alle signaler, fills og tidsrammebytter"):
         st.caption("En flat-posisjon bekreftes her i SIM. Den er IKKE Saxo-verifisert.")
         st.dataframe(pd.DataFrame(focus.decisions,
