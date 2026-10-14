@@ -118,15 +118,18 @@ def test_new_family_ui_isolated_from_legacy_and_readonly():
     page=Path("pages/0_Live_Sim_Lab.py").read_text(encoding="utf-8")
     frontend=Path("macd_nextgen_lab_ui_v1.py").read_text(encoding="utf-8")
     engine=Path("macd_nextgen_paper_v1.py").read_text(encoding="utf-8")
-    assert '("AEn Core · Adaptive Engine","Nye strategier · MACD","V2 strategies","Legacy strategies")' in page
+    assert '("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","V2 strategies","Legacy strategies")' in page
     assert "render_nextgen_macd_lab_v1()" in page
     assert "st.stop()" in page
     for title in ("Flip","Hold before flip","Pyramide","Trailing",
                   "Inkluder kostnader","Spread","macd"):
         assert title.lower() in frontend.lower()
-    assert "host.addEventListener('dblclick'" in frontend
-    assert "chart.subscribeCrosshairMove" in frontend
-    assert "grid-template-columns:minmax(0,1fr) 245px" in frontend
+    tv=Path("live_sim_tv_charts_v1.py").read_text(encoding="utf-8")
+    assert "render_lab_tv_series" in frontend
+    assert "subscribeVisibleLogicalRangeChange" in tv
+    assert "mouseWheel:true" in tv
+    assert "pinch:true" in tv
+    assert "createSeriesMarkers" in tv
     assert "reports.sort(key=" in frontend
     assert "configured_client" not in engine
     assert "place_order" not in engine

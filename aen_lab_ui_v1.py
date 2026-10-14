@@ -5,13 +5,13 @@ from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from types import SimpleNamespace
 
-import altair as alt
 import pandas as pd
 import streamlit as st
 
 from aen_replay_v1 import AEnPaperConfig, FAMILIES, TIMEFRAMES, ENGINE_VERSION, replay, prepare_replay_inputs
 from live_sim_lab_store_v1 import lab_snapshot
 from macd_nextgen_lab_ui_v1 import _recent_bars, _plot_reports
+from live_sim_tv_charts_v1 import render_lab_tv_series, render_lab_tv_candles
 
 
 def _regime_contributions(report, bars, *, lookback=20):
@@ -45,37 +45,12 @@ def _regime_contributions(report, bars, *, lookback=20):
             for name, v in sorted(summary.items())]
 
 
-def _filled_chart(bars, report):
-    # Read-only, contextual market chart; markers are SIM fills, not LIVE orders.
-    if not bars:
-        return
-    closes = pd.DataFrame([{
-        "Tid":pd.to_datetime(b.bar_time, utc=True) + pd.Timedelta(minutes=1),
-        "Pris":float(b.close),
-    } for b in bars])
-    if closes.empty:
-        return
-    line = alt.Chart(closes).mark_line(color="#75a5de", strokeWidth=1.4).encode(
-        x=alt.X("Tid:T", title="UTC"), y=alt.Y("Pris:Q", scale=alt.Scale(zero=False))
+def _filled_chart(bars, report, *, market_key="AEn"):
+    """Actual canonical OHLC candles plus read-only PAPER fill markers."""
+    render_lab_tv_candles(
+        bars, report.fills, key=f"aen:price:{market_key}",
+        title=f"Pris og PAPER-fills · {report.label}",
     )
-    if report.fills:
-        fills = pd.DataFrame([{
-            "Tid":pd.to_datetime(t, utc=True),
-            "Pris":float(price),
-            "Enheter":n,
-            "Hendelse":reason,
-            "Tidsramme":f"{tf}m",
-            "Markør":("▲"+str(n) if n>0 else "▼"+str(-n) if n<0 else "○0"),
-        } for t,n,reason,tf,price in report.fills])
-        markers = alt.Chart(fills).mark_text(dy=-10, fontSize=13, fontWeight="bold").encode(
-            x="Tid:T", y="Pris:Q", text="Markør:N",
-            color=alt.condition(alt.datum.Enheter > 0, alt.value("#24a779"),
-                                alt.value("#df7771")),
-            tooltip=["Tid:T","Pris:Q","Enheter:Q","Hendelse:N","Tidsramme:N"]
-        )
-        line = line + markers
-    st.altair_chart(line.interactive(), use_container_width=True)
-
 
 
 @st.fragment(run_every="60s")
@@ -117,18 +92,40 @@ def render_aen_forward_panel_v1(instrument_id: int):
             "Siste lukket bar":run["last_bar_end"] or "Venter på fremtidige data",
         })
     st.dataframe(pd.DataFrame(view),hide_index=True,use_container_width=True)
-    if points:
+    active_ids={row["run_id"] for row in runs if row["status"]=="ACTIVE"}
+    active_points=[x for x in points if x["run_id"] in active_ids]
+    if active_points:
         frame=pd.DataFrame([{
             "Tid":pd.to_datetime(x["bar_end"],utc=True),
             "Strategi":names.get(x["run_id"],x["run_id"]),
             "Netto PAPER %":float(x["net_pct"]),
-        } for x in points])
-        st.line_chart(frame.pivot_table(
+        } for x in active_points])
+        render_lab_tv_series(frame.pivot_table(
             index="Tid",columns="Strategi",values="Netto PAPER %",
-            aggfunc="last").sort_index(),use_container_width=True)
+            aggfunc="last").sort_index(),key=f"aen:forward:{instrument_id}",
+            title="AEn Forward · kun aktive kohorter (%)")
     else:
-        st.caption("Kohortene er registrert. Kurver tegnes etter nye "
-                   "fullførte og kostnadsjusterte PAPER-observasjoner.")
+        st.caption("Ingen aktive Forward-punkter ennå. Historiske avbrutte "
+                   "forsøk blir ikke presentert som løpende avkastning.")
+    archived=[row for row in runs if row["status"]!="ACTIVE"]
+    if archived:
+        with st.expander(f"Arkiv · {len(archived)} avsluttede/pausede kohorter"):
+            st.dataframe(pd.DataFrame([
+                {"Run":row["run_id"][:10],"Status":row["status"],
+                 "Start":row["enrolled_at"],"Netto %":row["net_pct"]}
+                for row in archived]),hide_index=True,use_container_width=True)
+            archived_points=[x for x in points if x["run_id"] not in active_ids]
+            if archived_points:
+                frame=pd.DataFrame([{
+                    "Tid":pd.to_datetime(x["bar_end"],utc=True),
+                    "Strategi":names.get(x["run_id"],x["run_id"]),
+                    "Netto PAPER %":float(x["net_pct"]),
+                } for x in archived_points])
+                render_lab_tv_series(frame.pivot_table(
+                    index="Tid",columns="Strategi",values="Netto PAPER %",
+                    aggfunc="last").sort_index(),
+                    key=f"aen:forward:archive:{instrument_id}",
+                    title="Historiske pausede PAPER-kohorter (%)")
     st.caption("Låst 14-dagers observasjonsvindu. 5-minutters sampling "
                "samt separate eksekveringspunkter. Fastlagte proxykostnader "
                "og syntetisk notional; ikke Saxo-verifisert P/L. "
@@ -245,16 +242,17 @@ def render_aen_core_lab_v1():
     _plot_reports([SimpleNamespace(identity=r.identity,label=r.label,
                                    return_pct=r.return_pct,
                                    points=tuple((t,n,g) for t,n,g,_ in r.points))
-                   for r in reports])
+                   for r in reports],key=f"aen:replay:{selected}")
     variants={r.label:r for r in reports}
     name=st.selectbox("Vis markedspris, SIM-fills og eksponering",list(variants),
                       key=keybase+"detail")
     focus=variants[name]
-    _filled_chart(bars,focus)
+    _filled_chart(bars,focus,market_key=selected)
     if focus.points:
         exposure=pd.DataFrame([{"Tid":pd.to_datetime(t,utc=True),"Enheter":units}
                                for t,_net,_gross,units in focus.points]).set_index("Tid")
-        st.line_chart(exposure, height=180, use_container_width=True)
+        render_lab_tv_series(exposure,key=f"aen:exposure:{selected}",
+                             title="Mål-eksponering (enheter)")
     from aen_diagnostics_v1 import turnover_diagnostics
     diag=turnover_diagnostics(focus)
     st.markdown("#### Kostnads- og whipsaw-diagnose")

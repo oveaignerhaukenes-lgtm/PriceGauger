@@ -10,15 +10,20 @@ from database import connect
 from live_sim_lab_store_v1 import lab_equity_points, lab_snapshot, MAX_ACTIVE_LAB_VARIANTS
 from macd_nextgen_lab_ui_v1 import render_nextgen_macd_lab_v1
 from aen_lab_ui_v1 import render_aen_core_lab_v1
+from live_sim_tv_charts_v1 import render_lab_tv_series
+from live_sim_signal_inversion_ui_v1 import render_signal_inversion_lab_v1
 from autotrader_v2_strategy_lab_ui_v1 import render_v2_strategy_lab_v1
 
 st.title("Live-Sim Lab")
-universe=st.selectbox("Strategiunivers",("AEn Core · Adaptive Engine","Nye strategier · MACD","V2 strategies","Legacy strategies"),key="lsim:universe")
+universe=st.selectbox("Strategiunivers",("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","V2 strategies","Legacy strategies"),key="lsim:universe")
 if universe=="AEn Core · Adaptive Engine":
     render_aen_core_lab_v1()
     st.stop()
 if universe=="Nye strategier · MACD":
     render_nextgen_macd_lab_v1()
+    st.stop()
+if universe=="Inversjonstest · MACD":
+    render_signal_inversion_lab_v1()
     st.stop()
 if universe=="V2 strategies":
     render_v2_strategy_lab_v1()
@@ -115,7 +120,8 @@ if filtered:
             } for point in data])
             plot = timeseries.pivot_table(index="Tid",columns="Variant",
                                           values="Avkastning %",aggfunc="last").sort_index()
-            st.line_chart(plot, use_container_width=True)
+            render_lab_tv_series(plot,key="legacy:variants",
+                                 title="Legacy · netto PAPER-avkastning (%)")
         else:
             st.caption("Kurver vises først når nye markedsbarer har blitt behandlet.")
 
@@ -168,9 +174,10 @@ if selectors:
             "Selector":x["selector_kind"],
             "Papiravkastning %":(float(x["equity"])/10000-1)*100
         } for x in shadow_points])
-        st.line_chart(frame.pivot_table(
+        render_lab_tv_series(frame.pivot_table(
             index="Tid",columns="Selector",values="Papiravkastning %",
-            aggfunc="last").sort_index(),use_container_width=True)
+            aggfunc="last").sort_index(),key="legacy:selectors",
+            title="Adaptiv selektor · PAPER-avkastning (%)")
     with st.expander("Siste selektorbeslutninger"):
         if switching:
             st.dataframe(pd.DataFrame([{
@@ -268,9 +275,10 @@ else:
             "Forsøk":x["experiment_id"][:6]+" "+x["arm"],
             "Avkastning %":(float(x["equity"])/10000.0-1)*100
         } for x in paper_points])
-        st.line_chart(chart.pivot_table(
+        render_lab_tv_series(chart.pivot_table(
             index="Tid",columns="Forsøk",values="Avkastning %",
-            aggfunc="last").sort_index(),use_container_width=True)
+            aggfunc="last").sort_index(),key="legacy:perturbations",
+            title="Perturbasjoner · netto PAPER-avkastning (%)")
     st.caption(
         "Manglende eller foreldet kilde gir ingen kontekstendring. "
         "Et risikofilter er ikke en retningsprediksjon. "
@@ -328,9 +336,9 @@ else:
             "Variant":x["experiment_id"][:5]+" "+x["arm"],
             "Papir-P/L %":100*(float(x["equity"])/10000-1),
         } for x in whip_points])
-        st.line_chart(chart.pivot_table(index="Tid",columns="Variant",
+        render_lab_tv_series(chart.pivot_table(index="Tid",columns="Variant",
             values="Papir-P/L %",aggfunc="last").sort_index(),
-            use_container_width=True)
+            key="legacy:whipsaw",title="WHIPSAW · PAPER-resultat (%)")
     st.caption(
         "Samme detektor som eksisterende WHIPSAW: ≥7 fortegnsskifter "
         "på 12 lukkede 1m-returer og Efficiency Ratio <0,35. "
@@ -435,9 +443,10 @@ else:
                 for x in hv_points if x["provider_uic"]==market
             ])
             if not eligible.empty:
-                st.line_chart(eligible.pivot_table(
+                render_lab_tv_series(eligible.pivot_table(
                     index="Tid",columns="Arm",values="Netto P/L %",
-                    aggfunc="last").sort_index(),use_container_width=True)
+                    aggfunc="last").sort_index(),key=f"legacy:hvelvet:{market}",
+                    title=f"Hvelvet · instrument {market} · P/L (%)")
     st.caption(
         "Utvalget er prospektivt, med en papirportefølje på 10 000 "
         "normaliserte kroner per variant. Signal ved observert kurs t kan "
@@ -521,8 +530,9 @@ with ai_left:
                 "Tid":pd.to_datetime(x["quote_at"],utc=True),
                 "PAPER P/L %":(float(x["equity"])/10000-1)*100,
             } for x in ai_points])
-            st.line_chart(ai_plot.set_index("Tid")[["PAPER P/L %"]].sort_index(),
-                          use_container_width=True)
+            render_lab_tv_series(
+                ai_plot.set_index("Tid")[["PAPER P/L %"]].sort_index(),
+                key="legacy:ai-trader",title="AI Trader · PAPER-resultat (%)")
         st.caption(
             "AI Trader er et uavhengig, kostnadsbelastet PAPER-eksperiment. "
             "Kontrollsporet STOCH_PRICE vises kun som relativ avkastning fra "
@@ -744,10 +754,11 @@ else:
                         ),
                         "Avkastning %":100*(float(x["equity"])/10000-1),
                     } for x in sampled])
-                    st.line_chart(
+                    render_lab_tv_series(
                         paired.pivot_table(index="Tid",columns="Modell",
                             values="Avkastning %",aggfunc="last").sort_index(),
-                        use_container_width=True,
+                        key=f"legacy:context:{trial}:{arm}",
+                        title="AI makro/geopolitikk · PAPER-avkastning (%)",
                     )
                 recent=[x for x in context_reviews if x["arm"]==arm]
                 st.markdown("**Siste faktiske AI-vurderinger**")
