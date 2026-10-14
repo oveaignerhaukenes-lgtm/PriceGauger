@@ -266,11 +266,17 @@ def process_forward_cycle(*,db_path="pricegauger.db",now=None):
             """,(instrument_id,MAX_COHORTS)).fetchall()
             if rows:
                 total+=_settle_group(db,rows,moment)
-                if total:
-                    LOGGER.info("AEn forward settled instrument=%d cohorts=%d",
-                                instrument_id,total)
+                latest=max((str(row["last_bar_end"]) for row in rows
+                            if row["last_bar_end"]),default="WAITING")
+                LOGGER.info("AEn forward heartbeat market=%s active=%d last_bar=%s settled=%d",
+                            market,len(rows),latest,total)
             else:
-                LOGGER.info("AEn forward awaiting active cohort market=%s",market)
+                summary=db.execute("""
+                    SELECT status,COUNT(*) AS n FROM aen_forward_runs
+                    WHERE instrument_id=? GROUP BY status
+                """,(instrument_id,)).fetchall()
+                LOGGER.info("AEn forward no-active market=%s statuses=%s",
+                            market,[(x["status"],x["n"]) for x in summary])
     return total
 
 
