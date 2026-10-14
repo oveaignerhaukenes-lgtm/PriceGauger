@@ -34,6 +34,12 @@ STRATEGIES_V3 = (
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
     StrategySpecV3("macd-histogram", "MACD Histogram", "Histogramretning styrer target inventory direkte.", "macd-histogram-v1", True),
     StrategySpecV3(
+        "macd-histogram-peak-flip",
+        "Histogram Peak Flip · SIM",
+        "Når et negativt MACD-histogram begynner å stige: LONG én enhet. Når positivt histogram avtar: SHORT én enhet. Ny impuls motsatt flipper posisjonen, og tilbakeflip krever brudd over forrige histogramtopp (eller under bunn). Ingen oppbygging. KUN SIM inntil validert.",
+        "macd-histogram-peak-flip-v1", True,
+    ),
+    StrategySpecV3(
         "macd-histogram-flip-build",
         "Histogram Flip+Build",
         "Histogram-slope flipper target direkte til minste tranche på ny side og bygger videre én tranche per ny lukket bar.",
@@ -124,6 +130,8 @@ def live_config_issues_v3(
         return (f"unknown strategy {strategy_key}",)
     if not spec.runtime_ready or not spec.runtime_key:
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
+    if strategy_key == "macd-histogram-peak-flip":
+        issues.append("strategy macd-histogram-peak-flip is SIM-only; LIVE requires separate validation")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
