@@ -14,6 +14,10 @@ from autotrader_v3_macd_histogram_flip_build_v1 import (
     STRATEGY_KEY_V3 as HISTOGRAM_FLIP_BUILD_KEY,
     macd_histogram_flip_build_target_v3,
 )
+from autotrader_v3_macd_histogram_peak_flip_v1 import (
+    STRATEGY_KEY_V3 as PEAK_FLIP_KEY,
+    HistogramPeakStateV3, histogram_peak_flip_transition_v3,
+)
 from autotrader_v3_macd_stoch_v1 import (
     STRATEGY_KEY_V3 as STOCH_KEY, MacdStochDecisionV3, macd_stoch_target_v3,
 )
@@ -61,6 +65,15 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
           previous_spread DOUBLE PRECISION,
           updated_at TEXT NOT NULL
         )""")
+        # Separate, persistent peak/trough memory. Each completed candle
+        # advances the normal target and this state in the SAME transaction.
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_histogram_peak_state (
+          trader_id TEXT PRIMARY KEY,
+          last_bar_time TEXT NOT NULL,
+          phase TEXT NOT NULL,
+          reference_level DOUBLE PRECISION,
+          updated_at TEXT NOT NULL
+        )""")
 
 
 def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
@@ -74,11 +87,30 @@ def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
     ensure_closed_bar_driver_schema_v3(db_path)
     now = datetime.utcnow().isoformat()
     with connect(db_path) as db:
+        original = db.execute(
+            "SELECT target_amount FROM autotrader_v3_closed_bar_state WHERE trader_id=?",
+            (str(trader_id),),
+        ).fetchone()
         cursor = db.execute(
             """UPDATE autotrader_v3_closed_bar_state
                SET target_amount=?,updated_at=? WHERE trader_id=?""",
             (float(target_amount), now, str(trader_id)),
         )
+        if original is not None and (
+            abs(float(original["target_amount"]) - float(target_amount)) > 1e-9
+        ):
+            # An outside guard/reconciliation explicitly changed inventory:
+            # discard old reversal extrema rather than reusing stale levels.
+            cleared=db.execute("""UPDATE autotrader_v3_histogram_peak_state
+                SET phase='WAIT',reference_level=NULL,updated_at=?
+                WHERE trader_id=?""",(now,str(trader_id)))
+            if cleared.rowcount:
+                # This strategy alone must bootstrap afresh after an outside
+                # risk/broker alignment: the previously observed slope is NOT
+                # permission to reopen the exposure that was just removed.
+                db.execute("""UPDATE autotrader_v3_closed_bar_state
+                    SET previous_spread=NULL WHERE trader_id=?""",
+                    (str(trader_id),))
     return cursor.rowcount == 1
 
 
@@ -92,13 +124,13 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
         config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY} else MacdHistogramConfigV3()
     if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY} and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
-    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} and not isinstance(config, MacdHistogramConfigV3):
+    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
     if strategy_key == STOCH_V2_KEY:
         decide = macd_stoch_v2_target_v3
@@ -110,6 +142,8 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         decide = macd_flip_target_v3
     elif strategy_key == HISTOGRAM_FLIP_BUILD_KEY:
         decide = macd_histogram_flip_build_target_v3
+    elif strategy_key == PEAK_FLIP_KEY:
+        decide = histogram_peak_flip_transition_v3
     elif strategy_key == VWAP_REGIME_KEY:
         decide = vwap_regime_histogram_target_v3
     elif strategy_key == MACD_REGIME_HIST_KEY:
@@ -154,13 +188,50 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             extra["source_bars"] = source_bars
             extra["regime_timeframe_minutes"] = int(regime_timeframe_minutes)
             extra["market_name"] = str(market_name)
-        decision=decide(current_target=TargetInventoryV3(target),
-            observation=observation,previous_observation=previous,config=config,**extra)
+        if strategy_key == PEAK_FLIP_KEY:
+            memory_row=db.execute(
+                """SELECT last_bar_time,phase,reference_level
+                   FROM autotrader_v3_histogram_peak_state WHERE trader_id=?""",
+                (trader_id,),
+            ).fetchone()
+            # Never carry a peak across a change of strategy, a foreign
+            # closed-bar cursor or a reset of the previous MACD observation.
+            memory_valid=(
+                memory_row is not None and row is not None and previous is not None
+                and str(memory_row["last_bar_time"]) == last
+            )
+            memory = (HistogramPeakStateV3(
+                str(memory_row["phase"]),
+                None if memory_row["reference_level"] is None
+                else float(memory_row["reference_level"]),
+            ) if memory_valid else HistogramPeakStateV3())
+            if not memory_valid:
+                previous = None
+            peak_transition=decide(
+                current_target=TargetInventoryV3(target),
+                observation=observation,previous_observation=previous,
+                state=memory,config=config,
+            )
+            decision=peak_transition.decision
+        else:
+            decision=decide(current_target=TargetInventoryV3(target),
+                observation=observation,previous_observation=previous,config=config,**extra)
         now=datetime.utcnow().isoformat()
         db.execute("""INSERT INTO autotrader_v3_closed_bar_state(trader_id,last_bar_time,target_amount,previous_spread,updated_at)
           VALUES(?,?,?,?,?) ON CONFLICT(trader_id) DO UPDATE SET last_bar_time=excluded.last_bar_time,
           target_amount=excluded.target_amount,previous_spread=excluded.previous_spread,updated_at=excluded.updated_at""",
           (trader_id,bar_time,decision.target.amount,float(observation.spread),now))
+        if strategy_key == PEAK_FLIP_KEY:
+            db.execute("""INSERT INTO autotrader_v3_histogram_peak_state(
+                trader_id,last_bar_time,phase,reference_level,updated_at)
+                VALUES(?,?,?,?,?)
+                ON CONFLICT(trader_id) DO UPDATE SET
+                    last_bar_time=excluded.last_bar_time,
+                    phase=excluded.phase,
+                    reference_level=excluded.reference_level,
+                    updated_at=excluded.updated_at""",
+                (trader_id,bar_time,peak_transition.state.phase,
+                 peak_transition.state.reference,now))
     return ClosedBarDecisionV3(f"{trader_id}|{bar_time}",decision,True)
 
 

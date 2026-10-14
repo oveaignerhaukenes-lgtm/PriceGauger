@@ -34,6 +34,12 @@ STRATEGIES_V3 = (
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
     StrategySpecV3("macd-histogram", "MACD Histogram", "Histogramretning styrer target inventory direkte.", "macd-histogram-v1", True),
     StrategySpecV3(
+        "macd-histogram-peak-flip",
+        "Histogram Peak Flip · V3",
+        "Når et negativt MACD-histogram begynner å stige: LONG én enhet. Når positivt histogram avtar: SHORT én enhet. Ny impuls motsatt flipper posisjonen, og tilbakeflip krever brudd over forrige histogramtopp (eller under bunn). Ingen oppbygging; bruker V3s bekreftede FLAT-før-reversering ved LIVE.",
+        "macd-histogram-peak-flip-v1", True,
+    ),
+    StrategySpecV3(
         "macd-histogram-flip-build",
         "Histogram Flip+Build",
         "Histogram-slope flipper target direkte til minste tranche på ny side og bygger videre én tranche per ny lukket bar.",
