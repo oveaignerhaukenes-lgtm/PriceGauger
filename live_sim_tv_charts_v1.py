@@ -17,7 +17,7 @@ export default function(component) {
   const payload = data.payload || {};
   const id = String(data.state_key || "lab-chart");
   const storageKey = "pricegauger:lab-tv:v2:" + id;
-  let saved = { logical: null, height: 445 };
+  let saved = { logical: null, height: 520 };
   try { saved = { ...saved, ...JSON.parse(localStorage.getItem(storageKey) || "{}") }; } catch (_) {}
   const persist = () => { try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch (_) {} };
   const root = document.createElement("section");
@@ -32,7 +32,7 @@ export default function(component) {
   const plot = document.createElement("div");
   plot.className = "lab-tv-plot";
   Object.assign(plot.style, {position:"relative",width:"100%",minWidth:"0",
-    height: Math.max(290,Math.min(900,Number(saved.height)||445))+"px",
+    height: Math.max(290,Math.min(640,Number(saved.height)||520))+"px",
     touchAction:"pan-y",overflow:"hidden"});
   root.appendChild(plot);
   const legend = document.createElement("div");
@@ -163,7 +163,7 @@ export default function(component) {
   });
   handle.addEventListener("pointermove",event=>{
     if(!resizeActive)return;
-    saved.height=Math.round(Math.max(290,Math.min(900,startHeight+event.clientY-startY)));
+    saved.height=Math.round(Math.max(290,Math.min(640,startHeight+event.clientY-startY)));
     plot.style.height=saved.height+"px";
   });
   for(const type of ["pointerup","pointercancel"])handle.addEventListener(type,()=>{
@@ -244,7 +244,7 @@ def render_lab_tv_series(frame: pd.DataFrame, *, key: str,
         st.caption("Ingen datapunkter å vise i grafen.")
         return
     _lab_tv_component(key="lab-tv:"+key, data={"payload":payload,"state_key":key},
-                      height=970)
+                      height=760)
 
 
 def render_lab_tv_candles(bars, fills=(), *, key: str,
