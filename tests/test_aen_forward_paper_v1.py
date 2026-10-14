@@ -103,6 +103,28 @@ def test_revised_past_is_paused_not_silently_rewritten(tmp_path,monkeypatch):
            r["run_id"]:r["last_bar_end"] for r in old}
 
 
+
+def test_revision_is_detected_even_if_strategy_was_flat(tmp_path):
+    path=str(tmp_path/"forward.sqlite")
+    setup_feed(path)
+    forward.process_forward_cycle(db_path=path,now=START+timedelta(minutes=610))
+    forward.process_forward_cycle(db_path=path,now=START+timedelta(minutes=621))
+    before,_=forward.forward_snapshot(db_path=path,instrument_id=101)
+    assert all(r["prefix_sha"] for r in before)
+    # Modify a completed input candle in the immutable observation prefix.
+    # A P/L-only comparator could miss this when all variants are flat.
+    with connect(path,force_sqlite=True) as db:
+        db.execute("""
+            UPDATE pg_v2_market_bars_1m SET high=high+0.0001
+            WHERE instrument_id=? AND bar_time=?
+        """,(101,(START+timedelta(minutes=606)).isoformat()))
+    forward.process_forward_cycle(db_path=path,now=START+timedelta(minutes=626))
+    current,_=forward.forward_snapshot(db_path=path,instrument_id=101)
+    assert all(r["status"]=="PAUSED_REVISION" for r in current)
+    assert {r["run_id"]:r["last_bar_end"] for r in current}=={
+           r["run_id"]:r["last_bar_end"] for r in before}
+
+
 def test_expired_cohorts_stop_without_deleting_history(tmp_path):
     path=str(tmp_path/"forward.sqlite")
     setup_feed(path)
