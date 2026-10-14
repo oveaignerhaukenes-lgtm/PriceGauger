@@ -16,7 +16,6 @@ from statistics import median
 from types import SimpleNamespace
 from typing import Sequence
 
-from autotrader_mtf_entry_shadow_v2 import macd_observations_v2
 from autotrader_v3_macd_histogram_peak_flip_v1 import (
     histogram_peak_flip_transition_v3, HistogramPeakStateV3,
 )
@@ -110,108 +109,69 @@ def _research_bars(bars: Sequence, *, started_at, ended_at):
     return tuple(valid[t] for t in sorted(valid)),start,end
 
 
-def _score(bars,events,*,start,end,notional,cost_bps,mode,seed=0):
-    """Trade at NEXT completed signal's 1m open; no future prices in signal."""
-    if mode not in {"original","inverse","random"}:
+def _score(bars, events, *, start, end, notional, cost_bps, mode, seed=0):
+    """Identical 1m fill clock; next available 1m OPEN, including true price gaps.
+
+    At a delayed open, only the LAST actionable signal is used. This models
+    an ideal net reverse at one 1m-open rather than claiming Saxo would execute
+    a CLOSE/CONFIRM_FLAT/OPEN instantaneously. The model is symmetric and
+    intentionally conservative about turnover but not broker-equivalent.
+    """
+    if mode not in {"original", "inverse", "random"}:
         raise ValueError("invalid inversion mode")
-    random=Random(seed)
-    next_event=0
-    position=0
+    rng=Random(seed)
+    cursor=0
+    baseline=0
+    held=0
     equity=gross=1.0
     peak=1.0
-    max_dd=0.0
-    turnover=changes=active=0
-    prev_close=None
+    maximum_drawdown=0.0
+    changes=legs=active=0
+    prior_close=None
     points=[]
     for b in bars:
-        t=_utc(b.bar_time)
-        if t<start:
-            prev_close=b.close
-            # Historical signals determine indicator warmup but NOT capital
-            # position at the start of the requested experimental window.
-            while next_event<len(events) and events[next_event][0]<=t:
-                next_event+=1
+        at=_utc(b.bar_time)
+        if at<start:
+            prior_close=float(b.close)
+            while cursor<len(events) and events[cursor][0]<=at:
+                cursor+=1
             continue
-        if t>=end:
+        if at>=end:
             break
-        # A position held through a true gap earns/losses the gap move.
-        if prev_close is not None and position:
-            move=position*notional*(b.open/prev_close-1)
-            gross*=max(0.0,1+move)
-            equity*=max(0.0,1+move)
-        intended=None
-        while next_event<len(events) and events[next_event][0]<=t:
-            intended=events[next_event][1]
-            next_event+=1
-        if intended is not None:
-            new_position=(intended if mode=="original" else
-                          -intended if mode=="inverse" else
-                          (random.choice((-1,1)) if intended else 0))
-            # Every counterfactual is charged for the SAME absolute original
-            # position change. This makes placebo a matched-turnover null.
-            source_prior=0 if changes==0 else None
-            # Absolute turnover is computed from the ORIGINAL event schedule
-            # separately below, not actual random net changes.
-            if new_position!=position:
+        if prior_close is not None and held:
+            gap_ret=1+held*notional*(float(b.open)/prior_close-1)
+            gross*=max(0.0,gap_ret)
+            equity*=max(0.0,gap_ret)
+        desired=None
+        while cursor<len(events) and events[cursor][0]<=at:
+            desired=int(events[cursor][1])
+            cursor+=1
+        if desired is not None and desired!=baseline:
+            # Charge every strategy for the same signed baseline decision's
+            # absolute turnover, including two legs on direct reversal.
+            traded=abs(desired-baseline)
+            legs+=traded
+            equity*=max(0.0,1-notional*traded*cost_bps/10000)
+            baseline=desired
+            new_position=(desired if mode=="original" else -desired
+                          if mode=="inverse" else rng.choice((-1,1)))
+            if new_position!=held:
                 changes+=1
-            position=new_position
-        if position:
+            held=new_position
+        if held:
             active+=1
-            move=position*notional*(b.close/b.open-1)
-            gross*=max(0.0,1+move)
-            equity*=max(0.0,1+move)
-        prev_close=b.close
-        points.append((t.isoformat(),(equity-1)*100))
+            bar_ret=1+held*notional*(float(b.close)/float(b.open)-1)
+            gross*=max(0.0,bar_ret)
+            equity*=max(0.0,bar_ret)
         peak=max(peak,equity)
-        max_dd=max(max_dd,100*(1-equity/peak)) if peak>0 else max_dd
-    # Replay per-segment original target schedule for perfectly equal trading
-    # costs and reported order legs across all counterfactuals.
-    base=0
-    for t,value in events:
-        if t<start or t>=end:
-            continue
-        turnover+=abs(int(value)-base)
-        base=int(value)
-    # Apply actual-cost drag causally at each event rather than only at the
-    # final point, so compounded gross/net difference is measured correctly.
-    # The preliminary curve above was gross; rebuild NET with event fee legs.
-    next_event=0; position=0; prior_target=0; prior_close=None;net=1.0;peak=1.0;max_dd=0;out=[]
-    random=Random(seed); changes=0;active=0
-    for b in bars:
-        t=_utc(b.bar_time)
-        if t<start:
-            prior_close=b.close
-            while next_event<len(events) and events[next_event][0]<=t:
-                next_event+=1
-            continue
-        if t>=end:break
-        if prior_close is not None and position:
-            net*=max(0.0,1+position*notional*(b.open/prior_close-1))
-        while next_event<len(events) and events[next_event][0]<=t:
-            _,baseline=events[next_event]
-            next_event+=1
-            legs=abs(baseline-prior_target)
-            if legs:
-                net*=max(0.0,1-notional*legs*cost_bps/10000)
-            prior_target=baseline
-            new_pos=baseline if mode=="original" else -baseline if mode=="inverse" else (
-                random.choice((-1,1)) if baseline else 0)
-            if new_pos!=position:
-                changes+=1
-            position=new_pos
-        if position:
-            active+=1
-            net*=max(0.0,1+position*notional*(b.close/b.open-1))
-        peak=max(peak,net)
-        if peak:max_dd=max(max_dd,100*(1-net/peak))
-        out.append((t.isoformat(),(net-1)*100))
-        prior_close=b.close
-    return {
-        "net":(net-1)*100,"gross":(gross-1)*100,
-        "cost":(gross-net)*100,"max_dd":max_dd,
-        "changes":changes,"turnover":turnover,"active":active,
-        "points":tuple(out),
-    }
+        if peak>0:
+            maximum_drawdown=max(maximum_drawdown,100*(1-equity/peak))
+        points.append((at.isoformat(),(equity-1)*100))
+        prior_close=float(b.close)
+    return {"net":(equity-1)*100,"gross":(gross-1)*100,
+            "cost":(gross-equity)*100,"max_dd":maximum_drawdown,
+            "changes":changes,"turnover":legs,"active":active,
+            "points":tuple(points)}
 
 
 def run_inversion_experiment(bars: Sequence, *, started_at, ended_at,
