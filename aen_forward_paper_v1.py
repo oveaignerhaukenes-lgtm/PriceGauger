@@ -50,6 +50,7 @@ def ensure_schema(db_path="pricegauger.db"):
             enrolled_at TEXT NOT NULL,
             status TEXT NOT NULL,
             last_bar_end TEXT,
+            prefix_sha TEXT,
             net_pct REAL NOT NULL DEFAULT 0,
             gross_pct REAL NOT NULL DEFAULT 0,
             max_dd_pct REAL NOT NULL DEFAULT 0,
@@ -133,6 +134,20 @@ class _Bar:
         self.volume = None if row["volume"] is None else float(row["volume"])
 
 
+def _input_digest(rows, upto):
+    """Bar-by-bar immutable prefix, including zero-position warmup context."""
+    sha=hashlib.sha256()
+    for r in rows:
+        if utc(r["bar_time"])+timedelta(minutes=1)>utc(upto):
+            break
+        record=(utc(r["bar_time"]).isoformat(),float(r["open"]),
+                float(r["high"]),float(r["low"]),float(r["close"]),
+                None if r["volume"] is None else float(r["volume"]))
+        sha.update(json.dumps(record,separators=(",",":"),allow_nan=False).encode())
+        sha.update(b"\n")
+    return sha.hexdigest()
+
+
 def _settle_group(db,runs,now):
     instrument_id=int(runs[0]["instrument_id"])
     enrolled=min(utc(row["enrolled_at"]) for row in runs)
@@ -185,10 +200,12 @@ def _settle_group(db,runs,now):
         points_by_end={utc(x[0]):x for x in report.points}
         if row["last_bar_end"]:
             cursor=utc(row["last_bar_end"])
+            revision=(bool(row["prefix_sha"]) and
+                      _input_digest(raw,cursor)!=row["prefix_sha"])
             previous=points_by_end.get(cursor)
             # Even a tiny mismatch means historical data/rules changed:
             # fail closed rather than silently restating forward returns.
-            if previous is None or abs(float(previous[1])-float(row["net_pct"]))>1e-7:
+            if revision or previous is None or abs(float(previous[1])-float(row["net_pct"]))>1e-7:
                 db.execute("""
                     UPDATE aen_forward_runs SET status='PAUSED_REVISION',
                     updated_at=CURRENT_TIMESTAMP WHERE run_id=?
@@ -213,11 +230,11 @@ def _settle_group(db,runs,now):
             """,(run_id,stamp,float(net),float(gross),int(units),executions))
         db.execute("""
             UPDATE aen_forward_runs
-            SET last_bar_end=?,net_pct=?,gross_pct=?,max_dd_pct=?,
+            SET last_bar_end=?,prefix_sha=?,net_pct=?,gross_pct=?,max_dd_pct=?,
                 units=?,executions=?,turnover_units=?,cost_pct=?,
                 updated_at=CURRENT_TIMESTAMP
             WHERE run_id=? AND status='ACTIVE'
-        """,(report.points[-1][0],float(report.return_pct),float(report.gross_pct),
+        """,(report.points[-1][0],_input_digest(raw,last_end),float(report.return_pct),float(report.gross_pct),
              float(report.max_drawdown_pct),int(report.points[-1][3]),
              int(report.executions),int(report.turnover_units),
              float(report.total_cost_pct),run_id))
