@@ -123,6 +123,5 @@ def render_nextgen_macd_lab_v1():
         "Signalbarer":p.completed_signal_bars,
     } for p in reports])
     st.dataframe(table,hide_index=True,use_container_width=True)
-    st.caption("Legenden nedenfor sorteres etter avkastning i valgt periode. "
-               "Dobbeltklikk en kurve eller klikk legend-navn for å isolere; gjenta for alle.")
-    _plot_reports(reports, key=f"nextgen:{selected}")
+    st.caption("Dra grafen for å panorere, bruk musehjul/knip for å zoome; velg tidsvindu øverst. Klikk strateginavn for å skjule/åpne kurver.")
+    _plot_reports(reports, key=f"nextgen:{source}")
