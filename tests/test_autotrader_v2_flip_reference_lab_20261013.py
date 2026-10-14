@@ -80,7 +80,7 @@ def test_v2_reference_has_historical_zero_start_before_first_cross(monkeypatch):
 def test_new_dropdown_preserves_legacy_and_nextgen_path():
     page=Path("pages/0_Live_Sim_Lab.py").read_text(encoding="utf-8")
     ui=Path("autotrader_v2_strategy_lab_ui_v1.py").read_text(encoding="utf-8")
-    assert '("Nye strategier · MACD","V2 strategies","Legacy strategies")' in page
+    assert '("AEn Core · Adaptive Engine","Nye strategier · MACD","V2 strategies","Legacy strategies")' in page
     assert 'if universe=="V2 strategies"' in page
     assert 'render_v2_strategy_lab_v1()' in page
     assert 'render_nextgen_macd_lab_v1()' in page
