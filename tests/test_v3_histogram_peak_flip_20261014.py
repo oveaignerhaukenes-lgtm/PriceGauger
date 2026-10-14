@@ -1,4 +1,4 @@
-"""Histogram Peak Flip regression: symmetric extrema, restart, SIM-only gate."""
+"""Histogram Peak Flip regression: symmetric extrema, restart, V3 LIVE routing gate."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -170,18 +170,18 @@ def test_instances_do_not_share_thresholds(tmp_path):
             ("a","NEG_PUSH",-3),("b","POS_PUSH",3)]
 
 
-def test_registers_sim_but_fails_live_closed_and_uses_legal_tech100_tranche():
+def test_registers_sim_and_live_with_legal_tech100_tranche():
     assert STRATEGY_KEY_V3 in STRATEGIES_V3
-    assert STRATEGIES_V3[STRATEGY_KEY_V3].live_route_enabled is False
+    assert STRATEGIES_V3[STRATEGY_KEY_V3].live_route_enabled is True
     spec=strategy_v3("macd-histogram-peak-flip")
     assert spec.runtime_key==STRATEGY_KEY_V3
-    assert "SIM" in spec.label
+    assert "Peak Flip" in spec.label
     assert sim_config_issues_v3(
         strategy_key="macd-histogram-peak-flip",timeframe="2m",
         control_mode="Manuell",modifiers=())==()
-    assert "SIM-only" in " ".join(live_config_issues_v3(
+    assert live_config_issues_v3(
         strategy_key="macd-histogram-peak-flip",timeframe="2m",
-        control_mode="Manuell",modifiers=()))
+        control_mode="Manuell",modifiers=()) == ()
     rules=EntryInstrumentRulesV2(
         uic=4912,asset_type="CfdOnIndex",currency="USD",
         is_tradable=True,non_tradable_reason="None",amount_decimals=2,
