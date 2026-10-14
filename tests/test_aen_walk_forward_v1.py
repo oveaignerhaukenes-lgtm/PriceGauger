@@ -97,6 +97,24 @@ def test_holdout_future_prices_do_not_change_choice(monkeypatch):
            x.holdout_net_pct for x in b.candidates]
 
 
+
+def test_training_losses_mean_abstain_not_promote_least_bad(monkeypatch):
+    samples=[bar(i) for i in range(700)]
+    monkeypatch.setattr(walk,"prepare_replay_inputs",lambda bars,cfg:len(bars))
+    def red_return(cfg,bars,*,started_at,prepared):
+        return SimpleNamespace(
+            return_pct=-0.1 if walk.utc(started_at)==START else 10.,
+            max_drawdown_pct=0.2,executions=7,turnover_units=9,
+            total_cost_pct=.1)
+    monkeypatch.setattr(walk,"replay",red_return)
+    r=walk.evaluate_walk_forward(samples,started_at=START,split_at=SPLIT,
+                                 ended_at=END,configs=(AEnPaperConfig(minutes=5),))
+    assert r.status=="NO_POSITIVE_TRAIN_EDGE"
+    assert r.selected_name is None
+    assert not any(x.selected_on_training for x in r.candidates)
+    assert r.candidates[0].holdout_net_pct==10
+
+
 def test_no_lookahead_with_real_engine(monkeypatch):
     rows=[bar(i,close=100+.002*i+sin(i/12)*.75)
           for i in range(740)]
@@ -104,7 +122,7 @@ def test_no_lookahead_with_real_engine(monkeypatch):
         split_at=START+timedelta(minutes=500),
         ended_at=START+timedelta(minutes=740))
     assert result.train_bars==380 and result.test_bars==240
-    assert result.status in {"SCORED","INSUFFICIENT_TRADES"}
+    assert result.status in {"SCORED","INSUFFICIENT_TRADES","NO_POSITIVE_TRAIN_EDGE"}
     assert len(result.candidates)==13
     assert sum(x.selected_on_training for x in result.candidates)<=1
     assert all(x.training_executions>=0 and x.holdout_executions>=0
