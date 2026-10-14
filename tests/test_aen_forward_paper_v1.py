@@ -176,6 +176,26 @@ def test_missing_lab_feed_does_not_seed_fictitious_market(tmp_path):
 
 
 
+
+def test_eligible_markets_no_literal_sql_percent_and_filter_in_python():
+    """A Postgres-like adapter rejects unsafe percent format tokens."""
+    class StrictAdapter:
+        def execute(self,sql):
+            assert "%" not in sql  # literal LIKE patterns break some DB adapters
+            assert "ORDER BY instrument_id" in sql
+            return self
+
+        def fetchall(self):
+            return [
+                {"instrument_id":2,"market_name":"WisdomTree Gold"},
+                {"instrument_id":7,"market_name":"US Tech 100 NAS · Saxo 4912"},
+                {"instrument_id":8,"market_name":"Other tech"},
+            ]
+    assert forward._eligible(StrictAdapter())==[
+        (7,"US Tech 100 NAS · Saxo 4912")
+    ]
+
+
 def test_cohort_health_read_only_and_bounded(tmp_path):
     path=str(tmp_path/"health.sqlite")
     setup_feed(path,count=690)
