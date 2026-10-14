@@ -57,7 +57,8 @@ export default function(component) {
   const allPoints = (payload.series || []).flatMap(x => x.points || []);
   const times = allPoints.map(p=>parseTime(p.time)).filter(Number.isFinite);
   if (payload.candles) times.push(...payload.candles.map(p=>parseTime(p.time)).filter(Number.isFinite));
-  const earliest=Math.min(...times), latest=Math.max(...times);
+  const earliest=times.reduce((v,t)=>Math.min(v,t),Number.POSITIVE_INFINITY);
+  const latest=times.reduce((v,t)=>Math.max(v,t),Number.NEGATIVE_INFINITY);
   const addButton = (label,callback) => {
     const b=document.createElement("button");
     b.type="button"; b.textContent=label;
