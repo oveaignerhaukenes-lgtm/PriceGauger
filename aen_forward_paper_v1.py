@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import logging
+from math import isfinite
 
 from database import connect
 from aen_replay_v1 import (
@@ -158,19 +159,22 @@ def _capture_new_bars(db,instrument_id,enrolled,now):
     for row in rows:
         price=(float(row["open"]),float(row["high"]),
                float(row["low"]),float(row["close"]))
-        if not all(__import__("math").isfinite(x) for x in price):
+        if not all(isfinite(x) for x in price):
             continue
         if price[2]<=0 or not price[2]<=price[3]<=price[1]:
             continue
         # Normalize timestamps across PG TIMESTAMPTZ / SQLite TEXT to
         # stable UTC text. ON CONFLICT DO NOTHING is deliberate evidence policy.
+        volume=None if row["volume"] is None else float(row["volume"])
+        if volume is not None and (not isfinite(volume) or volume < 0):
+            volume=None
         cursor=db.execute("""
             INSERT INTO aen_forward_frozen_bars(
                 series_version,instrument_id,bar_time,open,high,low,close,volume)
             VALUES(?,?,?,?,?,?,?,?)
             ON CONFLICT(series_version,instrument_id,bar_time) DO NOTHING
         """,(FORWARD_VERSION,instrument_id,utc(row["bar_time"]).isoformat(),
-             *price,None if row["volume"] is None else float(row["volume"])))
+             *price,volume))
         copied+=max(0,int(cursor.rowcount or 0))
     return copied
 
@@ -320,6 +324,14 @@ def process_forward_cycle(*,db_path="pricegauger.db",now=None):
     with connect(db_path) as db:
         for instrument_id,market in _eligible(db):
             _seed(db,instrument_id,market,moment)
+            # Expiration is an independent, wall-clock event. A flat/stale
+            # feed must not keep a 14-day cohort ACTIVE forever.
+            expiry=(moment-timedelta(days=LIFETIME_DAYS)).isoformat()
+            db.execute("""
+                UPDATE aen_forward_runs SET status='COMPLETED'
+                WHERE instrument_id=? AND status='ACTIVE'
+                  AND enrolled_at<?
+            """,(instrument_id,expiry))
             # A previous build could pause brand-new runs for insufficient
             # prehistory. They contain no observed points or inventory.
             # They may safely resume at their ORIGINAL prospective start.
