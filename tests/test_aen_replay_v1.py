@@ -177,6 +177,50 @@ def test_timeframe_auto_never_places_trade_just_for_switch(monkeypatch):
     assert len(r.timeframe_changes)>=1
 
 
+
+def test_pulse_ladder_probes_then_2m_and_5m_confirm(monkeypatch):
+    def paced(candles):
+        tf = 1 if len(candles) < 2 else int((candles[1].end-candles[0].end).total_seconds()/60)
+        out = {}
+        for c in candles:
+            i = int((c.end-BASE).total_seconds()/60)
+            if tf == 1:
+                hist, prev = (-.3,.1) if i == 51 else (-.3,-.2) if i>51 else (.1,.1)
+            elif tf in (2,5):
+                hist, prev = (-.25,-.20)
+            else:
+                hist, prev = (.1,.2)  # broad MACD positive but cooling
+            out[c.end] = aen.Indicator(c.end,hist,prev,30,50)
+        return out
+    monkeypatch.setattr(aen,"_indicators",paced)
+    monkeypatch.setattr(aen,"_structure",lambda *_:{})
+    bars=[bar(i) for i in range(67)]
+    bars[50]=bar(50,op=100,cl=99.7)
+    cfg=aen.AEnPaperConfig(minutes=10,structure_minutes=1,max_units=4,
+                           confirmation_ladder=True,pulse_min_pct=.12)
+    r=aen.replay(cfg,bars,started_at=BASE)
+    assert [(x[1],x[2]) for x in r.fills[:3]] == [
+        (-1,"PULSE_1M_PROBE"),(-2,"PULSE_2M_CONFIRM"),
+        (-3,"PULSE_5M_CONFIRM")
+    ]
+
+
+def test_prepared_replay_matches_unprepared_replay(monkeypatch):
+    monkeypatch.setattr(aen,"_indicators",observations)
+    monkeypatch.setattr(aen,"_structure",lambda *_:structure({
+        3:[("HH",105)],4:[("HL",90)],
+    }))
+    cfg=aen.AEnPaperConfig(minutes=1,structure_minutes=1)
+    bars=[bar(i) for i in range(12)]
+    prepared=aen.prepare_replay_inputs(bars,cfg)
+    direct=aen.replay(cfg,bars,started_at=BASE)
+    cached=aen.replay(cfg,bars,started_at=BASE,prepared=prepared)
+    assert cached == direct
+    with pytest.raises(ValueError):
+        aen.replay(aen.AEnPaperConfig(minutes=1,structure_minutes=2),
+                   bars,started_at=BASE,prepared=prepared)
+
+
 def test_config_validation():
     with pytest.raises(ValueError):
         aen.AEnPaperConfig(minutes=3)
