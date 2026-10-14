@@ -11,7 +11,11 @@ from autotrader_open_sizing_v2 import EntryInstrumentRulesV2
 from autotrader_v3_closed_bar_driver_v1 import (
     align_closed_bar_target_v3, evaluate_closed_bar_once_v3,
 )
-from autotrader_v3_domain import TargetInventoryV3
+from autotrader_v3_domain import (
+    TargetInventoryV3, AccountBoundaryV3, CapitalAllocationV3, ControlModeV3,
+)
+from autotrader_v3_execution_plan_v1 import plan_execution_v3
+from autotrader_v3_pipeline_v1 import TraderV3, evaluate_trader_v3
 from autotrader_v3_macd_histogram_v1 import MacdHistogramConfigV3
 from autotrader_v3_macd_histogram_peak_flip_v1 import (
     STRATEGY_KEY_V3, HistogramPeakStateV3,
@@ -197,3 +201,66 @@ def test_pure_module_cannot_arm_live_or_send_orders():
     for forbidden in ("configured_live_pilot_client_v3","from database import",
                       "place_order(","set_live_enabled","SaxoOrderRequest"):
         assert forbidden not in source
+
+def test_v3_live_route_has_true_execution_capability_but_no_auto_arming():
+    """Capability does not imply an existing instance is armed or changed."""
+    from autotrader_v3_strategy_registry_v1 import strategy_adapter_v3
+    from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+    from autotrader_v3_registry_v1 import live_config_issues_v3
+    assert strategy_adapter_v3(STRATEGY_KEY_V3).live_route_enabled is True
+    for timeframe in ("1m","2m","5m","10m","15m","30m","1h"):
+        assert live_config_issues_v3(
+            strategy_key="macd-histogram-peak-flip",timeframe=timeframe,
+            control_mode="Manuell",modifiers=(),
+        ) == ()
+    assert live_config_issues_v3(
+        strategy_key="macd-histogram-peak-flip",timeframe="Adaptiv",
+        control_mode="Manuell",modifiers=()
+    )
+    assert live_config_issues_v3(
+        strategy_key="macd-histogram-peak-flip",timeframe="2m",
+        control_mode="God Mode",modifiers=()
+    )
+
+
+def test_live_execution_plan_requires_confirmed_flat_for_peak_flip_reversal():
+    """V3's ordinary guarded adapter, not bespoke broker logic, owns reversals."""
+    seq=run(-5,-4,-3,-4,-3.5,-3,-2.8)
+    trader=TraderV3(
+        trader_id="peak-live-contract",
+        account=AccountBoundaryV3("paper-1",4912,"CfdOnIndex"),
+        strategy_key=STRATEGY_KEY_V3,mode=ControlModeV3.DETERMINISTIC,
+        capital_allocation=CapitalAllocationV3(100.0),
+    )
+    for decision,actual,expected in [
+        (seq[1].decision,TargetInventoryV3(0),["OPEN"]),
+        (seq[3].decision,TargetInventoryV3(.01),["CLOSE","CONFIRM_FLAT","OPEN"]),
+        (seq[-1].decision,TargetInventoryV3(-.01),["CLOSE","CONFIRM_FLAT","OPEN"]),
+    ]:
+        snapshot=evaluate_trader_v3(
+            trader=trader,base_target=decision.target,
+            actual_inventory=actual,modifiers=(),
+        ).snapshot
+        plan=plan_execution_v3(snapshot)
+        assert [step.action for step in plan.steps]==expected
+        assert max((step.amount for step in plan.steps),default=0)<=.01
+    flat_snap=evaluate_trader_v3(
+        trader=trader,base_target=TargetInventoryV3(-.01),
+        actual_inventory=TargetInventoryV3(0),modifiers=(),
+    ).snapshot
+    assert [step.action for step in plan_execution_v3(flat_snap).steps]==["OPEN"]
+
+
+def test_peak_flip_only_modifies_v3_strategy_choice_not_account_or_arming():
+    from pathlib import Path
+    live=Path("autotrader_v3_live_runtime_v1.py").read_text()
+    assert "STRATEGIES_V3.get(e.strategy_key)" in live
+    assert "not adapter.live_route_enabled" in live
+    assert "live_authority_armed_v3" in live
+    assert "pending_order_v3" in live
+    assert "reserve_order_v3" in live
+    assert "_actual(e,broker)" in live
+    registry=Path("autotrader_v3_strategy_registry_v1.py").read_text()
+    assert "live_route_enabled=False" not in registry.split("STRATEGIES_V3:",1)[1]
+    assert "set_live_authority_v3" not in Path(
+        "autotrader_v3_macd_histogram_peak_flip_v1.py").read_text()
