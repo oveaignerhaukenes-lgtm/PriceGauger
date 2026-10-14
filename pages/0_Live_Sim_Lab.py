@@ -9,10 +9,14 @@ import streamlit as st
 from database import connect
 from live_sim_lab_store_v1 import lab_equity_points, lab_snapshot, MAX_ACTIVE_LAB_VARIANTS
 from macd_nextgen_lab_ui_v1 import render_nextgen_macd_lab_v1
+from aen_lab_ui_v1 import render_aen_core_lab_v1
 from autotrader_v2_strategy_lab_ui_v1 import render_v2_strategy_lab_v1
 
 st.title("Live-Sim Lab")
-universe=st.selectbox("Strategiunivers",("Nye strategier · MACD","V2 strategies","Legacy strategies"),key="lsim:universe")
+universe=st.selectbox("Strategiunivers",("AEn Core · Adaptive Engine","Nye strategier · MACD","V2 strategies","Legacy strategies"),key="lsim:universe")
+if universe=="AEn Core · Adaptive Engine":
+    render_aen_core_lab_v1()
+    st.stop()
 if universe=="Nye strategier · MACD":
     render_nextgen_macd_lab_v1()
     st.stop()
