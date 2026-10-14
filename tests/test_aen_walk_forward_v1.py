@@ -42,6 +42,29 @@ def test_explicit_insufficient_bars_without_scoring(monkeypatch):
     assert r.selected_name is None and r.candidates==()
 
 
+
+def test_fractional_split_does_not_leak_forming_candle(monkeypatch):
+    rows=[bar(i) for i in range(700)]
+    calls=[]
+    monkeypatch.setattr(walk,"prepare_replay_inputs",lambda data,cfg:len(data))
+    def inspect_replay(cfg,data,*,started_at,prepared):
+        calls.append((walk.utc(started_at),tuple(
+            walk.utc(x.bar_time) for x in data)))
+        return SimpleNamespace(return_pct=1.0,max_drawdown_pct=.1,
+                executions=3,turnover_units=3,total_cost_pct=.01)
+    monkeypatch.setattr(walk,"replay",inspect_replay)
+    split=SPLIT+timedelta(seconds=29)
+    end=END+timedelta(seconds=42)
+    r=walk.evaluate_walk_forward(rows,started_at=START,
+         split_at=split,ended_at=end,
+         configs=(AEnPaperConfig(minutes=5),))
+    assert r.status=="SCORED"
+    assert r.split_utc==SPLIT.isoformat()
+    assert r.end_utc==END.isoformat()
+    assert all(when<SPLIT for when in calls[0][1])
+    assert max(calls[0][1])==SPLIT-timedelta(minutes=1)
+
+
 def test_selection_frozen_before_holdout_evaluation(monkeypatch):
     rows=[bar(i) for i in range(700)]
     chronology=[]
