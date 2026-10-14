@@ -110,7 +110,7 @@ def evaluate_walk_forward(bars: Sequence, *, started_at, split_at, ended_at,
                    for c in candidates]
     # Selection is performed BEFORE any holdout result is calculated.
     permitted=[i for i,x in enumerate(train_reports)
-               if x.executions>=min_train_executions]
+               if x.executions>=min_train_executions and x.return_pct>0]
     choice=(max(permitted,key=lambda i:(train_reports[i].return_pct,
                  -train_reports[i].max_drawdown_pct,
                  -train_reports[i].turnover_units,
@@ -134,6 +134,9 @@ def evaluate_walk_forward(bars: Sequence, *, started_at, split_at, ended_at,
         WALK_VERSION,start.isoformat(),split.isoformat(),end.isoformat(),
         train_bars,test_bars,
         rows[choice].name if choice is not None else None,
-        "SCORED" if choice is not None else "INSUFFICIENT_TRADES",
+        ("SCORED" if choice is not None else
+         "INSUFFICIENT_TRADES" if not any(
+            x.executions>=min_train_executions for x in train_reports
+         ) else "NO_POSITIVE_TRAIN_EDGE"),
         tuple(rows),
     )
