@@ -292,6 +292,12 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at,
     for minute_index, bar in enumerate(minute_bars):
         end = bar.end
         start = end - timedelta(minutes=1)
+        # A fresh market session must not inherit the previous session's
+        # provisional HH/LL arm or volume reference observations.
+        if minute_index and start != minute_bars[minute_index - 1].end:
+            arm = "HOLD"
+            impulse_watch = None
+            cooling_count = strength_count = 0
         if bar.open <= 0 or bar.close <= 0:
             continue
         units_before = inventory.units * (1 if inventory.side == "LONG" else -1 if inventory.side == "SHORT" else 0)
@@ -301,7 +307,7 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at,
             gross *= max(0.0, 1 + exposure * gap)
             net *= max(0.0, 1 + exposure * gap)
         if start >= since and pending is not None and start >= pending[2]:
-            target, reason, requested_at, pending_tf = pending
+            target, reason, requested_at, pending_tf, requested_protection = pending
             old_units = units_before
             new_units = target.units * (1 if target.side == "LONG" else -1 if target.side == "SHORT" else 0)
             if old_units != new_units:
@@ -325,7 +331,10 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at,
                     impulse_watch = None
                     ladder_level = 0
                 elif old_units == 0:
-                    protected_level = None
+                    # The pivot that caused an entry stays protected once the
+                    # virtual fill occurs; do not forget risk structure.
+                    protected_level = (requested_protection if reason in
+                                       ("HH_HL_OPEN", "LL_LH_OPEN") else None)
                     active_break = False
                     impulse_watch = None
                     ladder_level = 1 if reason == "PULSE_1M_PROBE" else 0
@@ -390,7 +399,10 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at,
             new = target.units * (1 if target.side == "LONG" else -1 if target.side == "SHORT" else 0)
             if old * new < 0:
                 raise RuntimeError("AEn must be flat before reversing")
-            pending = (target, reason, end, signal_tf)
+            pending = (target, reason, end, signal_tf,
+                       next((event.level for event in structure_events.get(end, ())
+                             if (reason == "HH_HL_OPEN" and event.kind == "HL") or
+                                (reason == "LL_LH_OPEN" and event.kind == "LH")), None))
             decisions.append((end.isoformat(), reason, old, new, signal_tf))
             last_decision_at = end
 
@@ -407,8 +419,15 @@ def replay(config: AEnPaperConfig, bars: Sequence, *, started_at,
             is_against = (bar.close < bar.open if inventory.side == "LONG"
                           else bar.close > bar.open)
             if is_against and abs(bar.close / bar.open - 1) * 100 >= config.impulse_pct:
-                recent = [x.volume for x in minute_bars[max(0, minute_index - 10):minute_index]
-                          if x.volume is not None]
+                recent_bars = minute_bars[max(0, minute_index - 10):minute_index]
+                # Only a contiguous session and trustworthy positive volumes
+                # can confirm unusual acceleration.
+                contiguous_volume = (len(recent_bars) >= 5 and
+                    all(recent_bars[j].end == recent_bars[j-1].end + timedelta(minutes=1)
+                        for j in range(1,len(recent_bars))) and
+                    recent_bars[-1].end == start and
+                    all(x.volume is not None and x.volume > 0 for x in recent_bars))
+                recent = [x.volume for x in recent_bars] if contiguous_volume else []
                 high_volume = (bar.volume is not None and len(recent) >= 5 and
                                sum(recent) > 0 and bar.volume >=
                                (sum(recent) / len(recent)) * config.volume_factor)
