@@ -101,9 +101,16 @@ def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
         ):
             # An outside guard/reconciliation explicitly changed inventory:
             # discard old reversal extrema rather than reusing stale levels.
-            db.execute("""UPDATE autotrader_v3_histogram_peak_state
+            cleared=db.execute("""UPDATE autotrader_v3_histogram_peak_state
                 SET phase='WAIT',reference_level=NULL,updated_at=?
                 WHERE trader_id=?""",(now,str(trader_id)))
+            if cleared.rowcount:
+                # This strategy alone must bootstrap afresh after an outside
+                # risk/broker alignment: the previously observed slope is NOT
+                # permission to reopen the exposure that was just removed.
+                db.execute("""UPDATE autotrader_v3_closed_bar_state
+                    SET previous_spread=NULL WHERE trader_id=?""",
+                    (str(trader_id),))
     return cursor.rowcount == 1
 
 
