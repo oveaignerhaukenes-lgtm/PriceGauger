@@ -37,6 +37,7 @@ from autotrader_v3_aen21_sticky_fast_exit_v1 import (
     STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY,
     aen21_sticky_fast_exit_target_v3,
 )
+from autotrader_v3_macd_flip_v1 import STRATEGY_KEY_V3 as FLIP_KEY, macd_flip_target_v3
 from autotrader_v3_macd_trailing_v1 import (
     STRATEGY_KEY_V3 as TRAILING_KEY, MacdTrailingConfigV3,
     MacdTrailingDecisionV3, macd_trailing_target_v3,
@@ -91,11 +92,11 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, STOCH_KEY, STOCH_V2_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
-        config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, STOCH_KEY, STOCH_V2_KEY} else MacdHistogramConfigV3()
-    if strategy_key in {TRAILING_KEY, STOCH_KEY, STOCH_V2_KEY} and not isinstance(config, MacdTrailingConfigV3):
+        config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY} else MacdHistogramConfigV3()
+    if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY} and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
     if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
@@ -105,6 +106,8 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         decide = macd_stoch_target_v3
     elif strategy_key == TRAILING_KEY:
         decide = macd_trailing_target_v3
+    elif strategy_key == FLIP_KEY:
+        decide = macd_flip_target_v3
     elif strategy_key == HISTOGRAM_FLIP_BUILD_KEY:
         decide = macd_histogram_flip_build_target_v3
     elif strategy_key == VWAP_REGIME_KEY:
@@ -128,7 +131,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             prev_spread = row["previous_spread"] if isinstance(row,dict) else row[2]
             if bar_time <= last:
                 hold_type=(
-                    MacdTrailingDecisionV3 if strategy_key == TRAILING_KEY
+                    MacdTrailingDecisionV3 if strategy_key in {TRAILING_KEY, FLIP_KEY}
                     else MacdStochDecisionV3 if strategy_key == STOCH_KEY
                     else MacdStochV2DecisionV3 if strategy_key == STOCH_V2_KEY
                     else MacdHistogramDecisionV3

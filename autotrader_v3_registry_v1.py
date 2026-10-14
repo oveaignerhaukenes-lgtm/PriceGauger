@@ -21,6 +21,7 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
+    StrategySpecV3("macd-flip", "MACD Flip · V3", "Ren MACD 12/26/9 på ferdige signallys. Ett minste Saxo-inkrement, LONG ved bullish kryss og SHORT ved bearish kryss; ellers HOLD. Ingen trailing/pyramidering. V3 lukker gammel side og bekrefter FLAT før ny side.", "macd-flip-v1", True),
     StrategySpecV3("macd", "MACD Trailing · Legacy", "Eldre MACD-impulsmotor: motsatt kryss går til FLAT, impuls skalerer innen aktiv retning. Dette er IKKE MACD Flip i SIM.", "macd-trailing-v1", True),
     StrategySpecV3("macd-stoch-v1", "MACD-Stoch v1", "MACD bestemmer retning og bygger eksponering. Motsatt Stochastic K/D-kryss lukker posisjonen; Stochastic kan ikke reversere.", "macd-stoch-v1", True),
     StrategySpecV3(
