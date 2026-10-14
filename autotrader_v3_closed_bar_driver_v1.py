@@ -104,6 +104,12 @@ def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
                SET target_amount=?,updated_at=? WHERE trader_id=?""",
             (float(target_amount), now, str(trader_id)),
         )
+        aen_original=db.execute(
+            "SELECT target_amount FROM autotrader_v3_aen_core_state WHERE trader_id=?",
+            (str(trader_id),),
+        ).fetchone()
+        aen_changed=(aen_original is not None and
+                     abs(float(aen_original["target_amount"])-float(target_amount))>1e-9)
         if original is not None and (
             abs(float(original["target_amount"]) - float(target_amount)) > 1e-9
         ):
@@ -119,11 +125,12 @@ def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
                 db.execute("""UPDATE autotrader_v3_closed_bar_state
                     SET previous_spread=NULL WHERE trader_id=?""",
                     (str(trader_id),))
-            # AEn's independent HH/HL/auto memory must be re-bootstrapped
-            # following any risk veto / external broker target alignment.
+        if aen_changed:
+            # AEn can run without a legacy closed-bar row. Vetoes MUST
+            # discard its autonomous target even in that case.
             db.execute("DELETE FROM autotrader_v3_aen_core_state WHERE trader_id=?",
                        (str(trader_id),))
-    return cursor.rowcount == 1
+    return cursor.rowcount == 1 or aen_changed
 
 
 def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV2,
