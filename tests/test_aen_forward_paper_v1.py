@@ -175,6 +175,29 @@ def test_missing_lab_feed_does_not_seed_fictitious_market(tmp_path):
     assert (runs,points)==([],[])
 
 
+
+def test_cohort_health_read_only_and_bounded(tmp_path):
+    path=str(tmp_path/"health.sqlite")
+    setup_feed(path,count=690)
+    forward.ensure_schema(path)
+    initial=forward.forward_health_snapshot(db_path=path)
+    assert initial["feeds"]==1
+    assert initial["cohorts"]==[]
+    # A health read must NEVER enrol a new cohort.
+    again=forward.forward_health_snapshot(db_path=path)
+    assert again==initial
+    forward.process_forward_cycle(db_path=path,
+        now=START+timedelta(minutes=610,seconds=11))
+    after=forward.forward_health_snapshot(db_path=path)
+    assert after["feeds"]==1
+    assert sum(row["count"] for row in after["cohorts"])==5
+    assert {row["status"] for row in after["cohorts"]}=={"ACTIVE"}
+    assert all("config_json" not in row for row in after["cohorts"])
+    worker=Path("live_sim_lab_worker_v1.py").read_text()
+    assert "AEN_FORWARD_HEALTH" in worker
+    assert "timedelta(minutes=5)" in worker
+
+
 def test_no_order_broker_or_live_authority_code():
     source=Path("aen_forward_paper_v1.py").read_text()
     for banned in ("from saxo", "place_order(", "configured_client",
