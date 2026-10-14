@@ -69,7 +69,9 @@ def render_signal_inversion_lab_v1():
     except Exception as exc:
         st.error("Ugyldig datoperiode: "+type(exc).__name__)
         return
-    parameters=(selected,start.isoformat(),end.isoformat(),tuple(periods),
+    # A new market minute must not invalidate an already rendered experiment
+    # or reset the user's TV zoom. Only explicit control changes do that.
+    parameters=(selected,int(days),tuple(periods),
                 int(random_n),float(notional),float(fee),float(spread))
     if st.button("Kjør original / invertert / tilfeldig",key="inverse:run",
                  type="primary"):
