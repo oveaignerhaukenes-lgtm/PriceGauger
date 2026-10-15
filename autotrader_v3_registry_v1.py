@@ -34,6 +34,11 @@ STRATEGIES_V3 = (
         "Én vektet momentumscore: 70 % ATR-normalisert MACD-histogram og 30 % normalisert Stochastic K–D. To ferdige barer bekrefter nye innganger; svak score gir flat eller hold, og motsatt score lukker før mulig ny posisjon. Ingen innebygd whipsaw-filter.",
         "macd-stoch-v2", True,
     ),
+    StrategySpecV3(
+        "macd-stoch-v2-1", "MACD+Stoch V2.1",
+        "Samme inngang og umiddelbare FLAT-utgang som V2, men ny BUILD krever at absolutt 70/30 MACD+Stoch-score øker mer enn 0,02 fra forrige ferdige candle. Én endring for kontrollert A/B mot V2; arming skjer separat.",
+        "macd-stoch-v2-1", True,
+    ),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
