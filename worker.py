@@ -313,10 +313,16 @@ def run_v3_live_fast_loop_v1(
         closed_instrument_cursors_v3, has_new_closed_bar_v3,
     )
     from autotrader_v3_whipsaw_optin_b_20261013 import apply_authorized_whipsaw_b_once
+    from autotrader_v3_avoid_loss_live_v1 import (
+        RISK_CHECK_SECONDS,active_avoid_loss_traders_v1,
+        run_avoid_loss_live_risk_once,
+    )
+    from autotrader_v3_order_guard_v1 import pending_order as pending_v3
 
     interval=max(1.0,float(interval_seconds))
     reconciliation=float(V3_LIVE_RECONCILE_SECONDS)
     last_cycle_at=None
+    last_risk_at=None
     last_closed=()
     errors_at=0.0
     LOGGER.info(
@@ -341,6 +347,26 @@ def run_v3_live_fast_loop_v1(
                 errors_at=started
         heartbeat=(last_cycle_at is None or
                    started-last_cycle_at>=reconciliation)
+        # The MACD signal clock (2m) must never be the 1% stop clock.
+        # Run the Saxo P/L watchdog at 5s cadence in this SAME V3 order
+        # thread. No parallel order submitter, no other strategy affected.
+        risk_handled=False
+        if last_risk_at is None or started-last_risk_at>=RISK_CHECK_SECONDS:
+            last_risk_at=started
+            try:
+                active_avoid=active_avoid_loss_traders_v1(db_path=str(db_path))
+                triggered=run_avoid_loss_live_risk_once(db_path=str(db_path)) if active_avoid else ()
+                pending_ids=tuple(e.pilot_key for e in active_avoid
+                    if pending_v3(account_id=e.account_id,uic=e.uic,
+                                  asset_type=e.asset_type,db_path=str(db_path)))
+                need_cycle=tuple(dict.fromkeys((*triggered,*pending_ids)))
+                if need_cycle and not (changed or heartbeat):
+                    run_v3_live_cycle_v1(
+                        db_path=str(db_path),only_trader_ids=need_cycle)
+                    risk_handled=True
+            except Exception as exc:
+                LOGGER.error("Unngå tap V1 risk-watch unavailable: %s",
+                             type(exc).__name__,exc_info=True)
         if changed or heartbeat:
             last_cycle_at=started
             if changed:
