@@ -65,14 +65,14 @@ def render_avoid_loss_lab_v1():
             # so MACD starts without hindsight on selected performance window.
             prepared=[x for x in bars if
                 pd.Timestamp(getattr(x.point,"bar_time")).tz_convert("UTC")>=
-                pd.Timestamp(start-timedelta(hours=6),tz="UTC")]
+                pd.Timestamp(start-timedelta(hours=6))]
             cfg=AvoidLossSimulationConfigV1(
                 initial_nav_nok=initial,margin_per_trade_nok=margin,
                 notional_per_trade_nok=notional,commission_bps_per_side=fee,
                 full_spread_bps=spread,slippage_bps_per_side=slippage,
                 daily_financing_bps=carry)
             with st.spinner("Beregner MACD 2m og netto margin-P/L på hvert 1m-lys…"):
-                report=run_avoid_loss_sim_v1(prepared,config=cfg)
+                report=run_avoid_loss_sim_v1(prepared,config=cfg,started_at=start)
             st.session_state["avoid:report"]=report
             st.session_state["avoid:bars"]=bars
             st.session_state["avoid:params"]=params
