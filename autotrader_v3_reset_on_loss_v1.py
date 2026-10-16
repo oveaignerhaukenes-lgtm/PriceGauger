@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 from autotrader_v3_domain import TargetInventoryV3
 
@@ -30,14 +31,33 @@ def open_pnl_from_net_position_v3(row: dict) -> float:
     """Read current P/L sign from an exact Saxo net position."""
     if not isinstance(row, dict):
         raise ValueError("net position must be an object")
+    view = row.get("NetPositionView") or {}
+    if not isinstance(view,dict):
+        raise ValueError("Saxo net position view is malformed")
+    reliability = view.get("CalculationReliability")
+    if reliability is not None and str(reliability).lower() != "ok":
+        raise ValueError("Saxo P/L calculation is not reliable")
+    delay = view.get("CurrentPriceDelayMinutes")
+    if delay is not None and int(delay) != 0:
+        raise ValueError("Saxo net position P/L uses delayed quote")
+    # Prefer the authoritative account-currency P/L returned for AccountKey.
+    # Its sign is sufficient for Reset on Loss, with no inferred leverage.
+    value = view.get("ProfitLossOnTradeInBaseCurrency")
+    if value is not None:
+        amount = float(value)
+        if not isfinite(amount):
+            raise ValueError("Saxo account P/L is non-finite")
+        return amount
     dynamic = row.get("NetPositionDynamic")
     if isinstance(dynamic, dict):
         for key in ("OpenProfitLoss", "ProfitLossOnTrade"):
             value = dynamic.get(key)
             if value is not None:
-                return float(value)
+                number=float(value)
+                if not isfinite(number):
+                    raise ValueError("Saxo open P/L is non-finite")
+                return number
     base = row.get("NetPositionBase") or {}
-    view = row.get("NetPositionView") or {}
     opening = float(view.get("AverageOpenPriceIncludingCosts") or view.get("AverageOpenPrice") or 0.0)
     current = float(view.get("CurrentPrice") or 0.0)
     if opening <= 0.0 or current <= 0.0:
@@ -52,7 +72,10 @@ def open_pnl_from_net_position_v3(row: dict) -> float:
             signed = -amount
     if abs(signed) <= 1e-12:
         raise ValueError("Saxo net position lacks direction")
-    return (current - opening) * signed
+    inferred=(current - opening) * signed
+    if not isfinite(inferred):
+        raise ValueError("Saxo price-based P/L is non-finite")
+    return inferred
 
 
 __all__ = ["ResetOnLossModifierV3", "open_pnl_from_net_position_v3"]
