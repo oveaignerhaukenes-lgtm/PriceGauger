@@ -9,6 +9,7 @@ from autotrader_v3_avoid_loss_v1 import (
 )
 from autotrader_v3_avoid_loss_saxo_evidence_v1 import (
     precheck_margin_nok_v1, validated_saxo_pnl_v1,
+    validated_saxo_position_pnl_v1,
 )
 
 NOW=datetime(2026,10,16,12,0,tzinfo=timezone.utc)
@@ -132,3 +133,54 @@ def test_estimated_extra_exit_costs_must_not_be_guessed_or_double_counted():
         sample(extra=float("nan"))
     # Explicit zero only when Saxo's TradeCostsTotal already includes full exit.
     assert sample(extra=0).mark_to_liquidate_nok==23.0
+
+
+def test_documented_individual_saxo_position_shape_long_and_short():
+    """Saxo PositionStatic has Amount and no OpeningDirection.
+
+    Direction was already verified separately through exact signed
+    net positions + the immutable Saxo opening order's BuySell.
+    """
+    for signed_amount in (.01,-.01):
+        original=ConfirmedPositionV1("autotrader",12345,"CfdOnIndex",
+                     "POSITION-11",signed_amount,1000.)
+        raw={
+            "PositionId":"POSITION-11",
+            "NetPositionId":"not-a-position-lifecycle",
+            "PositionBase":{
+                "AccountId":"autotrader","Uic":12345,
+                "AssetType":"CfdOnIndex",
+                "Amount":abs(signed_amount),"Status":"Open",
+                "ExecutionTimeOpen":(NOW-timedelta(minutes=1)).isoformat(),
+            },
+            "PositionView":{
+                "CalculationReliability":"Ok","CurrentPriceDelayMinutes":0,
+                "CurrentPriceLastTraded":NOW.isoformat(),
+                "ProfitLossOnTradeInBaseCurrency":27.,
+                "TradeCostsTotalInBaseCurrency":7.,
+            },
+        }
+        result=validated_saxo_position_pnl_v1(
+            row=raw,position=original,account_currency="NOK",
+            estimated_exit_cost_nok=0.,received_at=NOW)
+        assert result.mark_to_liquidate_nok==20.
+        assert result.position_key==original.key
+
+
+def test_documented_individual_saxo_position_wrong_quantity_rejected():
+    original=ConfirmedPositionV1("autotrader",12345,"CfdOnIndex",
+                                 "POSITION-11",.01,1000.)
+    raw={
+        "PositionId":"POSITION-11",
+        "PositionBase":{"AccountId":"autotrader","Uic":12345,
+              "AssetType":"CfdOnIndex","Amount":.02,"Status":"Open"},
+        "PositionView":{"CalculationReliability":"Ok",
+              "CurrentPriceDelayMinutes":0,
+              "CurrentPriceLastTraded":NOW.isoformat(),
+              "ProfitLossOnTradeInBaseCurrency":27.,
+              "TradeCostsTotalInBaseCurrency":7.},
+    }
+    with pytest.raises(ValueError,match="quantity"):
+        validated_saxo_position_pnl_v1(
+            row=raw,position=original,account_currency="NOK",
+            estimated_exit_cost_nok=0.,received_at=NOW)
