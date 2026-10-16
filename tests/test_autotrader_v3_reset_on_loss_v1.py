@@ -52,3 +52,25 @@ def test_reads_long_pnl_sign_from_saxo_price_view_when_dynamic_missing():
 def test_reads_short_pnl_sign_from_saxo_price_view_when_dynamic_missing():
     row={"NetPositionBase":{"AmountLong":0.0,"AmountShort":0.01},"NetPositionView":{"AverageOpenPriceIncludingCosts":100.0,"CurrentPrice":101.0}}
     assert open_pnl_from_net_position_v3(row) < 0
+
+def test_scoped_saxo_account_pnl_takes_priority_over_price_heuristic():
+    row={"NetPositionBase":{"AmountLong":.01},"NetPositionView":{
+         "ProfitLossOnTradeInBaseCurrency":-8.75,
+         "CurrentPrice":102., "AverageOpenPriceIncludingCosts":100.,
+         "CalculationReliability":"Ok","CurrentPriceDelayMinutes":0}}
+    assert open_pnl_from_net_position_v3(row)==-8.75
+
+
+def test_unreliable_delayed_and_invalid_saxo_pnl_do_not_trigger_reset():
+    import pytest
+    for view in (
+        {"ProfitLossOnTradeInBaseCurrency":-8.0,
+         "CalculationReliability":"UnknownPrice","CurrentPriceDelayMinutes":0},
+        {"ProfitLossOnTradeInBaseCurrency":-8.0,
+         "CalculationReliability":"Ok","CurrentPriceDelayMinutes":15},
+        {"ProfitLossOnTradeInBaseCurrency":float("nan"),
+         "CalculationReliability":"Ok","CurrentPriceDelayMinutes":0},
+    ):
+        with pytest.raises(ValueError):
+            open_pnl_from_net_position_v3({"NetPositionBase":{"AmountLong":.01},
+                                            "NetPositionView":view})
