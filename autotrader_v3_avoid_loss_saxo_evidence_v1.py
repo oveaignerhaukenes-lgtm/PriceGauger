@@ -110,4 +110,53 @@ def validated_saxo_pnl_v1(
     )
 
 
-__all__=["precheck_margin_nok_v1","validated_saxo_pnl_v1"]
+def validated_saxo_position_pnl_v1(
+    *, row:dict, position:ConfirmedPositionV1,
+    account_currency:str, estimated_exit_cost_nok:float,
+    received_at:datetime,
+) -> BrokerPnLSampleV1:
+    """Use unique Saxo PositionId and account-scoped PositionView (NOT net ID).
+
+    Saxo GET /port/v1/positions with AccountKey calculates P/L in account
+    currency. The authenticated Saxo account Currency is still checked
+    independently. The position MUST be the sole one in the account/product.
+    """
+    if not isinstance(row,dict):
+        raise ValueError("individual Saxo position row missing")
+    base=row.get("PositionBase")
+    view=row.get("PositionView")
+    if not isinstance(base,dict) or not isinstance(view,dict):
+        raise ValueError("Saxo individual position view is incomplete")
+    if str(row.get("PositionId") or "")!=position.position_token:
+        raise ValueError("individual PositionId changed")
+    direction=str(base.get("OpeningDirection") or "").strip().lower()
+    if direction not in {"buy","sell"}:
+        raise ValueError("Saxo opening direction unavailable")
+    qty=_finite(base.get("Amount"),name="exact position amount")
+    signed=qty if direction=="buy" else -qty
+    if qty<=0 or abs(signed-position.signed_amount)>1e-9:
+        raise ValueError("individual Saxo position size/direction changed")
+    wrapped={
+        "NetPositionId":position.position_token,
+        "NetPositionBase":{
+            "AccountId":base.get("AccountId"),
+            "Uic":base.get("Uic"),"AssetType":base.get("AssetType"),
+            "AmountLong":qty if signed>0 else 0,
+            "AmountShort":qty if signed<0 else 0,
+        },
+        "NetPositionView":{
+            **view,
+            "Status":base.get("Status"),
+        },
+    }
+    return validated_saxo_pnl_v1(
+        row=wrapped,position=position,
+        account_currency=account_currency,
+        verified_base_currency=account_currency,
+        estimated_exit_cost_nok=estimated_exit_cost_nok,
+        received_at=received_at,
+    )
+
+
+__all__=["precheck_margin_nok_v1","validated_saxo_pnl_v1",
+         "validated_saxo_position_pnl_v1"]
