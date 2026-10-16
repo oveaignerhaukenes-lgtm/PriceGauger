@@ -20,6 +20,19 @@ def _runtime(instance_id):
         g=lambda k,n:row[k] if isinstance(row,dict) else row[n]; return str(g('status',0)),str(g('detail',1) or ''),g('updated_at',2)
     except Exception as exc:return ('UNKNOWN',str(exc),None)
 
+def _avoid_loss_monitor(instance_id):
+    """Read the independent protective-stop health, not generic V3 READY."""
+    try:
+        with connect() as db:
+            row=db.execute(
+                "SELECT status,detail,updated_at FROM autotrader_v3_avoid_loss_monitor_v1 "
+                "WHERE trader_id=?",(instance_id,)).fetchone()
+        if row is None:return ("UNPROTECTED","Risikoløkken har ikke bekreftet Saxo-data",None)
+        return (str(row["status"]),str(row["detail"]),str(row["updated_at"]))
+    except Exception:
+        return ("UNPROTECTED","Risikostatus ikke tilgjengelig",None)
+
+
 def _event_count(instance_id):
     try:
         with connect() as db: row=db.execute("SELECT count(*) AS n FROM autotrader_v3_execution_events WHERE instance_id=? AND executed_at>=now()-INTERVAL '24 hours'",(instance_id,)).fetchone()
@@ -65,6 +78,17 @@ def render_v3_fleet_management_v1():
             st.markdown(f'**Strategi:** {active_label}')
             st.caption(f'V3 {item.instance_id[:8]} · konto {item.account_id} · UIC {item.uic} · {item.asset_type} · instrument {item.instrument_id}')
             cap=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'; st.caption(f'{status} · {detail} · aktiv {active_label} · options {", ".join(config.modifiers) or "ingen"} · ramme {cap}')
+            if config.strategy_key=="avoid-loss-v1":
+                stop_status,stop_detail,stop_updated=_avoid_loss_monitor(item.instance_id)
+                if stop_status=="PROTECTED":
+                    st.success("Unngå tap · Saxo-risikokontroll aktiv. "+stop_detail)
+                elif stop_status=="FLAT":
+                    st.info("Unngå tap · FLAT. "+stop_detail)
+                elif stop_status in {"STOP_PENDING","PENDING"}:
+                    st.warning("Unngå tap · "+stop_status+" · "+stop_detail)
+                else:
+                    st.error("UNPROTECTED: Ingen verifisert aktiv −1 %-stop! "+stop_detail)
+                st.caption("Siste kontroll: "+str(stop_updated or "ukjent"))
             try:
                 d=load_execution_diagnostic_v1(account_id=item.account_id,uic=int(item.uic),asset_type=item.asset_type,owner_key=item.instance_id,engine_id='V3')
                 if d.request_state: st.caption(f'Execution: {d.request_state} · {d.request_detail or ""}')
