@@ -197,9 +197,120 @@ def cross_scale_alignment_v1(view: RhythmViewV1) -> list[dict[str, object]]:
     return output
 
 
+@dataclass(frozen=True)
+class EmpiricalFractalV1:
+    """Completed macro-legs normalized by time and signed price displacement.
+
+    Generated recursion is DESCRIPTIVE illustration, never a forecast.
+    """
+    x: tuple[float, ...]
+    motif_y: tuple[float, ...]
+    samples: tuple[tuple[float, ...], ...]
+    median_dispersion: float
+    sample_count: int
+
+
+def empirical_fractal_motif_v1(
+    view: RhythmViewV1, *, micro_threshold: float = 0.05,
+    macro_threshold: float = 0.15, max_motifs: int = 12,
+    grid_steps: int = 8,
+) -> EmpiricalFractalV1 | None:
+    """Learn a normalized repeating shape from real *completed* parent legs.
+
+    One parent macro-leg needs >=2 finer turns inside it; ambiguous/flat
+    macro-moves and turns confirmed after parent confirmation are excluded.
+    This is not a predictive feature because historical macros are selected
+    using their hindsight extremum locations.
+    """
+    import numpy as np
+
+    if micro_threshold >= macro_threshold:
+        raise ValueError("micro threshold must be below macro threshold")
+    if grid_steps < 3 or grid_steps > 16:
+        raise ValueError("grid_steps out of bounds")
+    if max_motifs < 1 or max_motifs > 30:
+        raise ValueError("max_motifs out of bounds")
+    parents = view.turns.get(float(macro_threshold), ())
+    children = view.turns.get(float(micro_threshold), ())
+    if len(parents) < 2 or len(children) < 2:
+        return None
+    x = np.linspace(0.0, 1.0, grid_steps + 1)
+    samples: list[tuple[float, ...]] = []
+    for start, finish in zip(parents, parents[1:]):
+        if start.segment != finish.segment or start.kind == finish.kind:
+            continue
+        duration = (finish.pivot_at - start.pivot_at).total_seconds()
+        change = finish.price - start.price
+        if duration <= 0 or abs(change) < 1e-12:
+            continue
+        eligible = [
+            child for child in children
+            if child.segment == start.segment
+            and start.pivot_at < child.pivot_at < finish.pivot_at
+            and child.confirmed_at <= finish.confirmed_at
+        ]
+        if len(eligible) < 2:
+            continue
+        xs = [0.0] + [
+            (child.pivot_at - start.pivot_at).total_seconds() / duration
+            for child in eligible
+        ] + [1.0]
+        ys = [0.0] + [
+            (child.price - start.price) / change
+            for child in eligible
+        ] + [1.0]
+        pairs = sorted(zip(xs, ys))
+        unique_x: list[float] = []
+        unique_y: list[float] = []
+        for px, py in pairs:
+            if unique_x and abs(px - unique_x[-1]) < 1e-12:
+                continue
+            unique_x.append(px)
+            unique_y.append(py)
+        samples.append(tuple(float(v) for v in np.interp(x, unique_x, unique_y)))
+    if not samples:
+        return None
+    samples = samples[-max_motifs:]
+    arr = np.asarray(samples, dtype=float)
+    center = np.median(arr, axis=0)
+    center[0], center[-1] = 0.0, 1.0
+    dispersion = float(np.median(np.abs(arr - center[None, :])))
+    return EmpiricalFractalV1(
+        x=tuple(float(v) for v in x),
+        motif_y=tuple(float(v) for v in center),
+        samples=tuple(samples),
+        median_dispersion=dispersion,
+        sample_count=len(samples),
+    )
+
+
+def recursively_generated_fractal_v1(
+    motif: EmpiricalFractalV1, *, depth: int = 3,
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Affine-replace segments with the empirical median market motif.
+
+    Synthetic polyline stays in normalized [0,1] time; no claim that market
+    will repeat the generated prices. Cap recursion to prevent UI overload.
+    """
+    if depth not in (1,2,3):
+        raise ValueError("fractal depth must be 1..3")
+    coords: list[tuple[float,float]] = [(0.0,0.0),(1.0,1.0)]
+    for _ in range(depth):
+        next_coords=[coords[0]]
+        for (xa,ya),(xb,yb) in zip(coords,coords[1:]):
+            for ux,uy in zip(motif.x[1:],motif.motif_y[1:]):
+                next_coords.append((
+                    xa + (xb-xa)*ux,
+                    ya + (yb-ya)*uy,
+                ))
+        coords=next_coords
+    return tuple(p[0] for p in coords), tuple(p[1] for p in coords)
+
+
 __all__ = [
     "RhythmViewV1", "SwingLegV1", "DURATION_BUCKETS",
     "build_rhythm_view_v1", "duration_bucket_v1",
     "last_confirmed_legs_v1", "turn_table_v1",
     "amplitude_duration_counts_v1", "cross_scale_alignment_v1",
+    "EmpiricalFractalV1", "empirical_fractal_motif_v1", "recursively_generated_fractal_v1",
 ]
