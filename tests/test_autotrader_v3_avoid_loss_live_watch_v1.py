@@ -30,7 +30,9 @@ class SaxoFake:
         self.currency="NOK"
         self.position_id="POSITION-123"
         self.extra=False
-        self.history_status="Executed"
+        self.history_status="FinalFill"
+        self.history_substatus="Confirmed"
+        self.audit_position_id="POSITION-123"
         self.audit_reads=0
 
     def accounts(self):
@@ -53,6 +55,8 @@ class SaxoFake:
     def order_activity_exact(self,**kwargs):
         self.audit_reads+=1
         return {"available":True,"status":self.history_status,
+                "sub_status":self.history_substatus,
+                "position_id":self.audit_position_id,
                 "filled_amount":.01,"side":"Buy"}
 
 
@@ -114,6 +118,7 @@ def test_initial_minus_one_percent_requests_flat(monkeypatch,tmp_path):
 
 @pytest.mark.parametrize("change",[
     "wrong_currency","two_positions","wrong_order_status","stale_quote",
+    "partial_fill","wrong_position_id","unconfirmed_fill",
 ])
 def test_no_false_protection_with_unverifiable_saxo(monkeypatch,tmp_path,change):
     broker=SaxoFake();db=str(tmp_path/f"{change}.db")
@@ -121,6 +126,9 @@ def test_no_false_protection_with_unverifiable_saxo(monkeypatch,tmp_path,change)
     if change=="two_positions":broker.extra=True
     if change=="wrong_order_status":broker.history_status="Unknown"
     if change=="stale_quote":broker.quote_as_of=NOW-timedelta(minutes=1)
+    if change=="partial_fill":broker.history_status="Fill"
+    if change=="wrong_position_id":broker.audit_position_id="ANOTHER-POSITION"
+    if change=="unconfirmed_fill":broker.history_substatus="Rejected"
     calls=setup_watch(monkeypatch,broker,db)
     assert live.run_avoid_loss_live_risk_once(db_path=db,now=NOW)==()
     assert calls==[]
