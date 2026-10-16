@@ -118,7 +118,7 @@ def test_new_family_ui_isolated_from_legacy_and_readonly():
     page=Path("pages/0_Live_Sim_Lab.py").read_text(encoding="utf-8")
     frontend=Path("macd_nextgen_lab_ui_v1.py").read_text(encoding="utf-8")
     engine=Path("macd_nextgen_paper_v1.py").read_text(encoding="utf-8")
-    assert '("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","V2 strategies","Legacy strategies")' in page
+    assert '("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","Unngå tap V1 · NAV-SIM","V2 strategies","Legacy strategies")' in page
     assert "render_nextgen_macd_lab_v1()" in page
     assert "st.stop()" in page
     for title in ("Flip","Hold before flip","Pyramide","Trailing",
