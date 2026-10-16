@@ -100,6 +100,36 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption(truth.reason + (f' · {truth.detail}' if truth.detail else ''))
     st.caption('Siste bekreftede handel: '+(truth.last_execution or 'ingen tilgjengelig i eventloggen'))
     st.caption('Tallene er forrige worker-heartbeat, ikke en sanntids-Saxo-posisjonsforespørsel.')
+    with st.expander('Unngå tap V1 · Saxo datakontroll (kun lesing)',expanded=False):
+        st.caption(
+            'Kontroller eksakt konto og instrument mot Saxo LIVE med kun GET. '
+            'Rapporterer faste felt- og feilkoder uten konto-ID, beløp eller '
+            'posisjonsidentifikatorer. Ingen handler, ordre-precheck, '
+            'lagring eller aktivering. En vellykket kontroll gir IKKE LIVE-tillatelse.'
+        )
+        if st.button(
+            'Les og valider Saxo-feltene nå',
+            key=f'{key_prefix}:avoid-loss-readonly:{trader_id}',
+        ):
+            try:
+                from autotrader_v3_avoid_loss_diagnostics_v1 import diagnose_saxo_avoid_loss_v1
+                report=diagnose_saxo_avoid_loss_v1(
+                    broker=configured_live_pilot_client_v3(),
+                    account_id=str(instance.account_id),
+                    uic=int(instance.uic),
+                    asset_type=str(instance.asset_type),
+                )
+                st.write(f'**{report.status}** · {report.phase} · {report.code}')
+                st.caption(
+                    'Verifiserte felt: ' +
+                    (', '.join(report.observed) if report.observed else 'ingen')
+                )
+                st.caption('LIVE-gate: LUKKET. Dette er kun en skrivebeskyttet diagnose.')
+            except Exception as exc:
+                st.error(
+                    'Saxo-diagnosen ble avbrutt: '+type(exc).__name__
+                    +' (ingen ordre eller endringer utført).'
+                )
     st.caption(
         "Forsøksoppsett: Fast Exit S10/R30 + Volatility Pause er inspirert "
         "av LAB-varianten, men LIVE-motoren bruker Aen#2.1 Fast Exit og "
