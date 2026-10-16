@@ -22,6 +22,7 @@ from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_K
 from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3, evaluate_aen_core_v3
+from autotrader_v3_fraktal1_bridge_v1 import FRAKTAL1_RUNTIME_KEYS_V3, evaluate_fraktal1_v3
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,12 @@ STRATEGIES_V3.update({
     key: StrategyAdapterV3(key=key,evaluate_closed_bar=evaluate_aen_core_v3,
                            live_route_enabled=True)
     for key in AEN_CORE_KEYS_V3
+})
+ 
+STRATEGIES_V3.update({
+    key: StrategyAdapterV3(key=key,evaluate_closed_bar=evaluate_fraktal1_v3,
+                           live_route_enabled=True)
+    for key in FRAKTAL1_RUNTIME_KEYS_V3
 })
 
 
@@ -64,5 +71,5 @@ def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, 
         config=config, db_path=db_path,
         **({"actual_inventory":actual_inventory,
             "signal_timeframe_minutes":signal_timeframe_minutes,
-            "now":now} if strategy_key in AEN_CORE_KEYS_V3 else {}),
+            "now":now} if strategy_key in (AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3) else {}),
     )
