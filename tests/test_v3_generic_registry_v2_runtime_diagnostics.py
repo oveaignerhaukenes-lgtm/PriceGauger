@@ -9,6 +9,7 @@ from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
+from autotrader_v3_avoid_loss_strategy_v1 import STRATEGY_KEY_V3 as AVOID_LOSS_KEY
 from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
@@ -18,7 +19,7 @@ from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3, evaluate_aen_core
 
 
 def test_v3_registry_routes_all_strategies_through_same_decision_contract():
-    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY} | AEN_CORE_KEYS_V3
+    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, AVOID_LOSS_KEY} | AEN_CORE_KEYS_V3
     driver = strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(HISTOGRAM_FLIP_BUILD_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(PEAK_FLIP_KEY).evaluate_closed_bar
@@ -32,6 +33,7 @@ def test_v3_registry_routes_all_strategies_through_same_decision_contract():
     assert driver is strategy_adapter_v3(STOCH_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(STOCH_V2_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(STOCH_V21_KEY).evaluate_closed_bar
+    assert driver is strategy_adapter_v3(AVOID_LOSS_KEY).evaluate_closed_bar
     assert strategy_adapter_v3(STOCH_V21_KEY).live_route_enabled
     for key in AEN_CORE_KEYS_V3:
         assert strategy_adapter_v3(key).evaluate_closed_bar is evaluate_aen_core_v3
