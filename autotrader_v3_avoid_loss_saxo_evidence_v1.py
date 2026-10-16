@@ -129,20 +129,20 @@ def validated_saxo_position_pnl_v1(
         raise ValueError("Saxo individual position view is incomplete")
     if str(row.get("PositionId") or "")!=position.position_token:
         raise ValueError("individual PositionId changed")
-    direction=str(base.get("OpeningDirection") or "").strip().lower()
-    if direction not in {"buy","sell"}:
-        raise ValueError("Saxo opening direction unavailable")
-    qty=_finite(base.get("Amount"),name="exact position amount")
-    signed=qty if direction=="buy" else -qty
-    if qty<=0 or abs(signed-position.signed_amount)>1e-9:
-        raise ValueError("individual Saxo position size/direction changed")
+    # Individual Saxo PositionStatic has no OpeningDirection; the net broker
+    # signed inventory was checked by the watcher against this very position.
+    # Only a single individual Saxo PositionId is admissible in V1.
+    amount=_finite(base.get("Amount"),name="exact position amount")
+    qty=abs(amount)
+    if qty<=0 or abs(qty-abs(position.signed_amount))>1e-9:
+        raise ValueError("individual Saxo position quantity changed")
     wrapped={
         "NetPositionId":position.position_token,
         "NetPositionBase":{
             "AccountId":base.get("AccountId"),
             "Uic":base.get("Uic"),"AssetType":base.get("AssetType"),
-            "AmountLong":qty if signed>0 else 0,
-            "AmountShort":qty if signed<0 else 0,
+            "AmountLong":qty if position.signed_amount>0 else 0,
+            "AmountShort":qty if position.signed_amount<0 else 0,
         },
         "NetPositionView":{
             **view,
