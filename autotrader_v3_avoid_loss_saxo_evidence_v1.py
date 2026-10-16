@@ -80,13 +80,13 @@ def validated_saxo_pnl_v1(
     short_amt = _finite(base.get("AmountShort") or 0.0,name="amount short")
     if not isfinite(long_amt-short_amt) or abs((long_amt-short_amt)-position.signed_amount)>1e-9:
         raise ValueError("Saxo amount mismatch: margin denominator not reusable")
-    if str(view.get("Status") or "Open").lower() not in {"open","partiallyclosed"}:
-        raise ValueError("position is already closing or closed")
+    if str(view.get("Status") or "").lower() not in {"open","partiallyclosed"}:
+        raise ValueError("Saxo position state is missing or not open")
     raw_trade_pnl=view.get("ProfitLossOnTradeInBaseCurrency")
     raw_costs=view.get("TradeCostsTotalInBaseCurrency")
     if raw_trade_pnl is None or raw_costs is None:
         raise ValueError("missing Saxo P/L or cost figure in account currency")
-    if "CurrentPriceDelayMinutes" not in view or "CalculationReliability" not in view:
+    if view.get("CurrentPriceDelayMinutes") is None or not view.get("CalculationReliability"):
         raise ValueError("quote-delay/reliability evidence missing")
     pnl=_finite(raw_trade_pnl,name="trade P/L in NOK")
     costs=_finite(raw_costs,name="known Saxo costs in NOK")
