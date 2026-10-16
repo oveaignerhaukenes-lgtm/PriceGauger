@@ -134,6 +134,42 @@ class SaxoLivePilotClientV3:
         if len(matches)>1:
             raise SaxoTradingSafetyError("ambiguous v3 LIVE exact-boundary position state")
         return tuple(matches)
+    def positions_exact(self, *,account_id:str,uic:int,asset_type:str):
+        """Read ONLY individually scoped Saxo positions; never create an order.
+
+        Do not confuse a NetPositionId with a single position lifecycle:
+        an exact instrument/account may still contain multiple PositionIds.
+        Every individual row must identify the requested Saxo account.
+        """
+        account_key,client_key=self._account_context_exact(account_id)
+        params={"$top":1000,"AccountKey":account_key,
+                "FieldGroups":"PositionBase,PositionView"}
+        if client_key:
+            params["ClientKey"]=client_key
+        payload=self.client._get("port/v1/positions",params=params)
+        if not isinstance(payload,Mapping) or payload.get("__next"):
+            raise SaxoTradingSafetyError("v3 individual positions incomplete")
+        rows=payload.get("Data")
+        if not isinstance(rows,list):
+            raise SaxoTradingSafetyError("v3 individual positions unavailable")
+        found=[]
+        for row in rows:
+            if not isinstance(row,Mapping):
+                raise SaxoTradingSafetyError("malformed individual Saxo position row")
+            base=row.get("PositionBase")
+            if not isinstance(base,Mapping):
+                raise SaxoTradingSafetyError("missing Saxo PositionBase")
+            returned_account=str(base.get("AccountId") or base.get("PositionsAccount") or "").strip()
+            if not returned_account or returned_account!=str(account_id):
+                raise SaxoTradingSafetyError("individual position account boundary mismatch")
+            if int(base.get("Uic") or -1)!=int(uic) or str(base.get("AssetType") or "")!=str(asset_type):
+                continue
+            if not str(row.get("PositionId") or "").strip():
+                raise SaxoTradingSafetyError("individual Saxo PositionId missing")
+            found.append(dict(row))
+        if len(found)>1:
+            raise SaxoTradingSafetyError("more than one individual Saxo position for exact product")
+        return tuple(found)
     def open_pnl_exact(self, *,account_id:str,uic:int,asset_type:str)->float:
         """Read open P/L from the SAME verified account-scoped net position.
 
