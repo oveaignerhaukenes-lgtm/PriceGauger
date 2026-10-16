@@ -47,6 +47,14 @@ from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
+from autotrader_v3_avoid_loss_strategy_v1 import STRATEGY_KEY_V3 as AVOID_LOSS_KEY
+from autotrader_v3_macd_trailing_v1 import MacdTrailingDecisionV3
+from autotrader_v3_closed_bar_driver_v1 import ClosedBarDecisionV3
+from autotrader_v3_avoid_loss_state_v1 import (
+    load_confirmed_entry_anchor_v1,load_risk_state_v1,
+    load_avoid_loss_exit_bar_v1,stage_entry_preflight_v1,
+)
+from autotrader_v3_avoid_loss_saxo_evidence_v1 import precheck_margin_nok_v1
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -187,9 +195,12 @@ def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db"):
         active.append(e)
     return tuple(active)
 
-def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
+def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,only_trader_ids=None)->int:
     """Normal v3 LIVE runtime. The LIVE toggle plus exact V3 account ownership is the authority boundary."""
     active=_load_owned_armed_runtime_instances_v3(db_path=db_path)
+    if only_trader_ids is not None:
+        permitted=set(only_trader_ids)
+        active=tuple(e for e in active if e.pilot_key in permitted)
     LOGGER.info("v3 LIVE active owned armed instances=%d",len(active))
     enrollments=[]
     for e in active:
@@ -386,15 +397,20 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
                 db_path=db_path)
             continue
-        cost_assessment=assess_transaction_cost_v3(
-            broker=broker,
-            account_id=e.account_id,
-            market_name=e.market_name,
-            uic=int(e.uic),
-            asset_type=e.asset_type,
-            amount=float(strategy_amount_config.tranche),
-        )
-        if cost_assessment.blocked and abs(actual.amount) <= 1e-12:
+        # For an existing Avoid Loss position, CLOSE must not wait behind a
+        # quote/cost precheck that can time out for 20s. No ADD is permitted.
+        cost_assessment=(None if e.strategy_key==AVOID_LOSS_KEY
+                           and abs(actual.amount)>1e-12 else
+            assess_transaction_cost_v3(
+                broker=broker,
+                account_id=e.account_id,
+                market_name=e.market_name,
+                uic=int(e.uic),
+                asset_type=e.asset_type,
+                amount=float(strategy_amount_config.tranche),
+            ))
+        if (cost_assessment is not None and cost_assessment.blocked
+                and abs(actual.amount) <= 1e-12):
             _record_runtime(
                 e.pilot_key,'BLOCKED',
                 'V3 transaction cost guard blocked new exposure: '+cost_assessment.detail,
@@ -433,6 +449,52 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             **({"actual_inventory":actual.amount,
                 "signal_timeframe_minutes":timeframe_minutes,
                 "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
+        if e.strategy_key==AVOID_LOSS_KEY:
+            if str(account_currencies.get(e.account_id) or '').upper()!="NOK":
+                _record_runtime(e.pilot_key,"UNPROTECTED",
+                    "Unngå tap requires verified NOK Saxo account; no order",
+                    db_path=db_path)
+                continue
+            anchor=load_confirmed_entry_anchor_v1(
+                trader_id=e.pilot_key,db_path=db_path)
+            risk_state=load_risk_state_v1(
+                trader_id=e.pilot_key,db_path=db_path)
+            if abs(actual.amount)>1e-12 and (
+                anchor is None or abs(anchor.signed_amount-actual.amount)>1e-9):
+                _record_runtime(e.pilot_key,"UNPROTECTED",
+                    "Saxo exposure has no matching confirmed immutable margin "
+                    "anchor; cannot claim -1% stop. No new order.",
+                    db_path=db_path)
+                continue
+            if abs(actual.amount)<=1e-12:
+                # On confirmed FLAT, risk observer retires old lifecycle and
+                # stores the last stopped candle. No same-bar re-entry.
+                if anchor is not None:
+                    _record_runtime(e.pilot_key,"PENDING",
+                        "Previous Saxo position FLAT; awaiting risk-lifecycle retirement",
+                        db_path=db_path)
+                    continue
+                stopped_at=load_avoid_loss_exit_bar_v1(
+                    trader_id=e.pilot_key,db_path=db_path)
+                if (stopped_at is not None and
+                    obs[-1].bar_time.astimezone(timezone.utc)<=
+                    stopped_at.astimezone(timezone.utc)):
+                    align_closed_bar_target_v3(
+                        trader_id=e.pilot_key,target_amount=0,db_path=db_path)
+                    _record_runtime(e.pilot_key,"MANAGING",
+                        "Unngå tap FLAT: await NEW finished MACD 2m bar after exit",
+                        db_path=db_path)
+                    continue
+            if risk_state is not None and risk_state.exit_pending:
+                # The durable risk observer has authority to request FLAT;
+                # do not allow an old MACD target to override the stop.
+                decision=ClosedBarDecisionV3(
+                    decision.decision_key+"|avoid-loss-stop",
+                    MacdTrailingDecisionV3(
+                        TargetInventoryV3(0.0),"RISK_MARGIN_STOP",
+                        "Unngå tap risk EXIT_PENDING; broker-confirmed FLAT required",
+                        float(obs[-1].spread)),
+                    decision.is_new)
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
@@ -575,7 +637,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         policy=None
         if mutation.action in {'OPEN','ADD'}:
-            if cost_assessment.blocked:
+            if cost_assessment is None or cost_assessment.blocked:
                 _record_runtime(
                     e.pilot_key,'BLOCKED',
                     'V3 transaction cost guard blocked '+mutation.action+': '+cost_assessment.detail,
@@ -714,6 +776,25 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 f'action={mutation.action} amount={mutation.amount:g} '
                 f'capital_required_nok={capital_required:g} cap_nok={policy.max_notional_nok:g}',
                 db_path=db_path)
+        if e.strategy_key==AVOID_LOSS_KEY and mutation.action=="OPEN":
+            # Persist the only valid denominator BEFORE issuing the durable
+            # order. The precheck is NOT a fill: actual PositionId and Saxo
+            # order history will be cross-checked after reconciliation.
+            try:
+                frozen_margin=precheck_margin_nok_v1(
+                    pre,side=side,
+                    account_currency=account_currencies.get(e.account_id,""))
+                stage_entry_preflight_v1(
+                    trader_id=e.pilot_key,request_key=request_key,
+                    margin_nok=frozen_margin,account_id=e.account_id,
+                    uic=int(e.uic),asset_type=e.asset_type,
+                    signed_amount=mutation.amount if side=="Buy" else -mutation.amount,
+                    db_path=db_path)
+            except Exception as exc:
+                _record_runtime(e.pilot_key,"BLOCKED",
+                    f"Unngå tap entry margin not independently verified: {type(exc).__name__}: {exc}",
+                    db_path=db_path)
+                continue
         inserted=reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
             account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,
             expected_inventory=actual.amount+signed_delta,
