@@ -193,6 +193,15 @@ def retire_confirmed_flat_v1(*,trader_id:str,broker_exact_flat:bool,
         result=db.execute(
             "DELETE FROM autotrader_v3_avoid_loss_anchor_v1 WHERE trader_id=?",
             (trader_id,))
+        # Retire the previous lifecycle's preflight stages only AFTER Saxo FLAT.
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_avoid_loss_preflight_v1 (
+           request_key TEXT PRIMARY KEY, trader_id TEXT NOT NULL,
+           account_id TEXT NOT NULL, uic INTEGER NOT NULL,
+           asset_type TEXT NOT NULL, signed_amount DOUBLE PRECISION NOT NULL,
+           initial_margin_nok DOUBLE PRECISION NOT NULL, created_at TEXT NOT NULL
+        )""")
+        db.execute("DELETE FROM autotrader_v3_avoid_loss_preflight_v1 WHERE trader_id=?",
+                   (trader_id,))
     return result.rowcount>0
 
 
