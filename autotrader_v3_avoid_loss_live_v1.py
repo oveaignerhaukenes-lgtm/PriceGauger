@@ -38,7 +38,9 @@ RISK_CHECK_SECONDS=5.0
 
 def _status(trader_id,status,detail,*,db_path):
     """Status log is explicit: an unavailable stop is NOT reported as protected."""
-    LOGGER.warning("avoid-loss risk trader=%s status=%s detail=%s",trader_id,status,detail)
+    level=logging.INFO if status in {"PROTECTED","FLAT"} else logging.WARNING
+    LOGGER.log(level,"avoid-loss risk trader=%s status=%s detail=%s",
+               trader_id,status,detail)
     with connect(db_path) as db:
         db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_avoid_loss_monitor_v1(
             trader_id TEXT PRIMARY KEY,status TEXT NOT NULL,
