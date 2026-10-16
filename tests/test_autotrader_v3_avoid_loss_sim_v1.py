@@ -102,3 +102,32 @@ def test_sim_is_not_broker_code():
     for forbidden in ("SaxoOrderRequest","place_order(","run_v3_live_cycle_v1",
                       "configured_live_pilot_client_v3","set_live_authority_v3"):
         assert forbidden not in x
+
+
+
+def test_first_entry_minute_adverse_extreme_is_not_ignored(monkeypatch):
+    import autotrader_v3_avoid_loss_sim_v1 as model
+    data=[]
+    for i in range(8):
+        data.append(SimpleNamespace(
+            bar_time=BASE+timedelta(minutes=i),
+            open=100.,close=100.,high=100.5,
+            low=90. if i==4 else 99.5))
+    monkeypatch.setattr(model,"_closed_macd_2m",
+        lambda rows:{
+            BASE+timedelta(minutes=2):-0.5,
+            BASE+timedelta(minutes=4):+0.5,
+        })
+    monkeypatch.setattr(model,"evaluate_flat_entry_v1",
+        lambda **kwargs:(1,"TEST_ENTER_LONG"))
+    out=model.run_avoid_loss_sim_v1(data,config=AvoidLossSimulationConfigV1(
+        initial_nav_nok=10000,margin_per_trade_nok=1000,
+        notional_per_trade_nok=10000,
+        commission_bps_per_side=0,full_spread_bps=0,
+        slippage_bps_per_side=0,daily_financing_bps=0))
+    assert out.trades
+    first=out.trades[0]
+    assert first.entry_at==BASE+timedelta(minutes=4)
+    assert first.exit_at==first.entry_at
+    assert first.reason=="ENTRY_MINUTE_LOSS_STOP"
+    assert first.net_pnl_nok==pytest.approx(-10.0)
