@@ -196,8 +196,123 @@ def retire_confirmed_flat_v1(*,trader_id:str,broker_exact_flat:bool,
     return result.rowcount>0
 
 
+
+def stage_entry_preflight_v1(*,trader_id:str,request_key:str,
+                             margin_nok:float,account_id:str,uic:int,
+                             asset_type:str,signed_amount:float,
+                             db_path="pricegauger.db")->None:
+    """Persist precheck margin BEFORE a V3 durable OPEN request is submitted.
+
+    The stage is inert until the exact OPEN request is RECONCILED and Saxo
+    confirms the individual PositionId, direction and quantity. No guessed
+    entries and no modifications to existing V3 order-guard records.
+    """
+    if not all([str(trader_id),str(request_key),str(account_id),str(asset_type)]):
+        raise ValueError("entry stage identity missing")
+    if (not isfinite(float(margin_nok)) or margin_nok<=0
+        or not isfinite(float(signed_amount)) or signed_amount==0):
+        raise ValueError("invalid Saxo precheck margin or requested size")
+    ensure_avoid_loss_research_schema_v1(db_path=db_path)
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_avoid_loss_preflight_v1 (
+           request_key TEXT PRIMARY KEY,
+           trader_id TEXT NOT NULL, account_id TEXT NOT NULL,
+           uic INTEGER NOT NULL, asset_type TEXT NOT NULL,
+           signed_amount DOUBLE PRECISION NOT NULL,
+           initial_margin_nok DOUBLE PRECISION NOT NULL,
+           created_at TEXT NOT NULL
+        )""")
+        current=db.execute(
+            "SELECT trader_id,account_id,uic,asset_type,signed_amount,initial_margin_nok "
+            "FROM autotrader_v3_avoid_loss_preflight_v1 WHERE request_key=?",
+            (request_key,)).fetchone()
+        if current is not None:
+            if (str(current["trader_id"])!=trader_id or
+                str(current["account_id"])!=account_id or
+                int(current["uic"])!=int(uic) or
+                str(current["asset_type"])!=asset_type or
+                abs(float(current["signed_amount"])-signed_amount)>1e-9 or
+                abs(float(current["initial_margin_nok"])-margin_nok)>1e-9):
+                raise ValueError("preflight intent conflict")
+            return
+        db.execute("""INSERT INTO autotrader_v3_avoid_loss_preflight_v1
+            (request_key,trader_id,account_id,uic,asset_type,
+             signed_amount,initial_margin_nok,created_at)
+            VALUES(?,?,?,?,?,?,?,?)""",
+            (request_key,trader_id,account_id,int(uic),asset_type,
+             signed_amount,margin_nok,datetime.now(timezone.utc).isoformat()))
+
+
+def staged_entry_for_reconciled_order_v1(
+    *,trader_id:str,account_id:str,uic:int,asset_type:str,
+    db_path="pricegauger.db"):
+    """Only a durable RECONCILED OPEN can license a margin anchor.
+
+    This is *necessary* evidence, not proof by itself: caller additionally
+    verifies Saxo audit/fill and sole exact individual position.
+    """
+    ensure_avoid_loss_research_schema_v1(db_path=db_path)
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_avoid_loss_preflight_v1 (
+           request_key TEXT PRIMARY KEY, trader_id TEXT NOT NULL,
+           account_id TEXT NOT NULL, uic INTEGER NOT NULL,
+           asset_type TEXT NOT NULL, signed_amount DOUBLE PRECISION NOT NULL,
+           initial_margin_nok DOUBLE PRECISION NOT NULL,
+           created_at TEXT NOT NULL
+        )""")
+        row=db.execute("""SELECT p.request_key,p.initial_margin_nok,
+               p.signed_amount,o.broker_order_id,o.submitted_side,
+               o.submitted_amount,o.expected_inventory
+            FROM autotrader_v3_avoid_loss_preflight_v1 p
+            JOIN autotrader_v3_order_guard o ON o.request_key=p.request_key
+            WHERE p.trader_id=? AND p.account_id=? AND p.uic=? AND p.asset_type=?
+              AND o.state='RECONCILED' AND o.trader_id=? AND o.account_id=?
+              AND o.uic=? AND o.asset_type=? AND o.broker_order_id IS NOT NULL
+            ORDER BY p.created_at DESC LIMIT 2""",
+            (trader_id,account_id,int(uic),asset_type,
+             trader_id,account_id,int(uic),asset_type)).fetchall()
+    if len(row)!=1:
+        # Multiple candidate entries (past flat + a new open) are ambiguous
+        # without an explicit per-lifecycle claim; refuse instead of guessing.
+        return None
+    return dict(row[0])
+
+
+def save_avoid_loss_exit_bar_v1(*,trader_id:str,at:datetime,
+                                 db_path="pricegauger.db"):
+    """Require a fresh *subsequent* completed MACD bar for new exposure."""
+    stamp=_utc(at).isoformat()
+    ensure_avoid_loss_research_schema_v1(db_path=db_path)
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_avoid_loss_exit_v1(
+          trader_id TEXT PRIMARY KEY, last_exit_signal_at TEXT NOT NULL
+        )""")
+        db.execute("""INSERT INTO autotrader_v3_avoid_loss_exit_v1(
+          trader_id,last_exit_signal_at) VALUES(?,?)
+          ON CONFLICT(trader_id) DO UPDATE SET
+          last_exit_signal_at=CASE WHEN excluded.last_exit_signal_at>
+            autotrader_v3_avoid_loss_exit_v1.last_exit_signal_at
+            THEN excluded.last_exit_signal_at
+            ELSE autotrader_v3_avoid_loss_exit_v1.last_exit_signal_at END""",
+            (trader_id,stamp))
+
+
+def load_avoid_loss_exit_bar_v1(*,trader_id:str,db_path="pricegauger.db"):
+    ensure_avoid_loss_research_schema_v1(db_path=db_path)
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_avoid_loss_exit_v1(
+          trader_id TEXT PRIMARY KEY, last_exit_signal_at TEXT NOT NULL
+        )""")
+        row=db.execute(
+            "SELECT last_exit_signal_at FROM autotrader_v3_avoid_loss_exit_v1 WHERE trader_id=?",
+            (trader_id,)).fetchone()
+    return datetime.fromisoformat(row["last_exit_signal_at"]) if row else None
+
+
 __all__=[
     "ensure_avoid_loss_research_schema_v1",
     "register_confirmed_entry_anchor_v1","load_confirmed_entry_anchor_v1",
     "save_risk_state_v1","load_risk_state_v1","retire_confirmed_flat_v1",
+    "stage_entry_preflight_v1","staged_entry_for_reconciled_order_v1",
+    "save_avoid_loss_exit_bar_v1","load_avoid_loss_exit_bar_v1",
 ]
