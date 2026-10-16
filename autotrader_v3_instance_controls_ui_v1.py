@@ -198,7 +198,16 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     cost_blocked=bool(cost_assessment.blocked)
     if sim_issues:
         st.info('SIM sperret av config: ' + ' · '.join(sim_issues))
-    save_blocked=bool((authority.live_armed and live_issues) or (authority.sim_armed and sim_issues))
+    avoid_loss_switching_live=bool(
+        authority.live_armed and desired.strategy_key=="avoid-loss-v1"
+        and config.strategy_key!="avoid-loss-v1"
+    )
+    if avoid_loss_switching_live:
+        st.warning("Unngå tap V1 kan ikke overta en allerede armert LIVE-konto. "
+                   "Slå først LIVE av og kontroller at Saxo-posisjonen er FLAT.")
+    save_blocked=bool(avoid_loss_switching_live or
+                      (authority.live_armed and live_issues) or
+                      (authority.sim_armed and sim_issues))
     if save_blocked:
         st.caption('Slå den aktive motoren av før du lagrer en config som den ikke støtter.')
     if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
@@ -259,6 +268,21 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                 )
                 if fresh_cost.blocked:
                     raise RuntimeError(f'LIVE kostnadssperre: {fresh_cost.detail}')
+                if desired.strategy_key=="avoid-loss-v1":
+                    broker=configured_live_pilot_client_v3()
+                    exact=broker.signed_inventory_exact(
+                        account_id=instance.account_id,uic=int(instance.uic),
+                        asset_type=instance.asset_type)
+                    if abs(exact)>1e-12:
+                        raise RuntimeError(
+                            "Unngå tap V1 krever en Saxo-FLAT start. "
+                            "Eksisterende posisjon har ingen ny frossen inngangsmargin.")
+                    currencies=[str(a.get("Currency") or "").upper()
+                        for a in broker.accounts()
+                        if isinstance(a,dict) and
+                        str(a.get("AccountId") or "")==str(instance.account_id)]
+                    if currencies!=["NOK"]:
+                        raise RuntimeError("Unngå tap V1 krever eksakt NOK-konto")
                 if changed:
                     save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
                 set_live_enabled_v3(trader_id,True,account_id=instance.account_id)
