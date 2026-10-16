@@ -48,3 +48,19 @@ Tester i `tests/test_autotrader_v3_avoid_loss_*.py` dekker policy, P/L, marginan
 
 ## Instruks til neste arkitekt
 Begynn med siste HEAD og CI i PR #721. Verifiser Saxo/OpenAPI felt mot faktisk, autorisert respons og kjør feilscenarioene. Prioriter å beholde eksisterende kontoer trygge. Rett tekniske feil i PR før merge. Hvis LIVE-evidensen mangler, ikke fremstille arbeidet som fullført LIVE eller endre brukerens aktive Saxo-strategier. Hvis nødvendig, merge kun en isolert, bevist trygg research/SIM-del. Dokumenter nøyaktig hva som er validert og hva som gjenstår.
+
+## Verifiseringsrapport 2026-10-16 — siste kontroll
+
+**TRYGG RESEARCH DEL MERGET**: [PR #722](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/722) → `main`, squash SHA `78c0226d4a0c31402bc2abac9ba5e64b65297927`, **2356 pytest-testene besto**. Dette leverer bare `Unngå tap V1 · NAV-SIM`, ren risikopolicy, prisbasert SIM og grensesnitt. Ikke LIVE-ordre, ikke kontoendringer og ingen automatiske strategi-/arming-endringer. SIM-modellen inkluderer intrabar stopp også i første handelsminutt.
+
+**SAXO LIVE FORELØPIG BLOKKERT**: [draft PR #721](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/721) beholdes i feature branch og skal **ikke merges** før read-only produksjons-API-skjema og kontrollert order-flow er dokumentert. To faktiske kontraktfeil er rettet på branchen:
+1. Individuell Saxo `PositionBase` (`PositionStatic`) returnerer `Amount`, men ikke `OpeningDirection`. Nettposisjonens signerte mengde må sjekkes separat; signert ordre og individuelle `PositionId` må samsvare. Kilde: https://www.developer.saxo/openapi/referencedocs/port/v1/positions/get__port
+2. Saxo `cs/v1/audit/orderactivities?EntryType=Last` bruker `Status=FinalFill`, `SubStatus=Confirmed` og `PositionId` ved full fill, ikke generisk `Executed`. Delvis fill rapporteres som `Fill`. Dermed må `FinalFill/Confirmed` og identisk `PositionId` samt fylt mengde bevises før margin bindes til posisjonen. Kilde: https://www.developer.saxo/openapi/learn/audit-orderactivities
+
+Disse feilene var ikke fanget av opprinnelige faker, og ville gitt `UNPROTECTED` på en virkelig posisjon. Nye fixture-tester er lagt til. Siste fullførte GitHub CI etter første kontraktfikser: [run 38892508026](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/actions/runs/38892508026), **2394 passed**, 65 warnings. Nyere kode (SIM første-minutt-stopp) kan medføre nyere CI-runder; sjekk siste SHA.
+
+**Gjenstående kritisk teknisk kontroll som ikke kan påstås utført**: Ingen autorisert read-only levende Saxo-API-forespørsel var mulig fra GitHub-/Railway-konnektorene i denne økten. Bekreft ekte kontospesifikke `PositionView` P/L, `CurrentPriceLastTraded` (kan være fraværende/gammelt), `TradeCostsTotalInBaseCurrency`, margin precheck, `PositionId` ved faktisk `FinalFill`, kontovaluta, nettoeksponering og request-ID; finn strømmete eller ferskt nok tidsstempel for max 10-sekunders risiko-monitor. Det må dokumenteres med redigerte/anonymiserte responser; ingen tokens, AccountKey eller fulle ordrenumre i issue/logg.
+
+**Driftsobservasjon:** Eksisterende V3 worker rapporterte på 2026-10-16 flere `SaxoTradingSafetyError` for den gamle `Reset on Loss` P/L-lesningen på en annen instans. Dette er ikke bevis mot ny risk watcher, men viser at en robust håndtering av manglende/forsinket P/L i praksis er nødvendig.
+
+Neste arkitekt: Se først PR #722 deployed og bekreft 6/6 Railway online, så draft #721. Krev ekte API-evidens og edge-case-tester inkl. pending/partial fill/restart, "unprotected"-varsel og konservativ stoppelatens før noen LIVE-aktivering. Ikke rekonfigurer de fire eksisterende LIVE-instansene.
