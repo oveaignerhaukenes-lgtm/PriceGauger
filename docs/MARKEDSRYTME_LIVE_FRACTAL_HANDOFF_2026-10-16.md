@@ -69,3 +69,34 @@ Langtidsnivå på uker/år krever separat justert dag/uke-kilde, sesjon-/roll-/s
 - [ ] Ingen koblinger fra siden til `set_live_enabled`, `place_order`, strategi-bytte eller nye DB-write-kjeder.
 
 Kilder i repo: `autotrader_market_rhythm_v1.py`, `docs/MARKET_RHYTHM_PROFILE_2026-10-16.md`, `canonical_market_bars_v2.py`, `autotrader_strategy_scoreboard_v1.py`.
+
+
+## Datadrevet, generert fraktal – lagt til i samme PR
+
+Ny fane `Datadrevet fraktal` bygges av **ekte prisdata** fra den valgte
+kanoniske serien, ikke tilfeldig generert vektorillustrasjon:
+
+1. Ta kun ferdigbekreftede **makro-legs** (f.eks. 0,15% reversering).
+2. Finn minst to **mikrovendinger** (f.eks. 0,05%) inne i hver fullført
+   makro-leg. Barnet må være bekreftet senest ved makro-legens bekreftelse.
+3. Normaliser hver makro-leg fra tid 0→1 og prisdisplacement 0→1, slik at
+   tilsvarende form kan sammenlignes selv for opp-/nedbølger. Observerte
+   tids-/prisbanelinjer vises i grått.
+4. Beregn **median-svingmotivet** punktvis over et felles tidsgrid, vises blått.
+   Vis antall historiske motiver og median formspredning.
+5. Generer en separat syntetisk fraktal ved å erstatte hvert linjesegment
+   med den medianlærte formen, dybde 1–3 (lilla). Dette er en
+   rekursiv geometrisk visualisering av observert historisk motiv, og
+   inneholder IKKE framtidige markedskurser.
+6. Vindu/terskler kan endres, og panelet sier «ikke nok data» fremfor
+   å tegne en fiktiv fraktal når svingkvalifisering mangler.
+
+**Regimeindikator på sikt?** Ja som forskningshypotese, men ingen automatisk
+markedsregime-score, sidevalg eller LIVE execution opprettes av denne koden.
+Et validert regime krever historisk reproduksjon i *as-of* vinduer, bruk av
+faktisk informasjon tilgjengelig ved beslutningstid, referansemodeller,
+tidskronologisk test, usikkerhet og fremoverrettet netto resultat etter
+brokerkostnader. Normalisert formspredning er ennå bare deskriptiv.
+
+Fraktal#1-strategien ligger i **separat PR #729** og har ikke
+kodeavhengighet til denne UI-fraktalvisualiseringen.
