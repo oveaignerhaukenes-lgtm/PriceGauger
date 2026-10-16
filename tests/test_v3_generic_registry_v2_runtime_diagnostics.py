@@ -15,10 +15,11 @@ from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_K
 from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, strategy_adapter_v3
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3, evaluate_aen_core_v3
+from autotrader_v3_fraktal1_bridge_v1 import FRAKTAL1_RUNTIME_KEYS_V3, evaluate_fraktal1_v3
 
 
 def test_v3_registry_routes_all_strategies_through_same_decision_contract():
-    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY} | AEN_CORE_KEYS_V3
+    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3
     driver = strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(HISTOGRAM_FLIP_BUILD_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(PEAK_FLIP_KEY).evaluate_closed_bar
@@ -35,6 +36,9 @@ def test_v3_registry_routes_all_strategies_through_same_decision_contract():
     assert strategy_adapter_v3(STOCH_V21_KEY).live_route_enabled
     for key in AEN_CORE_KEYS_V3:
         assert strategy_adapter_v3(key).evaluate_closed_bar is evaluate_aen_core_v3
+        assert strategy_adapter_v3(key).live_route_enabled is True
+    for key in FRAKTAL1_RUNTIME_KEYS_V3:
+        assert strategy_adapter_v3(key).evaluate_closed_bar is evaluate_fraktal1_v3
         assert strategy_adapter_v3(key).live_route_enabled is True
 
 
