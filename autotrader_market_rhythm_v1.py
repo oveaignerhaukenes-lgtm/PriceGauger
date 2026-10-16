@@ -137,10 +137,9 @@ def market_rhythm_profile_v1(
     No fill costs or post-hoc optimal strategy switching is inferred.
     """
     clean = _positive_1m_closes(price)
-    if len(clean) > 1:
-        elapsed_hours = max((clean.index[-1] - clean.index[0]).total_seconds() / 3600.0, 1 / 60)
-    else:
-        elapsed_hours = 0
+    # Rate per OBSERVED 1m market data, not elapsed wall-clock. Overnight
+    # closures/weekends must not dilute the perceived reversal frequency.
+    observed_hours = len(clean) / 60.0
     profiles: list[RhythmProfileV1] = []
     for threshold in thresholds_pct:
         turns = confirmed_turns_v1(clean, reversal_pct=float(threshold))
@@ -175,7 +174,7 @@ def market_rhythm_profile_v1(
             median_cycle_minutes=float(median(full_cycles)) if full_cycles else None,
             median_leg_amplitude_pct=float(median(amps)) if amps else None,
             cycle_period_cv=float(cv) if cv is not None else None,
-            turns_per_hour=len(turns) / elapsed_hours if elapsed_hours else 0.0,
+            turns_per_hour=len(turns) / observed_hours if observed_hours else 0.0,
             leg_duration_1m=sum(d <= 1.0 for d in periods),
             leg_duration_2m=sum(1.0 < d <= 2.0 for d in periods),
             leg_duration_3_to_4m=sum(2.0 < d <= 4.0 for d in periods),
