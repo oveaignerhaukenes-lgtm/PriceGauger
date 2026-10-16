@@ -5,12 +5,16 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from autotrader_market_rhythm_v1 import ConfirmedTurnV1
 
 from market_rhythm_dashboard_v1 import (
     amplitude_duration_counts_v1,
     build_rhythm_view_v1,
     cross_scale_alignment_v1,
     duration_bucket_v1,
+    RhythmViewV1,
+    empirical_fractal_motif_v1,
+    recursively_generated_fractal_v1,
     last_confirmed_legs_v1,
     turn_table_v1,
 )
@@ -104,3 +108,67 @@ def test_new_market_rhythm_page_is_only_reading_canonical_data():
         "insert into", "update autotrader_",
     ):
         assert prohibited not in (ui+"\n"+model).lower()
+
+
+def test_empirical_generated_fractal_is_derived_only_from_completed_observed_swings():
+    t = pd.date_range("2026-10-16T10:00:00Z", periods=65, freq="1min")
+    macro = (
+        ConfirmedTurnV1("TROUGH",t[0],t[1],100.0,0),
+        ConfirmedTurnV1("PEAK",t[20],t[21],110.0,0),
+        ConfirmedTurnV1("TROUGH",t[40],t[41],100.0,0),
+        ConfirmedTurnV1("PEAK",t[60],t[61],110.0,0),
+    )
+    micro = tuple(
+        ConfirmedTurnV1("PEAK" if i%2 else "TROUGH",t[minute],t[minute+1],price,0)
+        for i,(minute,price) in enumerate([
+            (5,104.0),(10,103.0),(15,108.0),
+            (25,106.0),(30,107.0),(35,103.0),
+            (45,104.0),(50,103.0),(55,108.0),
+        ])
+    )
+    view=RhythmViewV1(
+        as_of=t[-1],prices=pd.Series([100.0]*len(t),index=t),
+        profiles=(),turns={0.05:micro,0.15:macro},legs=(),
+    )
+    shape=empirical_fractal_motif_v1(
+        view,micro_threshold=0.05,macro_threshold=0.15,max_motifs=12)
+    assert shape is not None
+    assert shape.sample_count==3
+    assert shape.x[0]==0 and shape.x[-1]==1
+    assert shape.motif_y[0]==0 and shape.motif_y[-1]==1
+    assert shape.median_dispersion>=0
+    for depth in (1,2,3):
+        xx,yy=recursively_generated_fractal_v1(shape,depth=depth)
+        assert len(xx)==8**depth+1
+        assert len(xx)==len(yy)
+        assert xx[0]==0 and xx[-1]==1
+        assert yy[0]==0 and yy[-1]==1
+        assert all(u<=v for u,v in zip(xx,xx[1:]))
+
+
+def test_generated_fractal_never_fabricates_data_or_uses_future_unconfirmed_child():
+    t=pd.date_range("2026-10-16T10:00:00Z",periods=32,freq="1min")
+    parents=(
+        ConfirmedTurnV1("TROUGH",t[0],t[1],100,0),
+        ConfirmedTurnV1("PEAK",t[20],t[21],110,0),
+    )
+    # Child pivot inside the parent time interval, but confirmed AFTER the
+    # parent end: must be excluded from the learned historical motif.
+    children=(
+        ConfirmedTurnV1("PEAK",t[5],t[25],104,0),
+        ConfirmedTurnV1("TROUGH",t[10],t[26],103,0),
+    )
+    view=RhythmViewV1(t[-1],pd.Series([100.0]*len(t),index=t),(),
+                      {0.05:children,0.15:parents},())
+    assert empirical_fractal_motif_v1(view,micro_threshold=.05,macro_threshold=.15) is None
+    with pytest.raises(ValueError):
+        empirical_fractal_motif_v1(view,micro_threshold=.15,macro_threshold=.05)
+
+
+def test_fractal_tab_distinguishes_observed_from_generated():
+    code=Path("pages/0_Markedsrytme.py").read_text(encoding="utf-8")
+    assert "Datadrevet fraktal" in code
+    assert "empirical_fractal_motif_v1" in code
+    assert "recursively_generated_fractal_v1" in code
+    assert "ikke* markedsdata" in code
+    assert "SaxoOrderRequest" not in code
