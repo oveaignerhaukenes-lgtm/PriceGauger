@@ -17,7 +17,7 @@ ENROLLMENT=SimpleNamespace(
 )
 BASE={
     "AccountId":"NOK-ACCT","Uic":4912,"AssetType":"CfdOnIndex",
-    "Amount":.01,"OpeningDirection":"Buy","Status":"Open",
+    "Amount":.01,"Status":"Open",  # documented PositionStatic omits OpeningDirection
 }
 
 
@@ -39,8 +39,7 @@ class SaxoFake:
         return self.amount
     def positions_exact(self,**kwargs):
         if self.amount==0:return ()
-        base={**BASE,"Amount":abs(self.amount),
-              "OpeningDirection":"Buy" if self.amount>0 else "Sell"}
+        base={**BASE,"Amount":abs(self.amount)}
         row={"PositionId":self.position_id,"PositionBase":base,
              "PositionView":{
                 "ProfitLossOnTradeInBaseCurrency":self.pnl_nok,
