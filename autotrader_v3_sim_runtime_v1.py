@@ -174,7 +174,7 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             market_name=instance.market_name,
             db_path=db_path,
             **({"signal_timeframe_minutes":timeframe_minutes,
-                "now":end} if instance.strategy_key in AEN_CORE_KEYS_V3 else {}),
+                "now":end} if instance.strategy_key in (AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3) else {}),
         )
         processed += int(result.is_new)
         _record_sim_runtime_v3(
