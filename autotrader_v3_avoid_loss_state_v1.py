@@ -269,7 +269,8 @@ def staged_entry_for_reconciled_order_v1(
            initial_margin_nok DOUBLE PRECISION NOT NULL,
            created_at TEXT NOT NULL
         )""")
-        row=db.execute("""SELECT p.request_key,p.initial_margin_nok,
+        row=db.execute("""SELECT p.request_key,p.account_id,p.uic,p.asset_type,
+               o.state AS guard_state,p.initial_margin_nok,
                p.signed_amount,o.broker_order_id,o.submitted_side,
                o.submitted_amount,o.expected_inventory
             FROM autotrader_v3_avoid_loss_preflight_v1 p
