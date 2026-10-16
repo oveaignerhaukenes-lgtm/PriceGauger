@@ -26,6 +26,13 @@ STRATEGIES_V3 = (
     StrategySpecV3("aen-core-hysteresis", "AEn Core · Hysteresis", "AEn Core LIVE: MACD med hysterese-filter og bekreftede 5m strukturvendinger; én enhet, ingen impulse/pyramidering.", "aen-core-hysteresis-v1", True),
     StrategySpecV3("aen-core-stoch", "AEn Core · MACD+Stochastic", "AEn Core LIVE: MACD og Stoch K/D som retningsfilter for bekreftede 5m strukturvendinger; én enhet.", "aen-core-stoch-v1", True),
     StrategySpecV3("aen-core-auto", "AEn Core · Adaptive Hold", "AEn Core LIVE: deterministisk skift mellom MACD-tidsrammer med dwell/hysterese, bekreftet 5m struktur og én enhet. Ikke AI, impulse eller pyramidering.", "aen-core-auto-v1", True),
+    StrategySpecV3(
+        "avoid-loss-v1", "Unngå tap V1 · MACD 2m",
+        "En Saxo-lovlig tranche; MACD 2m/kryss eller bekreftet breakout. "
+        "Risiko: -1 % frossen inngangsmargin; gevinstsikring fra +2 % og 10 % fra nettogevinsttopp. "
+        "Krever sanntids Saxo NOK-P/L, verifisert inngangsmargin, durable stop og særskilt risikovakt.",
+        "avoid-loss-v1",True,
+    ),
     StrategySpecV3("macd-flip", "MACD Flip · V3", "Ren MACD 12/26/9 på ferdige signallys. Ett minste Saxo-inkrement, LONG ved bullish kryss og SHORT ved bearish kryss; ellers HOLD. Ingen trailing/pyramidering. V3 lukker gammel side og bekrefter FLAT før ny side.", "macd-flip-v1", True),
     StrategySpecV3("macd", "MACD Trailing · Legacy", "Eldre MACD-impulsmotor: motsatt kryss går til FLAT, impuls skalerer innen aktiv retning. Dette er IKKE MACD Flip i SIM.", "macd-trailing-v1", True),
     StrategySpecV3("macd-stoch-v1", "MACD-Stoch v1", "MACD bestemmer retning og bygger eksponering. Motsatt Stochastic K/D-kryss lukker posisjonen; Stochastic kan ikke reversere.", "macd-stoch-v1", True),
@@ -147,6 +154,10 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key == "avoid-loss-v1" and timeframe != "2m":
+        issues.append("Unngå tap V1 requires fixed MACD 2m (risk exits independent of 2m)")
+    if strategy_key == "avoid-loss-v1" and modifiers:
+        issues.append("Unngå tap V1 includes integrated stop policy; no extra modifiers")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
@@ -176,6 +187,10 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key == "avoid-loss-v1" and timeframe != "2m":
+        issues.append("Unngå tap V1 SIM requires fixed MACD 2m")
+    if strategy_key == "avoid-loss-v1" and modifiers:
+        issues.append("Unngå tap V1 SIM is a standalone strategy, no modifiers")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
