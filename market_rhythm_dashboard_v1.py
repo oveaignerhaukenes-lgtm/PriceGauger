@@ -173,12 +173,19 @@ def cross_scale_alignment_v1(view: RhythmViewV1) -> list[dict[str, object]]:
         small_events = view.turns[small]
         large_events = view.turns[large]
         lags = []
+        # Two-pointer chronological join: O(number of turns), not a nested
+        # scan of every micro-pivot for each macro-pivot in the 7d dashboard.
+        small_idx = 0
+        most_recent: dict[tuple[int, str], ConfirmedTurnV1] = {}
         for big in large_events:
-            eligible = [ev for ev in small_events if ev.kind == big.kind
-                        and ev.confirmed_at <= big.confirmed_at
-                        and ev.segment == big.segment]
-            if eligible:
-                latency = (big.confirmed_at - eligible[-1].confirmed_at).total_seconds() / 60
+            while (small_idx < len(small_events)
+                   and small_events[small_idx].confirmed_at <= big.confirmed_at):
+                candidate = small_events[small_idx]
+                most_recent[(candidate.segment, candidate.kind)] = candidate
+                small_idx += 1
+            earlier = most_recent.get((big.segment, big.kind))
+            if earlier is not None:
+                latency = (big.confirmed_at - earlier.confirmed_at).total_seconds() / 60
                 lags.append(float(latency))
         output.append({
             "Mikroterskel %": small,
