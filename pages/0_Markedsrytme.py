@@ -22,6 +22,8 @@ from market_rhythm_dashboard_v1 import (
     duration_bucket_v1,
     last_confirmed_legs_v1,
     turn_table_v1,
+    empirical_fractal_motif_v1,
+    recursively_generated_fractal_v1,
 )
 
 st.set_page_config(page_title="Markedsrytme · PriceGauger", page_icon="〰️", layout="wide")
@@ -212,6 +214,44 @@ def _plot_nested_scales(view):
     return fig
 
 
+def _plot_market_generated_fractal(motif, depth: int):
+    """Observed normalized motifs vs recursive synthetic extrapolation of shape.
+
+    X is normalized elapsed time INSIDE a completed macro swing, not a time
+    forecast. Y is its normalized signed displacement, not future price.
+    """
+    fig=go.Figure()
+    for i, sample in enumerate(motif.samples):
+        fig.add_trace(go.Scatter(
+            x=motif.x,y=sample,mode="lines",
+            line=dict(color="rgba(148,163,184,0.23)",width=1),
+            name="Observerte svingmotiv",showlegend=i==0,
+            hovertemplate="Normalisert tid %{x:.2f}<br>Relativ pris %{y:.2f}<extra></extra>",
+        ))
+    fig.add_trace(go.Scatter(
+        x=motif.x,y=motif.motif_y,mode="lines+markers",
+        name="Median av observerte motiv",
+        line=dict(color="#0ea5e9",width=3),
+        marker=dict(size=5),
+    ))
+    generated_x,generated_y=recursively_generated_fractal_v1(motif,depth=depth)
+    fig.add_trace(go.Scatter(
+        x=generated_x,y=generated_y,mode="lines",
+        name=f"GENERERT rekursiv fraktal (dybde {depth})",
+        line=dict(color="#c084fc",width=2),
+        hovertemplate="Normalisert tid %{x:.3f}<br>Syntetisk form %{y:.3f}<extra></extra>",
+    ))
+    fig.update_layout(
+        title="Datadrevet fraktal: faktiske mikromotiv → syntetisk rekursjon",
+        height=460,margin=dict(t=55,b=50,l=20,r=10),
+        xaxis_title="Relativ tid mellom bekreftede makro-pivoter (0–1)",
+        yaxis_title="Normalisert prisforløp i historiske makrobevegelser",
+        legend=dict(orientation="h",y=-0.24),
+        uirevision=f"empirical-fractal-{depth}",
+    )
+    return fig
+
+
 @st.fragment(run_every="30s")
 def _render_live() -> None:
     try:
@@ -249,7 +289,7 @@ def _render_live() -> None:
     st.caption("CV nær 0 = mer stabil *historisk* periodetid; «ukjent» ved for få sykluser. Dette er ikke en prediksjon.")
 
     st.plotly_chart(_plot_price_with_turns(view,float(threshold)),use_container_width=True,config={"displaylogo":False})
-    tab1,tab2,tab3 = st.tabs(("Sykluser og amplitude","Fraktal struktur","Vendinger og detaljer"))
+    tab1,tab2,tab3,tab4 = st.tabs(("Sykluser og amplitude","Fraktal struktur","Vendinger og detaljer","Datadrevet fraktal"))
     with tab1:
         a,b = st.columns(2)
         with a: st.plotly_chart(_plot_duration(view),use_container_width=True,config={"displaylogo":False})
@@ -273,6 +313,54 @@ def _render_live() -> None:
             "forutsi størrelsen eller fasen i større svingninger bedre enn en enkel baseline? "
             "Krever tidskausal walk-forward-validering og virkelige Saxo-kostnader."
         )
+    with tab4:
+        st.subheader("Fraktal generert fra observerte markedssvingninger")
+        st.caption(
+            "Dette er ikke tilfeldig fraktalkunst: først normaliseres ferdigbekreftede "
+            "store topp–bunn-bevegelser. Mindre svingpunkter inne i hver større bevegelse "
+            "danner et empirisk motiv. Medianmotivet blir så gjentatt rekursivt."
+        )
+        left,right=st.columns(2)
+        with left:
+            selected_levels=st.selectbox(
+                "Mikro / makro (min. reversering %)",
+                ((0.05,0.15),(0.05,0.35),(0.10,0.35),(0.15,0.35)),
+                index=0,
+                format_func=lambda levels:f"{levels[0]:g}% inne i {levels[1]:g}%",
+                key=f"fractal-levels:{selected.instrument_id}",
+            )
+        with right:
+            depth=st.slider(
+                "Generert rekursjonsdybde",min_value=1,max_value=3,value=2,
+                key=f"fractal-depth:{selected.instrument_id}",
+            )
+        motif=empirical_fractal_motif_v1(
+            view,micro_threshold=selected_levels[0],
+            macro_threshold=selected_levels[1],max_motifs=12,
+        )
+        if motif is None:
+            st.info(
+                "For lite datagrunnlag: trenger minst ett bekreftet stort swing "
+                "med minst to mindre bekreftede vendepunkter inni. "
+                "Prøv et lengre vindu eller lavere makroterskel."
+            )
+        else:
+            x1,x2,x3=st.columns(3)
+            x1.metric("Observerte makro-motiv",motif.sample_count)
+            x2.metric("Median formspredning",f"{motif.median_dispersion:.3f}")
+            x3.metric("Rekursjonsdybde",depth)
+            if motif.sample_count<3:
+                st.warning("Færre enn tre observerte motiver: fraktalformen er foreløpig svært usikker.")
+            st.plotly_chart(
+                _plot_market_generated_fractal(motif,depth),
+                use_container_width=True,config={"displaylogo":False},
+            )
+            st.caption(
+                "Grå = faktiske historiske, normaliserte svingforløp. Blå = median "
+                "av dem. Lilla = syntetisk, rekursivt generert motiv. Den lilla "
+                "kurven er *ikke* markedsdata, prisprognose eller handels-signal. "
+                "Formspredning er beskrivende variasjon, ikke et validert regimesignal."
+            )
     with tab3:
         st.subheader("Siste bekreftede topper og bunner")
         st.dataframe(turn_table_v1(view,threshold_pct=float(threshold)),hide_index=True,use_container_width=True)
