@@ -117,7 +117,19 @@ def fractal_step_v1(
         confirmed_turns_v1(prices, reversal_pct=threshold)
         for threshold in REVERSION_THRESHOLDS_PCT
     )
-    latest = tuple(_last_causal_turn(item, end) for item in turns)
+    # If the market was closed / a canonical minute was missing, a turn from
+    # before the gap must not be treated as an active confirmation now.
+    gaps = pd.Series(prices.index, index=prices.index).diff()
+    segment_start = (
+        gaps[gaps > pd.Timedelta(minutes=1)].index[-1]
+        if (gaps > pd.Timedelta(minutes=1)).any() else prices.index[0]
+    )
+    latest = tuple(
+        next((ev for ev in reversed(scale)
+              if _utc(ev.confirmed_at) <= end
+              and _utc(ev.confirmed_at) >= _utc(segment_start)), None)
+        for scale in turns
+    )
     directions = tuple(_turn_direction(t) for t in latest)
     current = float(state.target_amount)
     side = 1 if current > 0 else -1 if current < 0 else 0
