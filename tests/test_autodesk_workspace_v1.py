@@ -8,7 +8,7 @@ def test_autodesk_is_mounted_beside_tradingdesk() -> None:
     paths = [item["page"] for item in pages]
     assert "pages/0_TradingDesk.py" in paths
     assert "pages/0_Autodesk.py" in paths
-    assert paths.index("pages/0_Autodesk.py") == paths.index("pages/0_TradingDesk.py") + 3
+    assert paths.index("pages/0_TradingDesk.py") < paths.index("pages/0_Markedsrytme.py") < paths.index("pages/0_Autodesk.py")
     assert paths.index("pages/0_Live_Chart.py") == paths.index("pages/0_TradingDesk.py") + 1
     assert paths.index("pages/0_AutoTrader_V3.py") == paths.index("pages/0_TradingDesk.py") + 2
 
