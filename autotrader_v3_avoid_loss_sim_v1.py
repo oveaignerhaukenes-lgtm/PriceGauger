@@ -297,6 +297,24 @@ def run_avoid_loss_sim_v1(
                         entry_time=t
                         top_net=-2*leg_cost
                         trailing=False
+                        # A newly opened trade is also exposed to the adverse
+                        # OHLC extreme of THIS FIRST minute. Never allow a
+                        # freshly opened trade to bypass the 1% hard barrier
+                        # until the next bar just because entries are filled
+                        # at the current minute open.
+                        worst=lo if position==1 else hi
+                        barrier=LOSS_STOP_PCT/100*initial_margin
+                        if pnl_at(worst,t)<=barrier:
+                            open_loss=pnl_at(op,t)
+                            if open_loss<=barrier:
+                                execution=op
+                            else:
+                                execution=entry_price*(
+                                    1+position*(barrier+2*leg_cost)/
+                                    config.notional_per_trade_nok)
+                                execution=(max(worst,execution) if position==1
+                                           else min(worst,execution))
+                            close(execution,t,"ENTRY_MINUTE_LOSS_STOP")
                 # Do NOT automatically reverse existing exposure at MACD cross;
                 # hold it until the position's own protective exit.
             prev_signal=(t,h)
