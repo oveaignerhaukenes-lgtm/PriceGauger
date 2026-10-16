@@ -21,6 +21,7 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
+    StrategySpecV3("fraktal-1", "Fraktal#1", "LIVE-capable deterministic 1m multiscale swing strategy, three confirmed thresholds (0.05/0.15/0.35%); one legal tranche, flat-first, no pyramiding. Must be explicitly selected and LIVE-armed.", "fraktal-1-v1", True),
     StrategySpecV3("aen-core-hold", "AEn Core · MACD Hold", "AEn Core LIVE: MACD-retning med bekreftet HH/HL eller LL/LH, 5m prisstruktur og én Saxo-lovlig enhet. Ingen impulse eller pyramidering.", "aen-core-hold-v1", True),
     StrategySpecV3("aen-core-histogram", "AEn Core · Histogram", "AEn Core LIVE: MACD-histogramets endring styrer regime; bekreftet HH/HL og LL/LH åpner én enhet. Ingen impulse eller pyramidering.", "aen-core-histogram-v1", True),
     StrategySpecV3("aen-core-hysteresis", "AEn Core · Hysteresis", "AEn Core LIVE: MACD med hysterese-filter og bekreftede 5m strukturvendinger; én enhet, ingen impulse/pyramidering.", "aen-core-hysteresis-v1", True),
@@ -108,6 +109,7 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
     "1m": 1, "2m": 2, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60,
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
+FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
 AEN_CORE_CATALOG_KEYS_V3 = frozenset({
     "aen-core-hold", "aen-core-histogram", "aen-core-hysteresis",
     "aen-core-stoch", "aen-core-auto",
@@ -147,6 +149,8 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
+        issues.append("Fraktal#1 v1 requires 1m completed-bar timing")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
@@ -176,6 +180,8 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
+        issues.append("Fraktal#1 v1 requires 1m completed-bar timing")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
@@ -199,6 +205,8 @@ def strategy_display_label_v3(
 ) -> str:
     """Human-facing label for the *persisted* V3 strategy configuration."""
     spec = strategy_v3(str(strategy_key))
+    if spec.key == "fraktal-1":
+        return "Fraktal#1 · 1m rytme · µ0.05/0.15/0.35%"
     if spec.key == "macd-regime-histogram":
         return f"Histogram MACD-R{regime_timeframe}S{timeframe}"
     if spec.key == "aen2-sticky-regime":
