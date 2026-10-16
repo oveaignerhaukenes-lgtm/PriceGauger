@@ -78,11 +78,14 @@ def _single_exact_position(broker,e,amount):
         raise ValueError("expected exactly one Saxo PositionId for the position")
     row=rows[0]
     base=row.get("PositionBase") or {}
-    direction=str(base.get("OpeningDirection") or "").lower()
-    signed=float(base.get("Amount") or 0)*(1 if direction=="buy" else
-         -1 if direction=="sell" else 0)
-    if abs(signed-float(amount))>1e-9:
-        raise ValueError("Saxo individual position amount differs from net inventory")
+    # The individual PositionStatic has Amount, *not* OpeningDirection.
+    # Saxo's signed net inventory was verified independently above; with
+    # exactly one individual position, compare its magnitude against that net.
+    individual=float(base.get("Amount") or 0)
+    if not isfinite(individual) or abs(individual)<1e-12 or (
+        abs(abs(individual)-abs(float(amount)))>1e-9
+    ):
+        raise ValueError("Saxo individual position quantity differs from signed net inventory")
     return row
 
 
