@@ -80,6 +80,7 @@ class SaxoLivePilotClientV3:
             "status":str(row.get("Status") or "").strip() or "UNKNOWN",
             "sub_status":str(row.get("SubStatus") or "").strip(),
             "filled_amount":row.get("FilledAmount"),
+            "position_id":str(row.get("PositionId") or "").strip(),
             "amount":row.get("Amount"),
             "side":str(row.get("BuySell") or "").strip(),
             "activity_time":str(row.get("ActivityTime") or "").strip(),
