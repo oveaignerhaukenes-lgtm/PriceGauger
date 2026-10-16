@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from datetime import datetime,timezone
 import streamlit as st
 from autotrader_execution_diagnostics_v1 import load_execution_diagnostic_v1
 from autotrader_v3_config_v1 import load_autotrader_config_v3
@@ -80,6 +81,16 @@ def render_v3_fleet_management_v1():
             cap=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'; st.caption(f'{status} · {detail} · aktiv {active_label} · options {", ".join(config.modifiers) or "ingen"} · ramme {cap}')
             if config.strategy_key=="avoid-loss-v1":
                 stop_status,stop_detail,stop_updated=_avoid_loss_monitor(item.instance_id)
+                if stop_status=="PROTECTED" and stop_updated:
+                    try:
+                        age=(datetime.now(timezone.utc)-
+                             datetime.fromisoformat(str(stop_updated)).astimezone(
+                                 timezone.utc)).total_seconds()
+                    except (ValueError,TypeError):
+                        age=float("inf")
+                    if age>20:
+                        stop_status="UNPROTECTED"
+                        stop_detail=f"Stop-oppdatering er {age:.0f}s gammel. "+stop_detail
                 if stop_status=="PROTECTED":
                     st.success("Unngå tap · Saxo-risikokontroll aktiv. "+stop_detail)
                 elif stop_status=="FLAT":
