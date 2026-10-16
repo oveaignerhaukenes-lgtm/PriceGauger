@@ -70,6 +70,12 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
         )""")
         # Separate, persistent peak/trough memory. Each completed candle
         # advances the normal target and this state in the SAME transaction.
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_fraktal1_state (
+          trader_id TEXT PRIMARY KEY, context_key TEXT NOT NULL,
+          last_bar_end TEXT NOT NULL, target_amount DOUBLE PRECISION NOT NULL,
+          last_open_bar_end TEXT,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
         db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_aen_core_state (
           trader_id TEXT PRIMARY KEY, context_key TEXT NOT NULL,
           last_bar_end TEXT NOT NULL, target_amount DOUBLE PRECISION NOT NULL,
@@ -107,6 +113,12 @@ def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
                SET target_amount=?,updated_at=? WHERE trader_id=?""",
             (float(target_amount), now, str(trader_id)),
         )
+        fractal_original=db.execute(
+            "SELECT target_amount FROM autotrader_v3_fraktal1_state WHERE trader_id=?",
+            (str(trader_id),),
+        ).fetchone()
+        fractal_changed=(fractal_original is not None and
+                         abs(float(fractal_original["target_amount"])-float(target_amount))>1e-9)
         aen_original=db.execute(
             "SELECT target_amount FROM autotrader_v3_aen_core_state WHERE trader_id=?",
             (str(trader_id),),
@@ -128,12 +140,17 @@ def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,
                 db.execute("""UPDATE autotrader_v3_closed_bar_state
                     SET previous_spread=NULL WHERE trader_id=?""",
                     (str(trader_id),))
+        if fractal_changed:
+            # Risk veto / external order: discard prior entry signal and
+            # force fresh closed-bar confirmation after broker reconciliation.
+            db.execute("DELETE FROM autotrader_v3_fraktal1_state WHERE trader_id=?",
+                       (str(trader_id),))
         if aen_changed:
             # AEn can run without a legacy closed-bar row. Vetoes MUST
             # discard its autonomous target even in that case.
             db.execute("DELETE FROM autotrader_v3_aen_core_state WHERE trader_id=?",
                        (str(trader_id),))
-    return cursor.rowcount == 1 or aen_changed
+    return cursor.rowcount == 1 or aen_changed or fractal_changed
 
 
 def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV2,
