@@ -108,11 +108,14 @@ class SaxoLivePilotClientV3:
         # /netpositions/me is client-wide and can aggregate the same instrument
         # across accounts. Ask Saxo to scope the calculation to AccountKey instead.
         account_key,client_key=self._account_context_exact(account_id)
-        params={"$top":1000,"AccountKey":account_key,"AssetType":asset_type,"Uic":int(uic)}
+        params={"$top":1000,"AccountKey":account_key,"AssetType":asset_type,
+                "Uic":int(uic),"FieldGroups":"NetPositionBase,NetPositionView"}
         if client_key:
             params["ClientKey"]=client_key
         payload=self.client._get("port/v1/netpositions",params=params)
-        rows=payload.get("Data") or []
+        if not isinstance(payload,Mapping) or payload.get("__next"):
+            raise SaxoTradingSafetyError("v3 LIVE account-scoped net positions incomplete")
+        rows=payload.get("Data")
         if not isinstance(rows,list):
             raise SaxoTradingSafetyError("v3 LIVE exact position response is invalid")
         matches=[]
@@ -132,26 +135,20 @@ class SaxoLivePilotClientV3:
             raise SaxoTradingSafetyError("ambiguous v3 LIVE exact-boundary position state")
         return tuple(matches)
     def open_pnl_exact(self, *,account_id:str,uic:int,asset_type:str)->float:
-        """Current P/L for the exact V3 account/product using Saxo's rich view."""
+        """Read open P/L from the SAME verified account-scoped net position.
+
+        Do not fetch /netpositions/me after the account-specific inventory:
+        client-wide responses can be ambiguous or omit the exact account.
+        Never use an unverified price to claim the loss guard is active.
+        """
         exact=self.net_positions_exact(account_id=account_id,uic=uic,asset_type=asset_type)
         if not exact:
             return 0.0
-        payload=self.client._get("port/v1/netpositions/me",params={"$top":1000})
-        rows=payload.get("Data") or []
-        matches=[]
-        for row in rows:
-            if not isinstance(row,dict):
-                continue
-            base=row.get("NetPositionBase") if isinstance(row.get("NetPositionBase"),dict) else {}
-            if str(base.get("PositionsAccount") or base.get("AccountId") or "").strip()!=str(account_id):
-                continue
-            if int(base.get("Uic") or -1)!=int(uic) or str(base.get("AssetType") or "")!=str(asset_type):
-                continue
-            matches.append(row)
-        if len(matches)!=1:
-            raise SaxoTradingSafetyError("v3 LIVE P/L view is missing or ambiguous for exact account/product")
         from autotrader_v3_reset_on_loss_v1 import open_pnl_from_net_position_v3
-        return open_pnl_from_net_position_v3(matches[0])
+        try:
+            return open_pnl_from_net_position_v3(exact[0])
+        except (ValueError,TypeError,OverflowError) as exc:
+            raise SaxoTradingSafetyError("v3 LIVE account-scoped P/L unavailable") from exc
     def signed_inventory_exact(self, *,account_id:str,uic:int,asset_type:str)->float:
         """Return signed inventory for one exact V3 account/product boundary."""
         rows=self.net_positions_exact(account_id=account_id,uic=uic,asset_type=asset_type)

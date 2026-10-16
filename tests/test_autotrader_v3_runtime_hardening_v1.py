@@ -79,16 +79,60 @@ def test_live_runtime_uses_v3_exact_inventory_reader_not_v2_portfolio_reader():
     assert '_position_observations_v2' not in source
 
 
-def test_open_pnl_uses_rich_view_but_preserves_exact_account_product_match():
+def test_open_pnl_uses_single_account_scoped_response_and_no_client_wide_me():
+    calls=[]
     class Client:
         base_url=LIVE_BASE_URL
         def _get(self,path,params=None):
+            calls.append((path,params))
             if path=='port/v1/accounts/me':
                 return {'Data':[{'AccountId':'v3','AccountKey':'ak','ClientKey':'ck'}]}
             if path=='port/v1/netpositions':
-                return {'Data':[{'NetPositionBase':{'Uic':4912,'AssetType':'CfdOnIndex','AmountLong':0.01}}]}
-            if path=='port/v1/netpositions/me':
-                return {'Data':[{'NetPositionBase':{'PositionsAccount':'v3','Uic':4912,'AssetType':'CfdOnIndex','AmountLong':0.01},'NetPositionView':{'AverageOpenPriceIncludingCosts':100.0,'CurrentPrice':99.0}}]}
-            raise AssertionError(path)
+                assert params['AccountKey']=='ak'
+                assert params['Uic']==4912
+                assert params['FieldGroups']=='NetPositionBase,NetPositionView'
+                return {'Data':[{
+                    'NetPositionBase':{
+                        'PositionsAccount':'v3','Uic':4912,
+                        'AssetType':'CfdOnIndex','AmountLong':0.01
+                    },
+                    'NetPositionView':{
+                        'ProfitLossOnTradeInBaseCurrency':-12.5,
+                        'CalculationReliability':'Ok','CurrentPriceDelayMinutes':0,
+                        'AverageOpenPriceIncludingCosts':100.0,
+                        'CurrentPrice':101.0
+                    }
+                }]}
+            raise AssertionError("Unexpected, unscoped Saxo path: "+path)
     broker=SaxoLivePilotClientV3(Client())
-    assert broker.open_pnl_exact(account_id='v3',uic=4912,asset_type='CfdOnIndex') < 0
+    assert broker.open_pnl_exact(account_id='v3',uic=4912,
+                                  asset_type='CfdOnIndex') == pytest.approx(-12.5)
+    assert [path for path,params in calls].count('port/v1/netpositions')==1
+    assert 'port/v1/netpositions/me' not in [path for path,params in calls]
+
+
+def test_account_scoped_pnl_rejects_other_account_and_incomplete_pagination():
+    for shape in ('wrong_account','pagination','missing_view'):
+        class Client:
+            base_url=LIVE_BASE_URL
+            def _get(self,path,params=None):
+                if path=='port/v1/accounts/me':
+                    return {'Data':[{'AccountId':'v3','AccountKey':'ak'}]}
+                if path!='port/v1/netpositions':
+                    raise AssertionError(path)
+                row={
+                    'NetPositionBase':{
+                        'PositionsAccount':'other' if shape=='wrong_account' else 'v3',
+                        'Uic':4912,'AssetType':'CfdOnIndex','AmountLong':.01},
+                    'NetPositionView':{'ProfitLossOnTradeInBaseCurrency':-10.,
+                        'CalculationReliability':'Ok','CurrentPriceDelayMinutes':0},
+                }
+                if shape=='missing_view':
+                    row.pop('NetPositionView')
+                result={'Data':[row]}
+                if shape=='pagination':result['__next']='?skip=1000'
+                return result
+        broker=SaxoLivePilotClientV3(Client())
+        with pytest.raises(SaxoTradingSafetyError):
+            broker.open_pnl_exact(account_id='v3',uic=4912,
+                                   asset_type='CfdOnIndex')
