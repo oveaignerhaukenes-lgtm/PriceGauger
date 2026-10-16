@@ -12,10 +12,11 @@ from macd_nextgen_lab_ui_v1 import render_nextgen_macd_lab_v1
 from aen_lab_ui_v1 import render_aen_core_lab_v1
 from live_sim_tv_charts_v1 import render_lab_tv_series
 from live_sim_signal_inversion_ui_v1 import render_signal_inversion_lab_v1
+from autotrader_v3_avoid_loss_lab_ui_v1 import render_avoid_loss_lab_v1
 from autotrader_v2_strategy_lab_ui_v1 import render_v2_strategy_lab_v1
 
 st.title("Live-Sim Lab")
-universe=st.selectbox("Strategiunivers",("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","V2 strategies","Legacy strategies"),key="lsim:universe")
+universe=st.selectbox("Strategiunivers",("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","Unngå tap V1 · NAV-SIM","V2 strategies","Legacy strategies"),key="lsim:universe")
 if universe=="AEn Core · Adaptive Engine":
     render_aen_core_lab_v1()
     st.stop()
@@ -24,6 +25,9 @@ if universe=="Nye strategier · MACD":
     st.stop()
 if universe=="Inversjonstest · MACD":
     render_signal_inversion_lab_v1()
+    st.stop()
+if universe=="Unngå tap V1 · NAV-SIM":
+    render_avoid_loss_lab_v1()
     st.stop()
 if universe=="V2 strategies":
     render_v2_strategy_lab_v1()
