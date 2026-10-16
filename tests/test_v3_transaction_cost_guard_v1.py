@@ -117,7 +117,9 @@ def test_ui_and_runtime_enforce_cost_guard_without_trapping_reductions():
     assert "LIVE kostnadssperre" in ui
 
     assert "assess_transaction_cost_v3(" in runtime
-    assert "cost_assessment.blocked and abs(actual.amount) <= 1e-12" in runtime
+    assert "cost_assessment is not None and cost_assessment.blocked" in runtime
+    assert "and abs(actual.amount) <= 1e-12" in runtime
+    assert "if cost_assessment is None or cost_assessment.blocked:" in runtime
     open_add = runtime.index("if mutation.action in {'OPEN','ADD'}:")
     cost_block = runtime.index("if cost_assessment.blocked:", open_add)
     reduce_close = runtime.index("if mutation.action in {'REDUCE','CLOSE'}:")
