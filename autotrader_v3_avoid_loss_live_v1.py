@@ -89,7 +89,7 @@ def _single_exact_position(broker,e,amount):
     return row
 
 
-def _check_confirmed_open(broker,e,position,*,db_path):
+def _check_confirmed_open(broker,e,position,*,position_id:str,db_path):
     stage=staged_entry_for_reconciled_order_v1(
         trader_id=e.pilot_key,account_id=e.account_id,uic=int(e.uic),
         asset_type=e.asset_type,db_path=db_path)
@@ -110,10 +110,14 @@ def _check_confirmed_open(broker,e,position,*,db_path):
     if not audit.get("available"):
         raise ValueError("Saxo ORDER_HISTORY unavailable: do not anchor")
     status=str(audit.get("status") or "").lower()
-    if status not in {"filled","executed","done","fullyfilled","completed"}:
-        raise ValueError("Saxo ORDER_HISTORY does not prove executed full fill")
+    # Saxo Audit OrderActivities uses Status=FinalFill,
+    # SubStatus=Confirmed; Fill alone denotes a PARTIAL execution.
+    if status!="finalfill" or str(audit.get("sub_status") or "").lower()!="confirmed":
+        raise ValueError("Saxo ORDER_HISTORY lacks FinalFill/Confirmed")
     if str(audit.get("side") or "").title()!=side:
         raise ValueError("Saxo ORDER_HISTORY opposite side")
+    if not position_id or str(audit.get("position_id") or "")!=position_id:
+        raise ValueError("Saxo filled order PositionId mismatches exact individual position")
     filled=float(audit.get("filled_amount") or 0)
     if not isfinite(filled) or abs(filled-abs(position))>1e-9:
         raise ValueError("Saxo full fill amount not verified")
@@ -177,7 +181,8 @@ def run_avoid_loss_live_risk_once(*,db_path="pricegauger.db",now=None):
                 continue
             pos_row=_single_exact_position(broker,e,amount)
             if anchor is None:
-                stage=_check_confirmed_open(broker,e,amount,db_path=db_path)
+                stage=_check_confirmed_open(broker,e,amount,
+                    position_id=str(pos_row.get("PositionId") or ""),db_path=db_path)
                 anchor=ConfirmedPositionV1(
                     account_id=e.account_id,uic=int(e.uic),
                     asset_type=e.asset_type,position_token=str(pos_row["PositionId"]),
