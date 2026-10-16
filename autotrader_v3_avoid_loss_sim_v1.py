@@ -152,8 +152,10 @@ def run_avoid_loss_sim_v1(
     canonical_bars: Sequence,
     *,
     config:AvoidLossSimulationConfigV1=AvoidLossSimulationConfigV1(),
+    started_at:datetime|None=None,
 ) -> AvoidLossSimResultV1:
     bars=_bars_1m(canonical_bars)
+    window_start=_utc(started_at) if started_at is not None else None
     if not bars:
         raise ValueError("no finished canonical 1m price candles")
     signals=_closed_macd_2m(bars)
@@ -212,6 +214,13 @@ def run_avoid_loss_sim_v1(
 
     for bar in bars:
         t,op,hi,lo,cl=bar
+        if window_start is not None and t<window_start:
+            h=signals.get(t)
+            if h is not None: prev_signal=(t,h)
+            last_t=t
+            history.append(bar)
+            history=history[-max(30,config.minimum_breakout_bars*3):]
+            continue
         if last_t is not None and t-last_t!=timedelta(minutes=1):
             # No invented missing candles; gap price is a real next OPEN.
             if position:
@@ -311,7 +320,7 @@ def run_avoid_loss_sim_v1(
         gross_pnl_nok=gross_sum,
         total_costs_nok=cost_sum + (2*leg_cost if position else 0),
         max_drawdown_pct=max_dd,trades=tuple(completed),equity=tuple(equity),
-        completed_minutes=len(bars),open_position_direction=position,
+        completed_minutes=len(equity),open_position_direction=position,
         assumptions=config,
     )
 
