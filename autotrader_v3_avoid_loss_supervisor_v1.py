@@ -100,6 +100,8 @@ def plan_avoid_loss_pilot_v1(
                  or str(netbase.get("AccountId") or netbase.get("PositionsAccount"))==position.account_id)
             and abs(abs(amount)-abs(position.signed_amount))<=1e-9
             and abs(long_amount-short_amount-position.signed_amount)<=1e-9
+            and long_amount >= 0 and short_amount >= 0
+            and not (long_amount > 1e-12 and short_amount > 1e-12)
             and str(base.get("Status") or "").lower() in {"open","partiallyclosed"}
         )
     except (TypeError,ValueError,KeyError,OverflowError,AttributeError):
