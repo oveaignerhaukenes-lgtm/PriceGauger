@@ -162,6 +162,11 @@ def run_avoid_loss_live_risk_once(*,db_path="pricegauger.db",now=None):
                     # BEFORE the normal MACD entry engine may open again.
                     save_avoid_loss_exit_bar_v1(
                         trader_id=e.pilot_key,at=clock,db_path=db_path)
+                    # External/manual FLAT must also clear the former target.
+                    # Otherwise next MACD bar could immediately re-open the
+                    # old inventory after a confirmed broker-side close.
+                    align_closed_bar_target_v3(
+                        trader_id=e.pilot_key,target_amount=0.0,db_path=db_path)
                     retire_confirmed_flat_v1(
                         trader_id=e.pilot_key,broker_exact_flat=True,db_path=db_path)
                 _status(e.pilot_key,"FLAT","No broker exposure; awaiting new 2m signal",
