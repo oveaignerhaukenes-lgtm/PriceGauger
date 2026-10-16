@@ -24,6 +24,7 @@ LOGGER = logging.getLogger("pricegauger.live_sim_lab")
 # Emit only research-paper metrics and configuration labels, never account data.
 _SIM_AUDIT_EMITTED = False
 _AEN_HEALTH_LAST = None
+_TECH100_REGIME_STUDY_EMITTED = False
 
 
 def emit_sim_performance_audit_v1(*, db_path="pricegauger.db"):
@@ -115,6 +116,17 @@ def run_once(*, db_path="pricegauger.db", now=None):
             _AEN_HEALTH_LAST=moment
     except Exception as exc:
         LOGGER.warning("AEn forward PAPER unavailable error_type=%s",type(exc).__name__)
+    # One-off bounded Tech100 regime research for the operator. Research-only;
+    # no Saxo client, strategy registration, LIVE config or database writes.
+    global _TECH100_REGIME_STUDY_EMITTED
+    if not _TECH100_REGIME_STUDY_EMITTED:
+        try:
+            from tech100_regime_forensics_20261016 import emit_tech100_regime_study
+            _TECH100_REGIME_STUDY_EMITTED = bool(emit_tech100_regime_study(
+                LOGGER, db_path=db_path, now=moment
+            ))
+        except Exception as exc:
+            LOGGER.warning("REGIME_STUDY_FAILED error_type=%s", type(exc).__name__)
     global _SIM_AUDIT_EMITTED
     if not _SIM_AUDIT_EMITTED:
         try:
