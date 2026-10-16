@@ -236,6 +236,45 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     flash_key=f'{key_prefix}:flash:{trader_id}'
     if flash_key in st.session_state:
         st.success(st.session_state.pop(flash_key))
+    st.markdown('**Instans-recovery**')
+    st.caption(
+        'Kontroller V3-ordrelås og faktisk Saxo-posisjon uten å slette '
+        'ordre-/handelshistorikk. Kun gamle, verifisert usendte RESERVED '
+        'kan frigjøres; SUBMITTING, SUBMITTED og UNKNOWN forblir sperret. '
+        'Strategi, konto, budsjett og LIVE PÅ/AV beholdes.'
+    )
+    from autotrader_v3_order_guard_v1 import pending_order as pending_order_v3
+    from autotrader_v3_operator_order_recovery_v1 import OrderRecoveryDeniedV3
+    from autotrader_v3_instance_reset_v1 import reset_instance_safely_v3
+    recovery_pending=pending_order_v3(
+        account_id=str(instance.account_id),
+        uic=int(instance.uic),asset_type=str(instance.asset_type),
+    )
+    if recovery_pending:
+        pending_state=str(recovery_pending.get('state') or 'UNKNOWN')
+        st.warning(
+            f'Uavklart ordrelås: {pending_state}. '
+            'Reset nekter alle mulige innsendte Saxo-ordrer.'
+        )
+    if st.button(
+        'Kontroller / reset fastlåst instans',
+        key=f'{key_prefix}:safe-reset:{trader_id}',width='stretch',
+        help='Bare dokumentert usendt RESERVED kan frigjøres. '
+             'Ingenting slettes hos Saxo; ingen ordre opprettes.',
+    ):
+        try:
+            outcome=reset_instance_safely_v3(instance_id=trader_id)
+        except OrderRecoveryDeniedV3 as exc:
+            st.error('Reset sperret: '+str(exc))
+        except Exception as exc:
+            # Broker errors may include sensitive payloads: show only type.
+            st.error('Reset sperret ved Saxo-/databasekontroll: '+type(exc).__name__)
+        else:
+            st.session_state[f'{key_prefix}:recovery-result:{trader_id}']=outcome.detail
+            st.rerun()
+    recovery_key=f'{key_prefix}:recovery-result:{trader_id}'
+    if recovery_key in st.session_state:
+        st.success(st.session_state.pop(recovery_key))
     st.markdown('**Execution authority**')
     if authority.live_armed:
         st.success(f'LIVE PÅ · {account_title} · {active_label} · UIC {instance.uic}')
