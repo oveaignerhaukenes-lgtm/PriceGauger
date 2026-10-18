@@ -181,3 +181,47 @@ def test_missing_old_group_requires_multiple_positive_consistent_broker_group_id
     assert discovery._same_family_successor_v3(
         b,instrument=OLD,old_details=b.old,rows=group_missing,now=NOW
     ) is None
+
+
+def test_missing_group_from_both_details_is_proven_by_broker_summary_consensus(monkeypatch):
+    # Real Saxo: expired NGU6 AND current NGX6 DETAILS omit GroupId;
+    # broker's multiple distinct summary rows agree on GroupId 39074.
+    b=ReadOnlyBroker()
+    b.old.pop("GroupId")
+    b.new.pop("GroupId")
+    for row in b.rows:
+        row["GroupId"]=39074
+    monkeypatch.setattr(rollover,"list_subscribed_sources_v2",lambda provider=None:(SOURCE,))
+    collected=[]
+    monkeypatch.setattr(rollover,"_apply_rollover",
+                        lambda **kw:collected.append(kw) or 100)
+    result=discovery.resolve_saxo_futures_rollovers_with_discovery_v2(
+        client=b,now=NOW
+    )
+    assert result.rolled==1 and result.failed==0
+    assert collected[0]["candidate"].uic==51202678
+    assert all(call[0].startswith("GET") for call in b.calls)
+
+
+@pytest.mark.parametrize("modified",[
+    lambda b: b.new.update(GroupId=999),
+    lambda b: b.new.update(ContractSize=5000),
+    lambda b: b.new.update(CurrencyCode="EUR"),
+    lambda b: b.new.update(Exchange={"ExchangeId":"ICE"}),
+    lambda b: b.new.update(IsTradable=False),
+    lambda b: b.new.update(ExpiryDateTime="2026-09-01T00:00:00Z"),
+    lambda b: b.rows[1].update(GroupId=999),
+    lambda b: b.rows[1].pop("GroupId"),
+    lambda b: b.rows[2].update(PrimaryListing=52477959),
+])
+def test_missing_groups_never_override_an_actual_broker_contradiction(modified):
+    b=ReadOnlyBroker()
+    b.old.pop("GroupId")
+    b.new.pop("GroupId")
+    for row in b.rows:
+        row["GroupId"]=39074
+    modified(b)
+    result=discovery._same_family_successor_v3(
+        b,instrument=OLD,old_details=b.old,rows=b.rows,now=NOW
+    )
+    assert result is None
