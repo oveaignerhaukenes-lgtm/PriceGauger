@@ -21,6 +21,7 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
+    StrategySpecV3("fraktal-1", "Fraktal#1 · SIM", "Kun SIM/PAPER: 1m bekreftede mikrosving med meso/makro enighet; én Saxo-lovlig tranche, FLAT ved motsignal. Ingen LIVE-autorisasjon.", "fraktal-1-v1", True),
     StrategySpecV3("aen-core-hold", "AEn Core · MACD Hold", "AEn Core LIVE: MACD-retning med bekreftet HH/HL eller LL/LH, 5m prisstruktur og én Saxo-lovlig enhet. Ingen impulse eller pyramidering.", "aen-core-hold-v1", True),
     StrategySpecV3("aen-core-histogram", "AEn Core · Histogram", "AEn Core LIVE: MACD-histogramets endring styrer regime; bekreftet HH/HL og LL/LH åpner én enhet. Ingen impulse eller pyramidering.", "aen-core-histogram-v1", True),
     StrategySpecV3("aen-core-hysteresis", "AEn Core · Hysteresis", "AEn Core LIVE: MACD med hysterese-filter og bekreftede 5m strukturvendinger; én enhet, ingen impulse/pyramidering.", "aen-core-hysteresis-v1", True),
@@ -113,6 +114,7 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
     "1m": 1, "2m": 2, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60,
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
+FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
 AEN_CORE_CATALOG_KEYS_V3 = frozenset({
     "aen-core-hold", "aen-core-histogram", "aen-core-hysteresis",
     "aen-core-stoch", "aen-core-auto",
@@ -152,8 +154,14 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key in FRAKTAL1_CATALOG_KEYS_V3:
+        issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
+    if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
+        issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key == "macd-stoch-rhythm-build":
         issues.append("Rytmebygg v1 er kun SIM/PAPER; LIVE krever separat pilotgodkjenning")
+    if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
+        issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
