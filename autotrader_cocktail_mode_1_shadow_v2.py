@@ -13,6 +13,7 @@ from autotrader_shadow_benchmark_v2 import ShadowBenchmarkSeriesV2, ShadowEquity
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2, CanonicalMarketBarV2
 from database import connect, using_postgres
 from instrument_registry_v2 import list_subscribed_sources_v2
+from research_shadow_history_retry_v1 import RETRY, is_only_missing_shadow_history
 from trading_desk import ChartBar
 from trading_desk_indicators import calculate_indicators
 
@@ -180,6 +181,7 @@ class CocktailCycleSummaryV1:
     samples: int
     transitions: int
     failed: int
+    skipped_missing_history: int = 0
 
 
 def _utc(value: datetime | str) -> datetime:
@@ -1187,7 +1189,11 @@ def run_cocktail_mode_1_shadow_cycle_v1(
 
     store = CanonicalMarketBarStoreV2(db_path)
     evaluated = samples = transitions = failed = 0
+    skipped_missing_history = 0
     for instrument_id, (market_id, market_name) in sorted(exact.items()):
+        if not RETRY.should_attempt(strategy=STRATEGY_KEY, db_path=db_path, source_id=instrument_id):
+            skipped_missing_history += 1
+            continue
         try:
             _, added_samples, added_transitions = evaluate_cocktail_instrument_v1(
                 instrument_id=instrument_id,
@@ -1198,8 +1204,16 @@ def run_cocktail_mode_1_shadow_cycle_v1(
             evaluated += 1
             samples += added_samples
             transitions += added_transitions
+            RETRY.mark_available(strategy=STRATEGY_KEY, db_path=db_path, source_id=instrument_id)
         except Exception as exc:
             failed += 1
+            if is_only_missing_shadow_history(exc, market_name):
+                RETRY.record_missing(strategy=STRATEGY_KEY, db_path=db_path, source_id=instrument_id)
+                LOGGER.warning(
+                    "Research shadow missing history market=%s strategy=%s; retry in %d seconds",
+                    market_name, STRATEGY_KEY, round(RETRY.retry_seconds),
+                )
+                continue
             LOGGER.warning("Cocktail Mode #1 shadow failed market=%s: %s", market_name, exc, exc_info=True)
     return CocktailCycleSummaryV1(
         attempted=len(exact),
@@ -1207,6 +1221,7 @@ def run_cocktail_mode_1_shadow_cycle_v1(
         samples=samples,
         transitions=transitions,
         failed=failed,
+        skipped_missing_history=skipped_missing_history,
     )
 
 

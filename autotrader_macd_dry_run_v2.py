@@ -11,6 +11,7 @@ import pandas as pd
 
 from database import connect, using_postgres
 from instrument_registry_v2 import list_subscribed_sources_v2
+from research_shadow_history_retry_v1 import RETRY, is_only_missing_shadow_history
 from market_history_store import MarketHistoryStore
 from timeframe_contract_v2 import normalize_canonical_1m_v2
 from trading_desk import ChartBar
@@ -74,6 +75,7 @@ class DryRunCycleSummaryV2:
     evaluated: int
     transitions: int
     failed: int
+    skipped_missing_history: int = 0
 
 
 def _utc(value: datetime | str) -> datetime:
@@ -383,7 +385,11 @@ def run_macd_dry_run_cycle_v2(*, db_path: str = "pricegauger.db") -> DryRunCycle
     evaluated = 0
     transitions = 0
     failed = 0
+    skipped_missing_history = 0
     for market_id, market_name in sorted(markets.items()):
+        if not RETRY.should_attempt(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id):
+            skipped_missing_history += 1
+            continue
         try:
             _, emitted = evaluate_market_macd_dry_run_v2(
                 market_id=market_id,
@@ -402,14 +408,23 @@ def run_macd_dry_run_cycle_v2(*, db_path: str = "pricegauger.db") -> DryRunCycle
                     item.prior_state,
                     item.desired_state,
                 )
+            RETRY.mark_available(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id)
         except Exception as exc:
             failed += 1
+            if is_only_missing_shadow_history(exc, market_name):
+                RETRY.record_missing(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id)
+                LOGGER.warning(
+                    "Research shadow missing history market=%s strategy=%s; retry in %d seconds",
+                    market_name, STRATEGY_KEY, round(RETRY.retry_seconds),
+                )
+                continue
             LOGGER.warning("MACD dry-run failed market=%s: %s", market_name, exc, exc_info=True)
     return DryRunCycleSummaryV2(
         attempted=len(markets),
         evaluated=evaluated,
         transitions=transitions,
         failed=failed,
+        skipped_missing_history=skipped_missing_history,
     )
 
 
