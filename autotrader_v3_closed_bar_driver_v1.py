@@ -28,6 +28,9 @@ from autotrader_v3_macd_stoch_v2 import (
 from autotrader_v3_macd_stoch_v21 import (
     STRATEGY_KEY_V3 as STOCH_V21_KEY, macd_stoch_v21_target_v3,
 )
+from autotrader_v3_macd_stoch_rhythm_build_v1 import (
+    STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY, macd_stoch_rhythm_build_target_v3,
+)
 from autotrader_v3_vwap_regime_histogram_v1 import (
     STRATEGY_KEY_V3 as VWAP_REGIME_KEY,
     vwap_regime_histogram_target_v3,
@@ -146,7 +149,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
         config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY} else MacdHistogramConfigV3()
@@ -154,7 +157,9 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
     if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
-    if strategy_key == STOCH_V21_KEY:
+    if strategy_key == RHYTHM_BUILD_KEY:
+        decide = macd_stoch_rhythm_build_target_v3
+    elif strategy_key == STOCH_V21_KEY:
         decide = macd_stoch_v21_target_v3
     elif strategy_key == STOCH_V2_KEY:
         decide = macd_stoch_v2_target_v3
