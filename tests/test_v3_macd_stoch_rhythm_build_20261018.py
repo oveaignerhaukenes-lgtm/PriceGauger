@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import autotrader_v3_macd_stoch_v2 as baseline
+import autotrader_v3_macd_stoch_v21 as baseline_v21_module
 from autotrader_macd_dry_run_v2 import MacdObservationV2
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_macd_stoch_rhythm_build_v1 import (
@@ -51,6 +52,7 @@ def scores(monkeypatch):
             return None
         return (float(observation.spread), 0.6, 0.4)
     monkeypatch.setattr(baseline, "composite_score_v3", deterministic_score)
+    monkeypatch.setattr(baseline_v21_module, "composite_score_v3", deterministic_score)
 
 
 def decide(closes, *, size, score=0.8, previous=0.8,
@@ -114,7 +116,7 @@ def test_chop_no_new_entry_but_one_tranche_is_held(scores):
 
 
 def test_direction_break_trims_to_min_even_with_positive_MACD(scores):
-    prices=[100+i*.1 for i in range(43)] + [103.4, 103.3, 103.2]
+    prices=[100+i*.1 for i in range(43)] + [104.4, 104.3, 104.2]
     result = decide(prices, size=.06, score=.8, previous=.8)
     assert result.action == "TRIM_UNCONFIRMED"
     assert result.target.amount == pytest.approx(.01)
