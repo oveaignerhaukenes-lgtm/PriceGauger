@@ -41,7 +41,7 @@ STRATEGIES_V3 = (
     ),
     StrategySpecV3(
         "macd-stoch-rhythm-build", "MACD+Stoch · Rytmebygg v1",
-        "Separat kontrolltest mot MACD+Stoch v2. Samme 70/30-score og FLAT-signal; holder høyst én enhet ved whipsaw/usikker struktur. Bygger én enhet per bekreftet 1m retning med god effektivitet og stigende/fallende høyder og bunner. Ingen strategiaktivering ved deploy.",
+        "Separat kontrolltest mot MACD+Stoch v2. Samme 70/30-score og FLAT-signal; holder høyst én enhet ved whipsaw/usikker struktur. Bygger én enhet per bekreftet 1m retning med god effektivitet og stigende/fallende høyder og bunner. Kun SIM/PAPER frem til egen dokumentert LIVE-godkjenning.",
         "macd-stoch-rhythm-build-v1", True,
     ),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
@@ -152,6 +152,8 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key == "macd-stoch-rhythm-build":
+        issues.append("Rytmebygg v1 er kun SIM/PAPER; LIVE krever separat pilotgodkjenning")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
