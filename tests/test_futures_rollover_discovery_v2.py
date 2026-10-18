@@ -88,7 +88,8 @@ def test_search_fallback_recovers_primary_listing_only_from_exact_old_uic(monkey
     assert summary.rolled == 1
     assert summary.failed == 0
     assert applied[0]["candidate"].uic == 60000002
-    assert client.search_calls[0]["Keywords"] == "Natural Gas"
+    assert client.search_calls[0]["Uics"] == "50419383"
+    assert client.search_calls[0]["IncludeNonTradable"] is True
     assert client.search_calls[0]["AssetTypes"] == "ContractFutures"
 
 
@@ -123,3 +124,84 @@ def test_same_uic_primary_listing_is_not_accepted_as_rollover_candidate(monkeypa
     assert summary.rolled == 0
     assert summary.failed == 1
     assert applied == []
+
+
+
+def test_nontradable_expired_uic_is_found_only_with_explicit_include_flag(monkeypatch):
+    class MissingFromDefaultSearch(_Client):
+        def _get(self, path, params=None):
+            self.search_calls.append(dict(params or {}))
+            if params.get("Uics") == "50419383" and params.get("IncludeNonTradable") is True:
+                return {"Data": [{"Identifier": 50419383, "PrimaryListing": 60000002,
+                                  "AssetType": "ContractFutures"}]}
+            return {"Data": []}
+
+    client = MissingFromDefaultSearch()
+    monkeypatch.setattr(rollover, "list_subscribed_sources_v2", lambda provider=None: (_source(),))
+    done = []
+    monkeypatch.setattr(rollover, "_apply_rollover", lambda **kw: done.append(kw) or 92)
+    result = discovery.resolve_saxo_futures_rollovers_with_discovery_v2(
+        client=client, now=datetime(2026, 9, 7, tzinfo=timezone.utc),
+    )
+    assert result.rolled == 1
+    assert len(client.search_calls) == 1
+    assert client.search_calls[0]["IncludeNonTradable"] is True
+    assert done[0]["candidate"].uic == 60000002
+
+
+def test_exact_uic_query_can_fallback_to_keyword_but_never_to_similar_instrument(monkeypatch):
+    class FallbackClient(_Client):
+        def _get(self, path, params=None):
+            self.search_calls.append(dict(params or {}))
+            if "Uics" in params:
+                # Some Saxo accounts might not return archived UIC directly.
+                return {"Data": []}
+            return {"Data": [
+                {"Identifier": 60000003, "PrimaryListing": 60000003,
+                 "AssetType": "ContractFutures",
+                 "Description": "Natural Gas Nov 2026"},
+                {"Identifier": 50419383, "PrimaryListing": 60000002,
+                 "AssetType": "ContractFutures",
+                 "Description": "Natural Gas Sep 2026"}
+            ]}
+    client = FallbackClient()
+    result = discovery._search_primary_listing_for_exact_uic_v2(
+        client,
+        instrument=SaxoInstrument(asset="Natural Gas",uic=50419383,asset_type="ContractFutures"),
+    )
+    assert result == 60000002
+    assert len(client.search_calls)==2
+    assert client.search_calls[1]["Keywords"]=="Natural Gas"
+    assert client.search_calls[1]["IncludeNonTradable"] is True
+
+
+def test_unmatched_or_wrong_asset_candidate_is_never_selected():
+    class SearchClient:
+        def _get(self, path, params=None):
+            return {"Data": [
+                {"Identifier": 666, "PrimaryListing": 777,
+                 "AssetType": "ContractFutures", "Description": "Natural Gas Oct 2026"},
+                {"Identifier": 50419383, "PrimaryListing": 666,
+                 "AssetType": "CfdOnFutures"}
+            ]}
+    candidate = discovery._search_primary_listing_for_exact_uic_v2(
+        SearchClient(),
+        instrument=SaxoInstrument(asset="Natural Gas",uic=50419383,asset_type="ContractFutures"),
+    )
+    assert candidate is None
+
+
+def test_uic_search_failure_falls_back_to_nontradable_keyword_query():
+    class ErrorClient(_Client):
+        def _get(self, path, params=None):
+            if "Uics" in params:
+                self.search_calls.append(dict(params))
+                raise RuntimeError("Saxo transient GET failed")
+            return super()._get(path,params=params)
+    client=ErrorClient()
+    result=discovery._search_primary_listing_for_exact_uic_v2(
+        client,
+        instrument=SaxoInstrument(asset="Natural Gas",uic=50419383,asset_type="ContractFutures"),
+    )
+    assert result==60000002
+    assert len(client.search_calls)==2

@@ -26,44 +26,62 @@ def _search_primary_listing_for_exact_uic_v2(
     *,
     instrument: SaxoInstrument,
 ) -> int | None:
-    """Rediscover PrimaryListing only through the exact stale UIC's Saxo summary.
+    """Read Saxo's documented next-contract reference for this exact expired UIC.
 
-    This deliberately does not choose a contract merely because its description looks
-    similar. Saxo's reference-data search must return the exact current UIC, and that
-    exact row must provide a distinct PrimaryListing. The normal rollover resolver then
-    validates the target instrument's tradability and expiry before changing collection.
+    Normal keyword searches omit no-longer-tradable instruments; searching
+    the *old* UIC with IncludeNonTradable=True is essential. Fallback keyword
+    search is also non-tradable-aware and never guesses a candidate by name,
+    ticker, expiry or position in search results. No broker mutations.
     """
     if str(instrument.asset_type) not in _FUTURES_ASSET_TYPES:
         return None
-    keywords = str(instrument.asset or instrument.description or instrument.symbol or "").strip()
-    if not keywords:
-        return None
-    payload = client._get(
-        "ref/v1/instruments",
-        params={
-            "Keywords": keywords,
-            "AssetTypes": str(instrument.asset_type),
-            "$top": 100,
-        },
-    )
-    rows = payload.get("Data") or []
-    if not isinstance(rows, list):
-        return None
     current_uic = int(instrument.uic)
-    matches = [
-        row
-        for row in rows
-        if isinstance(row, dict)
-        and _positive_int(row.get("Identifier")) == current_uic
-        and str(row.get("AssetType") or instrument.asset_type) == str(instrument.asset_type)
+    keywords = str(instrument.asset or instrument.description or instrument.symbol or "").strip()
+    requests = [
+        {
+            "Uics": str(current_uic),
+            "AssetTypes": str(instrument.asset_type),
+            "IncludeNonTradable": True,
+            "$top": 25,
+        },
     ]
-    if len(matches) != 1:
-        return None
-    primary = _positive_int(matches[0].get("PrimaryListing"))
-    if primary is None or primary == current_uic:
-        return None
-    return primary
-
+    if keywords:
+        requests.append(
+            {
+                "Keywords": keywords,
+                "AssetTypes": str(instrument.asset_type),
+                "IncludeNonTradable": True,
+                "$top": 100,
+            }
+        )
+    for params in requests:
+        try:
+            payload = client._get("ref/v1/instruments", params=params)
+        except Exception as exc:
+            LOGGER.info(
+                "Saxo expired-futures summary read failed market=%s old_uic=%s mode=%s error_type=%s",
+                instrument.asset,
+                current_uic,
+                "exact_uic" if "Uics" in params else "keyword",
+                type(exc).__name__,
+            )
+            continue
+        rows = payload.get("Data") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            continue
+        matches = [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and _positive_int(row.get("Identifier")) == current_uic
+            and str(row.get("AssetType") or "") == str(instrument.asset_type)
+        ]
+        if len(matches) != 1:
+            continue
+        primary = _positive_int(matches[0].get("PrimaryListing"))
+        if primary is not None and primary != current_uic:
+            return primary
+    return None
 
 class _DiscoveryFallbackClientV2:
     """Read-only Saxo adapter that enriches stale futures details with broker evidence."""
