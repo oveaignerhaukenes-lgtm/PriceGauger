@@ -81,6 +81,13 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
           cooling_count INTEGER NOT NULL, strength_count INTEGER NOT NULL,
           last_switch TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
+        # SIM-only Fraktal#1 state is isolated by the 'sim:' trader namespace.
+        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_fraktal1_state (
+          trader_id TEXT PRIMARY KEY, context_key TEXT NOT NULL,
+          last_bar_end TEXT NOT NULL, target_amount DOUBLE PRECISION NOT NULL,
+          last_open_bar_end TEXT,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
         db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_histogram_peak_state (
           trader_id TEXT PRIMARY KEY,
           last_bar_time TEXT NOT NULL,
