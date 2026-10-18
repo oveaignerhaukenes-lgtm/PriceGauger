@@ -12,6 +12,7 @@ import pandas as pd
 from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from database import connect, using_postgres
 from instrument_registry_v2 import list_subscribed_sources_v2
+from research_shadow_history_retry_v1 import RETRY, is_only_missing_shadow_history
 from market_history_store import MarketHistoryStore
 from timeframe_contract_v2 import normalize_canonical_1m_v2
 from trading_desk import ChartBar
@@ -113,6 +114,7 @@ class MtfShadowCycleSummaryV2:
     evaluated: int
     events: int
     failed: int
+    skipped_missing_history: int = 0
 
 
 def _utc(value: datetime | str) -> datetime:
@@ -603,7 +605,11 @@ def run_mtf_entry_shadow_cycle_v2(*, db_path: str = "pricegauger.db") -> MtfShad
     evaluated = 0
     event_count = 0
     failed = 0
+    skipped_missing_history = 0
     for market_id, market_name in sorted(markets.items()):
+        if not RETRY.should_attempt(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id):
+            skipped_missing_history += 1
+            continue
         try:
             state, events = evaluate_market_mtf_entry_shadow_v2(
                 market_id=market_id,
@@ -630,8 +636,16 @@ def run_mtf_entry_shadow_cycle_v2(*, db_path: str = "pricegauger.db") -> MtfShad
                 )
             if not events:
                 LOGGER.debug("MTF shadow market=%s state=%s no new event", market_name, state.state)
+            RETRY.mark_available(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id)
         except Exception as exc:
             failed += 1
+            if is_only_missing_shadow_history(exc, market_name):
+                RETRY.record_missing(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id)
+                LOGGER.warning(
+                    "Research shadow missing history market=%s strategy=%s; retry in %d seconds",
+                    market_name, STRATEGY_KEY, round(RETRY.retry_seconds),
+                )
+                continue
             LOGGER.warning("MTF shadow failed market=%s: %s", market_name, exc, exc_info=True)
 
     return MtfShadowCycleSummaryV2(
@@ -639,6 +653,7 @@ def run_mtf_entry_shadow_cycle_v2(*, db_path: str = "pricegauger.db") -> MtfShad
         evaluated=evaluated,
         events=event_count,
         failed=failed,
+        skipped_missing_history=skipped_missing_history,
     )
 
 

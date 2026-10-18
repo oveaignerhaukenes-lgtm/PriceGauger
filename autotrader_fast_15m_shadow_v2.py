@@ -11,6 +11,7 @@ from autotrader_cadence_v2 import sleep_to_fixed_start_cadence_v2
 from autotrader_mtf_entry_shadow_v2 import MtfObservationV2, closed_bars_v2, macd_observations_v2
 from database import connect, using_postgres
 from instrument_registry_v2 import list_subscribed_sources_v2
+from research_shadow_history_retry_v1 import RETRY, is_only_missing_shadow_history
 from market_history_store import MarketHistoryStore
 
 
@@ -60,6 +61,7 @@ class Fast15ShadowCycleSummaryV2:
     evaluated: int
     events: int
     failed: int
+    skipped_missing_history: int = 0
 
 
 def _utc(value: datetime | str) -> datetime:
@@ -297,7 +299,11 @@ def run_fast_15m_shadow_cycle_v2(*, db_path: str = "pricegauger.db") -> Fast15Sh
     evaluated = 0
     event_count = 0
     failed = 0
+    skipped_missing_history = 0
     for market_id, market_name in sorted(markets.items()):
+        if not RETRY.should_attempt(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id):
+            skipped_missing_history += 1
+            continue
         try:
             state, events = evaluate_market_fast_15m_shadow_v2(
                 market_id=market_id,
@@ -320,8 +326,16 @@ def run_fast_15m_shadow_cycle_v2(*, db_path: str = "pricegauger.db") -> Fast15Sh
                 )
             if not events:
                 LOGGER.debug("Fast15 shadow market=%s state=%s no new event", market_name, state.state)
+            RETRY.mark_available(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id)
         except Exception as exc:
             failed += 1
+            if is_only_missing_shadow_history(exc, market_name):
+                RETRY.record_missing(strategy=STRATEGY_KEY, db_path=db_path, source_id=market_id)
+                LOGGER.warning(
+                    "Research shadow missing history market=%s strategy=%s; retry in %d seconds",
+                    market_name, STRATEGY_KEY, round(RETRY.retry_seconds),
+                )
+                continue
             LOGGER.warning("Fast15 shadow failed market=%s: %s", market_name, exc, exc_info=True)
 
     return Fast15ShadowCycleSummaryV2(
@@ -329,6 +343,7 @@ def run_fast_15m_shadow_cycle_v2(*, db_path: str = "pricegauger.db") -> Fast15Sh
         evaluated=evaluated,
         events=event_count,
         failed=failed,
+        skipped_missing_history=skipped_missing_history,
     )
 
 
