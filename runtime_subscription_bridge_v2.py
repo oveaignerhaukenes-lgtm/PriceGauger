@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from threading import Lock
+import time
 from typing import Mapping
 
 from futures_rollover_discovery_v2 import (
@@ -15,6 +17,17 @@ from saxo_provider import SaxoInstrument
 
 
 LOGGER = logging.getLogger("pricegauger.runtime_subscription_bridge_v2")
+
+# Collection-data futures rollover is not LIVE order execution. It only
+# needs a bounded refresh, not a broker ref GET on every stream heartbeat.
+_ROLLOVER_REFRESH_INTERVAL_SECONDS = 120.0
+_ROLLOVER_REFRESH_LOCK = Lock()
+_ROLLOVER_NEXT_AT = 0.0
+
+
+def _rollover_monotonic_v2() -> float:
+    return time.monotonic()
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +99,15 @@ def _prepare_futures_rollover_audit_best_effort() -> bool:
 
 
 def _resolve_futures_rollovers_best_effort() -> None:
-    """Move collection subscriptions to current futures contracts, never execution authority."""
+    """Bound collection-only rollover checks, without throttling market feeds."""
+    global _ROLLOVER_NEXT_AT
+    with _ROLLOVER_REFRESH_LOCK:
+        now = _rollover_monotonic_v2()
+        if now < _ROLLOVER_NEXT_AT:
+            return
+        # Claim check before network calls so concurrent stream refreshes
+        # do not multiply Saxo reference-data requests on the same process.
+        _ROLLOVER_NEXT_AT = now + _ROLLOVER_REFRESH_INTERVAL_SECONDS
     try:
         summary = resolve_saxo_futures_rollovers_once_v1()
     except Exception as exc:

@@ -77,6 +77,39 @@ def _search_primary_listing_for_exact_uic_v2(
             and str(row.get("AssetType") or "") == str(instrument.asset_type)
         ]
         if len(matches) != 1:
+            if "Keywords" in params and not matches:
+                # Public Saxo contract summaries for operator investigation.
+                # Not an authority to switch the collection subscription.
+                # Cap and sanitize output; no account ID or broker tokens.
+                def safe(value: Any, length: int = 70) -> str:
+                    return "".join(
+                        c for c in str(value or "")[:length]
+                        if c.isprintable() and c not in "\\r\\n"
+                    )
+                entries = [
+                    {
+                        "uic": _positive_int(row.get("Identifier")),
+                        "symbol": safe(row.get("Symbol"), 32),
+                        "description": safe(row.get("Description")),
+                        "exchange": safe(row.get("ExchangeId"), 24),
+                        "display_hint": safe(row.get("DisplayHint"), 24),
+                        "primary": _positive_int(row.get("PrimaryListing")),
+                    }
+                    for row in rows
+                    if isinstance(row, dict)
+                    and str(row.get("AssetType") or "") == str(instrument.asset_type)
+                    and _positive_int(row.get("Identifier")) is not None
+                ]
+                LOGGER.warning(
+                    "Saxo expired-futures lineage UNRESOLVED market=%s old_uic=%s "
+                    "asset_type=%s broker_candidate_count=%d first_candidates=%s "
+                    "(READ_ONLY; no substitution)",
+                    safe(instrument.asset),
+                    current_uic,
+                    safe(instrument.asset_type),
+                    len(entries),
+                    entries[:12],
+                )
             continue
         primary = _positive_int(matches[0].get("PrimaryListing"))
         if primary is not None and primary != current_uic:
