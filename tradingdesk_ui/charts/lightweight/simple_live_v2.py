@@ -417,12 +417,19 @@ export default function(component) {
         const incomingRevision = Number(payload.update_revision || 0);
         if (incomingRevision < Number(entry.lastRevision || 0)) return true;
         entry.lastRevision = incomingRevision;
-        const candles = Array.from(payload.candles || []);
-        const revision = JSON.stringify(candles);
+        // Small forming-only patches arrive every second when completed history,
+        // studies, markers and chart options have not changed. Do not call
+        // setData([]) or erase marker series when those fields are intentionally
+        // absent from a delta.
+        const deltaOnly = payload.delta_only === true;
         const forming = payload.forming_candle;
-        if (revision !== entry.closedRevision || (!forming && entry.formingTime !== null)) {
-            entry.candles.setData(candles);
-            entry.closedRevision = revision;
+        if (!deltaOnly) {
+            const candles = Array.from(payload.candles || []);
+            const revision = JSON.stringify(candles);
+            if (revision !== entry.closedRevision || (!forming && entry.formingTime !== null)) {
+                entry.candles.setData(candles);
+                entry.closedRevision = revision;
+            }
         }
         if (forming && Number.isFinite(Number(forming.time))) {
             entry.candles.update({
@@ -431,6 +438,7 @@ export default function(component) {
             });
         }
         entry.formingTime = forming ? Number(forming.time) : null;
+        if (!deltaOnly) {
         for (const item of Array.from(payload.lines || [])) {
             entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
         }
@@ -453,6 +461,7 @@ export default function(component) {
                 color: isFlat ? '#64748b' : marker.color,
             };
         }));
+        }
         return true;
     }
 

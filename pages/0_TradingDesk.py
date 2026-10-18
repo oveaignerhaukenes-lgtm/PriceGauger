@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from time import monotonic
 
 import streamlit as st
 
@@ -40,6 +41,7 @@ from tradingdesk_automanage_panel_v2 import (
 from tradingdesk_ui.charts.lightweight.adapters import load_lightweight_trade_markers_v1
 from tradingdesk_ui.charts.lightweight.direct_contract import (
     build_lightweight_direct_live_payload_v1,
+    build_lightweight_forming_delta_v1,
 )
 from tradingdesk_ui.charts.lightweight.live_test_snapshot_v1 import load_live_test_snapshot_v1
 from tradingdesk_three_trader_lab_v1 import render_tradingdesk_three_trader_lab_v1
@@ -550,8 +552,21 @@ def _load_chart_indicators_v1(closed):
         return calculate_indicators(closed), selected
 
 
+_FULL_CHART_REFRESH_SECONDS = 15.0
+_FULL_CHART_CACHE_KEY = "tradingdesk:readonly-full-chart-v1"
+
+
+_FRAGMENT_REFRESH_FLAG = "tradingdesk:readonly-fragment-refresh-v1"
+
+
 def _load_standalone_chart_payload():
-    """Build the stable live chart plus the selected TradingDesk studies."""
+    """Build studies only on changed closed history/markers/options (or every 15s).
+
+    TradingDesk's 1-second fragment always observes the fresh forming candle.
+    A forming-only delta does not recalculate warmup indicators, query HV-MACD
+    history, rebuild thousands of JS candle objects or resend marker arrays.
+    """
+    refresh_only = bool(st.session_state.pop(_FRAGMENT_REFRESH_FLAG, False))
     context = baseline_contexts.get(market)
     if context is None or context.instrument is None:
         return None, (), None
@@ -559,6 +574,23 @@ def _load_standalone_chart_payload():
         market=market, timeframe=timeframe, window_hours=window_hours,
         instrument=context.instrument,
     )
+    markers = tuple(_load_trade_markers())
+    revision = (
+        str(market), str(timeframe), int(window_hours),
+        str(context.instrument.provider_instrument_id),
+        str(context.instrument.asset_type), closed, markers,
+        tuple(str(name) for name in indicator_names), int(chart_height),
+        float(price_panel_pct), bool(forming is not None),
+    )
+    cached = st.session_state.get(_FULL_CHART_CACHE_KEY)
+    now_tick = monotonic()
+    if refresh_only and cached is not None:
+        old_revision, full_at, baseline = cached
+        if revision == old_revision and 0 <= now_tick - full_at < _FULL_CHART_REFRESH_SECONDS:
+            return build_lightweight_forming_delta_v1(
+                baseline=baseline, timeframe=timeframe, forming_candle=forming,
+            ), closed, forming
+
     technical, selected_indicators = _load_chart_indicators_v1(closed)
     payload = build_lightweight_direct_live_payload_v1(
         market=market,
@@ -574,12 +606,14 @@ def _load_standalone_chart_payload():
         trade_markers=_load_trade_markers(),
         forming_candle=forming,
     )
+    st.session_state[_FULL_CHART_CACHE_KEY] = (revision, now_tick, payload)
     return payload, closed, forming
 
 
 def _render_live_chart(*, refresh_only: bool = False) -> None:
     # Keep this integration identical to pages/0_Live_Chart.py. In particular,
     # the visible chart stays outside the fragment and is never remounted on ticks.
+    st.session_state[_FRAGMENT_REFRESH_FLAG] = bool(refresh_only)
     payload, closed, forming = _load_standalone_chart_payload()
     if payload is None:
         if not refresh_only:
