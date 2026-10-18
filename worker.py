@@ -385,6 +385,8 @@ def run_forever(
         daemon=True,
     )
     v3_thread.start()
+    # Slow independent broker-history GETs: never on the fast LIVE order loop.
+    next_saxo_history_at = 0.0
     while True:
         started = time.monotonic()
         try:
@@ -398,6 +400,19 @@ def run_forever(
         except Exception as exc:
             AnalysisStatusStore(db_path).fail_running(f"{type(exc).__name__}: {exc}")
             LOGGER.exception("worker cycle failed; next cycle will retry")
+        if started >= next_saxo_history_at:
+            next_saxo_history_at = started + 3600  # bounded retries; per-account 6h success cache
+            try:
+                from autotrader_v3_saxo_history_v1 import run_saxo_history_sync_v1
+                result = run_saxo_history_sync_v1(db_path=str(db_path))
+                if result:
+                    LOGGER.info("Saxo history sync finished: %s", {
+                        "accounts_checked": len(result),
+                        "accounts_failed": sum(str(v).startswith("ERROR") for v in result.values())
+                        if isinstance(result, dict) else 0,
+                    })
+            except Exception as exc:
+                LOGGER.warning("Saxo read-only history sync failed: %s", type(exc).__name__)
         elapsed = time.monotonic() - started
         time.sleep(max(1.0, interval_seconds - elapsed))
 
