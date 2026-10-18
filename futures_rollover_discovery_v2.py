@@ -137,7 +137,12 @@ def _same_family_successor_v3(
         and str(new_details.get("AssetType") or "") == str(instrument.asset_type)
         and new_details.get("IsTradable") is True
         and expiry > now_utc + timedelta(days=1)
-        and _positive_int(new_details.get("GroupId")) == verified_group
+        # Current Saxo per-UIC DETAILS may omit GroupId just as old
+        # archived DETAILS does. The broker's distinct SUMMARY rows
+        # already proved one positive exact group, including the exact
+        # front-UIC summary. If DETAILS supplies a GroupId, it must agree.
+        and (_positive_int(new_details.get("GroupId")) is None
+             or _positive_int(new_details.get("GroupId")) == verified_group)
         and _exchange_id_v3(new_details) == old_exchange
         and str(new_details.get("CurrencyCode") or "").upper().strip() == old_currency
         and _futures_symbol_root_v3(new_details.get("Symbol")) == old_root
