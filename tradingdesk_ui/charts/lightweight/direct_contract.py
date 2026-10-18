@@ -33,6 +33,23 @@ def _forming_chart_payload_v1(
     }
 
 
+def build_lightweight_forming_delta_v1(*, baseline: Mapping[str, Any], timeframe: str,
+                                      forming_candle: FormingCandle1m | None) -> dict[str, Any]:
+    """A small patch that leaves all closed bars, studies and markers intact.
+
+    Only use after a full payload with the exact same signature has mounted.
+    The caller must send a full payload when chart options, markers or closed
+    history change, or when a forming candle disappears.
+    """
+    return {
+        "chart_id": str(baseline["chart_id"]),
+        "signature": str(baseline["signature"]),
+        "forming_candle": _forming_chart_payload_v1(forming_candle, timeframe=timeframe),
+        "delta_only": True,
+        "update_revision": baseline.get("update_revision", 0),
+    }
+
+
 # First successful production activation of PR #344 on the stream/runtime service.
 # This is presentation-only provenance so later Strategy Lab/chart inspection has a
 # visible boundary between the former closed-bar simple MACD controls and the shared
@@ -188,4 +205,5 @@ __all__ = [
     "MACD_INTRABAR_ROLLOUT_AT_V1",
     "MACD_INTRABAR_ROLLOUT_LABEL_V1",
     "build_lightweight_direct_live_payload_v1",
+    "build_lightweight_forming_delta_v1",
 ]
