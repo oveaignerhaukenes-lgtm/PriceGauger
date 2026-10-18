@@ -148,6 +148,65 @@ def _same_family_successor_v3(
     return chosen
 
 
+def _public_saxo_instrument_identity_v3(details: dict[str, Any]) -> dict[str, Any]:
+    """Public reference metadata only, NEVER account or market-position data."""
+    def printable(value: Any, limit: int = 96) -> str:
+        return "".join(c for c in str(value or "")[:limit] if c.isprintable())
+    return {
+        "uic": _positive_int(details.get("Uic")),
+        "asset_type": printable(details.get("AssetType"), 30),
+        "symbol": printable(details.get("Symbol"), 40),
+        "description": printable(details.get("Description")),
+        "group_id": _positive_int(details.get("GroupId")),
+        "exchange_id": printable(_exchange_id_v3(details), 40),
+        "currency": printable(details.get("CurrencyCode"), 10),
+        "contract_size": printable(details.get("ContractSize"), 30),
+        "is_tradable": details.get("IsTradable") is True,
+        "expiry": printable(details.get("ExpiryDateTime") or details.get("ExpiryDate"), 48),
+    }
+
+
+def _log_unverified_future_family_details_v3(
+    client: SaxoClient, *, old: SaxoInstrument,
+    old_details: dict[str, Any], rows: list,
+) -> None:
+    """Single extra broker GET for front metadata; no order or collection changes."""
+    matching = [
+        row for row in rows if isinstance(row, dict)
+        and str(row.get("AssetType") or "") == str(old.asset_type)
+    ]
+    primary_ids = {_positive_int(row.get("PrimaryListing")) for row in matching}
+    chosen = next(iter(primary_ids)) if len(primary_ids) == 1 else None
+    front = None
+    if chosen and chosen != int(old.uic):
+        try:
+            front = client.instrument_details(
+                SaxoInstrument(asset=old.asset, uic=chosen, asset_type=str(old.asset_type))
+            )
+        except Exception as exc:
+            LOGGER.info(
+                "Saxo unresolved futures front details unavailable old_uic=%s "
+                "candidate_uic=%s exception_type=%s",
+                old.uic, chosen, type(exc).__name__,
+            )
+    LOGGER.warning(
+        "Saxo futures family evidence READ_ONLY old_uic=%s old=%s "
+        "broker_primary=%s front=%s group_summaries=%s",
+        old.uic, _public_saxo_instrument_identity_v3(old_details),
+        chosen,
+        _public_saxo_instrument_identity_v3(front) if isinstance(front, dict) else None,
+        [
+            {
+                "uic": _positive_int(row.get("Identifier")),
+                "group_id": _positive_int(row.get("GroupId")),
+                "exchange": str(row.get("ExchangeId") or "")[:24],
+                "primary": _positive_int(row.get("PrimaryListing")),
+            }
+            for row in matching[:4]
+        ],
+    )
+
+
 def _search_primary_listing_for_exact_uic_v2(
     client: SaxoClient,
     *,
@@ -213,6 +272,9 @@ def _search_primary_listing_for_exact_uic_v2(
                 )
                 if verified is not None:
                     return verified
+                _log_unverified_future_family_details_v3(
+                    client, old=instrument, old_details=current_details, rows=rows,
+                )
             if "Keywords" in params and not matches:
                 # Public Saxo contract summaries for operator investigation.
                 # Not an authority to switch the collection subscription.
