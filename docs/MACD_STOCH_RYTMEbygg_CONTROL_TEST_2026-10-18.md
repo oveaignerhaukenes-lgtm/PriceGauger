@@ -8,7 +8,17 @@ Ingen av de eksisterende kontoene konfigureres eller armeres av PR-en.
 Kontrollstrategiene MACD+Stoch v2 og v2.1 er uendret. Dette er ikke
 dokumentasjon på positiv forventet avkastning.
 
-## Strategi som kan velges etter merge
+## Godkjenningsstatus: KUN SIM/PAPER etter merge
+
+Rytmebygg er med hensikt eksplisitt LIVE-sperret i *to* uavhengige lag:
+`live_config_issues_v3` i katalog/UI og `StrategyAdapterV3.live_route_enabled=False`
+i den faktiske LIVE-worker-rutingen. Eksisterende V3-kontoer påvirkes ikke.
+Selv en direkte endring av databasekonfigurasjonen kan ikke aktivere Rytmebygg på LIVE.
+Dette er ikke en vurdering av netto lønnsomhet. Før LIVE må same-clock backtest,
+faktisk cost/margin/fill og separat godkjenning av isolert lavbudsjettkonto
+være dokumentert.
+
+## Strategi som kan velges i SIM etter merge
 
 - Katalog: `MACD+Stoch · Rytmebygg v1`
 - Konfigurasjonsnøkkel: `macd-stoch-rhythm-build`
