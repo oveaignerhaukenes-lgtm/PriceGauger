@@ -1176,8 +1176,10 @@ def evaluate_cocktail_instrument_v1(
 def run_cocktail_mode_1_shadow_cycle_v1(
     *,
     db_path: str = "pricegauger.db",
+    schema_prepared: bool = False,
 ) -> CocktailCycleSummaryV1:
-    ensure_cocktail_mode_1_schema_v1()
+    if not schema_prepared:
+        ensure_cocktail_mode_1_schema_v1()
     sources = list_subscribed_sources_v2(provider="saxo")
     exact: dict[int, tuple[int, str]] = {}
     for source in sources:
@@ -1235,7 +1237,7 @@ def run_cocktail_mode_1_shadow_forever_v1(
     while True:
         started = time.monotonic()
         try:
-            summary = run_cocktail_mode_1_shadow_cycle_v1(db_path=db_path)
+            summary = run_cocktail_mode_1_shadow_cycle_v1(db_path=db_path, schema_prepared=True)
             LOGGER.info(
                 "Cocktail Mode #1 shadow cycle attempted=%d evaluated=%d samples=%d transitions=%d failed=%d",
                 summary.attempted,

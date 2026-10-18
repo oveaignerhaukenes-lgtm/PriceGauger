@@ -592,8 +592,9 @@ def evaluate_market_mtf_entry_shadow_v2(
     )
 
 
-def run_mtf_entry_shadow_cycle_v2(*, db_path: str = "pricegauger.db") -> MtfShadowCycleSummaryV2:
-    ensure_mtf_entry_shadow_schema_v2()
+def run_mtf_entry_shadow_cycle_v2(*, db_path: str = "pricegauger.db", schema_prepared: bool = False) -> MtfShadowCycleSummaryV2:
+    if not schema_prepared:
+        ensure_mtf_entry_shadow_schema_v2()
     sources = list_subscribed_sources_v2(provider="saxo")
     markets: dict[int, str] = {}
     for source in sources:
@@ -667,7 +668,7 @@ def run_mtf_entry_shadow_forever_v2(
     while True:
         started = time.monotonic()
         try:
-            summary = run_mtf_entry_shadow_cycle_v2(db_path=db_path)
+            summary = run_mtf_entry_shadow_cycle_v2(db_path=db_path, schema_prepared=True)
             LOGGER.info(
                 "MTF shadow cycle attempted=%d evaluated=%d events=%d failed=%d",
                 summary.attempted,
