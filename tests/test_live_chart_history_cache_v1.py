@@ -68,7 +68,7 @@ def test_newly_closed_bar_and_same_minute_correction_refresh_tail():
     assert [item.close for item in closed] == [1, 2, 3]
     assert len(store.ranges) == 2
     assert store.ranges[1][2] == 300  # overlapping bounded tail
-    store.bars[-1] = replace(store.bars[-1], close=9)
+    store.bars[-1] = replace(store.bars[-1], close=9, high=9)
     corrected, _ = load(cache, store, tick=2)
     assert [item.close for item in corrected] == [1, 2, 9]
     assert len(store.ranges) == 3
