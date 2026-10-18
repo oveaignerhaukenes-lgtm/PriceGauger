@@ -152,7 +152,9 @@ class RealtimeMarketDataStore:
                 """INSERT INTO realtime_bars_1m(market,bar_time,provider,uic,payload_json)
                    VALUES (?,?,?,?,?)
                    ON CONFLICT(market,bar_time,provider) DO UPDATE SET
-                     uic=excluded.uic,payload_json=excluded.payload_json,updated_at=CURRENT_TIMESTAMP""",
+                     uic=excluded.uic,payload_json=excluded.payload_json,updated_at=CURRENT_TIMESTAMP
+                   WHERE realtime_bars_1m.uic IS DISTINCT FROM excluded.uic
+                      OR realtime_bars_1m.payload_json IS DISTINCT FROM excluded.payload_json""",
                 (bar.market, bar.bar_time, bar.provider, bar.uic, json.dumps(bar.to_record(), sort_keys=True)),
             )
         if using_postgres():

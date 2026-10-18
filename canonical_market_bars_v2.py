@@ -65,6 +65,12 @@ class CanonicalMarketBarStoreV2:
                     close=excluded.close,
                     volume=excluded.volume,
                     quality_flags=excluded.quality_flags
+                WHERE pg_v2_market_bars_1m.open IS DISTINCT FROM excluded.open
+                   OR pg_v2_market_bars_1m.high IS DISTINCT FROM excluded.high
+                   OR pg_v2_market_bars_1m.low IS DISTINCT FROM excluded.low
+                   OR pg_v2_market_bars_1m.close IS DISTINCT FROM excluded.close
+                   OR pg_v2_market_bars_1m.volume IS DISTINCT FROM excluded.volume
+                   OR pg_v2_market_bars_1m.quality_flags IS DISTINCT FROM excluded.quality_flags
                 """,
                 (
                     int(source.instrument_id), stamp, float(bar.open), float(bar.high),
