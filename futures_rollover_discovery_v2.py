@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any
 
@@ -86,8 +86,10 @@ def _search_primary_listing_for_exact_uic_v2(
 class _DiscoveryFallbackClientV2:
     """Read-only Saxo adapter that enriches stale futures details with broker evidence."""
 
-    def __init__(self, client: SaxoClient) -> None:
+    def __init__(self, client: SaxoClient, *, now: datetime | None = None, roll_lead_days: int = 5) -> None:
         self._client = client
+        self._now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        self._lead_days = max(0, int(roll_lead_days))
 
     def __getattr__(self, name: str):
         return getattr(self._client, name)
@@ -98,6 +100,29 @@ class _DiscoveryFallbackClientV2:
             return details
         current_primary = _positive_int(details.get("PrimaryListing"))
         if current_primary is not None and current_primary != int(instrument.uic):
+            return details
+        # Avoid a redundant ref GET for candidate contracts which are already
+        # live and not near expiry. Expired/currently non-tradable contracts
+        # still get an exact old-UIC broker lineage search.
+        raw_expiry = details.get("ExpiryDateTime") or details.get("ExpiryDate")
+        expiry = None
+        if isinstance(raw_expiry, (datetime, str)):
+            try:
+                expiry = (
+                    raw_expiry if isinstance(raw_expiry, datetime)
+                    else datetime.fromisoformat(raw_expiry.replace("Z", "+00:00"))
+                )
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                expiry = expiry.astimezone(timezone.utc)
+            except (TypeError, ValueError, OverflowError):
+                expiry = None
+        due = (
+            details.get("IsTradable") is False
+            or (expiry is not None and
+                expiry <= self._now + timedelta(days=self._lead_days))
+        )
+        if not due:
             return details
         try:
             discovered = _search_primary_listing_for_exact_uic_v2(
@@ -142,7 +167,9 @@ def resolve_saxo_futures_rollovers_with_discovery_v2(
     if sax is None:
         return FuturesRolloverSummaryV1()
     return resolve_saxo_futures_rollovers_once_v1(
-        client=_DiscoveryFallbackClientV2(sax),
+        client=_DiscoveryFallbackClientV2(
+            sax, now=now, roll_lead_days=roll_lead_days,
+        ),
         now=now,
         roll_lead_days=int(roll_lead_days),
     )

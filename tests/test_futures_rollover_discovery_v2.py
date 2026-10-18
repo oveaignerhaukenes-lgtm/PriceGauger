@@ -205,3 +205,35 @@ def test_uic_search_failure_falls_back_to_nontradable_keyword_query():
     )
     assert result==60000002
     assert len(client.search_calls)==2
+
+
+
+def test_successor_instrument_does_not_trigger_unnecessary_search():
+    client = _Client()
+    adapter = discovery._DiscoveryFallbackClientV2(
+        client, now=datetime(2026, 9, 7, tzinfo=timezone.utc)
+    )
+    details = adapter.instrument_details(
+        SaxoInstrument(asset="Natural Gas", uic=60000002, asset_type="ContractFutures")
+    )
+    assert details["IsTradable"] is True
+    assert client.search_calls == []
+
+
+def test_valid_contract_near_expiry_may_still_search_for_next():
+    class NearExpiryClient(_Client):
+        def instrument_details(self, instrument):
+            if instrument.uic == 60000002:
+                return {"IsTradable": True, "Uic":60000002,
+                        "ExpiryDateTime":"2026-09-08T18:30:00Z",
+                        "PrimaryListing":60000002}
+            return super().instrument_details(instrument)
+    client=NearExpiryClient()
+    adapter=discovery._DiscoveryFallbackClientV2(
+        client, now=datetime(2026, 9, 7, tzinfo=timezone.utc),
+    )
+    adapter.instrument_details(
+        SaxoInstrument(asset="Natural Gas", uic=60000002, asset_type="ContractFutures")
+    )
+    assert client.search_calls
+    assert client.search_calls[0]["Uics"]=="60000002"
