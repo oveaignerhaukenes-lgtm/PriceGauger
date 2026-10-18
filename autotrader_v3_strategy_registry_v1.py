@@ -16,6 +16,7 @@ from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
+from autotrader_v3_macd_stoch_rhythm_build_v1 import STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY
 from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
@@ -36,6 +37,14 @@ STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
                            live_route_enabled=True)
     for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY)
 }
+
+
+# Rytmebygg is SIM/PAPER only until an explicitly authorized LIVE pilot.
+# The LIVE worker must reject it even if someone bypasses UI config checks.
+STRATEGIES_V3[RHYTHM_BUILD_KEY] = StrategyAdapterV3(
+    key=RHYTHM_BUILD_KEY, evaluate_closed_bar=evaluate_closed_bar_once_v3,
+    live_route_enabled=False,
+)
 
 
 STRATEGIES_V3.update({

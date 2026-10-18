@@ -260,7 +260,10 @@ def test_peak_flip_only_modifies_v3_strategy_choice_not_account_or_arming():
     assert "pending_order_v3" in live
     assert "reserve_order_v3" in live
     assert "_actual(e,broker)" in live
-    registry=Path("autotrader_v3_strategy_registry_v1.py").read_text()
-    assert "live_route_enabled=False" not in registry.split("STRATEGIES_V3:",1)[1]
+    # Check this strategy's routing only. Other optional strategies may
+    # intentionally be SIM-only and must have live_route_enabled=False.
+    from autotrader_v3_macd_histogram_peak_flip_v1 import STRATEGY_KEY_V3
+    from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3
+    assert STRATEGIES_V3[STRATEGY_KEY_V3].live_route_enabled is True
     assert "set_live_authority_v3" not in Path(
         "autotrader_v3_macd_histogram_peak_flip_v1.py").read_text()
