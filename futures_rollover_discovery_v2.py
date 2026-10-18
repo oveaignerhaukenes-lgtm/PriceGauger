@@ -178,9 +178,21 @@ def _log_unverified_future_family_details_v3(
     old_details: dict[str, Any], rows: list,
 ) -> None:
     """Single extra broker GET for front metadata; no order or collection changes."""
+    # Search results can contain different natural-gas products. Restrict
+    # diagnostic consensus to the old instrument's independently verified
+    # futures root, product family and exact broker exchange.
+    old_root = _futures_symbol_root_v3(old.symbol)
+    old_family = _product_family_v3(old_details.get("Description"))
+    old_exchange = _exchange_id_v3(old_details)
     matching = [
         row for row in rows if isinstance(row, dict)
         and str(row.get("AssetType") or "") == str(old.asset_type)
+        and old_root is not None
+        and old_exchange
+        and old_family
+        and _futures_symbol_root_v3(row.get("Symbol")) == old_root
+        and _product_family_v3(row.get("Description")) == old_family
+        and str(row.get("ExchangeId") or "").upper().strip() == old_exchange
     ]
     primary_ids = {_positive_int(row.get("PrimaryListing")) for row in matching}
     chosen = next(iter(primary_ids)) if len(primary_ids) == 1 else None

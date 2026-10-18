@@ -26,6 +26,7 @@ class Broker:
             return {"Uic":50419383,"AssetType":"ContractFutures",
                     "Symbol":"NGU6","Description":"Henry Hub Natural Gas - Sep 2026",
                     "IsTradable":False,"GroupId":None,
+                    "Exchange":{"ExchangeId":"NYMEX"},
                     "ExpiryDateTime":"2026-08-27T18:30:00Z"}
         return {"Uic":51202678,"AssetType":"ContractFutures",
                 "Symbol":"NGX6","Description":"Henry Hub Natural Gas - Nov 2026",
@@ -62,6 +63,7 @@ def test_missing_old_group_returns_public_broker_metadata_without_switch(monkeyp
     assert "family evidence READ_ONLY" in caplog.text
     assert "old_uic=50419383" in caplog.text
     assert "broker_primary=51202678" in caplog.text
+    assert "'group_id': 173" in caplog.text
     assert "front=" in caplog.text
     assert all(c[0].startswith("GET") for c in b.calls)
 
