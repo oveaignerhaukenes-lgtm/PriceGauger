@@ -36,7 +36,7 @@ def test_incremental_refresh_only_applies_to_readonly_tradingdesk():
     history = Path(
         "tradingdesk_ui/charts/lightweight/live_chart_history_cache_v1.py"
     ).read_text(encoding="utf-8")
-    assert "def _load_standalone_chart_payload(*, refresh_only: bool = False)" in desk
+    assert "def _load_standalone_chart_payload():" in desk
     assert "build_lightweight_forming_delta_v1(" in desk
     assert "technical, selected_indicators = _load_chart_indicators_v1(closed)" in desk
     assert "revision == old_revision" in desk
