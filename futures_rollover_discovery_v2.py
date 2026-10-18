@@ -75,7 +75,7 @@ def _same_family_successor_v3(
     except (ValueError, TypeError, OverflowError):
         return None
     if (
-        not old_root or not old_group or not old_exchange or not old_currency
+        not old_root or not old_exchange or not old_currency
         or len(old_family) < 10 or old_size <= 0
         or _positive_int(old_details.get("Uic")) != int(instrument.uic)
         or str(old_details.get("AssetType") or "") != str(instrument.asset_type)
@@ -91,13 +91,20 @@ def _same_family_successor_v3(
         and _futures_symbol_root_v3(row.get("Symbol")) == old_root
         and _product_family_v3(row.get("Description")) == old_family
     ]
-    # Any contradictory broker GroupId in the exact same family means
-    # this is not a uniquely proven continuous futures series.
-    if any(_positive_int(row.get("GroupId")) != old_group for row in same_named_family):
+    # Archived Saxo futures may omit GroupId. In that case establish
+    # a positive group by independent consensus of >=3 broker summaries
+    # sharing the old contract's verified root, product, asset and exchange.
+    # Any contradiction, missing candidate GroupId or missing PrimaryListing
+    # fails closed. If the old contract did expose GroupId it must agree.
+    if len(same_named_family) < 3:
+        return None
+    group_ids = {_positive_int(row.get("GroupId")) for row in same_named_family}
+    if len(group_ids) != 1:
+        return None
+    verified_group = next(iter(group_ids))
+    if verified_group is None or (old_group is not None and old_group != verified_group):
         return None
     relatives = same_named_family
-    if len(relatives) < 2:
-        return None
     primaries = {_positive_int(row.get("PrimaryListing")) for row in relatives}
     if len(primaries) != 1:
         return None
@@ -130,7 +137,7 @@ def _same_family_successor_v3(
         and str(new_details.get("AssetType") or "") == str(instrument.asset_type)
         and new_details.get("IsTradable") is True
         and expiry > now_utc + timedelta(days=1)
-        and _positive_int(new_details.get("GroupId")) == old_group
+        and _positive_int(new_details.get("GroupId")) == verified_group
         and _exchange_id_v3(new_details) == old_exchange
         and str(new_details.get("CurrencyCode") or "").upper().strip() == old_currency
         and _futures_symbol_root_v3(new_details.get("Symbol")) == old_root
@@ -141,9 +148,9 @@ def _same_family_successor_v3(
     LOGGER.warning(
         "Saxo futures family VERIFIED old_uic=%s new_uic=%s "
         "root=%s group=%s exchange=%s currency=%s "
-        "candidate_count=%s (collection-data only)",
-        instrument.uic, chosen, old_root, old_group, old_exchange,
-        old_currency, len(relatives),
+        "candidate_count=%s old_group_present=%s (collection-data only)",
+        instrument.uic, chosen, old_root, verified_group, old_exchange,
+        old_currency, len(relatives), old_group is not None,
     )
     return chosen
 

@@ -135,3 +135,49 @@ def test_lookup_is_not_wired_into_live_order_execution():
     assert "autotrader_live_close" not in source
     assert "place_order(" not in source
     assert "Saxo futures family VERIFIED" in source
+
+
+
+def test_archived_old_group_missing_recovers_only_with_three_matching_broker_summaries(monkeypatch):
+    b=ReadOnlyBroker()
+    b.old.pop("GroupId")
+    b.rows.append({
+        "Identifier":888,"AssetType":"ContractFutures","Symbol":"TTFX6",
+        "Description":"European Natural Gas - Nov 2026",
+        "ExchangeId":"ICE","GroupId":999,"PrimaryListing":888,
+    })
+    monkeypatch.setattr(rollover,"list_subscribed_sources_v2",lambda provider=None:(SOURCE,))
+    committed=[]
+    monkeypatch.setattr(rollover,"_apply_rollover",
+                        lambda **kw:committed.append(kw) or 100)
+    result=discovery.resolve_saxo_futures_rollovers_with_discovery_v2(
+        client=b,now=NOW,
+    )
+    assert result.rolled==1 and result.failed==0
+    assert committed[0]["candidate"].uic==51202678
+    assert all(x[0].startswith("GET") for x in b.calls)
+
+
+def test_missing_old_group_requires_multiple_positive_consistent_broker_group_ids():
+    b=ReadOnlyBroker()
+    b.old.pop("GroupId")
+    assert discovery._same_family_successor_v3(
+        b,instrument=OLD,old_details=b.old,rows=b.rows,now=NOW
+    )==51202678
+
+    too_few=b.rows[:2]
+    assert discovery._same_family_successor_v3(
+        b,instrument=OLD,old_details=b.old,rows=too_few,now=NOW
+    ) is None
+
+    contradictory=deepcopy(b.rows)
+    contradictory[1]["GroupId"]=999
+    assert discovery._same_family_successor_v3(
+        b,instrument=OLD,old_details=b.old,rows=contradictory,now=NOW
+    ) is None
+
+    group_missing=deepcopy(b.rows)
+    group_missing[1].pop("GroupId")
+    assert discovery._same_family_successor_v3(
+        b,instrument=OLD,old_details=b.old,rows=group_missing,now=NOW
+    ) is None
