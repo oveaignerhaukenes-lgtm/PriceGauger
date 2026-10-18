@@ -39,6 +39,11 @@ STRATEGIES_V3 = (
         "Samme inngang og umiddelbare FLAT-utgang som V2, men ny BUILD krever at absolutt 70/30 MACD+Stoch-score øker mer enn 0,02 fra forrige ferdige candle. Én endring for kontrollert A/B mot V2; arming skjer separat.",
         "macd-stoch-v2-1", True,
     ),
+    StrategySpecV3(
+        "macd-stoch-rhythm-build", "MACD+Stoch · Rytmebygg v1",
+        "Separat kontrolltest mot MACD+Stoch v2. Samme 70/30-score og FLAT-signal; holder høyst én enhet ved whipsaw/usikker struktur. Bygger én enhet per bekreftet 1m retning med god effektivitet og stigende/fallende høyder og bunner. Ingen strategiaktivering ved deploy.",
+        "macd-stoch-rhythm-build-v1", True,
+    ),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
@@ -147,6 +152,8 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
+        issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
@@ -176,6 +183,8 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
+        issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
