@@ -35,8 +35,16 @@ class StrategyAdapterV3:
 STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
     key: StrategyAdapterV3(key=key, evaluate_closed_bar=evaluate_closed_bar_once_v3,
                            live_route_enabled=True)
-    for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY)
+    for key in (HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY)
 }
+
+
+# Rytmebygg is SIM/PAPER only until an explicitly authorized LIVE pilot.
+# The LIVE worker must reject it even if someone bypasses UI config checks.
+STRATEGIES_V3[RHYTHM_BUILD_KEY] = StrategyAdapterV3(
+    key=RHYTHM_BUILD_KEY, evaluate_closed_bar=evaluate_closed_bar_once_v3,
+    live_route_enabled=False,
+)
 
 
 STRATEGIES_V3.update({
