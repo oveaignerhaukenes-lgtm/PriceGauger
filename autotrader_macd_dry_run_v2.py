@@ -373,8 +373,9 @@ def evaluate_market_macd_dry_run_v2(
     )
 
 
-def run_macd_dry_run_cycle_v2(*, db_path: str = "pricegauger.db") -> DryRunCycleSummaryV2:
-    ensure_macd_dry_run_schema_v2()
+def run_macd_dry_run_cycle_v2(*, db_path: str = "pricegauger.db", schema_prepared: bool = False) -> DryRunCycleSummaryV2:
+    if not schema_prepared:
+        ensure_macd_dry_run_schema_v2()
     sources = list_subscribed_sources_v2(provider="saxo")
     markets: dict[int, str] = {}
     for source in sources:
@@ -437,7 +438,7 @@ def run_macd_dry_run_forever_v2(
     ensure_macd_dry_run_schema_v2()
     while True:
         try:
-            summary = run_macd_dry_run_cycle_v2(db_path=db_path)
+            summary = run_macd_dry_run_cycle_v2(db_path=db_path, schema_prepared=True)
             LOGGER.info(
                 "MACD dry-run cycle attempted=%d evaluated=%d transitions=%d failed=%d",
                 summary.attempted,
