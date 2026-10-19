@@ -61,7 +61,7 @@ def test_no_claim_about_exact_switch_time_and_no_bridge_across_missing_telemetry
     assert periods[1].last_observed==ZERO+timedelta(minutes=40)
     fig,valid,_=build_saxo_account_strategy_chart_v1(seq)
     assert valid==4
-    assert fig.data[0].y == (1000.,1000.,None,1000.)
+    assert fig.data[0].y == (1000.,1000.,None,1000.,1000.)
 
 
 def test_no_false_profit_curve_when_saxo_quality_is_unverified():
