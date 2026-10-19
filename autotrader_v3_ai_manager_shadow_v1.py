@@ -11,7 +11,8 @@ from math import isfinite
 import logging
 import time
 
-from autotrader_v3_ai_decision_memory_v1 import record_ai_decision_v1
+from autotrader_v3_ai_decision_memory_v1 import record_ai_decision_v1,load_ai_decisions_v1
+from autotrader_saxo_account_truth_v1 import load_account_truth_v1
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
@@ -185,17 +186,41 @@ def _technical_evidence(
     close=[float(x.close) for x in chart[-18:]]
     returns=[(close[i]/close[i-1]-1.)*100.
              for i in range(1,len(close))]
-    as_of=min(observed_at,utc(last.bar_time)+timedelta(minutes=timeframe))
+    technical_closed_at=utc(last.bar_time)+timedelta(minutes=timeframe)
+    as_of=observed_at  # Saxo open P/L is an evaluation-time observation.
+    equity=None
+    # An account snapshot is 5-minute telemetry: include its timestamp and
+    # reliability so the AI cannot mistake stale equity for realtime P/L.
+    # The source data remains read-only and is scoped to one Saxo AccountId.
+    account_rows=load_account_truth_v1(
+        account_id=instance.account_id,days=1,db_path=db_path)
+    for row in reversed(account_rows):
+        observed=utc(row["observed_at"])
+        if observed>observed_at or (observed_at-observed).total_seconds()>900:
+            continue
+        if str(row.get("calculation_reliability") or "").lower()!="ok":
+            break
+        equity={
+            "source_observed_at":_stamp(observed),
+            "currency":str(row["currency"]),
+            "total_value":float(row["total_value"]),
+            "cash_balance":row.get("cash_balance"),
+            "cost_to_close":row.get("cost_to_close"),
+            "margin_used":row.get("margin_used"),
+        }
+        break
     payload={
         "source":"V3_SHADOW_ACCOUNT_SCOPED",
         "as_of":_stamp(as_of),
         "strategy":config.strategy_key,
         "timeframe":config.timeframe,
+        "account_equity_telemetry":equity,
         "market":instance.market_name,
         "position":{"direction":"LONG" if actual>0 else "SHORT",
                     "quantity_abs":round(abs(actual),6),
                     "saxo_open_pnl_account_currency":round(float(broker_pnl),4)},
         "technical":{
+            "bars_closed_at":_stamp(technical_closed_at),
             "bar_close":float(last.close),
             "macd":float(ind.macd[-1].value),
             "signal":float(ind.macd_signal[-1].value),
@@ -264,6 +289,15 @@ def review_shadow_instance_once_v1(
     as_of,evidence=technical
     if not api_key and model_callback is None:
         return "NO_AI_KEY"
+    recent=load_ai_decisions_v1(
+        instance_id=instance.instance_id,account_id=instance.account_id,
+        instrument_id=instance.instrument_id,limit=30,db_path=db_path)
+    reviews_last_hour=sum(
+        1 for decision in recent
+        if decision["mode"]=="SHADOW" and
+           0 <= (utc(when)-utc(decision["evaluated_at"])).total_seconds()<3600)
+    if reviews_last_hour>=MAX_REVIEWS_PER_HOUR:
+        return "HOURLY_BUDGET_EXHAUSTED"
     # The existing Live-Sim technical model uses a strict JSON response contract.
     evaluator=model_callback or (lambda snapshot:request_technical_decision(
         evidence=snapshot,key=api_key,model=model))
