@@ -128,6 +128,104 @@ def strategy_periods_from_snapshots_v1(
     return tuple(result)
 
 
+@dataclass(frozen=True, slots=True)
+class ObservedLiveNAVWindowV1:
+    """Account-equity observations during one unchanged LIVE strategy.
+
+    This is NOT a flow-adjusted strategy return and not realized Saxo P/L.
+    """
+    first_observed: datetime
+    last_observed: datetime
+    strategy_key: str
+    timeframe: str
+    market: str
+    instance_id: str
+    account_id: str
+    currency: str
+    observations: int
+    first_value: float
+    last_value: float
+    value_change: float | None
+    value_change_pct: float | None
+    max_observed_drawdown_pct: float | None
+
+
+def observed_live_nav_windows_v1(
+    samples: Sequence[Mapping], *, max_gap_seconds: int = MAX_GAP_SECONDS,
+) -> tuple[ObservedLiveNAVWindowV1, ...]:
+    """Compare exact Saxo samples only within the SAME observed LIVE identity.
+
+    Unknown ownership, OFF, unverified broker values, duplicate timestamps,
+    a >2.5-interval telemetry gap, or a strategy switch breaks the window.
+    No cross-switch delta is attributed, and no cash-flow correction is guessed.
+    """
+    if max_gap_seconds <= 0:
+        raise ValueError("max_gap_seconds must be positive")
+    if not samples:
+        return ()
+    ordered=sorted(samples,key=lambda x:_time(x["observed_at"]))
+    identities={(str(v["account_id"]),str(v["currency"])) for v in ordered}
+    if len(identities)!=1:
+        raise ValueError("cannot mix Saxo account/currency in observed NAV windows")
+    account,currency=next(iter(identities))
+    finished=[]
+    active_key=None
+    first_at=last_at=None
+    first_value=last_value=peak=0.
+    worst_drawdown=0.
+    count=0
+
+    def flush():
+        if active_key is None:
+            return
+        strategy,timeframe,market,instance=active_key
+        change=last_value-first_value if count>=2 else None
+        pct=100.*change/first_value if change is not None else None
+        finished.append(ObservedLiveNAVWindowV1(
+            first_observed=first_at,last_observed=last_at,
+            strategy_key=strategy,timeframe=timeframe,market=market,
+            instance_id=instance,account_id=account,currency=currency,
+            observations=count,first_value=first_value,last_value=last_value,
+            value_change=change,value_change_pct=pct,
+            max_observed_drawdown_pct=worst_drawdown if count>=2 else None,
+        ))
+
+    for sample in ordered:
+        when=_time(sample["observed_at"])
+        strategy,timeframe,market,instance,armed,_label=_context(sample)
+        valid=bool(armed and strategy and instance and
+                   str(sample.get("calculation_reliability") or "").lower()=="ok")
+        try:
+            amount=float(sample["total_value"])
+            valid=valid and isfinite(amount) and amount>0.
+        except (ValueError,TypeError,KeyError):
+            valid=False
+            amount=0.
+        key=(strategy,timeframe,market,instance) if valid else None
+        seconds=(when-last_at).total_seconds() if last_at is not None else None
+        continuous=(seconds is not None and 0<seconds<=max_gap_seconds)
+        if active_key is not None and (key!=active_key or not continuous):
+            flush()
+            active_key=None
+            count=0
+        if key is None:
+            continue
+        if active_key is None:
+            active_key=key
+            first_at=last_at=when
+            first_value=last_value=peak=amount
+            worst_drawdown=0.
+            count=1
+        else:
+            last_at=when
+            last_value=amount
+            peak=max(peak,amount)
+            worst_drawdown=max(worst_drawdown,100.*(peak-amount)/peak)
+            count+=1
+    flush()
+    return tuple(finished)
+
+
 def build_saxo_account_strategy_chart_v1(
     samples: Sequence[Mapping], *, height: int = 320,
 ):
@@ -238,6 +336,7 @@ def build_saxo_account_strategy_chart_v1(
 
 
 __all__ = [
-    "ObservedStrategyPeriodV1", "strategy_periods_from_snapshots_v1",
+    "ObservedStrategyPeriodV1", "ObservedLiveNAVWindowV1",
+    "strategy_periods_from_snapshots_v1", "observed_live_nav_windows_v1",
     "build_saxo_account_strategy_chart_v1", "MAX_GAP_SECONDS",
 ]
