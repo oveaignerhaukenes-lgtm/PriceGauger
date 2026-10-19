@@ -2,7 +2,9 @@
 
 PriceGauger er et worker-first markedanalyse- og trading-supportsystem med canonical markedsdata, deterministisk Technical Core, eksplisitte context/forecast-lag og et separat risk-controlled AutoTrader-subsystem. PostgreSQL er autoritativ delt state i produksjon.
 
-**Gjeldende implementasjonsstatus:** [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)  
+**Gjeldende prosjektstatus og arbeidskontekst:** [`PROJECT_STATE.md`](PROJECT_STATE.md)
+
+**Historiske statusnotater:** [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)  
 **Arkitekturprinsipper:** [`docs/PRICEGAUGER_V2_ARCHITECTURE.md`](docs/PRICEGAUGER_V2_ARCHITECTURE.md)  
 **Systemoversikt:** [`docs/PRICEGAUGER_V2_SYSTEM_OVERVIEW.md`](docs/PRICEGAUGER_V2_SYSTEM_OVERVIEW.md)
 
