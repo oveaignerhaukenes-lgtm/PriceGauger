@@ -13,6 +13,9 @@ from autotrader_saxo_account_truth_v1 import (
     load_account_truth_v1,account_value_summary_v1,
     collect_saxo_account_truth_once_v1,
 )
+from autotrader_saxo_official_performance_v1 import (
+    load_official_performance_v1,collect_official_performance_once_v1,
+)
 from database import connect
 
 
@@ -45,6 +48,7 @@ if st.button("Hent Saxo-kontoverdi nå (kun GET)",key="account-truth-refresh"):
             st.info(
                 f"Status: {result['status']} · lest: {result['seen']} · "
                 f"lagret: {result['saved']} · mislykket: {result['failed']}. "
+                f"Feilkoder: {result.get('errors',{})}. "
                 "Høyst ett øyeblikksbilde per femminuttersvindu."
             )
 
@@ -111,6 +115,54 @@ st.caption(
     f"Reliability={latest['calculation_reliability']} · "
     "profitstatus: IKKE AVSTEMT (innskudd/uttak/bokførte handler mangler)."
 )
+st.subheader("Saxo offisiell historisk kontoperformance")
+try:
+    daily,official=load_official_performance_v1(
+        account_id=choices[selection],days=max(90,days))
+except Exception as exc:
+    daily,official=(),None
+    st.caption("Offisielle historiske Saxo-data kan ikke leses: "+type(exc).__name__)
+if official is not None:
+    if official["currency"]!=latest["currency"]:
+        st.error("Saxo historisk valuta samsvarer ikke med kontobalansen; resultat skjult.")
+    else:
+        if official["status"]=="SAXO_REPORTED_ACCOUNT_PNL" and official["profit"] is not None:
+            st.metric("Saxo rapportert kontosresultat",
+                      f"{float(official['profit']):+,.2f} {official['currency']}")
+        else:
+            st.warning("Saxo ga ikke et verifiserbart historisk resultatbeløp.")
+        st.caption(
+            f"Resultatet gjelder kontoen, alle instrumenter og handler, "
+            f"ikke bare valgt autotrader. Forespurt periode "
+            f"{official['period_from']}–{official['period_to']} · "
+            f"Saxos siste registrerte handelsdag: {official.get('last_trade_day') or 'ukjent'}. "
+            "Historiske resultater er Saxos EOD-tall, ikke dagens intradag-P/L."
+        )
+else:
+    st.info("Saxo historisk resultat er ikke hentet ennå. "
+            "Den uavhengige rapportinnsamlingen kjører daglig og prøver "
+            "igjen dersom Saxo ennå ikke har gjort data tilgjengelige.")
+if daily and (official is None or official["currency"]==latest["currency"]):
+    performance=pd.DataFrame(daily)
+    performance["value_date"]=pd.to_datetime(performance["value_date"],utc=True)
+    performance=performance.set_index("value_date").sort_index()
+    if performance["time_weighted_fraction"].notna().any():
+        series=performance[["time_weighted_fraction"]].dropna()*100.
+        series.columns=["Saxo akkumulert TWR %"]
+        st.line_chart(series,use_container_width=True)
+        st.caption(
+            "Offisiell tidsvektet avkastning. Saxo inkluderer relevante "
+            "finansierings- og konverteringskostnader; dette er account-wide, "
+            "ikke individuell strategi-P/L."
+        )
+    if performance["account_value"].notna().any():
+        st.markdown("**Saxo historiske dagsverdier**")
+        st.line_chart(performance[["account_value"]].dropna(),
+                      use_container_width=True)
+        st.caption(
+            "Dagsavsluttede verdier fra Saxo. Intradagdata vises separat under."
+        )
+
 st.subheader("Kontoverdi over tid")
 st.line_chart(good.set_index("observed_at")[["total_value"]],
               y_label=f"TotalValue ({latest['currency']})",use_container_width=True)

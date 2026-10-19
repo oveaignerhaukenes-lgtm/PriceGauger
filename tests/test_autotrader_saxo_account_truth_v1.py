@@ -107,7 +107,7 @@ def test_collect_both_saxo_accounts_in_own_currency_into_durable_sqlite(monkeypa
     broker=Broker()
     report=m.collect_saxo_account_truth_once_v1(
         broker=broker,db_path=db,now=NOW)
-    assert report=={"status":"OK","seen":2,"saved":2,"failed":0}
+    assert report=={"status":"OK","seen":2,"saved":2,"failed":0,"errors":{}}
     assert broker.calls==["accounts"]
     assert [p[1] for p in broker.client.calls]==[
         {"AccountKey":"one-key"},{"AccountKey":"two-key"}]
@@ -155,7 +155,8 @@ def test_collector_isolation_per_failed_account_and_does_not_log_secrets(monkeyp
     monkeypatch.setattr(m,"_account_strategy_context_v1",lambda **kw:{})
     broker=FailingBroker()
     report=m.collect_saxo_account_truth_once_v1(broker=broker,db_path=db)
-    assert report=={"status":"PARTIAL","seen":2,"saved":0,"failed":2}
+    assert report=={"status":"PARTIAL","seen":2,"saved":0,"failed":2,
+                    "errors":{"SAXO_BALANCES_GET_FAILED":2}}
     assert "secret" not in repr(report)
 
 
