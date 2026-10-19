@@ -16,7 +16,9 @@ from autotrader_saxo_account_truth_v1 import (
 from autotrader_saxo_official_performance_v1 import (
     load_official_performance_v1,collect_official_performance_once_v1,
 )
-from autotrader_saxo_strategy_timeline_v1 import build_saxo_account_strategy_chart_v1
+from autotrader_saxo_strategy_timeline_v1 import (
+    build_saxo_account_strategy_chart_v1,observed_live_nav_windows_v1,
+)
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
 from database import connect
 
@@ -65,6 +67,13 @@ except Exception as exc:
 if not samples:
     st.info("Ingen Saxo-kontomålinger lagret ennå. Innsamling starter med neste worker-syklus; prøv «Hent Saxo-kontoverdi nå».")
     st.stop()
+
+if len(samples)>=50000:
+    st.warning(
+        "Samlet kontooversikt viser bare de 50 000 nyeste målingene i valgt periode. "
+        "Individuelle kontografer og observerte strategiperioder henter derimot "
+        "hele den valgte perioden per konto. Ingen eldre målinger er slettet."
+    )
 
 frame=pd.DataFrame(samples)
 frame["observed_at"]=pd.to_datetime(frame["observed_at"],utc=True)
@@ -140,6 +149,34 @@ for account_id in visible_account_ids:
         if len(samples_for_chart)>=50000:
             st.warning("Visningen kan være avkortet ved 50 000 målinger. "
                        "Velg en kortere periode.")
+        # Comparison is by actually observed Saxo equity, never synthetic
+        # backfilled strategy P/L. A switch/gap/multiple owners excludes the
+        # delta across the boundary, and deposits remain unresolved.
+        observed_windows=observed_live_nav_windows_v1(samples_for_chart)
+        if observed_windows:
+            with st.expander("Kontoverdiendring per observert LIVE-strategiperiode"):
+                st.caption(
+                    "Foreløpig evaluering av kontoverdi, IKKE dokumentert strategi-P/L. "
+                    "Viser kun sammenhengende Saxo-målinger med bekreftet kvalitet "
+                    "og samme entydige LIVE-strategi. Hopp ved strategibytte, "
+                    "måleavbrudd og uklart eierskap tilordnes ingen strategi. "
+                    "Innskudd, uttak, andre handler, finansiering og FX er "
+                    "ikke avstemt. Sammenlign derfor ikke tallene direkte som nettoavkastning."
+                )
+                st.dataframe(pd.DataFrame([
+                    {"Strategi":w.strategy_key+" · "+w.timeframe,
+                     "Først observert (UTC)":w.first_observed,
+                     "Sist observert (UTC)":w.last_observed,
+                     "Målinger":w.observations,
+                     f"Endring i Saxo TotalValue ({w.currency}), uavstemt":
+                         None if w.value_change is None else round(w.value_change,2),
+                     "Endring %, uavstemt":
+                         None if w.value_change_pct is None else round(w.value_change_pct,2),
+                     "Største observert NAV-fall %":
+                         None if w.max_observed_drawdown_pct is None
+                         else round(w.max_observed_drawdown_pct,2)}
+                    for w in observed_windows[-100:]
+                ]).iloc[::-1],use_container_width=True,hide_index=True)
         if periods:
             last=periods[-1]
             st.caption(f"Sist observert: {last.label} · "
