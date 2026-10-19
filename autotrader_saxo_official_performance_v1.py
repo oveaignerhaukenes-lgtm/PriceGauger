@@ -184,8 +184,10 @@ def collect_official_performance_once_v1(*,broker=None,days:int=90,
     except Exception:
         return {"status":"SAXO_ACCOUNTS_FAILED","seen":0,"saved":0,"failed":1}
     seen=saved=failed=0
+    errors:dict[str,int]={}
     for a in accounts:
         seen+=1
+        phase="ACCOUNT_IDENTITY"
         try:
             if not isinstance(a,Mapping): raise ValueError("INVALID_ACCOUNT")
             aid=str(a["AccountId"]).strip()
@@ -195,24 +197,38 @@ def collect_official_performance_once_v1(*,broker=None,days:int=90,
             if not all((aid,key,clientkey,curr)): raise ValueError("UNVERIFIED_ACCOUNT")
             params={"AccountKey":key,"ClientKey":clientkey,
                     "FromDate":start.isoformat(),"ToDate":end.isoformat()}
+            phase="TIMESERIES_GET"
             times=broker.client._get("hist/v4/performance/timeseries",params={
                 **params,"FieldGroups":"Balance_AccountValue,Balance_AccountBalance,"
                 "Balance_CashTransfer,Balance_SecurityTransfer,TimeWeighted_Accumulated"
             })
+            phase="SUMMARY_GET"
             summary=broker.client._get("hist/v4/performance/summary",params=params)
+            phase="TIMESERIES_PARSE"
             daily=parse_official_performance_v1(times,from_date=start,to_date=end)
+            phase="SUMMARY_PARSE"
             pnl=parse_saxo_profit_summary_v1(summary,from_date=start,to_date=end)
+            phase="BROKER_HISTORY_EMPTY"
             if not daily and pnl["profit"] is None:
                 raise ValueError("NO_HISTORICAL_BROKER_DATA")
+            phase="PERSIST"
             save_official_performance_v1(
                 account_id=aid,currency=curr,daily=daily,summary=pnl,
                 from_date=start,to_date=end,observed_at=clock,db_path=db_path)
             saved+=1
-        except Exception:
+        except Exception as exc:
             failed+=1
-            # No account ID, money, secrets or Saxo raw error in worker logs.
-    return {"status":"OK" if not failed else "PARTIAL",
+            # Only report bounded phase and HTTP class. Never log Saxo
+            # payloads, account identifiers, token, amounts or exception text.
+            status=getattr(exc,"status_code",None)
+            suffix=f"_HTTP_{status}" if isinstance(status,int) and 400<=status<=599 else ""
+            code=phase+suffix
+            errors[code]=errors.get(code,0)+1
+    result={"status":"OK" if not failed else "PARTIAL",
             "seen":seen,"saved":saved,"failed":failed}
+    if failed:
+        result["errors"]=dict(sorted(errors.items()))
+    return result
 
 
 __all__=["parse_official_performance_v1","parse_saxo_profit_summary_v1",
