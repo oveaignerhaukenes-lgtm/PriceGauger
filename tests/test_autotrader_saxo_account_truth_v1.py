@@ -15,6 +15,7 @@ NOW=datetime(2026,10,19,1,0,tzinfo=timezone.utc)
 
 def acct(account="one",currency="NOK"):
     return {"AccountId":account,"AccountKey":account+"-key",
+            "ClientKey":"exact-client-key",
             "Currency":currency,"DisplayName":"Tech100-A" if account=="one" else "lager"}
 
 
@@ -33,7 +34,8 @@ class Client:
     def _get(self,path,params=None):
         assert path=="port/v1/balances"
         self.calls.append((path,params))
-        assert list(params)==["AccountKey"]
+        assert list(params)==["AccountKey","ClientKey"]
+        assert params["ClientKey"]=="exact-client-key"
         if params["AccountKey"]=="one-key":return balance()
         if params["AccountKey"]=="two-key":return balance("USD",150.)
         raise AssertionError("unknown account key")
@@ -110,7 +112,8 @@ def test_collect_both_saxo_accounts_in_own_currency_into_durable_sqlite(monkeypa
     assert report=={"status":"OK","seen":2,"saved":2,"failed":0,"errors":{}}
     assert broker.calls==["accounts"]
     assert [p[1] for p in broker.client.calls]==[
-        {"AccountKey":"one-key"},{"AccountKey":"two-key"}]
+        {"AccountKey":"one-key","ClientKey":"exact-client-key"},
+        {"AccountKey":"two-key","ClientKey":"exact-client-key"}]
     assert broker.client.timeout==5
     # Same 5 minute slot cannot overwrite a prior observation.
     duplicate=m.collect_saxo_account_truth_once_v1(

@@ -78,3 +78,17 @@ Official Saxo references:
 
 Safety: This PR is an observability change; account collector GET is not
 an authority to place Saxo orders. Existing LIVE instances are unchanged.
+
+## POST-deploy real Saxo balances diagnostic correction 2026-10-19
+
+The initial deployed GET-only collector discovered 12 Saxo accounts, but
+`port/v1/balances` requests all failed. The independent `hist/v4` collector
+successfully stored official EOD series for 4 accounts. The fix scopes
+balance queries with both the mandatory `AccountKey` and verified
+`ClientKey` from the same account row, consistent with the public Saxo API
+reference. All broker HTTP errors are aggregated into safe, non-identifying
+`SAXO_BALANCES_HTTP_4xx/5xx` status codes; timeouts/auth errors also have
+fixed categories. It never logs account IDs, raw responses or balances.
+If the broker still rejects GETs, the HTTP status is required to distinguish
+permissions from payload mismatch; no fallback to client-wide balances is
+allowed because that would silently misattribute equity to an account.

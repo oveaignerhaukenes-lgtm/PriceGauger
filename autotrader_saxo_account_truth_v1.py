@@ -268,16 +268,27 @@ def collect_saxo_account_truth_once_v1(*,broker=None,
         try:
             identity=str(account["AccountId"]).strip()
             key=str(account["AccountKey"]).strip()
-            if not identity or not key:
-                fail("ACCOUNT_ID_OR_KEY_MISSING")
+            client_key=str(account["ClientKey"]).strip()
+            if not all((identity,key,client_key)):
+                fail("ACCOUNT_ID_OR_KEYS_MISSING")
                 continue
         except Exception:
-            fail("ACCOUNT_ID_OR_KEY_MISSING")
+            fail("ACCOUNT_ID_OR_KEYS_MISSING")
             continue
         try:
-            payload=broker.client._get("port/v1/balances",params={"AccountKey":key})
-        except Exception:
-            fail("SAXO_BALANCES_GET_FAILED")
+            # Both keys are documented for /port/v1/balances and make the
+            # client/account boundary explicit, consistent with Saxo hist/v4.
+            payload=broker.client._get("port/v1/balances",params={
+                "AccountKey":key,"ClientKey":client_key})
+        except Exception as exc:
+            status_code=getattr(exc,"status_code",None)
+            if isinstance(status_code,int) and 400<=status_code<=599:
+                fail(f"SAXO_BALANCES_HTTP_{status_code}")
+            else:
+                category=str(getattr(exc,"status","") or "").upper()
+                fail("SAXO_BALANCES_"+category if category in
+                     {"TIMEOUT","CONNECTION_FAILED","TOKEN_MISSING","AUTH_FAILED"}
+                     else "SAXO_BALANCES_GET_FAILED")
             continue
         try:
             moment=(now or datetime.now(timezone.utc))
