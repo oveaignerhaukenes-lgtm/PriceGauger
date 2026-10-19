@@ -8,13 +8,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from database import connect
 
-RHYTHM_CATALOG_KEYS_V3 = frozenset(("macd-stoch-rhythm-build", "rhythm-trend-1"))
+RHYTHM_CATALOG_KEYS_V3 = frozenset(("macd-stoch-rhythm-build", "rhythm-trend-1",
+    "rhythm-build-fractal", "rhythm-trend-fractal"))
 RHYTHM_RUNTIME_KEYS_V3 = frozenset((
     "macd-stoch-rhythm-build-v1", "rhythm-trend-1-v1",
+    "macd-stoch-rhythm-build-fractal-v1", "rhythm-trend-fractal-v1",
 ))
 RUNTIME_TO_CATALOG_V3 = dict(zip(
-    ("macd-stoch-rhythm-build-v1", "rhythm-trend-1-v1"),
-    ("macd-stoch-rhythm-build", "rhythm-trend-1"),
+    ("macd-stoch-rhythm-build-v1", "rhythm-trend-1-v1",
+     "macd-stoch-rhythm-build-fractal-v1", "rhythm-trend-fractal-v1"),
+    ("macd-stoch-rhythm-build", "rhythm-trend-1",
+     "rhythm-build-fractal", "rhythm-trend-fractal"),
 ))
 
 
