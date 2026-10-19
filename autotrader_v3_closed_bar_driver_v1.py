@@ -229,6 +229,10 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             extra["source_bars"] = source_bars
             extra["regime_timeframe_minutes"] = int(regime_timeframe_minutes)
             extra["market_name"] = str(market_name)
+            if strategy_key == RHYTHM_TREND_KEY:
+                # Macro/meso consume raw canonical source; M1 rhythm additionally
+                # needs the fully closed 1m OHLC decision bars, not the default ().
+                extra["bars"] = bars
         if strategy_key == PEAK_FLIP_KEY:
             memory_row=db.execute(
                 """SELECT last_bar_time,phase,reference_level
