@@ -55,7 +55,7 @@ STRATEGIES_V3 = (
     ),
     StrategySpecV3(
         "rhythm-build-fractal", "Rytmebygg · Fraktaltempo",
-        "SIM: bygger på uendret Rytmebygg, men bruker Fraktal#1 sine "
+        "LIVE-kompatibel pilot med egen kontogodkjenning: uendret Rytmebygg, men bruker Fraktal#1 sine "
         "bekreftede 0,05/0,15/0,35-prosentsvingninger til å velge "
         "1/2/4 minutters inn- og byggerytme. Manglende fraktal bevis "
         "hindrer ny eksponering. Exit/trim forblir øyeblikkelig.",
@@ -63,7 +63,7 @@ STRATEGIES_V3 = (
     ),
     StrategySpecV3(
         "rhythm-trend-fractal", "RytmeTrend · Fraktaltempo",
-        "SIM: R15/S5/M1-strukturen fra RytmeTrend#1 beholdes. "
+        "LIVE-kompatibel pilot med egen kontogodkjenning: R15/S5/M1-strukturen beholdes. "
         "Fraktal#1 styrer 5/10/15 minutters inngang/byggerytme, "
         "uten å forsinke full FLAT, og uten å øke maksimalt tre trancher.",
         "rhythm-trend-fractal-v1", True,
@@ -182,8 +182,6 @@ def live_config_issues_v3(
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3:
         issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
-    if strategy_key in FRACTAL_RHYTHM_CATALOG_KEYS_V3:
-        issues.append("Fraktaltempo er en SIM-kontrollvariant; LIVE er sperret")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
