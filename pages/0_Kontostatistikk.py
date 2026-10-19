@@ -48,6 +48,7 @@ if st.button("Hent Saxo-kontoverdi nå (kun GET)",key="account-truth-refresh"):
             st.info(
                 f"Status: {result['status']} · lest: {result['seen']} · "
                 f"lagret: {result['saved']} · mislykket: {result['failed']}. "
+                f"Feilkoder: {result.get('errors',{})}. "
                 "Høyst ett øyeblikksbilde per femminuttersvindu."
             )
 

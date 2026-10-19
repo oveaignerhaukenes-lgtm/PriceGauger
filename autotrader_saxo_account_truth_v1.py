@@ -249,27 +249,52 @@ def collect_saxo_account_truth_once_v1(*,broker=None,
     except Exception:
         contexts={}  # Unavailable context is NEVER inferred as a strategy match.
     seen=saved=failed=0
+    errors:dict[str,int]={}
+    def fail(code:str):
+        nonlocal failed
+        failed+=1
+        errors[code]=errors.get(code,0)+1
+    _safe_parser_errors={
+        "SAXO_ACCOUNT_OR_BALANCE_MISSING","SAXO_ACCOUNT_CURRENCY_BOUNDARY_UNVERIFIED",
+        "SAXO_RETURNED_ACCOUNT_MISMATCH","SAXO_TOTAL_VALUE_MISSING",
+        "SAXO_NUMERIC_FIELD_INVALID","SAXO_NONFINITE_NUMBER",
+        "SAXO_INITIAL_MARGIN_INVALID","UTC_OBSERVATION_TIME_REQUIRED",
+    }
     for account in accounts:
         if not isinstance(account,Mapping):
-            failed+=1
+            fail("INVALID_ACCOUNT_ROW")
             continue
         seen+=1
         try:
             identity=str(account["AccountId"]).strip()
             key=str(account["AccountKey"]).strip()
             if not identity or not key:
-                raise ValueError("ACCOUNT_KEY_REQUIRED")
+                fail("ACCOUNT_ID_OR_KEY_MISSING")
+                continue
+        except Exception:
+            fail("ACCOUNT_ID_OR_KEY_MISSING")
+            continue
+        try:
             payload=broker.client._get("port/v1/balances",params={"AccountKey":key})
+        except Exception:
+            fail("SAXO_BALANCES_GET_FAILED")
+            continue
+        try:
             moment=(now or datetime.now(timezone.utc))
             snapshot=parse_saxo_balance_v1(
                 account=account,payload=payload,observed_at=moment,
                 context=contexts.get(identity,()))
+        except Exception as exc:
+            code=str(exc)
+            fail(code if code in _safe_parser_errors else "SAXO_BALANCES_PARSE_FAILED")
+            continue
+        try:
             saved+=int(save_account_truth_v1(snapshot,db_path=db_path))
         except Exception:
-            failed+=1
-            # No raw broker payload, account id, token or monetary values in logs.
+            fail("SAXO_ACCOUNT_SNAPSHOT_DB_FAILED")
     return {"status":"OK" if not failed else "PARTIAL",
-            "seen":seen,"saved":saved,"failed":failed}
+            "seen":seen,"saved":saved,"failed":failed,
+            "errors":dict(sorted(errors.items()))}
 
 
 __all__=["SaxoAccountTruthV1","parse_saxo_balance_v1",

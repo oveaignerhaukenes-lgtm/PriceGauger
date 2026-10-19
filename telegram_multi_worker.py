@@ -135,8 +135,9 @@ def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> Non
     while not stop_event.is_set():
         try:
             result=collect_saxo_account_truth_once_v1(db_path=str(db_path))
-            LOGGER.info("saxo account truth status=%s seen=%s saved=%s failed=%s",
-                result["status"],result["seen"],result["saved"],result["failed"])
+            LOGGER.info("saxo account truth status=%s seen=%s saved=%s failed=%s error_codes=%s",
+                result["status"],result["seen"],result["saved"],result["failed"],
+                result.get("errors",{}))
         except Exception as exc:
             # No broker exception/payload/credentials in logs.
             LOGGER.warning("saxo account truth snapshot failed kind=%s",type(exc).__name__)
