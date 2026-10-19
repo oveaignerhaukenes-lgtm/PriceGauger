@@ -52,12 +52,12 @@ for rhythm_key in (RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY):
     )
 
 
-# Compare Fraktal-cadence variants in SIM only. The shared LIVE worker
-# refuses these keys even if a user previously armed the same account.
+# Fraktaltempo uses the existing LIVE decision adapter, but the worker
+# requires a distinct exact-account approval (default OFF) before any order.
 for rhythm_key in (RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3):
     STRATEGIES_V3[rhythm_key] = StrategyAdapterV3(
         key=rhythm_key,evaluate_closed_bar=evaluate_closed_bar_once_v3,
-        live_route_enabled=False,
+        live_route_enabled=True,
     )
 
 STRATEGIES_V3.update({
