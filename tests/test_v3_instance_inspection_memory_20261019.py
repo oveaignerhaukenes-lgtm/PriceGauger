@@ -10,7 +10,7 @@ from autotrader_v3_ai_decision_memory_v1 import (
     load_ai_decisions_v1,record_ai_decision_v1,
 )
 from autotrader_v3_instance_inspection_v1 import (
-    build_instance_inspection_figure_v1,load_instance_executions_v1,
+    build_instance_inspection_payload_v1,load_instance_executions_v1,
     resample_complete_candles_v1,
 )
 
@@ -45,7 +45,7 @@ def test_chart_contains_price_macd_stoch_and_exact_execution_marker():
     bars=resample_complete_candles_v1(
         data,timeframe_minutes=1,now=BASE+timedelta(minutes=101))
     assert len(bars)==100
-    fig=build_instance_inspection_figure_v1(
+    payload=build_instance_inspection_payload_v1(
         bars,timeframe_minutes=1,executions=[{
             "executed_at":BASE+timedelta(minutes=75,seconds=30),
             "action":"OPEN","side":"Buy","amount":0.01,
@@ -54,23 +54,23 @@ def test_chart_contains_price_macd_stoch_and_exact_execution_marker():
             "evaluated_at":BASE+timedelta(minutes=80),
             "mode":"SHADOW","action":"FLAT",
             "reason":"momentum contracting",
-        }])
-    assert any(x.type=="candlestick" for x in fig.data)
-    assert any(x.name=="MACD" for x in fig.data)
-    assert any(x.name=="Signal" for x in fig.data)
-    assert any(x.name=="Histogram" for x in fig.data)
-    assert any(x.name=="%K" for x in fig.data)
-    assert any(x.name=="%D" for x in fig.data)
-    assert any(x.marker.symbol=="diamond" for x in fig.data
-               if x.type=="scatter" and x.marker.symbol)
-    assert any(x.marker.symbol=="triangle-up" for x in fig.data
-               if x.type=="scatter" and x.marker.symbol)
-    # No marker changes the price or technical indicator samples.
-    fig_base=build_instance_inspection_figure_v1(
-        bars,timeframe_minutes=1)
-    assert tuple(fig_base.data[0].close)==tuple(fig.data[0].close)
-    assert tuple(next(x.y for x in fig_base.data if x.name=="MACD"))==tuple(
-        next(x.y for x in fig.data if x.name=="MACD"))
+        }],show_after=BASE+timedelta(minutes=40))
+    assert payload["pane_order"]==["price","macd","stochastic"]
+    assert payload["candles"][0]["time"]==int(
+        (BASE+timedelta(minutes=40)).timestamp())
+    assert all(x in {y["role"] for y in payload["lines"]}
+               for x in ("macd","macd_signal","stochastic_k","stochastic_d"))
+    assert payload["histograms"][0]["role"]=="macd_hist"
+    assert payload["thresholds"]["stochastic"]==[20,80]
+    assert any(x["shape"]=="circle" and x["text"]=="AI FLAT"
+               for x in payload["markers"])
+    assert any(x["shape"]=="arrowUp" for x in payload["markers"])
+    assert all(x["time"] in {c["time"] for c in payload["candles"]}
+               for x in payload["markers"])
+    baseline=build_instance_inspection_payload_v1(
+        bars,timeframe_minutes=1,show_after=BASE+timedelta(minutes=40))
+    assert baseline["candles"]==payload["candles"]
+    assert baseline["lines"]==payload["lines"]
 
 
 def test_trade_audit_filters_exact_instance_and_account(tmp_path):
@@ -145,3 +145,6 @@ def test_control_surfaces_share_lazy_per_instance_panel_without_saxo_mutation():
                       "send_order(", "cancel_order("):
         assert forbidden not in panel
     assert "IKKE bekreftet Saxo-fillpris" in panel
+    assert "render_lightweight_live_chart_v1(" in panel
+    assert "st.plotly_chart(" not in panel
+    assert "plotly.graph_objects" not in panel

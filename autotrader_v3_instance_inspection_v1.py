@@ -6,20 +6,19 @@ opens the control. It never calls Saxo and cannot place or cancel an order.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from math import floor, isfinite
 import logging
 
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 
 from autotrader_v3_ai_decision_memory_v1 import load_ai_decisions_v1
+from autotrader_v3_ai_manager_shadow_v1 import shadow_settings_v1,save_shadow_settings_v1
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from trading_desk import ChartBar, utc
 from trading_desk_indicators import calculate_indicators
+from tradingdesk_ui.charts.lightweight.renderer import render_lightweight_live_chart_v1
 
 LOGGER = logging.getLogger("pricegauger.v3.instance_inspection")
 TF_MINUTES = {"1m": 1, "2m": 2, "5m": 5, "10m": 10,
@@ -99,93 +98,77 @@ def _nearest_bar_anchor(bars: tuple[ChartBar,...], timestamp: datetime):
     return matched
 
 
-def build_instance_inspection_figure_v1(
-    bars: tuple[ChartBar,...], executions=(), ai_decisions=(), *,
-    timeframe_minutes: int,
-):
-    """Three synchronized panels: canonical OHLC, MACD 12/26/9, Stoch 14/3."""
+def build_instance_inspection_payload_v1(
+    bars: tuple[ChartBar, ...], executions=(), ai_decisions=(), *,
+    timeframe_minutes: int, show_after: datetime | None = None,
+    chart_id: str = "v3-inspection",
+) -> dict:
+    """TV Lightweight Charts payload for three coordinated native panes.
+
+    Indicator warmup uses all supplied completed candles; the visible candle,
+    MACD, Stoch, execution and AI markers are clipped consistently.
+    """
     if not bars:
         raise ValueError("no completed price candles")
     indicators=calculate_indicators(bars,macd_fast=12,macd_slow=26,macd_signal=9)
-    fig=make_subplots(rows=3,cols=1,shared_xaxes=True,
-                      vertical_spacing=0.038,
-                      row_heights=[0.54,0.24,0.22],
-                      subplot_titles=("Kurs og V3-handelsmarkører",
-                                      "MACD 12/26/9",
-                                      "Stochastic %K/%D 14/3"))
-    xx=[utc(b.bar_time) for b in bars]
-    fig.add_trace(go.Candlestick(x=xx,
-        open=[b.open for b in bars],high=[b.high for b in bars],
-        low=[b.low for b in bars],close=[b.close for b in bars],
-        increasing_line_color="#16A085",
-        decreasing_line_color="#D45858",
-        name="Kurs"),row=1,col=1)
-    def line(points,name,color,row):
-        if points:
-            fig.add_trace(go.Scatter(
-                x=[utc(p.bar_time) for p in points],
-                y=[p.value for p in points],
-                mode="lines",name=name,line={"color":color,"width":1.7},
-                hovertemplate="%{x}<br>%{y:.4f}<extra>"+name+"</extra>"
-            ),row=row,col=1)
-    line(indicators.macd,"MACD","#328AD1",2)
-    line(indicators.macd_signal,"Signal","#E0A04C",2)
-    if indicators.macd_histogram:
-        fig.add_trace(go.Bar(
-            x=[utc(p.bar_time) for p in indicators.macd_histogram],
-            y=[p.value for p in indicators.macd_histogram],
-            name="Histogram",marker_color=[
-                "#16986D" if p.value>=0 else "#C95757"
-                for p in indicators.macd_histogram],
-            opacity=.6),row=2,col=1)
-    line(indicators.stochastic_k,"%K","#318BDA",3)
-    line(indicators.stochastic_d,"%D","#E7A452",3)
-    fig.add_hline(y=80,row=3,col=1,line_dash="dot",
-                  line_color="gray",opacity=.6)
-    fig.add_hline(y=20,row=3,col=1,line_dash="dot",
-                  line_color="gray",opacity=.6)
-    fig.update_yaxes(range=[0,100],row=3,col=1)
+    cutoff=utc(show_after) if show_after else utc(bars[0].bar_time)
+    kept=tuple(b for b in bars if utc(b.bar_time)>=cutoff)
+    if not kept:
+        raise ValueError("no candles in requested chart window")
+    def unix(at):
+        return int(utc(at).timestamp())
+    def series(points):
+        return [{"time":unix(p.bar_time),"value":float(p.value)}
+                for p in points if utc(p.bar_time)>=cutoff]
+    candle_data=[{"time":unix(b.bar_time),
+                  "open":float(b.open),"high":float(b.high),
+                  "low":float(b.low),"close":float(b.close)} for b in kept]
+    markers=[]
+    def chart_bar_at(when):
+        bar=_nearest_bar_anchor(kept,when)
+        if bar is None or utc(when)>utc(kept[-1].bar_time)+timedelta(minutes=timeframe_minutes):
+            return None
+        return bar
     for item in executions:
         when=utc(item["executed_at"])
-        bar=_nearest_bar_anchor(bars,when)
-        if bar is None or when > utc(bars[-1].bar_time)+timedelta(minutes=timeframe_minutes):
+        bar=chart_bar_at(when)
+        if bar is None:
             continue
         side=str(item.get("side") or "").upper()
         is_flat=abs(float(item.get("inventory_after") or 0))<1e-12
         up=side=="BUY"
-        marker_symbol="x" if is_flat else "triangle-up" if up else "triangle-down"
-        color="#E7A452" if is_flat else "#16A085" if up else "#D45858"
-        price=float(bar.close)   # visual chart anchor; never call it Saxo fill price
-        title=(f"{item.get('action') or '?'} {side} "
-               f"{float(item.get('amount') or 0):g} · "
-               f"etter {float(item.get('inventory_after') or 0):+.3f} lot")
-        fig.add_trace(go.Scatter(
-            x=[when],y=[price],mode="markers",showlegend=False,
-            marker={"symbol":marker_symbol,"size":12,"color":color,
-                    "line":{"color":"white","width":.6}},
-            hovertemplate="%{x}<br>"+title+"<br>Pris = nærmeste barclose, ikke fill<extra></extra>"
-        ),row=1,col=1)
-    for decision in ai_decisions:
-        when=utc(decision["evaluated_at"])
-        bar=_nearest_bar_anchor(bars,when)
-        if bar is None or when > utc(bars[-1].bar_time)+timedelta(minutes=timeframe_minutes):
+        label=f"{item.get('action') or '?'} {side} {float(item.get('amount') or 0):g}"
+        markers.append({"time":unix(bar.bar_time),"position":"aboveBar" if is_flat or not up else "belowBar",
+                        "shape":"square" if is_flat else "arrowUp" if up else "arrowDown",
+                        "color":"#DCA04B" if is_flat else "#16986D" if up else "#D45858",
+                        "text":label[:28],"source":"AUTOTRADER_V3"})
+    for item in ai_decisions:
+        bar=chart_bar_at(utc(item["evaluated_at"]))
+        if bar is None:
             continue
-        reason=str(decision.get("reason") or "")[:400].replace("<","").replace(">","")
-        fig.add_trace(go.Scatter(
-            x=[when],y=[bar.close],mode="markers",showlegend=False,
-            marker={"symbol":"diamond","size":14,"color":"#9E78D9",
-                    "line":{"color":"white","width":1}},
-            hovertemplate=(
-                "%{x}<br>AI "+str(decision["mode"])+" · "+
-                str(decision["action"])+"<br>"+reason+"<extra></extra>"
-            )),row=1,col=1)
-    fig.update_layout(
-        height=630,margin={"l":10,"r":10,"t":65,"b":15},
-        showlegend=True,legend={"orientation":"h","y":1.02},
-        xaxis_rangeslider_visible=False,hovermode="x unified",
-    )
-    fig.update_xaxes(tickformat="%H:%M",showgrid=True)
-    return fig
+        action=str(item.get("action") or "?")
+        markers.append({"time":unix(bar.bar_time),"position":"aboveBar",
+                        "shape":"circle","color":"#9A6ADD",
+                        "text":f"AI {action}"[:28],"source":"AI_SHADOW"})
+    markers.sort(key=lambda x:x["time"])
+    return {
+        "chart_id":chart_id,
+        "signature":f"v3-inspection:{timeframe_minutes}:3-panes",
+        "market":kept[-1].market,"timeframe":f"{timeframe_minutes}m",
+        "height":650,"pane_order":["price","macd","stochastic"],
+        "price_panel_share":.56,
+        "candles":candle_data,
+        "lines":[
+            {"role":"macd","label":"MACD 12/26","pane":"macd","data":series(indicators.macd)},
+            {"role":"macd_signal","label":"Signal 9","pane":"macd","data":series(indicators.macd_signal)},
+            {"role":"stochastic_k","label":"Stochastic %K 14","pane":"stochastic","data":series(indicators.stochastic_k)},
+            {"role":"stochastic_d","label":"Stochastic %D 3","pane":"stochastic","data":series(indicators.stochastic_d)},
+        ],
+        "histograms":[{"role":"macd_hist","label":"MACD histogram",
+                       "pane":"macd","data":series(indicators.macd_histogram)}],
+        "thresholds":{"stochastic":[20,80]},
+        "markers":markers,
+    }
 
 
 def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
@@ -196,6 +179,28 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
                      value=False,key=key):
         return
     config=load_autotrader_config_v3(instance_id)
+    with st.expander("AI Manager · SHADOW (analyserer tap, ingen ordre)",expanded=False):
+        settings=shadow_settings_v1(instance_id)
+        enabled=st.toggle("AI tapsvurdering på denne instansen",
+                          value=settings["enabled"],
+                          key=f"{key_prefix}:ai-shadow-enabled:{instance_id}")
+        seconds=st.slider("Tidsgrense for vedvarende tap (sekunder)",
+                          min_value=15,max_value=180,step=5,
+                          value=settings["trigger_seconds"],
+                          key=f"{key_prefix}:ai-shadow-delay:{instance_id}")
+        st.caption("Standard 60 sekunder · separat vurdering hvert 30. sekund. "
+                   "SHADOW ser på faktisk Saxo P/L og ferdiglukkede pris-/indikatorbarer. "
+                   "Ingen nye LIVE-ordrer eller automatisk reversering. "
+                   "Gjentatte AI-kall har 3 minutters cooldown. "
+                   "Uten tilgjengelig AI-nøkkel genereres ingen modellvurdering.")
+        if (enabled!=settings["enabled"] or seconds!=settings["trigger_seconds"]):
+            if st.button("Lagre AI SHADOW-innstillinger",
+                         key=f"{key_prefix}:ai-shadow-save:{instance_id}"):
+                save_shadow_settings_v1(
+                    instance_id=instance_id,enabled=enabled,
+                    trigger_seconds=seconds)
+                st.success("AI SHADOW-innstillinger oppdatert.")
+                st.rerun()
     timeframe=str(config.timeframe)
     if timeframe not in TF_MINUTES:
         st.info("Grafen krever en fast signalperiode i aktiv konfigurasjon.")
@@ -225,14 +230,14 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
             return
         if len(bars)<35:
             st.warning("For få ferdige signalbarer til full MACD 12/26/9.")
-        # Indicator warmup must include older candles, but plot only selected range.
-        fig=build_instance_inspection_figure_v1(
+        # Native TradingView Lightweight Charts; reuse canonical 3-pane renderer.
+        payload=build_instance_inspection_payload_v1(
             bars,executions=executions,ai_decisions=ai_decisions,
-            timeframe_minutes=tf_minutes)
-        # Keep the visual window bounded without dropping MACD warmup inputs.
-        fig.update_xaxes(range=[now-timedelta(hours=hours),now])
-        st.plotly_chart(fig,use_container_width=True,
-                        key=f"{key_prefix}:inspect-chart:{instance_id}")
+            timeframe_minutes=tf_minutes,
+            show_after=now-timedelta(hours=hours),
+            chart_id=f"v3-inspection:{instance_id}:{key_prefix}")
+        render_lightweight_live_chart_v1(
+            payload,key=f"{key_prefix}:inspect-chart:{instance_id}")
     except Exception as exc:
         LOGGER.warning("V3 inspection panel load failed instance=%s type=%s",
                        instance_id,type(exc).__name__)
@@ -256,8 +261,9 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
             use_container_width=True,hide_index=True)
     st.markdown("**AI-beslutninger · varig etterprøvbart minne**")
     if not ai_decisions:
-        st.caption("Ingen AI-inngrep dokumentert for denne instansen. "
-                   "Panelet lager ikke historiske AI-forklaringer i ettertid.")
+        st.caption("Ingen AI-vurderinger lagret for denne instansen ennå. "
+                   "AI Manager i SHADOW kan skrive faktiske begrunnelser her; "
+                   "ingen retrospektive forklaringer blir oppdiktet.")
     else:
         labels=[f"{utc(x['evaluated_at']):%d.%m %H:%M:%S} UTC · "
                 f"{x['mode']} {x['action']} · {x['model_id']}"
@@ -277,5 +283,5 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
 
 __all__=["resample_complete_candles_v1",
          "load_instance_executions_v1",
-         "build_instance_inspection_figure_v1",
+         "build_instance_inspection_payload_v1",
          "render_v3_instance_inspection_v1"]
