@@ -11,6 +11,9 @@ from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
 from autotrader_v3_macd_stoch_rhythm_build_v1 import STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
+from autotrader_v3_fractal_rhythm_variants_v1 import (
+    RHYTHM_BUILD_FRACTAL_KEY_V3,RHYTHM_TREND_FRACTAL_KEY_V3,
+)
 from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
@@ -21,7 +24,7 @@ from autotrader_v3_fraktal1_bridge_v1 import FRAKTAL1_RUNTIME_KEYS_V3, evaluate_
 
 
 def test_v3_registry_routes_all_strategies_through_same_decision_contract():
-    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3
+    assert set(STRATEGIES_V3) == {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3
     driver = strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(HISTOGRAM_FLIP_BUILD_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(PEAK_FLIP_KEY).evaluate_closed_bar
@@ -37,6 +40,10 @@ def test_v3_registry_routes_all_strategies_through_same_decision_contract():
     assert driver is strategy_adapter_v3(STOCH_V21_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(RHYTHM_BUILD_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(RHYTHM_TREND_KEY).evaluate_closed_bar
+    assert driver is strategy_adapter_v3(RHYTHM_BUILD_FRACTAL_KEY_V3).evaluate_closed_bar
+    assert driver is strategy_adapter_v3(RHYTHM_TREND_FRACTAL_KEY_V3).evaluate_closed_bar
+    assert not strategy_adapter_v3(RHYTHM_BUILD_FRACTAL_KEY_V3).live_route_enabled
+    assert not strategy_adapter_v3(RHYTHM_TREND_FRACTAL_KEY_V3).live_route_enabled
     assert strategy_adapter_v3(RHYTHM_BUILD_KEY).live_route_enabled
     assert strategy_adapter_v3(RHYTHM_TREND_KEY).live_route_enabled
     assert strategy_adapter_v3(STOCH_V21_KEY).live_route_enabled

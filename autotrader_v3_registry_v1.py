@@ -53,6 +53,21 @@ STRATEGIES_V3 = (
         "maks 3 enheter. LIVE-klar kodebane, separat kontovalg/arming kreves.",
         "rhythm-trend-1-v1", True,
     ),
+    StrategySpecV3(
+        "rhythm-build-fractal", "Rytmebygg · Fraktaltempo",
+        "SIM: bygger på uendret Rytmebygg, men bruker Fraktal#1 sine "
+        "bekreftede 0,05/0,15/0,35-prosentsvingninger til å velge "
+        "1/2/4 minutters inn- og byggerytme. Manglende fraktal bevis "
+        "hindrer ny eksponering. Exit/trim forblir øyeblikkelig.",
+        "macd-stoch-rhythm-build-fractal-v1", True,
+    ),
+    StrategySpecV3(
+        "rhythm-trend-fractal", "RytmeTrend · Fraktaltempo",
+        "SIM: R15/S5/M1-strukturen fra RytmeTrend#1 beholdes. "
+        "Fraktal#1 styrer 5/10/15 minutters inngang/byggerytme, "
+        "uten å forsinke full FLAT, og uten å øke maksimalt tre trancher.",
+        "rhythm-trend-fractal-v1", True,
+    ),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
@@ -123,13 +138,16 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
+FRACTAL_RHYTHM_CATALOG_KEYS_V3 = frozenset({
+    "rhythm-build-fractal","rhythm-trend-fractal"
+})
 AEN_CORE_CATALOG_KEYS_V3 = frozenset({
     "aen-core-hold", "aen-core-histogram", "aen-core-hysteresis",
     "aen-core-stoch", "aen-core-auto",
 })
 AEN_CORE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m")
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
-REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1")
+REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1", "rhythm-trend-fractal")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss", "whipsaw", "volatility-pause")
 SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
@@ -164,13 +182,17 @@ def live_config_issues_v3(
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3:
         issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
+    if strategy_key in FRACTAL_RHYTHM_CATALOG_KEYS_V3:
+        issues.append("Fraktaltempo er en SIM-kontrollvariant; LIVE er sperret")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
-    if strategy_key == "rhythm-trend-1":
+    if strategy_key in ("rhythm-build-fractal","rhythm-trend-fractal") and timeframe != "1m":
+        issues.append("Fraktaltempo krever ferdiglukkede 1m-signaler")
+    if strategy_key in ("rhythm-trend-1","rhythm-trend-fractal"):
         if timeframe != "1m":
             issues.append("RytmeTrend#1 krever ferdiglukkede 1m-signaler")
         if regime_timeframe != "15m":
@@ -206,7 +228,9 @@ def sim_config_issues_v3(
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
-    if strategy_key == "rhythm-trend-1":
+    if strategy_key in ("rhythm-build-fractal","rhythm-trend-fractal") and timeframe != "1m":
+        issues.append("Fraktaltempo krever ferdiglukkede 1m-signaler")
+    if strategy_key in ("rhythm-trend-1","rhythm-trend-fractal"):
         if timeframe != "1m":
             issues.append("RytmeTrend#1 krever ferdiglukkede 1m-signaler")
         if regime_timeframe != "15m":
