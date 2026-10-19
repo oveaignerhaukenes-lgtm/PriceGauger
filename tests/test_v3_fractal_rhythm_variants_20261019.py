@@ -1,4 +1,4 @@
-"""Causal Fraktal#1 tempo overlays, SIM-only routing and baseline invariants."""
+"""Causal Fraktal#1 tempo overlays; LIVE route requires separate pilot opt-in."""
 from __future__ import annotations
 
 from datetime import datetime,timedelta,timezone
@@ -80,7 +80,7 @@ def test_speed_slots_are_never_more_aggressive_than_base():
         cadence_interval_minutes_v1("FAST",strategy="not-strategy")
 
 
-def test_sim_only_route_and_catalog_validation():
+def test_live_ready_route_and_catalog_validation():
     for catalog,runtime in [
         ("rhythm-build-fractal",f.RHYTHM_BUILD_FRACTAL_KEY_V3),
         ("rhythm-trend-fractal",f.RHYTHM_TREND_FRACTAL_KEY_V3),
@@ -88,18 +88,20 @@ def test_sim_only_route_and_catalog_validation():
         spec=strategy_v3(catalog)
         assert spec.runtime_key==runtime and spec.runtime_ready
         assert runtime in STRATEGIES_V3
-        assert not STRATEGIES_V3[runtime].live_route_enabled
+        assert STRATEGIES_V3[runtime].live_route_enabled
         assert sim_config_issues_v3(
             strategy_key=catalog,timeframe="1m",control_mode="Manuell",
             modifiers=(),regime_timeframe="15m")==()
-        assert any("SIM" in x or "LIVE er sperret" in x
-                   for x in live_config_issues_v3(
-                       strategy_key=catalog,timeframe="1m",control_mode="Manuell",
-                       modifiers=(),regime_timeframe="15m"))
+        assert live_config_issues_v3(
+            strategy_key=catalog,timeframe="1m",control_mode="Manuell",
+            modifiers=(),regime_timeframe="15m")==()
         assert any("1m" in x for x in sim_config_issues_v3(
             strategy_key=catalog,timeframe="5m",control_mode="Manuell",
             modifiers=(),regime_timeframe="15m"))
     assert any("15m" in x for x in sim_config_issues_v3(
+        strategy_key="rhythm-trend-fractal",timeframe="1m",
+        control_mode="Manuell",modifiers=(),regime_timeframe="30m"))
+    assert any("15m" in x for x in live_config_issues_v3(
         strategy_key="rhythm-trend-fractal",timeframe="1m",
         control_mode="Manuell",modifiers=(),regime_timeframe="30m"))
 
@@ -191,6 +193,33 @@ def test_real_v3_cursor_prevents_second_add_on_same_candle(monkeypatch,baseline,
         again=evaluate_strategy_bar_v3(**kw)
         assert not again.is_new
         assert again.decision.target.amount==pytest.approx(.02)
+
+
+def test_fractal_pilot_requires_new_explicit_exact_account_approval(tmp_path):
+    from autotrader_v3_rhythm_live_approval_v1 import (
+        RHYTHM_RUNTIME_KEYS_V3, is_rhythm_live_approved_v3,
+        set_rhythm_live_approval_v3,
+    )
+    from autotrader_v3_live_runtime_v1 import REGIME_RUNTIME_KEYS_V3
+    from autotrader_v3_rhythm_live_approval_v1 import RHYTHM_CATALOG_KEYS_V3
+    assert "rhythm-trend-fractal-v1" in REGIME_RUNTIME_KEYS_V3
+    db=str(tmp_path/"fractal-pilot-approval.db")
+    for key,runtime in (("rhythm-build-fractal",f.RHYTHM_BUILD_FRACTAL_KEY_V3),
+                        ("rhythm-trend-fractal",f.RHYTHM_TREND_FRACTAL_KEY_V3)):
+        assert key in RHYTHM_CATALOG_KEYS_V3
+        assert runtime in RHYTHM_RUNTIME_KEYS_V3
+        params=dict(trader_id="test-"+key,strategy_key=runtime,
+                    account_id="a",uic=4912,asset_type="CfdOnIndex",db_path=db)
+        assert not is_rhythm_live_approved_v3(**params)
+        set_rhythm_live_approval_v3(**params,approved=True)
+        assert is_rhythm_live_approved_v3(**params)
+        assert not is_rhythm_live_approved_v3(**{**params,"account_id":"other"})
+        assert not is_rhythm_live_approved_v3(**{**params,"uic":555})
+        assert not is_rhythm_live_approved_v3(**{**params,"asset_type":"Stock"})
+        assert not is_rhythm_live_approved_v3(**{**params,
+                   "strategy_key":"rhythm-trend-1-v1"})
+        set_rhythm_live_approval_v3(**params,approved=False)
+        assert not is_rhythm_live_approved_v3(**params)
 
 
 def test_no_saxo_order_or_live_authority_added():
