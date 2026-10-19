@@ -47,6 +47,7 @@ from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
+from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -54,7 +55,7 @@ from saxo_trading import SaxoOrderRequest
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 # Read-only audit: one entry per unresolved instance per worker lifetime.
 _PENDING_AUDIT_LOGGED_V3=set()
-REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY}
+REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY,RHYTHM_TREND_KEY}
 
 def _definitive_saxo_rejection_v3(exc:Exception)->bool:
     """True only when Saxo returned a concrete client-side rejection response."""

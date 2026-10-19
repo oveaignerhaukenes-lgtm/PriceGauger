@@ -42,8 +42,16 @@ STRATEGIES_V3 = (
     ),
     StrategySpecV3(
         "macd-stoch-rhythm-build", "MACD+Stoch · Rytmebygg v1",
-        "Separat kontrolltest mot MACD+Stoch v2. Samme 70/30-score og FLAT-signal; holder høyst én enhet ved whipsaw/usikker struktur. Bygger én enhet per bekreftet 1m retning med god effektivitet og stigende/fallende høyder og bunner. Kun SIM/PAPER frem til egen dokumentert LIVE-godkjenning.",
+        "Separat kontrolltest mot MACD+Stoch v2. Samme 70/30-score og FLAT-signal; holder høyst én enhet ved whipsaw/usikker struktur. Bygger én enhet per bekreftet 1m retning med god effektivitet og stigende/fallende høyder og bunner. LIVE-kompatibel kodebane; separat LIVE-kontoaktivering er fortsatt påkrevd.",
         "macd-stoch-rhythm-build-v1", True,
+    ),
+    StrategySpecV3(
+        "rhythm-trend-1", "RytmeTrend#1 · R15/S5/M1",
+        "15m MACD-regime bestemmer side, tre fullstendige 5m-candles bekrefter "
+        "HH/HL eller LL/LH; 12 siste 1m-returer bekrefter rytmen. "
+        "FLAT ved motsatt regime/struktur, minste tranche ved chop, "
+        "maks 3 enheter. LIVE-klar kodebane, separat kontovalg/arming kreves.",
+        "rhythm-trend-1-v1", True,
     ),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
@@ -121,7 +129,7 @@ AEN_CORE_CATALOG_KEYS_V3 = frozenset({
 })
 AEN_CORE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m")
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
-REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit")
+REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss", "whipsaw", "volatility-pause")
 SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
@@ -158,12 +166,15 @@ def live_config_issues_v3(
         issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
-    if strategy_key == "macd-stoch-rhythm-build":
-        issues.append("Rytmebygg v1 er kun SIM/PAPER; LIVE krever separat pilotgodkjenning")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
+    if strategy_key == "rhythm-trend-1":
+        if timeframe != "1m":
+            issues.append("RytmeTrend#1 krever ferdiglukkede 1m-signaler")
+        if regime_timeframe != "15m":
+            issues.append("RytmeTrend#1 krever 15m makroregime")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
@@ -195,6 +206,11 @@ def sim_config_issues_v3(
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
+    if strategy_key == "rhythm-trend-1":
+        if timeframe != "1m":
+            issues.append("RytmeTrend#1 krever ferdiglukkede 1m-signaler")
+        if regime_timeframe != "15m":
+            issues.append("RytmeTrend#1 krever 15m makroregime")
     if strategy_key in AEN_CORE_CATALOG_KEYS_V3 and timeframe not in AEN_CORE_TIMEFRAMES_V3:
         issues.append("AEn Core supports only fixed 1/2/5/10/15/30m signal periods")
     if strategy_key in REGIME_STRATEGIES_V3 and regime_timeframe not in REGIME_TIMEFRAMES_V3:
