@@ -50,7 +50,8 @@ def test_four_funded_eight_without_history_are_normal(tmp_path):
     assert len(rows)==12
     assert [r["status"] for r in rows].count("BROKER_HISTORY_EMPTY")==8
     assert [r["status"] for r in rows].count("SAXO_REPORTED_ACCOUNT_PNL")==4
-    assert all(r["profit"] is None for r in rows[4:])
+    assert all(r["profit"] is None for r in rows
+               if r["status"]=="BROKER_HISTORY_EMPTY")
     daily,summary=load_official_performance_v1(
         account_id="account-7",db_path=db)
     assert not daily
