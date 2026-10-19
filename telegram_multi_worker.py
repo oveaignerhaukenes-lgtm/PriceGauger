@@ -130,6 +130,8 @@ def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> Non
     from autotrader_saxo_account_truth_v1 import (
         COLLECTION_SECONDS,collect_saxo_account_truth_once_v1,
     )
+    from autotrader_saxo_official_performance_v1 import collect_official_performance_once_v1
+    next_official_check=0.0
     while not stop_event.is_set():
         try:
             result=collect_saxo_account_truth_once_v1(db_path=str(db_path))
@@ -138,6 +140,16 @@ def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> Non
         except Exception as exc:
             # No broker exception/payload/credentials in logs.
             LOGGER.warning("saxo account truth snapshot failed kind=%s",type(exc).__name__)
+        if time.monotonic()>=next_official_check and not stop_event.is_set():
+            try:
+                history=collect_official_performance_once_v1(db_path=str(db_path))
+                LOGGER.info("saxo official EOD performance status=%s seen=%s saved=%s failed=%s",
+                    history["status"],history["seen"],history["saved"],history["failed"])
+                next_official_check=time.monotonic()+(
+                    24*3600 if history["status"]=="OK" else 3600)
+            except Exception as exc:
+                LOGGER.warning("saxo official EOD performance failed kind=%s",type(exc).__name__)
+                next_official_check=time.monotonic()+3600
         stop_event.wait(COLLECTION_SECONDS)
 
 
