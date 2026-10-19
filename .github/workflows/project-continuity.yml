@@ -1,0 +1,70 @@
+name: Project continuity journal
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: project-continuity-main
+  cancel-in-progress: false
+
+jobs:
+  refresh-journal:
+    if: github.actor != 'github-actions[bot]' || github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 100
+          persist-credentials: true
+      - name: Refresh bounded journal
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import pathlib
+          import subprocess
+
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          head = git("rev-parse", "HEAD")
+          lines = git("log", "-n", "40", "--date=short", "--pretty=format:%h%x09%ad%x09%s").splitlines()
+          out = [
+              "# PriceGauger — automatic repository journal",
+              "",
+              "Machine-generated from the last 40 commits on `main`; this does not verify Railway deployment, Saxo fills, strategy results, or live readiness.",
+              "",
+              f"Generated UTC: {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')}  ",
+              f"GitHub main HEAD: `{head}`",
+              "",
+              "## Recent main commits",
+              "",
+          ]
+          for line in lines:
+              parts = line.split("\t", 2)
+              if len(parts) == 3:
+                  sha, date, title = parts
+                  title = title.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+                  out.append(f"- {date} [`{sha}`](https://github.com/${{GITHUB_REPOSITORY}}/commit/{sha}) — {title}")
+          out += ["", "For current priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).", ""]
+          path = pathlib.Path("docs/PROJECT_CHANGELOG.md")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text("\n".join(out), encoding="utf-8")
+          PY
+      - name: Commit journal only if changed
+        shell: bash
+        run: |
+          if git diff --quiet -- docs/PROJECT_CHANGELOG.md; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/PROJECT_CHANGELOG.md
+          git commit -m "docs: refresh project continuity journal [skip ci]"
+          git push origin HEAD:main
