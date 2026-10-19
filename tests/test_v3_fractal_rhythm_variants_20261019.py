@@ -184,7 +184,7 @@ def test_real_v3_cursor_prevents_second_add_on_same_candle(monkeypatch,baseline,
     ]:
         name="sim:"+key
         kw=dict(strategy_key=key,trader_id=name,db_path=path,
-                observation=obs(START),bars=(),source_bars=(),config=config,
+                observation=obs(START+timedelta(minutes=4)),bars=(),source_bars=(),config=config,
                 regime_timeframe_minutes=15,market_name="US Tech 100")
         first=evaluate_strategy_bar_v3(**kw)
         assert first.is_new and first.decision.target.amount==pytest.approx(.02)
