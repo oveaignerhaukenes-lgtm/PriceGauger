@@ -31,7 +31,8 @@ def test_resample_drops_forming_and_missing_candles_without_backfill():
         data,timeframe_minutes=2,now=BASE+timedelta(minutes=45,seconds=30))
     times=[x.bar_time for x in out]
     assert (BASE+timedelta(minutes=4)).isoformat() not in times
-    assert (BASE+timedelta(minutes=44)).isoformat() in times
+    assert (BASE+timedelta(minutes=42)).isoformat() in times
+    assert (BASE+timedelta(minutes=44)).isoformat() not in times
     assert (BASE+timedelta(minutes=45)).isoformat() not in times
     first=out[0]
     assert (first.open,first.high,first.low,first.close,first.volume)==(
@@ -92,7 +93,7 @@ def test_trade_audit_filters_exact_instance_and_account(tmp_path):
         instance_id="chosen",account_id="account-1",
         after=BASE-timedelta(minutes=1),db_path=path)
     assert [x["request_key"] for x in events]==["one"]
-    assert all(x["account_id"] not in x for x in events)
+    assert all("account_id" not in x for x in events)
 
 
 def test_ai_memory_is_immutable_causal_and_account_scoped(tmp_path):
