@@ -18,3 +18,6 @@
 - Manglende/duplisert 1m OHLC hindrer oppbygging; feilet høyereperiode-data fører til FLAT, ikke ventende add.
 - LIVE-ordre krever normal Saxo-authority, margin, policy, oppgjør og én ordre i gangen. Motgående posisjon først FLAT, aldri direkte flip.
 - Dette er **ikke dokumentasjon på positiv forventet avkastning**. Det krever kronologisk replay med spread, finansiering, fillavvik og drawdown.
+
+## Eksplisitt pilot-sperre
+Selv om eksisterende konto allerede er LIVE-armert med en tidligere sperret Rytmebygg-strategi, starter den **ikke** ved merge. En egen database-godkjenning for nøyaktig trader-ID, strategi, Saxo-konto, UIC og asset type kreves. Standard = AV. UI-knappen for godkjenning er deaktivert dersom LIVE allerede er på eller kostnadsguarden blokkerer. Strategibytte tilbakekaller godkjenning; godkjenning og arming er separate handlinger.

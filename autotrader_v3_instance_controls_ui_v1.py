@@ -12,6 +12,8 @@ from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_v3_whipsaw_live_v1 import is_whipsaw_live_approved_v3,set_whipsaw_live_approval_v3
+from autotrader_v3_rhythm_live_approval_v1 import (RHYTHM_CATALOG_KEYS_V3,
+    is_rhythm_live_approved_v3,set_rhythm_live_approval_v3)
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_live_truth_v1 import inventory_label_v1,load_v3_live_truth_v1
 from autotrader_v3_registry_v1 import (
@@ -233,11 +235,54 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption('Slå den aktive motoren av før du lagrer en config som den ikke støtter.')
     if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
+        # Switching to or away from a rhythmic strategy always revokes any
+        # prior per-account approval. Re-selecting requires a new, explicit click.
+        if desired.strategy_key != config.strategy_key:
+            affected = desired.strategy_key if desired.strategy_key in RHYTHM_CATALOG_KEYS_V3 else config.strategy_key
+            if affected in RHYTHM_CATALOG_KEYS_V3:
+                set_rhythm_live_approval_v3(
+                    trader_id,affected,account_id=str(instance.account_id),
+                    uic=int(instance.uic),asset_type=str(instance.asset_type),
+                    approved=False)
         # A removed safety option cannot retain previously granted approval.
         if 'whipsaw' in config.modifiers and 'whipsaw' not in desired.modifiers:
             set_whipsaw_live_approval_v3(trader_id,False)
         st.session_state[f'{key_prefix}:flash:{trader_id}']=f'Aktiv config lagret: {desired_label}'
         st.rerun()
+
+    if config.strategy_key in RHYTHM_CATALOG_KEYS_V3:
+        approved=is_rhythm_live_approved_v3(
+            trader_id,config.strategy_key,
+            account_id=str(instance.account_id),uic=int(instance.uic),
+            asset_type=str(instance.asset_type))
+        if approved:
+            st.success("Rytmestrategien er særskilt godkjent for denne LIVE-pilotkontoen.")
+            if st.button(
+                "Tilbakekall LIVE-godkjenning for rytmestrategien",
+                disabled=authority.live_armed,
+                key=f'{key_prefix}:rhythm-revoke:{trader_id}',
+            ):
+                set_rhythm_live_approval_v3(
+                    trader_id,config.strategy_key,account_id=str(instance.account_id),
+                    uic=int(instance.uic),asset_type=str(instance.asset_type),
+                    approved=False)
+                st.rerun()
+        else:
+            st.warning(
+                "Rytmestrategien er tilgjengelig, men LIVE-ordre er sperret "
+                "inntil du særskilt godkjenner den på denne kontoen. "
+                "Slå LIVE av før godkjenning; kontroller risiko og beholdning."
+            )
+            if st.button(
+                "Godkjenn rytmestrategi som LIVE-pilot for denne kontoen",
+                disabled=authority.live_armed or cost_blocked,
+                key=f'{key_prefix}:rhythm-approve:{trader_id}',
+            ):
+                set_rhythm_live_approval_v3(
+                    trader_id,config.strategy_key,account_id=str(instance.account_id),
+                    uic=int(instance.uic),asset_type=str(instance.asset_type),
+                    approved=True)
+                st.rerun()
 
     if 'whipsaw' in config.modifiers:
         approved=is_whipsaw_live_approved_v3(trader_id)

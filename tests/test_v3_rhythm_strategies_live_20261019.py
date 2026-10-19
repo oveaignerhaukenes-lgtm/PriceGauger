@@ -168,3 +168,33 @@ def test_v3_closed_bar_driver_deduplicates_and_persists_rhythm_trend(macro, tmp_
     built=evaluate(185)
     assert built.is_new and built.decision.target.amount==pytest.approx(.02)
     assert not evaluate(185).is_new
+
+
+def test_exact_account_strategy_optin_defaults_off_and_cannot_leak(tmp_path):
+    from autotrader_v3_rhythm_live_approval_v1 import (
+        is_rhythm_live_approved_v3 as is_approved,
+        set_rhythm_live_approval_v3 as set_approved,
+    )
+    db=str(tmp_path / "pilot-approval.db")
+    kw=dict(trader_id="t1",strategy_key="macd-stoch-rhythm-build",
+            account_id="account-a",uic=1001,asset_type="CfdOnIndex",db_path=db)
+    assert is_approved(**kw) is False
+    set_approved(**kw,approved=True)
+    assert is_approved(**kw) is True
+    assert not is_approved(**{**kw, "account_id":"account-b"})
+    assert not is_approved(**{**kw, "uic":1002})
+    assert not is_approved(**{**kw, "asset_type":"Stock"})
+    assert not is_approved(**{**kw, "strategy_key":"rhythm-trend-1"})
+    # Selecting the other strategy REQUIRES fresh opt-in.
+    set_approved(**{**kw, "strategy_key":"rhythm-trend-1"},approved=False)
+    assert not is_approved(**kw)
+    assert not is_approved(**{**kw, "strategy_key":"rhythm-trend-1"})
+
+
+def test_live_worker_fails_closed_without_rhythm_pilot_permission():
+    runtime=Path("autotrader_v3_live_runtime_v1.py").read_text()
+    ui=Path("autotrader_v3_instance_controls_ui_v1.py").read_text()
+    assert "if e.strategy_key in RHYTHM_RUNTIME_KEYS_V3:" in runtime
+    assert "if not rhythm_authorized:" in runtime
+    assert "Godkjenn rytmestrategi som LIVE-pilot" in ui
+    assert "disabled=authority.live_armed or cost_blocked" in ui
