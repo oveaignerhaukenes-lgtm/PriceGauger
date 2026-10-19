@@ -22,6 +22,8 @@ def test_persisted_loss_timer_cooldown_and_reset(tmp_path):
     assert not ai.claim_due_loss_review_v1(**data,when=NOW+timedelta(seconds=45))
     assert ai.claim_due_loss_review_v1(**data,when=NOW+timedelta(seconds=70))
     assert not ai.claim_due_loss_review_v1(**data,when=NOW+timedelta(seconds=90))
+    assert not ai.claim_due_loss_review_v1(**data,when=NOW+timedelta(seconds=150))
+    assert not ai.claim_due_loss_review_v1(**data,when=NOW+timedelta(seconds=220))
     assert ai.claim_due_loss_review_v1(**data,when=NOW+timedelta(seconds=260))
     assert not ai.claim_due_loss_review_v1(
         **{**data,"open_pnl":3.},when=NOW+timedelta(seconds=290))
