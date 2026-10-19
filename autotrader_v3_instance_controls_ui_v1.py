@@ -21,6 +21,36 @@ from autotrader_v3_registry_v1 import (
 )
 
 
+RHYTHM_1M_CATALOG_KEYS_V3 = frozenset((
+    'macd-stoch-rhythm-build', 'rhythm-trend-1',
+    'rhythm-build-fractal', 'rhythm-trend-fractal',
+))
+RHYTHM_R15_CATALOG_KEYS_V3 = frozenset((
+    'rhythm-trend-1', 'rhythm-trend-fractal',
+))
+
+
+def _rhythm_selection_defaults_v3(previous_strategy: str, selected_strategy: str) -> dict[str, str]:
+    """On an explicit strategy switch, propose valid periods without mutating saved config."""
+    if previous_strategy == selected_strategy or selected_strategy not in RHYTHM_1M_CATALOG_KEYS_V3:
+        return {}
+    selected = {'timeframe': '1m'}
+    if selected_strategy in RHYTHM_R15_CATALOG_KEYS_V3:
+        selected['regime_timeframe'] = '15m'
+    return selected
+
+
+def _instance_save_blocked_v3(*, live_armed: bool, sim_armed: bool,
+                               live_issues, sim_issues) -> bool:
+    """SIM-only limitations cannot prevent saving an otherwise LIVE-valid config.
+
+    If SIM is armed with an incompatible config it is independently denied by
+    the SIM worker; this never authorizes an unsupported LIVE configuration.
+    """
+    return bool((live_armed and live_issues) or
+                (sim_armed and sim_issues and live_issues))
+
+
 @st.cache_data(ttl=30,show_spinner=False)
 def _account_name_cached_v3(account_id:str)->str:
     broker=configured_live_pilot_client_v3()
@@ -159,6 +189,16 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                else ' · ikke LIVE'),
         key=f'{key_prefix}:strategy:{trader_id}',
     )
+    # Suggest the fixed 1m / 15m rhythm context on a *new selection*.
+    # This is UI form state only; nothing is saved or armed by a dropdown change.
+    viewed_key=f'{key_prefix}:last-viewed-strategy:{trader_id}'
+    previously_viewed=st.session_state.get(viewed_key,config.strategy_key)
+    suggested=_rhythm_selection_defaults_v3(previously_viewed,strategy)
+    if 'timeframe' in suggested:
+        st.session_state[f'{key_prefix}:timeframe:{trader_id}']=suggested['timeframe']
+    if 'regime_timeframe' in suggested:
+        st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']=suggested['regime_timeframe']
+    st.session_state[viewed_key]=strategy
     # One context-sensitive help control serves every catalog strategy.
     # Keep the actual names and summaries in the canonical registry to avoid
     # TradingDesk vs fleet discrepancies.
@@ -227,10 +267,17 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     _render_cost_guard_v3(cost_assessment)
     cost_blocked=bool(cost_assessment.blocked)
     if sim_issues:
-        st.info('SIM sperret av config: ' + ' · '.join(sim_issues))
-    save_blocked=bool((authority.live_armed and live_issues) or (authority.sim_armed and sim_issues))
+        if authority.sim_armed:
+            st.warning('SIM kan ikke kjøre denne configen: ' + ' · '.join(sim_issues)
+                       + '. LIVE påvirkes ikke dersom LIVE-configen er gyldig.')
+        else:
+            with st.expander('SIM-kompatibilitet (påvirker ikke LIVE)',expanded=False):
+                st.caption('SIM støtter ikke dette oppsettet: ' + ' · '.join(sim_issues))
+    save_blocked=_instance_save_blocked_v3(
+        live_armed=authority.live_armed,sim_armed=authority.sim_armed,
+        live_issues=live_issues,sim_issues=sim_issues)
     if save_blocked:
-        st.caption('Slå den aktive motoren av før du lagrer en config som den ikke støtter.')
+        st.caption('Valgt config støttes ikke av aktiv motor. Slå motoren av eller velg et kompatibelt oppsett.')
     if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
         # A removed safety option cannot retain previously granted approval.
