@@ -268,14 +268,14 @@ def review_shadow_instance_once_v1(
         claim_due_loss_review_v1(instance_id=instance.instance_id,
             identity="FLAT",open_pnl=0.,when=when,trigger_seconds=settings["trigger_seconds"],
             db_path=db_path)
-        return "FLAT"
+        return "NO_POSITION"
     actual=position_direction_and_size_v1(rows[0])
     if abs(actual)<1e-12:
         claim_due_loss_review_v1(
             instance_id=instance.instance_id,identity="FLAT",open_pnl=0.,
             when=when,trigger_seconds=settings["trigger_seconds"],
             db_path=db_path)
-        return "FLAT"
+        return "NO_POSITION"
     pnl=float(open_pnl_from_net_position_v3(rows[0]))
     identity=(f"{instance.account_id}|{instance.instrument_id}|{config.strategy_key}|"
               f"{config.timeframe}|{actual:.7g}")
