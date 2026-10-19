@@ -140,3 +140,31 @@ def test_shared_broker_guards_and_no_account_mutation_in_pr():
     assert "plan_execution_v3(snapshot)" in runtime
     assert "align_closed_bar_target_v3(" in runtime
     assert "REGIME_RUNTIME_KEYS_V3" in runtime
+
+
+def test_v3_closed_bar_driver_deduplicates_and_persists_rhythm_trend(macro, tmp_path):
+    from autotrader_v3_strategy_registry_v1 import evaluate_strategy_bar_v3
+
+    db=str(tmp_path / "rytmtrend.sqlite")
+    config=MacdHistogramConfigV3(tranche=.01,max_inventory=.1)
+
+    def evaluate(count):
+        source=feed(count)
+        stamp=datetime.fromisoformat(source[-1].bar_time)
+        obs=MacdObservationV2(bar_time=stamp,macd=1.0,signal=0)
+        return evaluate_strategy_bar_v3(
+            trader_id="pilot-new",strategy_key=trend.STRATEGY_KEY_V3,
+            observation=obs,bars=source,source_bars=source,
+            regime_timeframe_minutes=15,market_name="US Tech 100",
+            config=config,db_path=db,
+        )
+
+    first=evaluate(181)
+    assert first.is_new and first.decision.target.amount==pytest.approx(.01)
+    same=evaluate(181)
+    assert not same.is_new and same.decision.target.amount==pytest.approx(.01)
+    still=evaluate(182)
+    assert still.is_new and still.decision.target.amount==pytest.approx(.01)
+    built=evaluate(185)
+    assert built.is_new and built.decision.target.amount==pytest.approx(.02)
+    assert not evaluate(185).is_new
