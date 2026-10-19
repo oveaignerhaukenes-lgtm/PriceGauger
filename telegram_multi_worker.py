@@ -189,6 +189,16 @@ def run_forever(
         daemon=True,
     )
     telemetry_thread.start()
+    # Separate, rate-bounded read-only AI shadow observer. No Saxo POST or
+    # mutation of V3 target/order state; failures cannot block the LIVE loop.
+    from autotrader_v3_ai_manager_shadow_v1 import run_v3_ai_shadow_forever_v1
+    ai_shadow_thread=threading.Thread(
+        target=run_v3_ai_shadow_forever_v1,
+        kwargs={"db_path":str(db_path),"stop_event":stop_event},
+        name="pricegauger-v3-ai-shadow",
+        daemon=True,
+    )
+    ai_shadow_thread.start()
     while True:
         started = time.monotonic()
         try:
