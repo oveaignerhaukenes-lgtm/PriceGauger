@@ -17,6 +17,7 @@ from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
 from autotrader_v3_macd_stoch_rhythm_build_v1 import STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY
+from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
 from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
@@ -40,12 +41,12 @@ STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
 }
 
 
-# Rytmebygg is SIM/PAPER only until an explicitly authorized LIVE pilot.
-# The LIVE worker must reject it even if someone bypasses UI config checks.
-STRATEGIES_V3[RHYTHM_BUILD_KEY] = StrategyAdapterV3(
-    key=RHYTHM_BUILD_KEY, evaluate_closed_bar=evaluate_closed_bar_once_v3,
-    live_route_enabled=False,
-)
+# Registered LIVE routes do not arm accounts or create execution authority.
+for rhythm_key in (RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY):
+    STRATEGIES_V3[rhythm_key] = StrategyAdapterV3(
+        key=rhythm_key, evaluate_closed_bar=evaluate_closed_bar_once_v3,
+        live_route_enabled=True,
+    )
 
 
 STRATEGIES_V3.update({

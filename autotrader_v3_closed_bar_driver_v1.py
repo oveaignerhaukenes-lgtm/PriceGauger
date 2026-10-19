@@ -31,6 +31,9 @@ from autotrader_v3_macd_stoch_v21 import (
 from autotrader_v3_macd_stoch_rhythm_build_v1 import (
     STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY, macd_stoch_rhythm_build_target_v3,
 )
+from autotrader_v3_rhythm_trend_v1 import (
+    STRATEGY_KEY_V3 as RHYTHM_TREND_KEY, rhythm_trend_target_v3,
+)
 from autotrader_v3_vwap_regime_histogram_v1 import (
     STRATEGY_KEY_V3 as VWAP_REGIME_KEY,
     vwap_regime_histogram_target_v3,
@@ -156,16 +159,18 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY}:
+    if strategy_key not in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
         config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY} else MacdHistogramConfigV3()
     if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY} and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
-    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} and not isinstance(config, MacdHistogramConfigV3):
+    if strategy_key in {HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
     if strategy_key == RHYTHM_BUILD_KEY:
         decide = macd_stoch_rhythm_build_target_v3
+    elif strategy_key == RHYTHM_TREND_KEY:
+        decide = rhythm_trend_target_v3
     elif strategy_key == STOCH_V21_KEY:
         decide = macd_stoch_v21_target_v3
     elif strategy_key == STOCH_V2_KEY:
@@ -220,10 +225,14 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             extra["bars"] = bars
         elif strategy_key == VWAP_REGIME_KEY:
             extra["source_bars"] = source_bars
-        elif strategy_key in {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY}:
+        elif strategy_key in {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY}:
             extra["source_bars"] = source_bars
             extra["regime_timeframe_minutes"] = int(regime_timeframe_minutes)
             extra["market_name"] = str(market_name)
+            if strategy_key == RHYTHM_TREND_KEY:
+                # Macro/meso consume raw canonical source; M1 rhythm additionally
+                # needs the fully closed 1m OHLC decision bars, not the default ().
+                extra["bars"] = bars
         if strategy_key == PEAK_FLIP_KEY:
             memory_row=db.execute(
                 """SELECT last_bar_time,phase,reference_level

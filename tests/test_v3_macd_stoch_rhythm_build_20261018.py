@@ -190,23 +190,22 @@ def test_closed_bar_driver_durable_and_two_control_accounts_unmodified(scores, t
     assert again.decision.target.amount==pytest.approx(.02)
 
 
-def test_registered_for_sim_only_and_restricted_to_1m():
+def test_registered_for_live_and_sim_and_restricted_to_1m():
     spec=strategy_v3("macd-stoch-rhythm-build")
     assert spec.runtime_key==STRATEGY_KEY_V3
     assert spec.runtime_ready
-    # Defense in depth: catalog validation AND worker execution route block LIVE.
-    assert STRATEGIES_V3[STRATEGY_KEY_V3].live_route_enabled is False
+    # Runtime route is available; separate account arming remains mandatory.
+    assert STRATEGIES_V3[STRATEGY_KEY_V3].live_route_enabled is True
     assert sim_config_issues_v3(strategy_key=spec.key,timeframe="1m",
                                 control_mode="Manuell",modifiers=()) == ()
-    denied = live_config_issues_v3(strategy_key=spec.key,timeframe="1m",
-                                   control_mode="Manuell",modifiers=())
-    assert any("kun SIM/PAPER" in reason for reason in denied)
+    assert live_config_issues_v3(strategy_key=spec.key,timeframe="1m",
+                                 control_mode="Manuell",modifiers=()) == ()
     for timeframe in ("2m","5m","Adaptiv"):
         for validate in (live_config_issues_v3,sim_config_issues_v3):
             issues = validate(strategy_key=spec.key,timeframe=timeframe,
                               control_mode="Manuell",modifiers=())
             assert any("1m-signaler" in reason for reason in issues)
-    # Must not be possible to select Rytmebygg in an active LIVE V3 worker.
+    # The LIVE worker preserves independent account, pending and arming checks.
     live = Path("autotrader_v3_live_runtime_v1.py").read_text()
     assert "if not adapter.live_route_enabled" in live
 
