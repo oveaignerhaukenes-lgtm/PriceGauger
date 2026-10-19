@@ -183,7 +183,7 @@ def collect_official_performance_once_v1(*,broker=None,days:int=90,
         accounts=tuple(broker.accounts())
     except Exception:
         return {"status":"SAXO_ACCOUNTS_FAILED","seen":0,"saved":0,"failed":1}
-    seen=saved=failed=0
+    seen=saved=failed=skipped_no_history=0
     errors:dict[str,int]={}
     for a in accounts:
         seen+=1
@@ -208,9 +208,19 @@ def collect_official_performance_once_v1(*,broker=None,days:int=90,
             daily=parse_official_performance_v1(times,from_date=start,to_date=end)
             phase="SUMMARY_PARSE"
             pnl=parse_saxo_profit_summary_v1(summary,from_date=start,to_date=end)
-            phase="BROKER_HISTORY_EMPTY"
             if not daily and pnl["profit"] is None:
-                raise ValueError("NO_HISTORICAL_BROKER_DATA")
+                # An account with no broker-reported performance history is
+                # not a failed request. Preserve explicit missing-data status
+                # (never invent zero P/L) and check again on the next day.
+                phase="PERSIST_EMPTY_HISTORY"
+                save_official_performance_v1(
+                    account_id=aid,currency=curr,daily=(),
+                    summary={"status":"BROKER_HISTORY_EMPTY",
+                             "profit":None,"last_trade_day":None},
+                    from_date=start,to_date=end,observed_at=clock,
+                    db_path=db_path)
+                skipped_no_history+=1
+                continue
             phase="PERSIST"
             save_official_performance_v1(
                 account_id=aid,currency=curr,daily=daily,summary=pnl,
@@ -226,6 +236,8 @@ def collect_official_performance_once_v1(*,broker=None,days:int=90,
             errors[code]=errors.get(code,0)+1
     result={"status":"OK" if not failed else "PARTIAL",
             "seen":seen,"saved":saved,"failed":failed}
+    if skipped_no_history:
+        result["skipped_no_history"]=skipped_no_history
     if failed:
         result["errors"]=dict(sorted(errors.items()))
     return result

@@ -232,6 +232,10 @@ if official is not None:
         if official["status"]=="SAXO_REPORTED_ACCOUNT_PNL" and official["profit"] is not None:
             st.metric("Saxo rapportert kontosresultat",
                       f"{float(official['profit']):+,.2f} {official['currency']}")
+        elif official["status"]=="BROKER_HISTORY_EMPTY":
+            st.info("Ingen historiske resultatdata fra Saxo i valgt rapportperiode. "
+                    "Dette er normalt for kontoer uten handelshistorikk; "
+                    "ukjent P/L vises ikke som null.")
         else:
             st.warning("Saxo ga ikke et verifiserbart historisk resultatbeløp.")
         st.caption(
