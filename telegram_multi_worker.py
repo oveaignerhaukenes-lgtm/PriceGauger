@@ -125,6 +125,22 @@ def run_once(
     return result
 
 
+def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> None:
+    """Independent five-minute Saxo GET telemetry; never blocks LIVE execution."""
+    from autotrader_saxo_account_truth_v1 import (
+        COLLECTION_SECONDS,collect_saxo_account_truth_once_v1,
+    )
+    while not stop_event.is_set():
+        try:
+            result=collect_saxo_account_truth_once_v1(db_path=str(db_path))
+            LOGGER.info("saxo account truth status=%s seen=%s saved=%s failed=%s",
+                result["status"],result["seen"],result["saved"],result["failed"])
+        except Exception as exc:
+            # No broker exception/payload/credentials in logs.
+            LOGGER.warning("saxo account truth snapshot failed kind=%s",type(exc).__name__)
+        stop_event.wait(COLLECTION_SECONDS)
+
+
 def run_forever(
     *,
     interval_seconds: int = worker_module.DEFAULT_INTERVAL_SECONDS,
@@ -151,6 +167,13 @@ def run_forever(
         daemon=True,
     )
     v3_thread.start()
+    telemetry_thread=threading.Thread(
+        target=_account_truth_loop_v1,
+        kwargs={"stop_event":stop_event,"db_path":db_path},
+        name="pricegauger-saxo-account-truth",
+        daemon=True,
+    )
+    telemetry_thread.start()
     while True:
         started = time.monotonic()
         try:
