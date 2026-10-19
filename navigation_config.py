@@ -14,6 +14,7 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
         {"page": "pages/0_Autodesk.py", "title": "Autodesk", "icon": "🧠", "url_path": "Autodesk"},
     ),
     "Analyse": (
+        {"page": "pages/0_Kontostatistikk.py", "title": "Kontostatistikk", "icon": "💰", "url_path": "Kontostatistikk"},
         {"page": "pages/0_Strategy_Lab.py", "title": "Strategy Lab", "icon": "🧪", "url_path": "Strategy_Lab"},
         {"page": "pages/0_Live_Sim_Lab.py", "title": "Live-Sim Lab", "icon": "🧬", "url_path": "Live_Sim_Lab"},
         {"page": "pages/0_Cycle_Research.py", "title": "Sykluslaboratorium", "icon": "〰️", "url_path": "Cycle_Research"},
