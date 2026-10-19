@@ -35,6 +35,29 @@ Analyse → Kontostatistikk → velg periode (standard 7 døgn).
   strateginøkler eller LIVE-risikostyring. Funksjonen er ren
   visualisering basert på lagrede data.
 
+## Observasjon av kontoverdi per aktiv LIVE-strategiperiode (19.10)
+- Analyse → Kontostatistikk viser nå også en egen tabell per konto med
+  observerte, sammenhengende LIVE-strategiperioder fra Saxo TotalValue.
+- Det kreves samme konto, valuta, entydig instans/strategi, verifisert
+  CalculationReliability=Ok og mellomrom <=2,5 innsamlingsintervaller.
+  Manglende/uklare data, LIVE AV, tidsbrudd og strategiendring starter
+  ny periode. Verdiforskjellen OVER slike grenser tilordnes ingen strategi.
+- Vises: start, slutt, antall målinger, uavstemt endring i kontoens valuta,
+  uavstemt prosent og største observerte kontoverdifall. Én måling har
+  ukjent endring — aldri 0 eller fabrikkert avkastning.
+- Tallene er OBSERVASJON, **ikke** netto strategi-P/L. Manuelle handler,
+  kapitaloverføringer, FX og finansiering må avstemmes mot Saxo før
+  strategirangering.
+- Individuell kontohistorikk leser alle observasjoner i valgt periode.
+  Fleet-oversikt er bounded til de 50 000 NYESTE radene, med synlig
+  avkortingsvarsel; perioden avkortes ikke stille til de eldste dataene.
+- Offisiell Saxo EOD-innsamler rapporterer nå sikre feilkoder pr fase
+  (kontoidentitet, timeseries-GET, summary-GET, parsing, persist), og
+  HTTP-status uten sensitiv payload. 8/12 tidligere manglende
+  EOD-resultater kan diagnostiseres ved neste innsamling.
+- GET-only; ingen Saxo-order, arming, kontoinnstillinger eller andre
+  LIVE-mutasjoner utføres.
+
 ## Videre utvikling
 Når Saxo-transaksjonsavstemming er på plass kan nøyaktige
 strategibyttetidspunkt (fra en varig config-audit) og faktisk
