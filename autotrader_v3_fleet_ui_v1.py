@@ -7,6 +7,7 @@ from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_control_plane_v1 import authority_state_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
 from autotrader_v3_instance_controls_ui_v1 import render_v3_instance_controls_v1
+from autotrader_v3_instance_inspection_v1 import render_v3_instance_inspection_v1
 from autotrader_v3_instance_registry_v1 import bootstrap_v3_instances_from_enrollments_v1
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_registry_v1 import strategy_display_label_v3
@@ -69,6 +70,8 @@ def render_v3_fleet_management_v1():
                 d=load_execution_diagnostic_v1(account_id=item.account_id,uic=int(item.uic),asset_type=item.asset_type,owner_key=item.instance_id,engine_id='V3')
                 if d.request_state: st.caption(f'Execution: {d.request_state} · {d.request_detail or ""}')
             except Exception: pass
+            # Always available under each instance, but no DB/chart load until toggled.
+            render_v3_instance_inspection_v1(item,key_prefix='fleet')
             with st.expander('Administrer instansen',expanded=False): render_v3_instance_controls_v1(item,key_prefix='fleet')
 
 def render_autotrader_v3_fleet_preview(rows):
