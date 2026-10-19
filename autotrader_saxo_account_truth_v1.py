@@ -155,13 +155,19 @@ def load_account_truth_v1(*,account_id:str|None=None,days:int=30,
     after=(datetime.now(timezone.utc)-timedelta(days=max(1,min(int(days),180)))).isoformat()
     clause=" AND account_id=?" if account_id else ""
     args=(after,account_id) if account_id else (after,)
+    # A filtered account must return its COMPLETE requested history for correct
+    # strategy windows (90 days * 288 samples/day is well below 50k).
+    # For the fleet overview bound total memory, but fetch the NEWEST rows,
+    # not the oldest: otherwise a 30/90-day selection omits today's status.
+    ordering="ORDER BY observed_at ASC" if account_id else "ORDER BY observed_at DESC, account_id DESC LIMIT 50000"
     with connect(db_path) as db:
         rows=db.execute("""SELECT account_id,account_name,currency,observed_at,
            total_value,cash_balance,unrealized_margin_pnl,financing_accruals,
            transactions_not_booked,cost_to_close,margin_used,margin_utilization_pct,
            calculation_reliability,context_json,source
-           FROM pg_saxo_account_truth_v1 WHERE observed_at>=?"""+clause+"""
-           ORDER BY observed_at ASC LIMIT 50000""",args).fetchall()
+           FROM pg_saxo_account_truth_v1 WHERE observed_at>=?"""+clause+" "+ordering,args).fetchall()
+    if not account_id:
+        rows=reversed(rows)
     keys=("account_id","account_name","currency","observed_at","total_value",
           "cash_balance","unrealized_margin_pnl","financing_accruals",
           "transactions_not_booked","cost_to_close","margin_used",
