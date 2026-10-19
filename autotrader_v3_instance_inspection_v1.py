@@ -12,6 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from autotrader_v3_ai_decision_memory_v1 import load_ai_decisions_v1
+from autotrader_v3_ai_manager_shadow_v1 import shadow_settings_v1,save_shadow_settings_v1
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
@@ -178,6 +179,28 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
                      value=False,key=key):
         return
     config=load_autotrader_config_v3(instance_id)
+    with st.expander("AI Manager · SHADOW (analyserer tap, ingen ordre)",expanded=False):
+        settings=shadow_settings_v1(instance_id)
+        enabled=st.toggle("AI tapsvurdering på denne instansen",
+                          value=settings["enabled"],
+                          key=f"{key_prefix}:ai-shadow-enabled:{instance_id}")
+        seconds=st.slider("Tidsgrense for vedvarende tap (sekunder)",
+                          min_value=15,max_value=180,step=5,
+                          value=settings["trigger_seconds"],
+                          key=f"{key_prefix}:ai-shadow-delay:{instance_id}")
+        st.caption("Standard 60 sekunder · separat vurdering hvert 30. sekund. "
+                   "SHADOW ser på faktisk Saxo P/L og ferdiglukkede pris-/indikatorbarer. "
+                   "Ingen nye LIVE-ordrer eller automatisk reversering. "
+                   "Gjentatte AI-kall har 3 minutters cooldown. "
+                   "Uten tilgjengelig AI-nøkkel genereres ingen modellvurdering.")
+        if (enabled!=settings["enabled"] or seconds!=settings["trigger_seconds"]):
+            if st.button("Lagre AI SHADOW-innstillinger",
+                         key=f"{key_prefix}:ai-shadow-save:{instance_id}"):
+                save_shadow_settings_v1(
+                    instance_id=instance_id,enabled=enabled,
+                    trigger_seconds=seconds)
+                st.success("AI SHADOW-innstillinger oppdatert.")
+                st.rerun()
     timeframe=str(config.timeframe)
     if timeframe not in TF_MINUTES:
         st.info("Grafen krever en fast signalperiode i aktiv konfigurasjon.")
