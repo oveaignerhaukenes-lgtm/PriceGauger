@@ -16,6 +16,8 @@ from autotrader_saxo_account_truth_v1 import (
 from autotrader_saxo_official_performance_v1 import (
     load_official_performance_v1,collect_official_performance_once_v1,
 )
+from autotrader_saxo_strategy_timeline_v1 import build_saxo_account_strategy_chart_v1
+from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
 from database import connect
 
 
@@ -52,7 +54,7 @@ if st.button("Hent Saxo-kontoverdi nå (kun GET)",key="account-truth-refresh"):
                 "Høyst ett øyeblikksbilde per femminuttersvindu."
             )
 
-days=st.selectbox("Periode",options=[1,7,14,30,90],index=3,
+days=st.selectbox("Periode",options=[1,7,14,30,90],index=1,
                   format_func=lambda x:f"{x} døgn",key="account-truth-days")
 try:
     samples=load_account_truth_v1(days=days)
@@ -91,6 +93,70 @@ st.caption(
     "før Saxos transaksjoner og bokførte kostnader er avstemt. "
     "Målinger for ulike valutaer summeres ikke."
 )
+
+st.subheader("Kontoverdi og strategiperioder · aktive V3-kontoer")
+st.caption(
+    "Én graf per aktiv V3-konto. Øverst: faktisk Saxo TotalValue. "
+    "Strategibåndet nederst deler tidsaksen og viser hvilken strategi "
+    "som var LIVE ved hver registrerte femminuttersmåling. "
+    "Hold over båndene for detaljer. Byttetidspunkter er observert, "
+    "ikke verifisert eksakt. Hull i målingene interpoleres ikke."
+)
+try:
+    active_accounts={i.account_id:i for i in load_v3_instances_v1()}
+except Exception as exc:
+    active_accounts={}
+    st.warning("Kan ikke verifisere aktive V3-kontoer: "+type(exc).__name__)
+show_other=st.checkbox(
+    "Vis også Saxo-kontoer uten en aktiv V3-instans",
+    value=False,key="account-truth-show-unmanaged",
+)
+visible_account_ids=[
+    aid for aid in dict.fromkeys(frame["account_id"].astype(str))
+    if aid in active_accounts or show_other
+]
+if not visible_account_ids:
+    st.info("Ingen aktive V3-kontoer med kontomålinger. "
+            "Du kan også velge å se øvrige Saxo-kontoer.")
+for account_id in visible_account_ids:
+    try:
+        samples_for_chart=load_account_truth_v1(account_id=account_id,days=days)
+        if not samples_for_chart:
+            continue
+        account_rows=pd.DataFrame(samples_for_chart)
+        name=str(account_rows.iloc[-1]["account_name"])
+        currency=str(account_rows.iloc[-1]["currency"])
+        heading=f"{name} · {currency}"
+        if account_id in active_accounts:
+            heading+=f" · {active_accounts[account_id].market_name}"
+        st.markdown(f"**{heading}**")
+        fig,verified,periods=build_saxo_account_strategy_chart_v1(
+            samples_for_chart,height=305)
+        st.plotly_chart(fig,use_container_width=True,
+                        key=f"account-strategy-timeline:{account_id}",
+                        config={"displaylogo":False})
+        if verified==0:
+            st.warning("Ingen verifiserte Saxo-kontoverdier i denne perioden.")
+        if len(samples_for_chart)>=50000:
+            st.warning("Visningen kan være avkortet ved 50 000 målinger. "
+                       "Velg en kortere periode.")
+        if periods:
+            last=periods[-1]
+            st.caption(f"Sist observert: {last.label} · "
+                       f"{last.last_observed:%d.%m %H:%M} UTC. "
+                       f"{len(periods)} observerte sammenhengende perioder.")
+            with st.expander("Observerte strategiperioder"):
+                st.dataframe(pd.DataFrame([
+                    {"Først observert (UTC)":p.first_observed,
+                     "Sist observert (UTC)":p.last_observed,
+                     "Strategi":p.label,
+                     "Marked":p.market or "Ukjent",
+                     "LIVE ved observasjon":"PÅ" if p.live_armed else "AV / ukjent",
+                     "Målinger":p.observations}
+                    for p in periods
+                ]),use_container_width=True,hide_index=True)
+    except Exception as exc:
+        st.error("Kan ikke vise kontograf: "+type(exc).__name__)
 
 choices={f"{name} · {currency} [{aid[-5:]}]":aid
          for aid,name,currency in frame[["account_id","account_name","currency"]]
@@ -164,8 +230,13 @@ if daily and (official is None or official["currency"]==latest["currency"]):
         )
 
 st.subheader("Kontoverdi over tid")
-st.line_chart(good.set_index("observed_at")[["total_value"]],
-              y_label=f"TotalValue ({latest['currency']})",use_container_width=True)
+if choices[selection] in visible_account_ids:
+    st.caption("Kontografen med strategiperioder for denne kontoen vises ovenfor.")
+else:
+    detail_fig,_,_=build_saxo_account_strategy_chart_v1(
+        tuple(data.to_dict("records")),height=350)
+    st.plotly_chart(detail_fig,use_container_width=True,
+                    key=f"account-strategy-detail:{choices[selection]}")
 
 # Full as-of attribution context, not a claim that all account movements were
 # produced by the currently configured V3 strategy.
