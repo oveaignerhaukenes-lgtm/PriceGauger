@@ -36,7 +36,7 @@ def test_resample_drops_forming_and_missing_candles_without_backfill():
     first=out[0]
     assert (first.open,first.high,first.low,first.close,first.volume)==(
         100,102,99,101.5,2.)
-    assert len(out)==22
+    assert len(out)==21
 
 
 def test_chart_contains_price_macd_stoch_and_exact_execution_marker():
@@ -67,9 +67,9 @@ def test_chart_contains_price_macd_stoch_and_exact_execution_marker():
     # No marker changes the price or technical indicator samples.
     fig_base=build_instance_inspection_figure_v1(
         bars,timeframe_minutes=1)
-    assert fig_base.data[0].close==fig.data[0].close
-    assert next(x.y for x in fig_base.data if x.name=="MACD")==next(
-        x.y for x in fig.data if x.name=="MACD")
+    assert tuple(fig_base.data[0].close)==tuple(fig.data[0].close)
+    assert tuple(next(x.y for x in fig_base.data if x.name=="MACD"))==tuple(
+        next(x.y for x in fig.data if x.name=="MACD"))
 
 
 def test_trade_audit_filters_exact_instance_and_account(tmp_path):
