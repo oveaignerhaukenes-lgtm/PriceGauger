@@ -42,8 +42,8 @@ def test_v3_registry_routes_all_strategies_through_same_decision_contract():
     assert driver is strategy_adapter_v3(RHYTHM_TREND_KEY).evaluate_closed_bar
     assert driver is strategy_adapter_v3(RHYTHM_BUILD_FRACTAL_KEY_V3).evaluate_closed_bar
     assert driver is strategy_adapter_v3(RHYTHM_TREND_FRACTAL_KEY_V3).evaluate_closed_bar
-    assert not strategy_adapter_v3(RHYTHM_BUILD_FRACTAL_KEY_V3).live_route_enabled
-    assert not strategy_adapter_v3(RHYTHM_TREND_FRACTAL_KEY_V3).live_route_enabled
+    assert strategy_adapter_v3(RHYTHM_BUILD_FRACTAL_KEY_V3).live_route_enabled
+    assert strategy_adapter_v3(RHYTHM_TREND_FRACTAL_KEY_V3).live_route_enabled
     assert strategy_adapter_v3(RHYTHM_BUILD_KEY).live_route_enabled
     assert strategy_adapter_v3(RHYTHM_TREND_KEY).live_route_enabled
     assert strategy_adapter_v3(STOCH_V21_KEY).live_route_enabled
