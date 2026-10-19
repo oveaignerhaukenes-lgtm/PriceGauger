@@ -111,6 +111,26 @@ def test_ai_shadow_genuine_saxo_pnl_and_persistent_model_rationale(
         instrument_id=101,db_path=db)
 
 
+def test_already_flat_broker_position_is_not_an_ai_review(tmp_path,monkeypatch):
+    db=str(tmp_path/"flat.db")
+    monkeypatch.setattr(ai,"live_authority_armed_v3",
+                        lambda *_args,**_kwargs:True)
+    monkeypatch.setattr(ai,"load_autotrader_config_v3",
+                        lambda *_args,**_kwargs:SimpleNamespace(
+                            strategy_key="macd",timeframe="2m"))
+    class Broker:
+        def net_positions_exact(self,**kw):
+            return ()
+    result=ai.review_shadow_instance_once_v1(
+        instance=INST,broker=Broker(),when=NOW,db_path=db,
+        model_callback=lambda _:pytest.fail("model must not be called"))
+    assert result=="NO_POSITION"
+    assert result not in ("HOLD","REDUCE","FLAT","REVERSE")
+    assert not load_ai_decisions_v1(
+        instance_id="trader-1",account_id="saxo-a",
+        instrument_id=101,db_path=db)
+
+
 def test_unreliable_saxo_pnl_never_enters_ai_path(tmp_path,monkeypatch):
     db=str(tmp_path/"bad-pnl.db")
     monkeypatch.setattr(ai,"live_authority_armed_v3",
