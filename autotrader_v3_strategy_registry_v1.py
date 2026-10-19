@@ -18,6 +18,9 @@ from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
 from autotrader_v3_macd_stoch_rhythm_build_v1 import STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
+from autotrader_v3_fractal_rhythm_variants_v1 import (
+    RHYTHM_BUILD_FRACTAL_KEY_V3,RHYTHM_TREND_FRACTAL_KEY_V3,
+)
 from autotrader_v3_vwap_regime_histogram_v1 import STRATEGY_KEY_V3 as VWAP_REGIME_KEY
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
@@ -48,6 +51,14 @@ for rhythm_key in (RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY):
         live_route_enabled=True,
     )
 
+
+# Fraktaltempo uses the existing LIVE decision adapter, but the worker
+# requires a distinct exact-account approval (default OFF) before any order.
+for rhythm_key in (RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3):
+    STRATEGIES_V3[rhythm_key] = StrategyAdapterV3(
+        key=rhythm_key,evaluate_closed_bar=evaluate_closed_bar_once_v3,
+        live_route_enabled=True,
+    )
 
 STRATEGIES_V3.update({
     key: StrategyAdapterV3(key=key,evaluate_closed_bar=evaluate_aen_core_v3,

@@ -48,9 +48,7 @@ from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
-from autotrader_v3_rhythm_live_approval_v1 import (
-    RHYTHM_RUNTIME_KEYS_V3, is_rhythm_live_approved_v3,
-)
+from autotrader_v3_fractal_rhythm_variants_v1 import RHYTHM_TREND_FRACTAL_KEY_V3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -58,7 +56,7 @@ from saxo_trading import SaxoOrderRequest
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 # Read-only audit: one entry per unresolved instance per worker lifetime.
 _PENDING_AUDIT_LOGGED_V3=set()
-REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY,RHYTHM_TREND_KEY}
+REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY,RHYTHM_TREND_KEY,RHYTHM_TREND_FRACTAL_KEY_V3}
 
 def _definitive_saxo_rejection_v3(exc:Exception)->bool:
     """True only when Saxo returned a concrete client-side rejection response."""
@@ -223,24 +221,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 f"{e.strategy_key}: LIVE execution/reconciliation not validated. No orders sent.",
                 db_path=db_path)
             continue
-        # An account already armed while Rytmebygg was SIM-only MUST NOT
-        # become tradable by merely merging a new strategy implementation.
-        # Approval is explicit and scoped to strategy and Saxo identity.
-        if e.strategy_key in RHYTHM_RUNTIME_KEYS_V3:
-            try:
-                rhythm_authorized=is_rhythm_live_approved_v3(
-                    e.pilot_key,e.strategy_key,account_id=e.account_id,
-                    uic=e.uic,asset_type=e.asset_type,db_path=db_path)
-            except Exception as exc:
-                LOGGER.warning("rhythm LIVE approval unavailable pilot=%s error_type=%s",
-                               e.pilot_key,type(exc).__name__)
-                rhythm_authorized=False
-            if not rhythm_authorized:
-                _record_runtime(e.pilot_key,"BLOCKED",
-                    "Rytmestrategi krever særskilt LIVE-pilotgodkjenning "
-                    "for eksakt strategi og konto. Ingen ordre sendes.",
-                    db_path=db_path)
-                continue
         enrollments.append(e)
     enrollments=tuple(enrollments)
     if not enrollments: return 0

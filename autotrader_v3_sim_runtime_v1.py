@@ -15,12 +15,13 @@ from autotrader_v3_sim_authority_v1 import sim_authority_armed_v3
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
+from autotrader_v3_fractal_rhythm_variants_v1 import RHYTHM_TREND_FRACTAL_KEY_V3
 from autotrader_v3_fraktal1_bridge_v1 import FRAKTAL1_RUNTIME_KEYS_V3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 
 LOGGER = logging.getLogger("pricegauger.autotrader.v3.sim")
-REGIME_RUNTIME_KEYS_V3 = {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY}
+REGIME_RUNTIME_KEYS_V3 = {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3}
 
 
 def _sim_state_id_v3(instance_id: str) -> str:
