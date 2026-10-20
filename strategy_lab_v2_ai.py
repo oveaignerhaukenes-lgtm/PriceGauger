@@ -73,9 +73,7 @@ def ask_lab_ai_v2(*,evidence:Mapping,question:str,
         raise ValueError("Only as-of lab evidence can be sent to AI")
     # Never include any user/account credentials, unrequested Saxo keys,
     # future bars, or a prompt granting brokerage/execution authority.
-    turns=[{"role":"user","content":str(x.get("question",""))[:500]},
-           {"role":"assistant","content":str(x.get("answer",""))[:1500]}
-           for x in []] if False else []
+    turns=[]
     for x in history[-4:]:
         turns.extend((
             {"role":"user","content":str(x.get("question",""))[:500]},
