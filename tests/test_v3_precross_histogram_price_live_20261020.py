@@ -98,14 +98,22 @@ def test_parallel_macd_prevents_new_exposure(monkeypatch):
 
 def test_missing_one_minute_or_future_price_fail_closed(monkeypatch):
     setup_hist(monkeypatch,prev=.45,current=.25)
-    for incomplete in (bars(-1,gap=True),bars(-1)[:-1],
-                       bars(-1)+ (SimpleNamespace(
-                           bar_time=CLOCK+timedelta(minutes=1),
-                           open=102,high=103,low=101,close=102),)):
+    for incomplete in (bars(-1,gap=True),bars(-1)[:-1]):
         r=p.precross_price_target_v3(
             current_target=TargetInventoryV3(.01),observation=observation(),
             bars=incomplete,source_bars=source(),market_name="Tech100",config=CFG)
         assert r.target.amount==0
+    future=bars(-1)+(SimpleNamespace(
+        bar_time=CLOCK+timedelta(minutes=1),
+        open=102,high=103,low=101,close=102),)
+    normal=p.precross_price_target_v3(
+        current_target=TargetInventoryV3(0),observation=observation(),
+        bars=bars(-1),source_bars=source(),market_name="Tech100",config=CFG)
+    with_future=p.precross_price_target_v3(
+        current_target=TargetInventoryV3(0),observation=observation(),
+        bars=future,source_bars=source(),market_name="Tech100",config=CFG)
+    assert normal.target==with_future.target
+    assert normal.action==with_future.action
 
 
 def test_live_registry_is_real_and_requires_1m_signal_for_2m_macd():
