@@ -2,7 +2,7 @@
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from math import sin
-from types import SimpleNamespace
+from canonical_market_bars_v2 import CanonicalMarketBarV2
 
 import pytest
 
@@ -21,10 +21,11 @@ def synthetic_saxo_bars(length=720):
     for i in range(length):
         price=30000+i*.15+45*sin(i/29)
         op=price-1
-        result.append(SimpleNamespace(
+        result.append(CanonicalMarketBarV2(
+            instrument_id=1,market_id=1,market_name="US Tech100",
             bar_time=(START+timedelta(minutes=i)).isoformat(),
             open=op,high=price+2,low=op-2,close=price,
-            market_name="US Tech100",volume=250.,quality_flags=1,
+            volume=250.,quality_flags=1,
         ))
     return tuple(result)
 
