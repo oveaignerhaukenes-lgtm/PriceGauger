@@ -2,7 +2,7 @@
 
 ## Navigasjon
 Analyse → **Strategilab v2**. Gamle Strategy Lab og Live-Sim Lab er beholdt som
-egne sider under nye navnet inntil v2 er verifisert. Ny lab har fanene
+egne sider inntil v2 er verifisert. Ny lab har fanene
 **Historisk SIM / Strategier** og **Kontoprestasjon**.
 
 ### Historisk SIM
