@@ -11,13 +11,14 @@ from dataclasses import dataclass
 from math import ceil, isclose, isfinite
 import re
 from typing import Any
+from urllib.parse import quote
 
 from autotrader_product_explorer import (
     ProductSearchRequest, ProductSummary, ProductSearchResult,
     search_product_universe,load_product_details,
 )
 from saxo_low_friction_candidates_v2 import (
-    LowFrictionAccountV2,_cost_illustration,_quote_fields,
+    LowFrictionAccountV2,_cost_side,_quote_fields,
 )
 from saxo_provider import SaxoClient, SaxoInstrument
 
@@ -227,6 +228,47 @@ def _contract_multiplier(product:ProductSummary,details:dict)->tuple[float|None,
     return multiplier or 1.,None
 
 
+def _verified_cost_probe(client:SaxoClient, *,
+    account:LowFrictionAccountV2, instrument:SaxoInstrument,
+    amount:float, price:float,
+)->tuple[float|None,float|None,str|None,float|None,float|None,str|None]:
+    """Read the same Saxo cost illustration as the legacy scanner.
+
+    Unlike its permissive fallback, missing Commissions MUST remain UNKNOWN
+    instead of silently being interpreted as zero explicit fees.
+    """
+    try:
+        response=client._get(
+            f"cs/v1/tradingconditions/cost/{quote(account.account_key,safe='')}/"
+            f"{instrument.uic}/{instrument.asset_type}",
+            params={
+                "Amount":amount,"ApplyCostsZeroFloor":False,
+                "HoldingPeriodInDays":1,"Price":price,
+                "TradeContext":"ClientTrading",
+            },
+        )
+    except Exception as exc:
+        return None,None,None,None,None,type(exc).__name__
+    cost=response.get("Cost")
+    if not isinstance(cost,dict):
+        return None,None,None,None,None,"MissingCost"
+    for side_name in ("Long","Short"):
+        side=cost.get(side_name)
+        trade=side.get("TradingCost") if isinstance(side,dict) else None
+        commissions=trade.get("Commissions") if isinstance(trade,dict) else None
+        if not isinstance(commissions,list):
+            return None,None,None,None,None,"CommissionsNotVerified"
+        if any(not isinstance(row,dict) or
+               nonnegative_number(row.get("Value")) is None
+               for row in commissions):
+            return None,None,None,None,None,"CommissionLineInvalid"
+    long_fee,long_total,currency=_cost_side(response,"Long")
+    short_fee,short_total,other_currency=_cost_side(response,"Short")
+    if currency and other_currency and currency!=other_currency:
+        return None,None,None,None,None,"CostCurrencyMismatch"
+    return long_fee,short_fee,currency or other_currency,long_total,short_total,None
+
+
 def inspect_keyword_product_v1(client:SaxoClient,product:ProductSummary,*,
     account:LowFrictionAccountV2|None,
     fx_cache:dict[str,tuple[float|None,str]],
@@ -289,13 +331,13 @@ def inspect_keyword_product_v1(client:SaxoClient,product:ProductSummary,*,
         if cost_amount is None:
             notes.append("Saxo minimumsstørrelse mangler; avgiftsmodell ikke verifisert")
         else:
-            (long_fee,short_fee,fee_currency,long_pct,short_pct,_zero,err)=_cost_illustration(
+            (long_fee,short_fee,fee_currency,long_pct,short_pct,err)=_verified_cost_probe(
                 client,account=account,instrument=product.instrument,
                 amount=cost_amount,price=quote_price)
             if err:
                 notes.append("Saxo kostnadsillustrasjon: "+err[:130])
             else:
-                (double_long,double_short,_,_,_,_,err2)=_cost_illustration(
+                (double_long,double_short,_,_,_,err2)=_verified_cost_probe(
                     client,account=account,instrument=product.instrument,
                     amount=2*cost_amount,price=quote_price)
                 if err2:
