@@ -1,5 +1,6 @@
 """Saxo GET-only historical replay calibration and account return overlays."""
 from datetime import datetime,timedelta,timezone
+from dataclasses import asdict
 from types import SimpleNamespace
 from pathlib import Path
 import pytest
@@ -63,7 +64,7 @@ def test_verified_saxo_costs_exact_identity_and_no_order_writes():
     assert costs.source.startswith("SAXO_INDICATIVE_NOW")
     assert client.calls
     assert all(not path.startswith("trade/v2/orders") for path,_ in client.calls)
-    assert all("secret-fake" not in str(x) for x in costs.__dict__.values())
+    assert all("secret-fake" not in str(x) for x in asdict(costs).values())
 
 
 def test_missing_saxo_evidence_fails_closed():
