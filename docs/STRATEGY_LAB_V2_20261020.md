@@ -39,8 +39,9 @@ egne sider inntil v2 er verifisert. Ny lab har fanene
    ferdig 1m-observasjon, direkte hopp til en handelsevent, teknisk
    beslutningsbegrunnelse, og komplett maskinlesbar JSON/CSV-eksport
    slik at brukeren kan **laste opp filen i ChatGPT** for analyse.
-   Et ekte klikk i Lightweight-kursgrafen styrer ennå *ikke* spolemarkøren;
-   det må integreres som en egen bidireksjonal Streamlit-komponent.
+   Et klikk i Lightweight-kursgrafen velger ferdiglukkede 1m-priser og flytter
+   spolemarkøren. Brukeren kan vise hele historien for navigasjon eller
+   skjule framtidige candles for en blind gjennomgang. AI-input er alltid as-of.
 
 ### AI-dialog
 - Høyrespalte følger valgt replay-strategi og spolepunkt.
@@ -85,7 +86,7 @@ egne sider inntil v2 er verifisert. Ny lab har fanene
    å løfte deres tilstandsoverganger til rene isolerte funksjoner.
 2. Historisk ordrebok/1s-bid/ask, reell Saxo funding/fees, eksplisitt
    fill latency, margin og porteføljebaserte risikobudsjetter.
-3. Både on-chart click-to-scrub og full multi-agent research AI-historikk.
+3. Full flerstrategi AI-historikk og forklaringsmarkører per PAPER-handel.
 4. Lagre signerte, reproduserbare SIM-run-manifester i DB og sammenlign
    med kontoresultat, walk-forward og out-of-sample; ikke optimizer på
    samme vindu uten korrigering for data mining.
