@@ -153,6 +153,19 @@ def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> Non
             except Exception as exc:
                 LOGGER.warning("saxo official EOD performance failed kind=%s",type(exc).__name__)
                 next_official_check=time.monotonic()+3600
+        # Sidecar consumes only durable broker snapshots and reconciled
+        # orders. It never calls Saxo or touches V3 trading authority.
+        try:
+            from autotrader_account_learning_v1 import run_account_learning_cycle_v1
+            learning=run_account_learning_cycle_v1(db_path=str(db_path))
+            if learning["watched_accounts"]:
+                LOGGER.info(
+                    "account learning observers=%s samples=%s new_findings=%s errors=%s",
+                    learning["watched_accounts"],learning["samples"],
+                    learning["new_findings"],learning["errors"],
+                )
+        except Exception as exc:
+            LOGGER.warning("account learning cycle failed kind=%s",type(exc).__name__)
         stop_event.wait(COLLECTION_SECONDS)
 
 
