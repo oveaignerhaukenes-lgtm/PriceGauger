@@ -8,9 +8,10 @@ egne sider inntil v2 er verifisert. Ny lab har fanene
 ### Historisk SIM
 1. Åpne kollapsbare familier; alle offisielle V3-strategier listes med navn
    og beskrivelse. Flervalg for de faktisk kausalt replay-klare strategiene.
-   Foreløpig **10 rene V3-mekanikker**: MACD Flip, MACD Trailing, MACD Histogram,
-   Histogram Flip+Build, Histogram Peak Flip, MACD+Stoch v2/v2.1, Rytmebygg v1,
-   PreCross#1 og Histogram+Price. De øvrige ligger synlig under sin familie som
+   **18 rene V3-mekanikker**: MACD Flip, MACD Trailing,
+   MACD Histogram/Flip+Build/Peak Flip, MACD+Stoch v1/v2/v2.1,
+   Rytmebygg v1, PreCross#1, Histogram+Price, VWAP-regime,
+   MACD R/S, AEn#2/2.1 sticky, RytmeTrend og begge fraktalrytmevariantene. De øvrige ligger synlig under sin familie som
    **Ikke replay-klar**, inkludert AEn-kjernestrategier som benytter varig
    tilstand. Vi fabrikerer aldri replay-resultater for disse.
 2. Velg marked, eksakt produkt/UIC blant **Saxo-abonnerte og kanonisk innsamlede**
@@ -25,6 +26,10 @@ egne sider inntil v2 er verifisert. Ny lab har fanene
      indikativt spread/kurtasje på historiske barer. Det er ikke arkivert BBO.
    - **Manuelt scenario:** egne eksplisitte NOK/point, spread-bps, variabel
      kommisjon bps og fast NOK/ordre. All statistikk merkes MANUAL_SCENARIO.
+     UI-modusen må testes med eksakt likhet: teksten «ikke Saxo-verifisert»
+     inneholder også «Saxo», og en substring-test valgte tidligere feil panel.
+   - Manglende Saxo-pris, valutakurs, kontraktstørrelse, gebyr eller
+     handelsinkrement listes ved navn; en generell sperremelding er ikke nok.
    - V3-strategiens `tranche`/Saxo step, max lots og startkapital er synlige;
      ingen kontoordre eller precheck utføres i denne forskningssiden.
 5. PAPER fills på **neste faktiske 1m OPEN etter ferdig beslutningsbar**.
