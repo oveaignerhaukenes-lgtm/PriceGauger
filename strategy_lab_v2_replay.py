@@ -315,7 +315,6 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                         pending=(target,decision.reason)
                     else:pending=None
                     previous_obs=obs
-                    obs_history.append(obs)
             peak=max(peak,nav)
             dd=max(dd,(peak-nav)/peak*100)
             points.append(ReplayPointV2(
