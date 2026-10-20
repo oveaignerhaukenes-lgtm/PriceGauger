@@ -538,12 +538,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 LOGGER.warning('V3 AI LIVE evidence unavailable trader=%s kind=%s; base strategy unchanged',
                                e.pilot_key,type(exc).__name__)
                 ai_live_advice=None
-        snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
+        pipeline=evaluate_trader_v3(
+            trader=trader,base_target=decision.decision.target,
+            actual_inventory=actual,modifiers=tuple(modifiers))
+        snapshot=pipeline.snapshot
         ai_live_modified=bool(
             ai_live_advice is not None
-            and abs(snapshot.effective_target.amount-decision.decision.target.amount)>1e-10
-            and abs(snapshot.effective_target.amount)<abs(actual.amount)-1e-10
-            and snapshot.effective_target.amount*actual.amount>=0
+            and any(
+                step.source=='ai-loss-manager'
+                and abs(step.after.amount-step.before.amount)>1e-10
+                for step in pipeline.transforms
+            )
+            and abs(snapshot.risk_approved_target.amount)<abs(actual.amount)-1e-10
+            and snapshot.risk_approved_target.amount*actual.amount>=0
         )
         if ai_live_modified:
             # The base closed-bar cursor must not immediately resurrect the
