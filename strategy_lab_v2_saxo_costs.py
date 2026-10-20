@@ -132,6 +132,17 @@ def verified_replay_costs_v2(evidence:SaxoReplayCostEvidenceV2,*,
     max_lots:float=.03,starting_nav_nok:float=10000.)->ReplayCostsV2:
     if evidence.status!="SAXO_COST_SCENARIO":
         raise ValueError("Saxo cost scenario requires all verified broker details")
+    # The pure V3 strategy config has just one tranche field: it cannot
+    # faithfully model first-ticket minimum > incremental ADD step.
+    # Do not pretend a 0.005 initial Gold ticket is valid when Saxo says
+    # MinimumTradeSize=0.01. This requires a separate sizing adapter.
+    if (evidence.minimum_trade_size is None or evidence.increment_size is None
+        or abs(evidence.minimum_trade_size-evidence.increment_size)>
+           max(1e-9,evidence.minimum_trade_size*1e-5)):
+        raise ValueError(
+            "Saxo minimum ticket differs from increment: current V3 replay "
+            "cannot model legal first order and pyramiding exactly"
+        )
     assert evidence.point_value_nok is not None
     assert evidence.spread_bps is not None
     assert evidence.fixed_commission_nok is not None
