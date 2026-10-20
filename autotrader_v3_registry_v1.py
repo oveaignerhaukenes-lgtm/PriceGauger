@@ -122,6 +122,7 @@ MODIFIERS_V3 = (
     ModifierSpecV3("reversal", "Reversal Detector", "Reduserer eller reverserer target ved bekreftet regimeskifte."),
     ModifierSpecV3("take-profit", "Take Profit", "Beskytter opparbeidet gevinst og kan sende target mot FLAT."),
     ModifierSpecV3("reset-on-loss", "Reset on Loss", "Går umiddelbart FLAT når eksisterende posisjons åpne P/L blir negativ; strategien kan deretter bygge opp på nytt."),
+    ModifierSpecV3("ai-loss-manager", "AI Loss Manager · LIVE", "AI vurderer vedvarende tap med Saxo-P/L, MACD, Stochastic og pris; HOLD, REDUCE eller FLAT kan styre eksisterende posisjon. AI kan aldri åpne, øke eller snu til motsatt side; REVERSE blir først FLAT. 15–180s utløsertid i inspeksjonspanelet."),
     ModifierSpecV3("volatility-pause", "Volatility Pause", "Paus nye innganger og pyramidering ved høy 1m-volatilitet (12 vs. 60 minutters returns). Reduksjon/exit tillatt."),
     ModifierSpecV3("whipsaw", "Whipsaw Detector", "LIVE-sikkerhetsfilter: stopper nye posisjoner og oppbygging når siste 12 ferdige 1m-barer er hakkete. Utgang og reduksjon er fortsatt tillatt. Krever egen eksplisitt LIVE-godkjenning pr. instans."),
     ModifierSpecV3("regime", "Regime Detector", "Klassifiserer markedsregime for adaptive valg."),
@@ -149,7 +150,7 @@ AEN_CORE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m")
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
 REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1", "rhythm-trend-fractal")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
-LIVE_MODIFIERS_V3 = ("reset-on-loss", "whipsaw", "volatility-pause")
+LIVE_MODIFIERS_V3 = ("reset-on-loss", "whipsaw", "volatility-pause", "ai-loss-manager")
 SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 SIM_CONTROL_MODES_V3 = ("Manuell",)
 SIM_MODIFIERS_V3: tuple[str, ...] = ()

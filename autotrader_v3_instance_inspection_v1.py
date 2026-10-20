@@ -179,7 +179,11 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
                      value=False,key=key):
         return
     config=load_autotrader_config_v3(instance_id)
-    with st.expander("AI Manager · SHADOW (analyserer tap, ingen ordre)",expanded=False):
+    live_ai_enabled=('ai-loss-manager' in config.modifiers)
+    manager_title=("AI Manager · LIVE (kan redusere/lukke posisjoner)"
+                   if live_ai_enabled else
+                   "AI Manager · SHADOW (analyserer tap, ingen ordre)")
+    with st.expander(manager_title,expanded=False):
         settings=shadow_settings_v1(instance_id)
         enabled=st.toggle("AI tapsvurdering på denne instansen",
                           value=settings["enabled"],
@@ -188,11 +192,19 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
                           min_value=15,max_value=180,step=5,
                           value=settings["trigger_seconds"],
                           key=f"{key_prefix}:ai-shadow-delay:{instance_id}")
-        st.caption("Standard 60 sekunder · separat vurdering hvert 30. sekund. "
-                   "SHADOW ser på faktisk Saxo P/L og ferdiglukkede pris-/indikatorbarer. "
-                   "Ingen nye LIVE-ordrer eller automatisk reversering. "
-                   "Gjentatte AI-kall har 3 minutters cooldown. "
-                   "Uten tilgjengelig AI-nøkkel genereres ingen modellvurdering.")
+        if live_ai_enabled:
+            st.caption("AI Manager er valgt i LIVE-konfigurasjonen. "
+                       "Den samme modellen vurderer tap og kan redusere eller lukke "
+                       "en posisjon gjennom vanlig Saxo LIVE-kjede; AI åpner ikke "
+                       "eller reverserer til ny posisjon. LIVE ON/OFF på instansen "
+                       "styrer faktisk handel. Ingen ekstra godkjenningsknapp.")
+        else:
+            st.caption("AI-manageren vurderer kun i SHADOW. "
+                       "Velg AI Loss Manager · LIVE under Options/modifiers "
+                       "i instansens kontrollpanel for aktiv posisjonsforvaltning.")
+        st.caption("Standard 60 sekunder · vurdering hvert 30. sekund · "
+                   "3 minutter mellom AI-kall. Manglende AI-nøkkel eller "
+                   "markedsdata fører ikke til AI-inngrep.")
         if (enabled!=settings["enabled"] or seconds!=settings["trigger_seconds"]):
             if st.button("Lagre AI SHADOW-innstillinger",
                          key=f"{key_prefix}:ai-shadow-save:{instance_id}"):
