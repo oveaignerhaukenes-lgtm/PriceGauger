@@ -91,7 +91,13 @@ def test_discontinuity_cancel_pending_and_no_cross_gap_return():
         strategy_key="macd-histogram",bars=feed(280,gap_at=170),
         costs=COST,timeframe="2m")
     assert result.skipped_gaps==1
-    assert any(e.kind=="GAP_FLAT" for e in result.events)
+    prior=replay_v3_strategy_v2(
+        strategy_key="macd-histogram",bars=feed(170),
+        costs=COST,timeframe="2m")
+    if prior.points[-1].lots:
+        assert any(e.kind=="GAP_FLAT" for e in result.events)
+    else:
+        assert not any(e.kind=="GAP_FLAT" for e in result.events)
     first_after=next(p for p in result.points
                      if p.at>=START+timedelta(minutes=180))
     assert first_after.lots==0
