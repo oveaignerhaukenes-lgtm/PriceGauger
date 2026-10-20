@@ -56,4 +56,4 @@ def test_live_button_keeps_broker_cost_and_standard_authority_guard():
     assert "set_live_enabled_v3(trader_id,True,account_id=instance.account_id)" in source
     assert "Slå LIVE av" in source
     assert "SIM-kompatibilitet (påvirker ikke LIVE)" in source
-    assert "previously_viewed=st.session_state.get(viewed_key,config.strategy_key)" in source
+    assert "previously_viewed=st.session_state.get(viewed_key,initial_choice)" in source
