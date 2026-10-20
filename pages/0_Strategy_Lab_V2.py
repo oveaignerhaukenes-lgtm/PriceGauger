@@ -299,9 +299,17 @@ with tabs[0]:
                        f"MACD-histogram {focused.macd_hist} · "
                        f"signal {focused.signal}.")
             historical=st.session_state["slab2:lastbars"]
-            visible_bars=[b for b in historical if utc(b.bar_time)<focused.at]
+            reveal_future=st.toggle(
+                "Vis hele prisforløpet for å kunne klikke frem/tilbake",
+                value=True,key="slab2:reveal_market",
+                help="Når dette er PÅ, ser du fremtidige priser og PAPER-handler "
+                     "i grafen. AI mottar fremdeles kun as-of-data ved spolepunktet. "
+                     "Slå AV for en blind, fremoverrettet evaluering.")
+            visible_bars=[b for b in historical if (
+                reveal_future or utc(b.bar_time)<focused.at)]
             markers=[(e.at,e.after_lots-e.prior_lots,e.kind,1,e.price)
-                     for e in replay.events if e.at<=focused.at]
+                     for e in replay.events if (
+                         reveal_future or e.at<=focused.at)]
             clicked_time=render_lab_v2_click_chart(
                 visible_bars,markers,key="slab2:tvchart",
                 title=f"Pris + {labels.get(primary,primary)} · PAPER fills")
