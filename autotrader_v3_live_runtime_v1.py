@@ -391,20 +391,6 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                 f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
                 db_path=db_path)
             continue
-        cost_assessment=assess_transaction_cost_v3(
-            broker=broker,
-            account_id=e.account_id,
-            market_name=e.market_name,
-            uic=int(e.uic),
-            asset_type=e.asset_type,
-            amount=float(strategy_amount_config.tranche),
-        )
-        if cost_assessment.blocked and abs(actual.amount) <= 1e-12:
-            _record_runtime(
-                e.pilot_key,'BLOCKED',
-                'V3 transaction cost guard blocked new exposure: '+cost_assessment.detail,
-                db_path=db_path)
-            continue
         context_strategy_key=(
             f"{e.strategy_key}:R{config.regime_timeframe}"
             if e.strategy_key in REGIME_RUNTIME_KEYS_V3 else e.strategy_key
@@ -635,6 +621,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         policy=None
         if mutation.action in {'OPEN','ADD'}:
+            # Broker cost GETs can be slow or time out. Do not request them
+            # during FLAT/HOLD, CLOSE or REDUCE: those actions are never
+            # allowed to be blocked by opening-friction verification.
+            # OPEN and ADD still require a fresh Saxo cost assessment
+            # and fail closed on any unavailable/expensive quote.
+            cost_assessment=assess_transaction_cost_v3(
+                broker=broker,
+                account_id=e.account_id,
+                market_name=e.market_name,
+                uic=int(e.uic),
+                asset_type=e.asset_type,
+                amount=float(strategy_amount_config.tranche),
+            )
             if cost_assessment.blocked:
                 _record_runtime(
                     e.pilot_key,'BLOCKED',
