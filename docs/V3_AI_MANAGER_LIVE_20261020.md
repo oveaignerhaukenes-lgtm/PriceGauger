@@ -1,12 +1,20 @@
 # V3 AI Manager LIVE – opt-in eksisterende strategi (20.10.2026)
 
 ## Hva er tilgjengelig
-V3-strategivelgeren inneholder fortsatt alle deterministiske grunnstrategier.
-Under **Options / modifiers** ligger nå **AI Loss Manager · LIVE**. Den er én
-gjenbrukbar forvalter som kan legges på eksempelvis `MACD Flip · V3` (2m)
-eller `MACD Histogram`, uten å endre selve inngangsstrategien.
-PreCross#1 og PreCross#2 er *ikke* ferdige strategiimplementasjoner og
-vises derfor ikke med oppdiktet LIVE-støtte.
+I V3-strategivelgeren **Strategi / AI-oppsett (LIVE)** ligger to
+brukervennlige LIVE-oppsett rett ved de deterministiske strategiene:
+- **AI-oppsett · MACD Flip 2m + AI Loss Manager**
+- **AI-oppsett · MACD Histogram 2m + AI Loss Manager**
+
+Dette er ærlige *konfigurasjonsforslag* med eksisterende grunnstrategier,
+2m signalperiode og den samme `ai-loss-manager` LIVE-modifikatoren.
+Valg i dropdown oppretter ingen handel: bruk den vanlige knappen
+**Bruk på denne instansen** for lagring og vanlig LIVE ON/OFF for handel.
+En prominent selvstendig **AI-forvaltning**-toggle ligger også rett under
+strategivalget, så AI kan kombineres med andre V3-strategier/tidsrammer.
+
+PreCross#1 og PreCross#2 er fremdeles *ikke* ferdige algoritmer eller
+separate LIVE-strategier. Disse navnene brukes ikke om preset-oppsettene.
 
 Ingen ekstra godkjenningsknapp trengs. Bruk eksisterende V3-strategivalg,
 lagring og LIVE ON/OFF, samt AI Manager-innstillingene i handelskartet.
