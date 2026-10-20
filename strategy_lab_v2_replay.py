@@ -251,8 +251,8 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
         signal_chart=_complete_candles(segment,tf,market) if tf!=macd_tf else chart
         signal_by_end={utc(x.bar_time)+timedelta(minutes=tf):j
                        for j,x in enumerate(signal_chart)}
-        obs_history=[]
         previous_obs=None;pending=None
+        most_recent=None
         target=0.;peak_state=HistogramPeakStateV3()
         last_close=None
         for ix,bar in enumerate(segment):
@@ -293,8 +293,8 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
             if nav<0:
                 raise ValueError("paper NAV exhausted; exposure/capital unrealistic")
             last_close=cl
-            most_recent=max((v for t,v in by_end.items() if t<=closed),
-                            key=lambda v:utc(v.closed_at),default=None)
+            if closed in by_end:
+                most_recent=by_end[closed]
             sig="WARMUP"
             if most_recent and (closed in signal_by_end):
                 obs=most_recent if strategy_key in PRECROSS else by_end.get(closed)
