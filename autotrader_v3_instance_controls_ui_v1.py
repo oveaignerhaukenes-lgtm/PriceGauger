@@ -28,6 +28,7 @@ from autotrader_v3_registry_v1 import (
 RHYTHM_1M_CATALOG_KEYS_V3 = frozenset((
     'macd-stoch-rhythm-build', 'rhythm-trend-1',
     'rhythm-build-fractal', 'rhythm-trend-fractal',
+    'precross-price-1m-macd2m', 'histogram-price-1m-macd2m',
 ))
 RHYTHM_R15_CATALOG_KEYS_V3 = frozenset((
     'rhythm-trend-1', 'rhythm-trend-fractal',
