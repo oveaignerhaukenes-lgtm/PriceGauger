@@ -75,6 +75,14 @@ def test_missing_saxo_evidence_fails_closed():
             verified_replay_costs_v2(ev)
 
 
+def test_different_first_ticket_and_step_not_falsely_live_tradable():
+    from dataclasses import replace
+    ev=saxo_replay_costs_v2(Client(),source=SOURCE,account=ACCOUNT)
+    ev=replace(ev,minimum_trade_size=.02,increment_size=.01)
+    with pytest.raises(ValueError,match="minimum ticket differs"):
+        verified_replay_costs_v2(ev)
+
+
 def test_account_comparison_does_not_mix_nominal_nav_and_paper_units():
     at=datetime(2026,10,20,18,tzinfo=timezone.utc)
     sample=[{"observed_at":(at+timedelta(minutes=i*5)).isoformat(),
