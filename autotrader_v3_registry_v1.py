@@ -68,6 +68,16 @@ STRATEGIES_V3 = (
         "uten å forsinke full FLAT, og uten å øke maksimalt tre trancher.",
         "rhythm-trend-fractal-v1", True,
     ),
+    StrategySpecV3(
+        "precross-price-1m-macd2m", "PreCross#1 · MACD 2m + Pris 1m",
+        "Fanger 1m prisbrudd sammen med voksende motsatt 2m MACD-histogramslope, også før MACD-krysset. Én minste Saxo-enhet, FLAT ved histogramkontraksjon, ingen direkte reversering. Krever fullstendige 1m-barer; ingen 10/30s-feed.",
+        "precross-price-1m-macd2m-v1", True,
+    ),
+    StrategySpecV3(
+        "histogram-price-1m-macd2m", "Histogram + Price · MACD 2m / Pris 1m",
+        "MACD 2m histogramdivergens bestemmer impulsretning, to bekreftede 1m prislukk bekrefter inngang. FLAT når histogrammet blir parallelt/kontraherer. Én minste Saxo-enhet; ingen direkte reversering eller uverifiserte 30s-signaler.",
+        "histogram-price-1m-macd2m-v1", True,
+    ),
     StrategySpecV3("price-macd", "Price + MACD", "Prisstruktur kombinert med MACD."),
     StrategySpecV3("price-stoch", "Price + Stoch", "Prisstruktur kombinert med Stochastic."),
     StrategySpecV3("sfl", "SFL", "State/flow/latency-grunnstrategi; periode velges separat."),
@@ -139,6 +149,9 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
+PRICE_MACD_1M_KEYS_V3 = frozenset({
+    "precross-price-1m-macd2m","histogram-price-1m-macd2m",
+})
 FRACTAL_RHYTHM_CATALOG_KEYS_V3 = frozenset({
     "rhythm-build-fractal","rhythm-trend-fractal"
 })
@@ -183,6 +196,8 @@ def live_config_issues_v3(
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3:
         issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
+    if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
+        issues.append("PreCross/Histogram+Price krever 1m prissignal og ferdiglukkede 2m MACD")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
