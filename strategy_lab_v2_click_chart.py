@@ -4,7 +4,7 @@ Small, isolated enhancement to existing PAPER-only chart. No LIVE methods.
 The JS trigger returns an existing 1m candle UNIX second timestamp.
 """
 from __future__ import annotations
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from typing import Sequence
 
 import streamlit as st
@@ -51,7 +51,7 @@ def replay_cursor_from_chart_click_v2(*,points:Sequence,clicked_seconds:int)->in
         candle=datetime.fromtimestamp(int(clicked_seconds),tz=timezone.utc)
     except (TypeError,ValueError,OverflowError):
         return None
-    point_at=candle+__import__("datetime").timedelta(minutes=1)
+    point_at=candle+timedelta(minutes=1)
     for i,point in enumerate(points):
         if utc(point.at)==point_at:return i
     return None
