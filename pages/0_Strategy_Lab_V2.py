@@ -116,11 +116,13 @@ with tabs[0]:
                    "For lange perioder, velg smalere vindu for å holde "
                    "beregning og prisdatakvalitet håndterbar.")
         st.subheader("3 · Saxo-kostnader og PAPER-premisser")
+        SAXO_COST_OPTION="Saxo-kalibrert (GET, indikativt nå)"
+        MANUAL_COST_OPTION="Manuelt scenario (ikke Saxo-verifisert)"
         cost_mode=st.radio("Kostnadsgrunnlag",
-                           ("Saxo-kalibrert (GET, indikativt nå)",
-                            "Manuelt scenario (ikke Saxo-verifisert)"),
+                           (SAXO_COST_OPTION,MANUAL_COST_OPTION),
                            horizontal=True,key="slab2:costmode")
-        if "Saxo" in cost_mode:
+        saxo_mode=(cost_mode==SAXO_COST_OPTION)
+        if saxo_mode:
             evidence=None
             try:
                 from saxo_provider import configured_client
@@ -180,14 +182,14 @@ with tabs[0]:
         starting_nav=st.number_input("Startverdi PAPER (NOK)",
                                     min_value=100.,value=10000.,step=1000.,
                                     key="slab2:nav")
-        if "Saxo" in cost_mode:
+        if saxo_mode:
             max_lots=st.number_input("Maks lot per strategi",min_value=.001,
                         value=.03,step=.01,format="%.3f",key="slab2:saxomaxlot")
         if st.button("Kjør historisk SIM for valgte strategier",
                      type="primary",disabled=source is None or not chosen,
                      key="slab2:run"):
             try:
-                if "Saxo" in cost_mode:
+                if saxo_mode:
                     if evidence is None:
                         raise ValueError("Hent Saxo-kostnader før replay")
                     costs=verified_replay_costs_v2(
