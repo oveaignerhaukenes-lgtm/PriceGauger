@@ -24,6 +24,9 @@ from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, live_config_issues_v3
 from autotrader_v3_reset_on_loss_v1 import ResetOnLossModifierV3
+from autotrader_v3_ai_manager_live_v1 import (
+    AILossManagerLiveModifierV3, verified_live_ai_advice_v3,
+)
 from autotrader_v3_whipsaw_live_v1 import (
     WhipsawEvidenceV3, WhipsawLiveModifierV3,
     VolatilityPauseLiveModifierV3, evaluate_whipsaw_live_v3,
@@ -502,7 +505,55 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
                     actual_inventory=actual.amount,data_ok=vol_ok,high_vol=high_vol))
                 LOGGER.info("v3 LIVE volatility-pause trader=%s data_ok=%s high_vol=%s",
                             e.pilot_key,vol_ok,high_vol)
+        ai_live_advice=None
+        if 'ai-loss-manager' in config.modifiers and abs(actual.amount)>1e-12:
+            # The independent AI reviewer writes immutable SHADOW advice.
+            # A fresh, account-scoped recommendation may only reduce exposure
+            # and must pass the SAME V3 target -> plan -> order/reconcile path.
+            # Fetch Saxo P/L only while there is fresh AI evidence for this
+            # exact instance. Missing P/L means no AI override.
+            try:
+                from autotrader_v3_ai_decision_memory_v1 import load_ai_decisions_v1
+                from autotrader_v3_ai_manager_shadow_v1 import shadow_settings_v1
+                from trading_desk import utc
+                settings=shadow_settings_v1(e.pilot_key,db_path=db_path)
+                latest=load_ai_decisions_v1(
+                    instance_id=e.pilot_key,account_id=e.account_id,
+                    instrument_id=e.instrument_id,limit=1,db_path=db_path)
+                if settings['enabled'] and latest:
+                    from datetime import datetime as _dt
+                    observed=utc(latest[0]['evaluated_at'])
+                    if latest[0]['mode']=='SHADOW' and timedelta(0)<=end-observed<=timedelta(seconds=100):
+                        live_open_pnl=broker.open_pnl_exact(
+                            account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type)
+                        ai_live_advice=verified_live_ai_advice_v3(
+                            instance_id=e.pilot_key,account_id=e.account_id,
+                            instrument_id=e.instrument_id,strategy_key=e.strategy_key,
+                            timeframe=config.timeframe,actual_amount=actual.amount,
+                            verified_open_pnl=live_open_pnl,now=end,db_path=db_path)
+                        if ai_live_advice is not None:
+                            modifiers.append(AILossManagerLiveModifierV3(
+                                actual_inventory=actual.amount,advice=ai_live_advice))
+            except Exception as exc:
+                LOGGER.warning('V3 AI LIVE evidence unavailable trader=%s kind=%s; base strategy unchanged',
+                               e.pilot_key,type(exc).__name__)
+                ai_live_advice=None
         snapshot=evaluate_trader_v3(trader=trader,base_target=decision.decision.target,actual_inventory=actual,modifiers=tuple(modifiers)).snapshot
+        ai_live_modified=bool(
+            ai_live_advice is not None
+            and abs(snapshot.effective_target.amount-decision.decision.target.amount)>1e-10
+            and abs(snapshot.effective_target.amount)<abs(actual.amount)-1e-10
+            and snapshot.effective_target.amount*actual.amount>=0
+        )
+        if ai_live_modified:
+            # The base closed-bar cursor must not immediately resurrect the
+            # very position the AI just exited or trimmed.
+            align_closed_bar_target_v3(
+                trader_id=e.pilot_key,target_amount=snapshot.effective_target.amount,
+                db_path=db_path)
+            LOGGER.info('V3 AI LIVE intervention trader=%s action=%s decision=%s actual=%g target=%g',
+                        e.pilot_key,ai_live_advice.action,ai_live_advice.decision_id,
+                        actual.amount,snapshot.effective_target.amount)
         if (
             any(k in config.modifiers for k in ('whipsaw','volatility-pause'))
             and abs(snapshot.risk_approved_target.amount-actual.amount)<1e-10
