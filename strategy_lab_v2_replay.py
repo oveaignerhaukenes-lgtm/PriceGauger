@@ -24,10 +24,19 @@ from autotrader_v3_macd_histogram_flip_build_v1 import macd_histogram_flip_build
 from autotrader_v3_macd_histogram_peak_flip_v1 import (
     HistogramPeakStateV3,histogram_peak_flip_transition_v3,
 )
+from autotrader_v3_macd_stoch_v1 import macd_stoch_target_v3
 from autotrader_v3_macd_stoch_v2 import macd_stoch_v2_target_v3
 from autotrader_v3_macd_stoch_v21 import macd_stoch_v21_target_v3
 from autotrader_v3_macd_stoch_rhythm_build_v1 import macd_stoch_rhythm_build_target_v3
 from autotrader_v3_precross_price_v1 import precross_price_target_v3,histogram_price_target_v3
+from autotrader_v3_vwap_regime_histogram_v1 import vwap_regime_histogram_target_v3
+from autotrader_v3_macd_regime_histogram_v1 import macd_regime_histogram_target_v3
+from autotrader_v3_aen2_sticky_regime_v1 import aen2_sticky_regime_target_v3
+from autotrader_v3_aen21_sticky_fast_exit_v1 import aen21_sticky_fast_exit_target_v3
+from autotrader_v3_rhythm_trend_v1 import rhythm_trend_target_v3
+from autotrader_v3_fractal_rhythm_variants_v1 import (
+    rhythm_build_fractal_target_v3,rhythm_trend_fractal_target_v3,
+)
 
 PURE_V3={
     "macd-flip":macd_flip_target_v3,
@@ -35,14 +44,31 @@ PURE_V3={
     "macd-histogram":macd_histogram_target_v3,
     "macd-histogram-flip-build":macd_histogram_flip_build_target_v3,
     "macd-histogram-peak-flip":histogram_peak_flip_transition_v3,
+    "macd-stoch-v1":macd_stoch_target_v3,
     "macd-stoch-v2":macd_stoch_v2_target_v3,
     "macd-stoch-v2-1":macd_stoch_v21_target_v3,
     "macd-stoch-rhythm-build":macd_stoch_rhythm_build_target_v3,
     "precross-price-1m-macd2m":precross_price_target_v3,
     "histogram-price-1m-macd2m":histogram_price_target_v3,
+    "vwap-regime-histogram":vwap_regime_histogram_target_v3,
+    "macd-regime-histogram":macd_regime_histogram_target_v3,
+    "aen2-sticky-regime":aen2_sticky_regime_target_v3,
+    "aen21-sticky-fast-exit":aen21_sticky_fast_exit_target_v3,
+    "rhythm-trend-1":rhythm_trend_target_v3,
+    "rhythm-build-fractal":rhythm_build_fractal_target_v3,
+    "rhythm-trend-fractal":rhythm_trend_fractal_target_v3,
 }
 PRECROSS=frozenset(("precross-price-1m-macd2m","histogram-price-1m-macd2m"))
-TRAILING=frozenset(("macd-flip","macd","macd-stoch-v2","macd-stoch-v2-1","macd-stoch-rhythm-build"))
+REGIME=frozenset(("macd-regime-histogram","aen2-sticky-regime",
+                  "aen21-sticky-fast-exit","rhythm-trend-1","rhythm-trend-fractal"))
+SOURCE_ONLY=frozenset(("vwap-regime-histogram",))
+FRACTAL_BUILD=frozenset(("rhythm-build-fractal",))
+MICRO_TIMING=PRECROSS|FRACTAL_BUILD|frozenset((
+    "macd-stoch-rhythm-build","rhythm-trend-1","rhythm-trend-fractal"))
+STOCH=frozenset(("macd-stoch-v1","macd-stoch-v2",
+                 "macd-stoch-v2-1","macd-stoch-rhythm-build"))
+TRAILING=frozenset(("macd-flip","macd","macd-stoch-v1","macd-stoch-v2",
+                    "macd-stoch-v2-1","macd-stoch-rhythm-build","rhythm-build-fractal"))
 PERIODS={"1m":1,"2m":2,"5m":5,"10m":10,"15m":15,"30m":30,"1h":60}
 MIN_HISTORY=45
 MAX_BARS=3000
@@ -196,8 +222,17 @@ def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market):
         return result.decision,result.state
     if key in PRECROSS:
         args.update(bars=bars,source_bars=source,market_name=market)
-    elif key in {"macd-stoch-v2","macd-stoch-v2-1","macd-stoch-rhythm-build"}:
+    elif key in STOCH:
         args["bars"]=bars
+    elif key in REGIME:
+        args.update(source_bars=source,regime_timeframe_minutes=15,
+                    market_name=market)
+        if key.startswith("rhythm-trend"):
+            args["bars"]=bars
+    elif key in SOURCE_ONLY:
+        args["source_bars"]=source
+    elif key in FRACTAL_BUILD:
+        args.update(bars=bars,source_bars=source)
     return func(**args),peak_state
 
 
@@ -214,10 +249,8 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
         raise ValueError(f"Strategy not yet replay-ready: {strategy_key}")
     if timeframe not in PERIODS:
         raise ValueError("unsupported signal timeframe")
-    if strategy_key in PRECROSS and timeframe!="1m":
-        raise ValueError("1m price + 2m MACD strategies require 1m signal")
-    if strategy_key=="macd-stoch-rhythm-build" and timeframe!="1m":
-        raise ValueError("Rhythm build requires 1m")
+    if strategy_key in MICRO_TIMING and timeframe!="1m":
+        raise ValueError("Price, rhythm and fractal microstructure strategies require 1m signal")
     segments=_segments(bars)
     if sum(len(x) for x in segments)<MIN_HISTORY:
         raise ValueError("Not enough real 1m candles for technical warmup")
@@ -301,11 +334,13 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                 if obs is not None:
                     end_i=signal_by_end[closed]+1
                     visible=signal_chart[max(0,end_i-130):end_i]
-                    source=segment[max(0,ix-420):ix+1]
+                    # 15m macro MACD requires > 35*15 observed minutes to warm up.
+                    # A 650m as-of window is bounded but preserves its context.
+                    source=segment[max(0,ix-650):ix+1]
                     # Price strategies check last 5 contiguous source bars,
                     # and the only 2m observation available at this minute.
                     args_bars=(tuple(segment[max(0,ix-130):ix+1])
-                               if strategy_key in PRECROSS else visible)
+                               if strategy_key in MICRO_TIMING else visible)
                     decision,peak_state=_call_strategy(
                         strategy_key,target,obs,previous_obs,args_bars,source,
                         peak_state,config,market)
