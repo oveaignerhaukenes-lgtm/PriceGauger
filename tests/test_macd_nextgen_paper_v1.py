@@ -146,4 +146,4 @@ def test_no_semantic_conversion_of_legacy_macd_flip_to_trailing():
     assert "Trailing" in spec.label
     assert spec.runtime_key=="macd-trailing-v1"
     selector=Path("autotrader_v3_instance_controls_ui_v1.py").read_text(encoding="utf-8")
-    assert "'Legacy strategies', keys" in selector
+    assert "'Strategi / AI-oppsett (LIVE)',keys" in selector
