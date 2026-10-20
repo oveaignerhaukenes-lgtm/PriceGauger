@@ -117,8 +117,15 @@ def test_ui_and_runtime_enforce_cost_guard_without_trapping_reductions():
     assert "LIVE kostnadssperre" in ui
 
     assert "assess_transaction_cost_v3(" in runtime
-    assert "cost_assessment.blocked and abs(actual.amount) <= 1e-12" in runtime
+    # Broker friction must be checked only once there is a real OPEN/ADD.
+    # A flat/idle account and any risk-reducing CLOSE/REDUCE must not
+    # request Saxo cost illustrations or be blocked by a cost GET timeout.
     open_add = runtime.index("if mutation.action in {'OPEN','ADD'}:")
-    cost_block = runtime.index("if cost_assessment.blocked:", open_add)
+    assessment = runtime.index("cost_assessment=assess_transaction_cost_v3(", open_add)
+    cost_block = runtime.index("if cost_assessment.blocked:", assessment)
     reduce_close = runtime.index("if mutation.action in {'REDUCE','CLOSE'}:")
-    assert reduce_close < open_add < cost_block
+    plan = runtime.index("plan=plan_execution_v3(snapshot)")
+    assert reduce_close < open_add < assessment < cost_block
+    assert plan < assessment
+    assert "cost_assessment.blocked and abs(actual.amount) <= 1e-12" not in runtime
+    assert runtime.count("cost_assessment=assess_transaction_cost_v3(") == 1
