@@ -11,7 +11,8 @@ import streamlit as st
 
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from instrument_registry_v2 import list_subscribed_sources_v2
-from live_sim_tv_charts_v1 import render_lab_tv_candles,render_lab_tv_series
+from live_sim_tv_charts_v1 import render_lab_tv_series
+from strategy_lab_v2_click_chart import render_lab_v2_click_chart,replay_cursor_from_chart_click_v2
 from strategy_lab_v2_replay import (
     ReplayCostsV2,PURE_V3,MAX_BARS,utc,
     strategy_catalog_v2,replay_v3_strategy_v2,
@@ -77,6 +78,12 @@ with tabs[0]:
                             if selected:chosen.append(item["key"])
                         else:
                             st.caption("Ikke replay-klar · "+item["name"])
+                            if not item["runtime_ready"]:
+                                st.caption("Kun katalog / uimplementert V3-beslutningsmotor")
+                            elif item["ai_capable"]:
+                                st.caption("Krever lagret AI-beslutning ved hvert historisk punkt")
+                            else:
+                                st.caption("Krever isolert tilstandsadapter; ingen fabrikkert simulering")
                         if item["ai_capable"]:
                             st.caption("AI-dialog tilgjengelig, men ingen historisk AI-autotrading.")
         if not chosen:
@@ -115,11 +122,13 @@ with tabs[0]:
                    "For lange perioder, velg smalere vindu for å holde "
                    "beregning og prisdatakvalitet håndterbar.")
         st.subheader("3 · Saxo-kostnader og PAPER-premisser")
+        SAXO_COST_OPTION="Saxo-kalibrert (GET, indikativt nå)"
+        MANUAL_COST_OPTION="Manuelt scenario (ikke Saxo-verifisert)"
         cost_mode=st.radio("Kostnadsgrunnlag",
-                           ("Saxo-kalibrert (GET, indikativt nå)",
-                            "Manuelt scenario (ikke Saxo-verifisert)"),
+                           (SAXO_COST_OPTION,MANUAL_COST_OPTION),
                            horizontal=True,key="slab2:costmode")
-        if "Saxo" in cost_mode:
+        saxo_mode=(cost_mode==SAXO_COST_OPTION)
+        if saxo_mode:
             evidence=None
             try:
                 from saxo_provider import configured_client
@@ -151,11 +160,26 @@ with tabs[0]:
             ):
                 evidence=st.session_state.get("slab2:costevidence")
             if evidence is not None:
-                st.json(asdict(evidence),expanded=False)
-                if evidence.status!="SAXO_COST_SCENARIO":
-                    st.warning("Saxo-kalibrert SIM sperret til produkt-/valutakostnad "
-                               "kan kontrolleres. Bruk tydelig merket manuelt scenario "
-                               "for å utforske signaler i mellomtiden.")
+                if evidence.status=="SAXO_COST_SCENARIO":
+                    st.success("Saxo-kalibrert forskningsscenario klart. "
+                               "Kostnader og valutakurser er indikative nå, ikke historiske.")
+                else:
+                    missing={
+                        "Saxo-pris":evidence.price,
+                        "Spread":evidence.spread_bps,
+                        "NOK-verdi per prispoeng":evidence.point_value_nok,
+                        "Kurtasje / eksplisitt kostnad":evidence.fixed_commission_nok,
+                        "Minste førsteordre":evidence.minimum_trade_size,
+                        "Lovlig ordreinkrement":evidence.increment_size,
+                    }
+                    st.warning("Saxo-kalibrert SIM mangler verifisering av: "+
+                               ", ".join(k for k,v in missing.items() if v is None))
+                    for note in evidence.notes:
+                        st.caption("· "+str(note)[:200])
+                    st.caption("Velg «Manuelt scenario» for å sammenligne "
+                               "strategienes mekaniske signaler uten Saxo-kostnadsbevis.")
+                with st.expander("Vis detaljert Saxo-kalkyle og kilde"):
+                    st.json(asdict(evidence),expanded=True)
             else:
                 st.caption("Hent dokumenterte Saxo-opplysninger før du simulerer "
                            "med Saxo-kalibrert kostnad.")
@@ -179,14 +203,14 @@ with tabs[0]:
         starting_nav=st.number_input("Startverdi PAPER (NOK)",
                                     min_value=100.,value=10000.,step=1000.,
                                     key="slab2:nav")
-        if "Saxo" in cost_mode:
+        if saxo_mode:
             max_lots=st.number_input("Maks lot per strategi",min_value=.001,
                         value=.03,step=.01,format="%.3f",key="slab2:saxomaxlot")
         if st.button("Kjør historisk SIM for valgte strategier",
                      type="primary",disabled=source is None or not chosen,
                      key="slab2:run"):
             try:
-                if "Saxo" in cost_mode:
+                if saxo_mode:
                     if evidence is None:
                         raise ValueError("Hent Saxo-kostnader før replay")
                     costs=verified_replay_costs_v2(
@@ -220,7 +244,10 @@ with tabs[0]:
                             timeframe="1m" if key in (
                                 "precross-price-1m-macd2m",
                                 "histogram-price-1m-macd2m",
-                                "macd-stoch-rhythm-build"
+                                "macd-stoch-rhythm-build",
+                                "rhythm-trend-1",
+                                "rhythm-build-fractal",
+                                "rhythm-trend-fractal",
                             ) else timeframe,
                         )
                     except Exception as exc:
@@ -286,6 +313,9 @@ with tabs[0]:
                     idx=next((i for i,p in enumerate(replay.points) if p.at>=event.at),n-1)
                     st.session_state["slab2:cursor"]=idx
                     st.rerun()
+            pending_click=st.session_state.pop("slab2:pending_chart_cursor",None)
+            if pending_click is not None:
+                st.session_state["slab2:cursor"]=int(pending_click)
             cursor=st.slider("Spol: ferdig 1m-observasjon",min_value=0,
                              max_value=max(0,n-1),value=n-1,
                              key="slab2:cursor")
@@ -295,11 +325,29 @@ with tabs[0]:
                        f"MACD-histogram {focused.macd_hist} · "
                        f"signal {focused.signal}.")
             historical=st.session_state["slab2:lastbars"]
-            visible_bars=[b for b in historical if utc(b.bar_time)<focused.at]
+            reveal_future=st.toggle(
+                "Vis hele prisforløpet for å kunne klikke frem/tilbake",
+                value=True,key="slab2:reveal_market",
+                help="Når dette er PÅ, ser du fremtidige priser og PAPER-handler "
+                     "i grafen. AI mottar fremdeles kun as-of-data ved spolepunktet. "
+                     "Slå AV for en blind, fremoverrettet evaluering.")
+            visible_bars=[b for b in historical if (
+                reveal_future or utc(b.bar_time)<focused.at)]
             markers=[(e.at,e.after_lots-e.prior_lots,e.kind,1,e.price)
-                     for e in replay.events if e.at<=focused.at]
-            render_lab_tv_candles(visible_bars,markers,key="slab2:replay",
-                                  title=f"Pris + {labels.get(primary,primary)} · PAPER fills")
+                     for e in replay.events if (
+                         reveal_future or e.at<=focused.at)]
+            clicked_time=render_lab_v2_click_chart(
+                visible_bars,markers,key="slab2:tvchart",
+                title=f"Pris + {labels.get(primary,primary)} · PAPER fills")
+            if clicked_time is not None:
+                event_key=(primary,int(clicked_time))
+                if st.session_state.get("slab2:last_handled_chart_click")!=event_key:
+                    st.session_state["slab2:last_handled_chart_click"]=event_key
+                    clicked_index=replay_cursor_from_chart_click_v2(
+                        points=replay.points,clicked_seconds=clicked_time)
+                    if clicked_index is not None and clicked_index!=cursor:
+                        st.session_state["slab2:pending_chart_cursor"]=clicked_index
+                        st.rerun()
             with st.expander("Rådata og eksport · tidsstemplede datapunkter",
                              expanded=False):
                 st.caption("Grafen avbilder kun historikk til valgt spolepunkt. "
