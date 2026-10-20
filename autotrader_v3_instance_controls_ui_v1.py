@@ -7,6 +7,10 @@ owned by the engine instance, never by either page.
 """
 import streamlit as st
 from autotrader_v3_config_v1 import AutoTraderConfigV3,load_autotrader_config_v3,save_autotrader_config_v3
+from autotrader_v3_ai_live_presets_v1 import (
+    AI_LIVE_PRESETS_V3,PRESETS_BY_KEY_V3,initial_selector_key_v3,
+    resolve_selector_draft_v3,ai_preset_selected_v3,
+)
 from autotrader_v3_instance_binding_v1 import remove_unarmed_v3_instance_v1
 from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v3
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
@@ -178,27 +182,45 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.rerun()
     st.caption("MACD Flip · V3 er separat fra MACD Trailing · Legacy og følger V2s rene kryss-signaler. Valg eller lagring alene aktiverer ikke LIVE.")
     st.caption("AEn Core: fem valgbare V3 LIVE-varianter (Hold, Histogram, Hysteresis, MACD+Stoch og Adaptive Hold). "
-               "Foreløpig én ny handelsenhet og fast 5m-struktur; ingen AEn-pyramidering, Impulse Detector eller AI-ordrestyring. "
-               "Valg alene aktiverer ikke handel.")
-    keys=tuple(x.key for x in STRATEGIES_V3)
+               "Foreløpig én ny handelsenhet og fast 5m-struktur; ingen AEn-pyramidering eller Impulse Detector. "
+               "AI Manager kan legges på som LIVE-modifikator.")
+    # These are display-only presets: canonical saved strategy keys still point
+    # to existing deterministic V3 engines. PreCross models are NOT implemented.
+    base_keys=tuple(x.key for x in STRATEGIES_V3)
+    keys=base_keys+tuple(p.selector_key for p in AI_LIVE_PRESETS_V3)
+    initial_choice=initial_selector_key_v3(
+        strategy_key=config.strategy_key,timeframe=config.timeframe,
+        modifiers=config.modifiers)
     a,b=st.columns(2)
-    strategy=a.selectbox(
-        'Legacy strategies', keys, index=keys.index(config.strategy_key),
-        format_func=lambda k: next(x.label for x in STRATEGIES_V3 if x.key==k)
+    selected=a.selectbox(
+        'Strategi / AI-oppsett (LIVE)',keys,index=keys.index(initial_choice),
+        format_func=lambda k: (PRESETS_BY_KEY_V3[k].label
+            if k in PRESETS_BY_KEY_V3 else next(x.label for x in STRATEGIES_V3 if x.key==k)
             + ('' if next(x for x in STRATEGIES_V3 if x.key==k).runtime_ready
-               else ' · ikke LIVE'),
+               else ' · ikke LIVE')),
         key=f'{key_prefix}:strategy:{trader_id}',
     )
+    is_ai_preset=ai_preset_selected_v3(selected)
+    strategy=PRESETS_BY_KEY_V3[selected].strategy_key if is_ai_preset else selected
     # Suggest the fixed 1m / 15m rhythm context on a *new selection*.
     # This is UI form state only; nothing is saved or armed by a dropdown change.
     viewed_key=f'{key_prefix}:last-viewed-strategy:{trader_id}'
-    previously_viewed=st.session_state.get(viewed_key,config.strategy_key)
+    previously_viewed=st.session_state.get(viewed_key,initial_choice)
     suggested=_rhythm_selection_defaults_v3(previously_viewed,strategy)
     if 'timeframe' in suggested:
         st.session_state[f'{key_prefix}:timeframe:{trader_id}']=suggested['timeframe']
     if 'regime_timeframe' in suggested:
         st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']=suggested['regime_timeframe']
-    st.session_state[viewed_key]=strategy
+    st.session_state[viewed_key]=selected
+    if is_ai_preset:
+        # Preset is a recipe, not an independent new engine. Force the visible
+        # time and AI toggle before those widgets are constructed this run.
+        chosen=PRESETS_BY_KEY_V3[selected]
+        st.session_state[f'{key_prefix}:timeframe:{trader_id}']=chosen.timeframe
+        st.session_state[f'{key_prefix}:mod:{trader_id}:ai-loss-manager']=True
+        st.info(f"{chosen.label}: bruker eksisterende {strategy} og "
+                "AI Loss Manager · LIVE. Ingen ny PreCross-strategi; "
+                "lagres først når du trykker «Bruk på denne instansen».")
     # One context-sensitive help control serves every catalog strategy.
     # Keep the actual names and summaries in the canonical registry to avoid
     # TradingDesk vs fleet discrepancies.
@@ -211,9 +233,10 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             "eksisterende LIVE-konto før du uttrykkelig lagrer/aktiverer dem."
         )
     timeframe=b.selectbox(
-        'Signalperiode (S)', TIMEFRAMES_V3, index=TIMEFRAMES_V3.index(config.timeframe),
+        'Signalperiode (S)', TIMEFRAMES_V3, index=TIMEFRAMES_V3.index(
+            PRESETS_BY_KEY_V3[selected].timeframe if is_ai_preset else config.timeframe),
         format_func=lambda value: value if value in LIVE_TIMEFRAMES_V3 else f'{value} · ikke LIVE',
-        key=f'{key_prefix}:timeframe:{trader_id}',
+        key=f'{key_prefix}:timeframe:{trader_id}',disabled=is_ai_preset,
     )
     regime_timeframe=config.regime_timeframe
     if strategy in REGIME_STRATEGIES_V3:
@@ -233,8 +256,24 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     if not spec.runtime_ready: st.warning('Denne strategien er SIM/sammenlignbar, men ikke runtime-klar for LIVE.')
     p1,p2=st.columns(2); budget=p1.number_input('Budsjett (NOK)',min_value=100.0,value=float(policy.budget_nok if policy else 2000),step=100.0,key=f'{key_prefix}:budget:{trader_id}'); exposure=p2.slider('Eksponering (%)',1,100,int(policy.exposure_pct if policy else 100),key=f'{key_prefix}:exposure:{trader_id}')
     st.caption(f'LIVE kapitalgrense: {float(budget)*float(exposure)/100.0:,.0f} NOK · håndheves mot Saxo precheck (margin/cash).')
-    st.markdown('**Options / modifiers**'); enabled=[]; cols=st.columns(3)
-    for n,item in enumerate(MODIFIERS_V3):
+    st.markdown('**AI-forvaltning**')
+    st.caption("AI Manager er et tillegg til grunnstrategien, ikke en egen "
+               "PreCross-strategi. Ved vedvarende tap kan AI foreslå HOLD, "
+               "REDUCE eller FLAT. LIVE utfører kun reduksjon/lukking, "
+               "aldri en ny AI-styrt inngang.")
+    ai_enabled=st.toggle(
+        'AI Loss Manager · LIVE (styr eksisterende posisjon)',
+        value='ai-loss-manager' in config.modifiers,
+        key=f'{key_prefix}:mod:{trader_id}:ai-loss-manager',
+        disabled=is_ai_preset,
+        help='AI-kontroll og tidsgrense finnes også under handelskartet. '
+             'AI-lukking går gjennom vanlig Saxo-ordrekjede.',
+    )
+    enabled=['ai-loss-manager'] if (ai_enabled or is_ai_preset) else []
+    st.markdown('**Andre options / modifiers**')
+    other_modifiers=[item for item in MODIFIERS_V3 if item.key!='ai-loss-manager']
+    cols=st.columns(3)
+    for n,item in enumerate(other_modifiers):
         label=item.label if item.key in LIVE_MODIFIERS_V3 else f'{item.label} · ikke LIVE'
         help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Lagres for V3/SIM, men er ikke koblet til LIVE-runtime ennå.')
         if cols[n%3].toggle(label,value=item.key in config.modifiers,key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text):
@@ -244,8 +283,11 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         format_func=lambda value: value if value in LIVE_CONTROL_MODES_V3 else f'{value} · ikke LIVE',
         key=f'{key_prefix}:mode:{trader_id}',
     )
+    selected_strategy,selected_timeframe,selected_modifiers=resolve_selector_draft_v3(
+        selector_key=selected,timeframe=timeframe,modifiers=tuple(enabled))
     desired=AutoTraderConfigV3(
-        trader_id,strategy,timeframe,mode,tuple(enabled),regime_timeframe
+        trader_id,selected_strategy,selected_timeframe,mode,
+        selected_modifiers,regime_timeframe
     ); desired_policy=ExecutionPolicyV3(trader_id,float(budget),float(exposure)); changed=desired!=config or desired_policy!=policy
     desired_label=strategy_display_label_v3(desired.strategy_key,desired.timeframe,desired.regime_timeframe)
     if desired.strategy_key not in REGIME_STRATEGIES_V3 and desired_label!=active_label:
