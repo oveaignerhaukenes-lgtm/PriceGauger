@@ -154,7 +154,7 @@ def test_live_ai_path_is_common_execution_chain_and_no_model_saxo_post():
     assert "modifiers.append(AILossManagerLiveModifierV3(" in code
     assert "align_closed_bar_target_v3(" in code
     assert code.index("verified_live_ai_advice_v3(")<code.index("pipeline=evaluate_trader_v3(")
-    assert code.index("snapshot=evaluate_trader_v3(")<code.index("plan=plan_execution_v3(snapshot)")
+    assert code.index("pipeline=evaluate_trader_v3(")<code.index("plan=plan_execution_v3(snapshot)")
     assert code.index("plan=plan_execution_v3(snapshot)")<code.index("reserve_order_v3(")
     addon=Path("autotrader_v3_ai_manager_live_v1.py").read_text()
     assert "SaxoOrderRequest" not in addon
