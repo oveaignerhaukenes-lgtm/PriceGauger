@@ -11,7 +11,8 @@ import streamlit as st
 
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from instrument_registry_v2 import list_subscribed_sources_v2
-from live_sim_tv_charts_v1 import render_lab_tv_candles,render_lab_tv_series
+from live_sim_tv_charts_v1 import render_lab_tv_series
+from strategy_lab_v2_click_chart import render_lab_v2_click_chart,replay_cursor_from_chart_click_v2
 from strategy_lab_v2_replay import (
     ReplayCostsV2,PURE_V3,MAX_BARS,utc,
     strategy_catalog_v2,replay_v3_strategy_v2,
@@ -286,6 +287,9 @@ with tabs[0]:
                     idx=next((i for i,p in enumerate(replay.points) if p.at>=event.at),n-1)
                     st.session_state["slab2:cursor"]=idx
                     st.rerun()
+            pending_click=st.session_state.pop("slab2:pending_chart_cursor",None)
+            if pending_click is not None:
+                st.session_state["slab2:cursor"]=int(pending_click)
             cursor=st.slider("Spol: ferdig 1m-observasjon",min_value=0,
                              max_value=max(0,n-1),value=n-1,
                              key="slab2:cursor")
@@ -298,8 +302,18 @@ with tabs[0]:
             visible_bars=[b for b in historical if utc(b.bar_time)<focused.at]
             markers=[(e.at,e.after_lots-e.prior_lots,e.kind,1,e.price)
                      for e in replay.events if e.at<=focused.at]
-            render_lab_tv_candles(visible_bars,markers,key="slab2:replay",
-                                  title=f"Pris + {labels.get(primary,primary)} · PAPER fills")
+            clicked_time=render_lab_v2_click_chart(
+                visible_bars,markers,key="slab2:tvchart",
+                title=f"Pris + {labels.get(primary,primary)} · PAPER fills")
+            if clicked_time is not None:
+                event_key=(primary,int(clicked_time))
+                if st.session_state.get("slab2:last_handled_chart_click")!=event_key:
+                    st.session_state["slab2:last_handled_chart_click"]=event_key
+                    clicked_index=replay_cursor_from_chart_click_v2(
+                        points=replay.points,clicked_seconds=clicked_time)
+                    if clicked_index is not None and clicked_index!=cursor:
+                        st.session_state["slab2:pending_chart_cursor"]=clicked_index
+                        st.rerun()
             with st.expander("Rådata og eksport · tidsstemplede datapunkter",
                              expanded=False):
                 st.caption("Grafen avbilder kun historikk til valgt spolepunkt. "
