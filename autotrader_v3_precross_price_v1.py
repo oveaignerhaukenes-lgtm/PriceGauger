@@ -44,7 +44,10 @@ def _evidence(*, observation, bars: Sequence, source_bars: Sequence,
         return None
     if len(bars)<5:
         return None
-    price=tuple(b for b in bars if _utc(b.bar_time)<cutoff)[-5:]
+    try:
+        price=tuple(b for b in bars if _utc(b.bar_time)<cutoff)[-5:]
+    except (AttributeError,TypeError,ValueError,OverflowError):
+        return None
     if len(price)!=5:
         return None
     if [_utc(b.bar_time) for b in price] != [
