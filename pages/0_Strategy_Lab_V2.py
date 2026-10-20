@@ -78,6 +78,12 @@ with tabs[0]:
                             if selected:chosen.append(item["key"])
                         else:
                             st.caption("Ikke replay-klar · "+item["name"])
+                            if not item["runtime_ready"]:
+                                st.caption("Kun katalog / uimplementert V3-beslutningsmotor")
+                            elif item["ai_capable"]:
+                                st.caption("Krever lagret AI-beslutning ved hvert historisk punkt")
+                            else:
+                                st.caption("Krever isolert tilstandsadapter; ingen fabrikkert simulering")
                         if item["ai_capable"]:
                             st.caption("AI-dialog tilgjengelig, men ingen historisk AI-autotrading.")
         if not chosen:
@@ -154,11 +160,26 @@ with tabs[0]:
             ):
                 evidence=st.session_state.get("slab2:costevidence")
             if evidence is not None:
-                st.json(asdict(evidence),expanded=False)
-                if evidence.status!="SAXO_COST_SCENARIO":
-                    st.warning("Saxo-kalibrert SIM sperret til produkt-/valutakostnad "
-                               "kan kontrolleres. Bruk tydelig merket manuelt scenario "
-                               "for å utforske signaler i mellomtiden.")
+                if evidence.status=="SAXO_COST_SCENARIO":
+                    st.success("Saxo-kalibrert forskningsscenario klart. "
+                               "Kostnader og valutakurser er indikative nå, ikke historiske.")
+                else:
+                    missing={
+                        "Saxo-pris":evidence.price,
+                        "Spread":evidence.spread_bps,
+                        "NOK-verdi per prispoeng":evidence.point_value_nok,
+                        "Kurtasje / eksplisitt kostnad":evidence.fixed_commission_nok,
+                        "Minste førsteordre":evidence.minimum_trade_size,
+                        "Lovlig ordreinkrement":evidence.increment_size,
+                    }
+                    st.warning("Saxo-kalibrert SIM mangler verifisering av: "+
+                               ", ".join(k for k,v in missing.items() if v is None))
+                    for note in evidence.notes:
+                        st.caption("· "+str(note)[:200])
+                    st.caption("Velg «Manuelt scenario» for å sammenligne "
+                               "strategienes mekaniske signaler uten Saxo-kostnadsbevis.")
+                with st.expander("Vis detaljert Saxo-kalkyle og kilde"):
+                    st.json(asdict(evidence),expanded=True)
             else:
                 st.caption("Hent dokumenterte Saxo-opplysninger før du simulerer "
                            "med Saxo-kalibrert kostnad.")
@@ -223,7 +244,10 @@ with tabs[0]:
                             timeframe="1m" if key in (
                                 "precross-price-1m-macd2m",
                                 "histogram-price-1m-macd2m",
-                                "macd-stoch-rhythm-build"
+                                "macd-stoch-rhythm-build",
+                                "rhythm-trend-1",
+                                "rhythm-build-fractal",
+                                "rhythm-trend-fractal",
                             ) else timeframe,
                         )
                     except Exception as exc:
