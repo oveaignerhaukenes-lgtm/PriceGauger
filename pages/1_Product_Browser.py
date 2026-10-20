@@ -5,6 +5,7 @@ import streamlit as st
 from autotrader_index_training_scanner_ui_v2 import render_index_training_scanner_v2
 from autotrader_margin_precheck_ui_v2 import render_margin_precheck_v2
 from autotrader_product_explorer_ui import render_saxo_product_explorer
+from product_browser_keyword_cost_ui_v1 import render_keyword_cost_browser_v1
 from autotrader_product_scanner_ui_v2 import render_product_scanner_v2
 from build_info import render_build_badge
 
@@ -22,14 +23,18 @@ st.info(
     "execution-authority. AutoTrader kan senere bare bruke eksakte identiteter som er eksplisitt tatt inn i PG Product Universe."
 )
 
-training_tab, market_tab, margin_tab, catalog_tab = st.tabs(
+keyword_tab, training_tab, market_tab, margin_tab, catalog_tab = st.tabs(
     (
+        "Fritekst + NOK/kurtasje",
         "Lavfriksjon / trening",
         "Marked og egenskaper",
         "Margin-precheck",
         "Saxo-katalog · avansert",
     )
 )
+
+with keyword_tab:
+    render_keyword_cost_browser_v1()
 
 with training_tab:
     st.markdown("### Finn et egnet execution-instrument")
