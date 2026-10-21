@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `f89ad2d0cd2469ad84661d1423c044ec652d5794`
+Latest tracked main commit: `a5b41a9c51177967fa956a14efec7401c9806e0a`
 
 ## Recent main commits
 
+- 2026-10-21 [`a5b41a9c51`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5b41a9c51177967fa956a14efec7401c9806e0a) — HyperChase read-only 1s Saxo quote density diagnostics (#782)
 - 2026-10-21 [`f89ad2d0cd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f89ad2d0cd2469ad84661d1423c044ec652d5794) — Record read-only HyperChase LIVE audit and operator shutdown (#781)
 - 2026-10-21 [`de4a47bd93`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/de4a47bd9365c5f88eff1a9f12ce2adfcaaa1548) — Confirm tested docs-only continuity deploy filter (#779)
 - 2026-10-21 [`c7e22742ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c7e22742ff7bddc86f46382f7d3b682efe322765) — Document verified journal automation and Railway deploy filters (#778)
@@ -46,6 +47,5 @@ Latest tracked main commit: `f89ad2d0cd2469ad84661d1423c044ec652d5794`
 - 2026-10-18 [`f1da526098`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f1da5260985d146e5b64fa67052d37787fca8159) — Saxo Natural Gas: redacted read-only old/front futures metadata evidence (#744)
 - 2026-10-18 [`4eb9b8e304`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4eb9b8e30498cf5b78317a9bf0abecf2b7c15434) — Natural Gas: recover collection only with full Saxo futures-family proof (#743)
 - 2026-10-18 [`2028f7401e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2028f7401e8e68df77f766afce42731bbe913079) — Natural Gas: read-only broker candidate evidence and bounded futures rollover checks (#741)
-- 2026-10-18 [`41097e5472`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/41097e5472f2871258cddb08b6d6ea3312df3ced) — Recover expired Saxo futures lineage with exact UIC + nontradable search (#740)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
