@@ -476,12 +476,23 @@ def _watch_v2_registry(
     poll_seconds: int,
 ) -> None:
     interval = max(5, int(poll_seconds))
+    # The local subscription registry can react every 15s, but repeatedly
+    # fetching Saxo net positions and checking older history is expensive.
+    discovery_interval = max(60, int(os.getenv(
+        "PRICEGAUGER_RUNTIME_DISCOVERY_SECONDS", "300")))
+    next_auxiliary_scan = time.monotonic() + discovery_interval
     while True:
         time.sleep(interval)
         if not using_postgres():
             continue
+        now = time.monotonic()
+        refresh_auxiliary = now >= next_auxiliary_scan
+        if refresh_auxiliary:
+            # Claim before network I/O, regardless of error, to bound retries.
+            next_auxiliary_scan = now + discovery_interval
         try:
-            desired = load_runtime_instruments_v2(configured).instruments
+            desired = load_runtime_instruments_v2(
+                configured, refresh_auxiliary=refresh_auxiliary).instruments
         except Exception as exc:
             LOGGER.warning("v2 collection registry refresh rejected: %s", exc, exc_info=True)
             continue
