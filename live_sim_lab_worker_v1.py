@@ -14,6 +14,7 @@ from live_sim_lab_analyst_v1 import run_daily_analyst
 from live_sim_lab_store_v1 import process_lab_cycle, produce_daily_summary
 from live_sim_lab_context_ablation_v1 import refresh_macro_schedule
 from live_sim_hyper_vigilant_v1 import process_hyper_cycle
+from live_sim_hyper_chase_10s_v1 import process_chase_cycle_v1
 from live_sim_ai_technical_trader_v1 import process_ai_paper_cycle
 from live_sim_ai_technical_status_v1 import record_ai_heartbeat
 from live_sim_lab_ai_context_reviewer_v1 import review_selected_pairs
@@ -54,6 +55,7 @@ def emit_sim_performance_audit_v1(*, db_path="pricegauger.db"):
     # strategy is not directly comparable with a 1m next-bar open strategy.
     modules=(
         ("HYPER","live_sim_hyper_vigilant_v1","hyper_snapshot",1),
+        ("CHASE10","live_sim_hyper_chase_10s_v1","chase_snapshot_v1",0),
         ("SELECTOR","live_sim_lab_evolution_v1","evolution_snapshot",0),
         ("WHIP","live_sim_lab_whipsaw_ablation_v1","whipsaw_snapshot",1),
         ("CONTEXT","live_sim_lab_context_ablation_v1","context_ablation_snapshot",1),
@@ -168,6 +170,17 @@ def run_hyper_one_second_loop(*,db_path="pricegauger.db",stop_event,interval=1.0
                 LOGGER.warning(
                     "Hyper-Vigilant Stochastic PAPER cycle unavailable "
                     "error_type=%s",type(exc).__name__,
+                )
+                last_error=started
+        # Independent, purely quote-based hyper-chase counterfactual arms.
+        # Failure of either PAPER engine must not stall the other.
+        try:
+            process_chase_cycle_v1(db_path=db_path)
+        except Exception as exc:
+            if started-last_error>=30.0:
+                LOGGER.warning(
+                    "HyperVigilant Chase 10s PAPER cycle unavailable error_type=%s",
+                    type(exc).__name__,
                 )
                 last_error=started
         stop_event.wait(max(0.1,interval-(time.monotonic()-started)))
