@@ -255,6 +255,8 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3:
+        issues.append("HyperChase 10s V3 SIM uses the separate prospective 1s PAPER lab, not a 1m bar replay")
     if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
         issues.append("PreCross/Histogram+Price krever 1m prissignal og ferdiglukkede 2m MACD")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
