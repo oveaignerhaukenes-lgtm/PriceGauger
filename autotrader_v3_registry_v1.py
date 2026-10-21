@@ -21,6 +21,8 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
+    StrategySpecV3("hunter-tick-v1","Hunter · LIVE tick","Ekte Saxo Tech100 BBO: 8p/8s impuls; FLAT ved utmattelse, én minste tranche. V3 sikker eksekvering; separat kontoarming.","hunter-tick-live-v1",True),
+    StrategySpecV3("rabid-dog-tick-v1","Rabid Dog · LIVE tick (begrenset)","Saxo BBO hysterese, V3 CLOSE→FLAT→OPEN, én tranche, ordrekvote og separat arming.","rabid-dog-tick-live-v1",True),
     StrategySpecV3(
         "hyper-chase-10s-fast","HyperVigilant Chase 10s · FAST",
         "LIVE: ekte Saxo Tech100 bid/ask 1s, 10s impuls >=4,5bp + støy/spread-filter. Umiddelbart LONG/SHORT-mål; V3 lukker og bekrefter FLAT før motsatt OPEN, ingen strategisk cooldown. Ingen 10s utførelsesgaranti.",
@@ -159,6 +161,7 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
+TICK_SHADOW_LIVE_CATALOG_KEYS_V3=frozenset({"hunter-tick-v1","rabid-dog-tick-v1"})
 HYPER_CHASE_10S_CATALOG_KEYS_V3=frozenset({
     "hyper-chase-10s-fast","hyper-chase-10s-filtered",
 })
@@ -209,6 +212,8 @@ def live_config_issues_v3(
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3:
         issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
+    if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3 and timeframe != "1m":
+        issues.append("Hunter/Rabid require 1m UI and genuine Saxo 1s BBO")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("HyperChase 10s requires 1m selection for V3 UI; signal reads genuine 1s BBO")
     if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
@@ -255,6 +260,8 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3:
+        issues.append("Hunter/Rabid tick-only PAPER required; cannot replay minute OHLC")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3:
         issues.append("HyperChase 10s V3 SIM uses the separate prospective 1s PAPER lab, not a 1m bar replay")
     if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
