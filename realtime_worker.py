@@ -512,12 +512,13 @@ def _run_freshness_probe(
             statuses = {item.market: item for item in service.store.load_statuses()}
             chart_statuses = {item.market: item for item in chart_store.load_statuses()}
             now = datetime.now(timezone.utc)
-            start = now - timedelta(hours=2)
+            # Diagnostics only: bound three-source history scans per market.
+            start = now - timedelta(minutes=15)
             for market in markets:
                 status = statuses.get(market)
                 chart_status = chart_statuses.get(market)
                 latest_bar = canonical.load_latest(market=market) if using_postgres() else None
-                points = history.load_range(market=market, start=start, end=now, limit=5000)
+                points = history.load_range(market=market, start=start, end=now, limit=20)
                 history_latest = points[-1][0] if points else None
                 LOGGER.info(
                     "realtime freshness probe market=%s stream_state=%s last_quote_at=%s chart_state=%s chart_last_event_at=%s chart_last_candle_at=%s chart_delay_minutes=%s chart_actual_refresh_ms=%s canonical_bar_at=%s history_latest_at=%s",
