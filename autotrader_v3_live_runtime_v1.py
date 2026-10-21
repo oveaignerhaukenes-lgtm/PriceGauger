@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import re
+from functools import lru_cache
 from uuid import uuid5, NAMESPACE_URL
 from datetime import datetime,timedelta,timezone
 from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
@@ -63,6 +64,19 @@ LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 # Read-only audit: one entry per unresolved instance per worker lifetime.
 _PENDING_AUDIT_LOGGED_V3=set()
 REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY,RHYTHM_TREND_KEY,RHYTHM_TREND_FRACTAL_KEY_V3}
+
+@lru_cache(maxsize=96)
+def _hyper_safety_1m_points_v3(db_path:str,instrument_id:int,minute:datetime):
+    """Read-only closed-bar safety evidence, cached within the same UTC minute.
+
+    HyperChase price signals still use genuine 1s BBO exclusively. This
+    separate feed is ONLY for explicitly enabled safety modifiers.
+    """
+    rows=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
+        instrument_id=instrument_id,
+        start=minute-timedelta(hours=3),end=minute,limit=240)
+    return tuple(row.point for row in rows)
+
 
 def _definitive_saxo_rejection_v3(exc:Exception)->bool:
     """True only when Saxo returned a concrete client-side rejection response."""
@@ -470,10 +484,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             try:
                 # The same genuine fully closed, contiguous 1m market data
                 # feed is used for every V3 strategy/timeframe and instrument.
+                # 10s HyperChase does not load 1m MACD signal bars.
+                # Volatility/whipsaw guards still need independent, genuinely
+                # closed 1m evidence; otherwise data_ok is ALWAYS false and
+                # a live reversal can close but never re-enter.
+                safety_points=tuple(b.point for b in bars) if bars else ()
+                if e.strategy_key in HYPER_RUNTIME_KEYS:
+                    utc_minute=end.astimezone(timezone.utc).replace(
+                        second=0,microsecond=0)
+                    safety_points=_hyper_safety_1m_points_v3(
+                        str(db_path),int(e.instrument_id),utc_minute)
                 closed_1m=closed_bars_v2(
-                    tuple(b.point for b in bars),market=e.market_name,
-                    timeframe_minutes=1,
-                ) if bars else ()
+                    safety_points,market=e.market_name,timeframe_minutes=1,
+                ) if safety_points else ()
             except Exception as exc:
                 LOGGER.warning("v3 LIVE 1m safety source unavailable trader=%s error_type=%s",
                                e.pilot_key,type(exc).__name__)
