@@ -49,6 +49,9 @@ from autotrader_v3_capacity_hold_v1 import (
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_open_sizing_v2 import load_entry_instrument_rules_v2
 from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
+from autotrader_v3_hyper_chase_live_v1 import (
+    HYPER_RUNTIME_KEYS,evaluate_hyper_chase_live_v3,
+)
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
 from autotrader_v3_fractal_rhythm_variants_v1 import RHYTHM_TREND_FRACTAL_KEY_V3
@@ -192,9 +195,16 @@ def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db"):
         active.append(e)
     return tuple(active)
 
-def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
-    """Normal v3 LIVE runtime. The LIVE toggle plus exact V3 account ownership is the authority boundary."""
+def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
+                         hyper_quote_only:bool=False)->int:
+    """One Saxo-safe LIVE order pipeline, including quote-driven 10s signals.
+
+    quote-only cycles evaluate ONLY 10s instances; regular/bar/heartbeat
+    cycles always include every normal LIVE instance for reconciliation.
+    """
     active=_load_owned_armed_runtime_instances_v3(db_path=db_path)
+    if hyper_quote_only:
+        active=tuple(e for e in active if e.strategy_key in HYPER_RUNTIME_KEYS)
     LOGGER.info("v3 LIVE active owned armed instances=%d",len(active))
     enrollments=[]
     for e in active:
@@ -406,24 +416,39 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None)->int:
             f'actual={actual.amount:g} pending=none; evaluating target timeframe={config.timeframe}'
             + (f' regime={config.regime_timeframe}' if e.strategy_key in REGIME_RUNTIME_KEYS_V3 else ''),
             db_path=db_path)
-        bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
-            instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
-        closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,
-            timeframe_minutes=timeframe_minutes) if bars else ()
-        obs=macd_observations_v2(closed,timeframe_minutes=timeframe_minutes) if closed else ()
-        if not obs:
-            _record_runtime(e.pilot_key,"DEGRADED",
-                f"no closed {config.timeframe} MACD observation",db_path=db_path)
-            continue
-        decision=evaluate_strategy_bar_v3(
-            trader_id=e.pilot_key,observation=obs[-1],bars=closed,
-            source_bars=tuple(bars),
-            regime_timeframe_minutes=regime_timeframe_minutes,
-            market_name=e.market_name,
-            strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path,
-            **({"actual_inventory":actual.amount,
-                "signal_timeframe_minutes":timeframe_minutes,
-                "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
+        bars=()
+        if e.strategy_key in HYPER_RUNTIME_KEYS:
+            decision=evaluate_hyper_chase_live_v3(
+                trader_id=e.pilot_key,
+                strategy_key=config.strategy_key,
+                account_uic=int(e.uic),
+                actual_amount=actual.amount,
+                tranche=float(strategy_amount_config.tranche),
+                context_changed=context_changed,
+                db_path=db_path,now=end,
+            )
+            # A missing or stale 1s source must NEVER create a new position.
+            # HOLD keeps the broker-confirmed inventory, so ordinary account
+            # ownership/position policies remain the authority for risk exits.
+        else:
+            bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
+                instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
+            closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,
+                timeframe_minutes=timeframe_minutes) if bars else ()
+            obs=macd_observations_v2(closed,timeframe_minutes=timeframe_minutes) if closed else ()
+            if not obs:
+                _record_runtime(e.pilot_key,"DEGRADED",
+                    f"no closed {config.timeframe} MACD observation",db_path=db_path)
+                continue
+            decision=evaluate_strategy_bar_v3(
+                trader_id=e.pilot_key,observation=obs[-1],bars=closed,
+                source_bars=tuple(bars),
+                regime_timeframe_minutes=regime_timeframe_minutes,
+                market_name=e.market_name,
+                strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path,
+                **({"actual_inventory":actual.amount,
+                    "signal_timeframe_minutes":timeframe_minutes,
+                    "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
