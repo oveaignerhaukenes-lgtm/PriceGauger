@@ -132,6 +132,7 @@ def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> Non
     )
     from autotrader_saxo_official_performance_v1 import collect_official_performance_once_v1
     next_official_check=0.0
+    next_table_audit=0.0
     while not stop_event.is_set():
         try:
             result=collect_saxo_account_truth_once_v1(db_path=str(db_path))
@@ -153,6 +154,19 @@ def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> Non
             except Exception as exc:
                 LOGGER.warning("saxo official EOD performance failed kind=%s",type(exc).__name__)
                 next_official_check=time.monotonic()+3600
+        # Tiny once-per-12h read-only pg_catalog cost inventory.
+        # Never query table content or block LIVE execution when unavailable.
+        if time.monotonic()>=next_table_audit and not stop_event.is_set():
+            next_table_audit=time.monotonic()+12*3600
+            try:
+                from postgres_table_cost_audit_v1 import largest_relations_v1
+                for table in largest_relations_v1(db_path=str(db_path)):
+                    LOGGER.info(
+                        "PG COST table=%s bytes=%d index_bytes=%d live_est=%d dead_est=%d",
+                        table["name"],table["bytes"],table["index_bytes"],
+                        table["live_estimate"],table["dead_estimate"])
+            except Exception as exc:
+                LOGGER.warning("PG COST inventory unavailable kind=%s",type(exc).__name__)
         # Sidecar consumes only durable broker snapshots and reconciled
         # orders. It never calls Saxo or touches V3 trading authority.
         try:
