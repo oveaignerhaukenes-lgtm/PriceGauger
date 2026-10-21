@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `424c2d89c2b7af48b56be7c6f197925d4d369ff0`
+Latest tracked main commit: `3224a7b593d40fcf7d2174cca620a6fb3122430c`
 
 ## Recent main commits
 
+- 2026-10-21 [`3224a7b593`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/3224a7b593d40fcf7d2174cca620a6fb3122430c) — Add safe V3 signal decision timing trace (#789)
 - 2026-10-21 [`424c2d89c2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/424c2d89c2b7af48b56be7c6f197925d4d369ff0) — Record green cost PRs and blocked Railway deployment (#790)
 - 2026-10-21 [`97556a4ede`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/97556a4ede20ef05843373aa1db514f651f24685) — Add safe PostgreSQL table footprint diagnostics (#788)
 - 2026-10-21 [`9c7c605fde`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9c7c605fdecf965d2dc581408cfaccab90b86169) — Throttle auxiliary Saxo discovery while preserving fast subscriptions (#786)
@@ -46,6 +47,5 @@ Latest tracked main commit: `424c2d89c2b7af48b56be7c6f197925d4d369ff0`
 - 2026-10-18 [`1031b1c6e8`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1031b1c6e82e98d1c147d8f3272ba6cef3a30223) — Fraktal#1 V3: isolated SIM-only multiscale research, no LIVE activation (#748)
 - 2026-10-18 [`ef283ecfea`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ef283ecfeae7d4e1c73a4c2c9cf0fcca3fa37448) — Rytmebygg V3: verified SIM-only trend-build strategy with double LIVE guard (#742)
 - 2026-10-18 [`d44c48f136`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d44c48f1366b9abb715ce8e073f68b5bff207989) — Research: read-only Market Rhythm observatory (#726)
-- 2026-10-18 [`a779b76658`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a779b76658289bf3f320634f4606b1e503e0ffbc) — Research: causal wavelet cycle laboratory, read-only (#733)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
