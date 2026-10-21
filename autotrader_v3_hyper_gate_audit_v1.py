@@ -51,13 +51,14 @@ def count_hyper_decision(*, trader_id, strategy_key, now, action,
                 "hyper chase LIVE GATE_SUMMARY trader=%s strategy=%s "
                 "minute=%s evaluations=%d reasons=%s"
             ) % (str(trader_id),str(strategy_key),
-                 prior["minute"].isoformat(),sum(prior["counts"].values()),counts)
-        _RECORDS[ident] = {"minute": minute, "counts": Counter()}
+                 prior["minute"].isoformat(),prior["evaluations"],counts)
+        _RECORDS[ident] = {"minute": minute, "counts": Counter(), "evaluations":0}
         _RECORDS.move_to_end(ident)
         if len(_RECORDS)>_MAX_INSTANCES:
             _RECORDS.popitem(last=False)
     else:
         _RECORDS.move_to_end(ident)
+    _RECORDS[ident]["evaluations"]+=1
     c = _RECORDS[ident]["counts"]
     if len(c) >= _MAX_ACTION_TYPES and name not in c:
         name = "OTHER"
