@@ -216,7 +216,14 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                 for at,bid,ask in clean:
                     # Never bridge a stale/unobserved interval with invented ticks.
                     if last_at is not None and (at-last_at).total_seconds()>5:
-                        return hold("WAIT_GAP","Unobserved 1s quote interval")
+                        # Reset to broker-confirmed inventory, never replay an
+                        # old desired direction across a network/feed outage.
+                        model=_new_model(strategy_key)
+                        _bootstrap(model,current,at,bid,ask)
+                        signal_at=None
+                        newest_decision=None
+                        last_at=at
+                        continue
                     new=model.on_quote(at,bid,ask)
                     last_at=at
                     if new is not None:
@@ -238,12 +245,22 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
             # A signal can justify closing exposure after a direction change,
             # but NOT re-opening on a stale decision after Saxo reconciliation.
             if abs(side)>abs(current)+1e-10 or side*current<0:
-                if signal_at is None or not 0<=(clock-signal_at).total_seconds()<=5:
+                fresh=signal_at is not None and 0<=(clock-signal_at).total_seconds()<=5
+                if not fresh:
+                    # The old direction may safely CLOSE, but a new position
+                    # requires a fresh causal impulse after Saxo FLAT.
+                    if side*current<0 and abs(current)>1e-12:
+                        return _decision(strategy_key,0,"STALE_REVERSAL_FLAT",
+                            "Opposite signal too old for new entry; flatten first",latest.isoformat())
                     return hold("WAIT_FRESH_SIGNAL","No new price impulse for opening",latest.isoformat())
-                # Broker V3 CLOSE -> confirmed FLAT -> OPEN. A flip may consume
-                # two durable broker orders; reserve one slot for a later exit.
+                # Count durable reservations, not shadow signals; preserve one
+                # possible CLOSE even if an open/flip consumes the hourly cap.
                 remaining=_broker_quota_remaining(db,trader_id,clock)
-                if remaining<2:
+                required=2 if side*current<0 else 2
+                if remaining<required:
+                    if side*current<0 and abs(current)>1e-12:
+                        return _decision(strategy_key,0,"QUOTA_FLAT",
+                            "Cap reached; reduction only",latest.isoformat())
                     return hold("WAIT_BROKER_QUOTA",
                         "Conservative real V3 order reservation/hour cap",latest.isoformat())
             label=newest_decision.reason if newest_decision else "MODEL_HOLD"
