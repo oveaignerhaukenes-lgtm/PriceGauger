@@ -41,7 +41,10 @@ Update this small section in the same PR whenever a change affects architecture,
 
 | Topic | State | Next evidence/action |
 | --- | --- | --- |
-| Project continuity | Introduced by this PR | Confirm journal workflow runs after merge |
+| HyperVigilant Chase 10s LIVE | PR in progress: quote-based FAST/FILTERED in canonical V3 LIVE, no automatic arming | Verify CI and Railway SHA; manually select a separately bounded Tech100 account; check genuine 1s BBO coverage and broker order latency |
+| HyperVigilant direct reversals | V3 target changes LONG↔SHORT immediately on 10s impulse; execution is guarded CLOSE → Saxo FLAT reconciliation → fresh-signal OPEN | No atomic opposite-side netting and no guaranteed 10s Saxo fill; report actual latency/failures |
+| HyperVigilant PAPER | Existing prospective quote 1s PAPER experiments `CHASE_10S_FAST`/`CHASE_10S_FILTERED` in Strategilab v2 | Compare net after spread/slippage with matching market regimes before expanding risk |
+| Project continuity | Active: `PROJECT_STATE.md` authoritative decision/sync summary + automated git journal | Verify journal workflow runs after each merge |
 | V3 LIVE strategies | Verify fresh main | Map catalog/runtime/arming; check recent PRs and CI |
 | Account-level outcome collection | User priority, implementation unverified | Inspect Saxo account snapshots, DB schema and strategy assignment history |
 | UI performance | Investigation requested | Profile first; avoid redundant polling and queries |
@@ -53,6 +56,12 @@ Update this small section in the same PR whenever a change affects architecture,
 - Never infer live order fills, equity, or profit from a simulation or UI arrow.
 - Account results must be associated with strategy **effective-time intervals**; handle deposits, withdrawals, FX and financing/fees distinctly to avoid false attribution.
 - Update human decisions deliberately: automation can record commits but cannot infer the intent or success of a strategy.
+- **HyperChase 10s** requires actual, fresh Saxo bid/ask samples from exact UIC;
+  unlike 1m strategies it wakes on fresh quote progress. If 1s feed is sparse,
+  stale or the Saxo cost/precheck/order chain is slow, it MUST hold/fail closed.
+  Changing a target sign does not mean broker crossed sides in one order;
+  V3 still closes, reconciles, then opens if a new signal is valid.
+  Deployment must never arm or switch any account automatically.
 - Secrets, Saxo identifiers, detailed personal/account balances and sensitive runtime logs should not be committed to this public repository.
 
 ## Automated journal
