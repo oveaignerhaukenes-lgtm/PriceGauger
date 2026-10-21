@@ -30,6 +30,7 @@ from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIM
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
 from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_precross_price_v1 import PRECROSS_KEY_V3,HIST_PRICE_KEY_V3
+from autotrader_v3_hyper_chase_live_v1 import HYPER_RUNTIME_KEYS
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from autotrader_v3_fraktal1_bridge_v1 import FRAKTAL1_RUNTIME_KEYS_V3
 from autotrader_v3_macd_trailing_v1 import (
@@ -66,7 +67,8 @@ def strategy_amount_config_v3(
 
     if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3}:
         return MacdTrailingConfigV3(tranche=tranche, max_inventory=maximum)
-    if strategy_key in {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3 | {RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3}:
+    if strategy_key in (HYPER_RUNTIME_KEYS | {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3 | {RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3}):
+
         return MacdHistogramConfigV3(tranche=tranche, max_inventory=maximum)
     raise ValueError(f"unsupported V3 amount-config strategy: {strategy_key}")
 
