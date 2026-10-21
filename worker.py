@@ -319,6 +319,7 @@ def run_v3_live_fast_loop_v1(
     last_cycle_at=None
     last_closed=()
     last_hyper_quotes=()
+    last_hyper_quality_at=0.0
     errors_at=0.0
     LOGGER.info(
         "v3 LIVE closed-bar watch started poll=%ss reconciliation=%ss",
@@ -357,6 +358,27 @@ def run_v3_live_fast_loop_v1(
                     "v3 hyper quote wake unavailable; heartbeat preserved type=%s",
                     type(exc).__name__)
                 errors_at=started
+        # Read-only 60s HyperChase feed audit, even with all LIVE switches off.
+        # Do not infer 1s quote quality from the V3 worker poll interval.
+        if started-last_hyper_quality_at>=60:
+            last_hyper_quality_at=started
+            try:
+                from hyper_chase_quote_quality_probe_v1 import probe_hyper_quote_quality_v1
+                quality=probe_hyper_quote_quality_v1(db_path=str(db_path))
+                if not quality:
+                    LOGGER.info("hyper chase BBO QUALITY no_valid_recent_samples")
+                for sample in quality:
+                    LOGGER.info(
+                        "hyper chase BBO QUALITY uic=%d quotes_60s=%d "
+                        "latest_age_s=%s max_gap_s=%s wide_spread_quotes=%d "
+                        "valid_10s_windows=%d",
+                        sample["uic"],sample["quotes_60s"],sample["latest_age_s"],
+                        sample["max_gap_s"],sample["wide_spread_quotes"],
+                        sample["valid_10s_windows"])
+            except Exception as exc:
+                LOGGER.warning(
+                    "hyper chase BBO QUALITY unavailable error_type=%s",
+                    type(exc).__name__)
         heartbeat=(last_cycle_at is None or
                    started-last_cycle_at>=reconciliation)
         if changed or heartbeat or quote_changed:
