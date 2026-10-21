@@ -318,6 +318,7 @@ def run_v3_live_fast_loop_v1(
     reconciliation=float(V3_LIVE_RECONCILE_SECONDS)
     last_cycle_at=None
     last_closed=()
+    last_hyper_quotes=()
     errors_at=0.0
     LOGGER.info(
         "v3 LIVE closed-bar watch started poll=%ss reconciliation=%ss",
@@ -339,9 +340,26 @@ def run_v3_live_fast_loop_v1(
                     type(exc).__name__,
                 )
                 errors_at=started
+        # Only an already-armed, exactly owned HyperChase LIVE instance
+        # subscribes the V3 worker to fresh quote wakeups. Ordinary V3
+        # remains closed-bar/30s heartbeat, with no extra Saxo GET storm.
+        quote_changed=False
+        try:
+            from autotrader_v3_hyper_chase_live_v1 import live_hyper_quote_cursors_v3
+            current_hyper=live_hyper_quote_cursors_v3(db_path=str(db_path))
+            old_hyper=dict(last_hyper_quotes)
+            quote_changed=any(
+                stamp!=old_hyper.get(uic) for uic,stamp in current_hyper)
+            last_hyper_quotes=current_hyper
+        except Exception as exc:
+            if started-errors_at>=60:
+                LOGGER.warning(
+                    "v3 hyper quote wake unavailable; heartbeat preserved type=%s",
+                    type(exc).__name__)
+                errors_at=started
         heartbeat=(last_cycle_at is None or
                    started-last_cycle_at>=reconciliation)
-        if changed or heartbeat:
+        if changed or heartbeat or quote_changed:
             last_cycle_at=started
             if changed:
                 LOGGER.info("v3 LIVE canonical closed-bar advanced; evaluating now")
@@ -353,7 +371,11 @@ def run_v3_live_fast_loop_v1(
                 LOGGER.warning("Tech100-B LIVE whipsaw opt-in deferred error_type=%s",
                                type(exc).__name__)
             try:
-                executed=run_v3_live_cycle_v1(db_path=str(db_path))
+                if quote_changed and not (changed or heartbeat):
+                    executed=run_v3_live_cycle_v1(
+                        db_path=str(db_path),hyper_quote_only=True)
+                else:
+                    executed=run_v3_live_cycle_v1(db_path=str(db_path))
                 if executed:
                     LOGGER.info("v3 LIVE fast loop executed mutations=%d", executed)
             except Exception as exc:

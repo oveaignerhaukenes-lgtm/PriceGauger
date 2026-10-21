@@ -1,6 +1,7 @@
 from pathlib import Path
 import pytest
 
+from autotrader_v3_hyper_chase_live_v1 import HYPER_RUNTIME_KEYS,evaluate_hyper_closed_bar_compat_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
 from autotrader_v3_macd_histogram_flip_build_v1 import STRATEGY_KEY_V3 as HISTOGRAM_FLIP_BUILD_KEY
 from autotrader_v3_macd_histogram_peak_flip_v1 import STRATEGY_KEY_V3 as PEAK_FLIP_KEY
@@ -25,7 +26,10 @@ from autotrader_v3_fraktal1_bridge_v1 import FRAKTAL1_RUNTIME_KEYS_V3, evaluate_
 
 
 def test_v3_registry_routes_all_strategies_through_same_decision_contract():
-    assert set(STRATEGIES_V3) == {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3
+    assert set(STRATEGIES_V3) == {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3 | HYPER_RUNTIME_KEYS
+    for key in HYPER_RUNTIME_KEYS:
+        assert strategy_adapter_v3(key).live_route_enabled
+        assert strategy_adapter_v3(key).evaluate_closed_bar is evaluate_hyper_closed_bar_compat_v3
     for key in (PRECROSS_KEY_V3,HIST_PRICE_KEY_V3):
         assert strategy_adapter_v3(key).live_route_enabled
     driver = strategy_adapter_v3(HISTOGRAM_KEY).evaluate_closed_bar

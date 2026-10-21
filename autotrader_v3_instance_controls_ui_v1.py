@@ -208,11 +208,22 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     viewed_key=f'{key_prefix}:last-viewed-strategy:{trader_id}'
     previously_viewed=st.session_state.get(viewed_key,initial_choice)
     suggested=_rhythm_selection_defaults_v3(previously_viewed,strategy)
+    if (strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered")
+        and previously_viewed!=strategy):
+        suggested["timeframe"]="1m"
     if 'timeframe' in suggested:
         st.session_state[f'{key_prefix}:timeframe:{trader_id}']=suggested['timeframe']
     if 'regime_timeframe' in suggested:
         st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']=suggested['regime_timeframe']
     st.session_state[viewed_key]=selected
+    if strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered"):
+        st.info(
+            "HyperVigilant 10s: ekte Saxo 1s bid/ask. Straks motsatt "
+            "retningsmål ved bekreftet 10s impuls, men Saxo-beskyttet "
+            "CLOSE → FLAT-bekreftelse → OPEN kan ta lengre enn 10s. "
+            "Kun Tech100 med tilstrekkelig 1s-feed; valg lagrer/aktiverer "
+            "aldri LIVE automatisk."
+        )
     if is_ai_preset:
         # Preset is a recipe, not an independent new engine. Force the visible
         # time and AI toggle before those widgets are constructed this run.
