@@ -208,7 +208,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     viewed_key=f'{key_prefix}:last-viewed-strategy:{trader_id}'
     previously_viewed=st.session_state.get(viewed_key,initial_choice)
     suggested=_rhythm_selection_defaults_v3(previously_viewed,strategy)
-    if (strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered")
+    if (strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered",
+                     "hunter-tick-v1","rabid-dog-tick-v1")
         and previously_viewed!=strategy):
         suggested["timeframe"]="1m"
     if 'timeframe' in suggested:
@@ -216,6 +217,13 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     if 'regime_timeframe' in suggested:
         st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']=suggested['regime_timeframe']
     st.session_state[viewed_key]=selected
+    if strategy in ("hunter-tick-v1","rabid-dog-tick-v1"):
+        st.info(
+            "Hunter/Rabid Dog: ekte Saxo 1s bid/ask, kun Tech100 UIC 4912. "
+            "Maks én Saxo-minstetranche. V3 CLOSE → FLAT-bekreftelse → OPEN, "
+            "ingen direktesnuordre. Rabid Dog har konservativ faktisk ordrekvote. "
+            "Lagring aktiverer ikke LIVE automatisk."
+        )
     if strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered"):
         st.info(
             "HyperVigilant 10s: ekte Saxo 1s bid/ask. Straks motsatt "

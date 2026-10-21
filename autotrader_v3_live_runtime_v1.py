@@ -53,6 +53,7 @@ from autotrader_v3_strategy_sizing_v1 import strategy_amount_config_v3
 from autotrader_v3_hyper_chase_live_v1 import (
     HYPER_RUNTIME_KEYS,evaluate_hyper_chase_live_v3,
 )
+from autotrader_v3_tick_shadow_live_v1 import TICK_RUNTIME_KEYS,evaluate_tick_live_v3
 from autotrader_v3_signal_trace_v1 import v3_transition_trace
 from autotrader_v3_hyper_gate_audit_v1 import count_hyper_decision
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
@@ -220,7 +221,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
     """
     active=_load_owned_armed_runtime_instances_v3(db_path=db_path)
     if hyper_quote_only:
-        active=tuple(e for e in active if e.strategy_key in HYPER_RUNTIME_KEYS)
+        active=tuple(e for e in active if e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS))
     LOGGER.info("v3 LIVE active owned armed instances=%d",len(active))
     enrollments=[]
     for e in active:
@@ -446,6 +447,12 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             # A missing or stale 1s source must NEVER create a new position.
             # HOLD keeps the broker-confirmed inventory, so ordinary account
             # ownership/position policies remain the authority for risk exits.
+        elif e.strategy_key in TICK_RUNTIME_KEYS:
+            decision=evaluate_tick_live_v3(
+                trader_id=e.pilot_key,strategy_key=config.strategy_key,
+                account_uic=int(e.uic),asset_type=e.asset_type,
+                actual_amount=actual.amount,tranche=strategy_amount_config.tranche,
+                context_changed=context_changed,db_path=db_path,now=end)
         else:
             bars=CanonicalMarketBarStoreV2(db_path).load_instrument_range(
                 instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
@@ -491,7 +498,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 # closed 1m evidence; otherwise data_ok is ALWAYS false and
                 # a live reversal can close but never re-enter.
                 safety_points=tuple(b.point for b in bars) if bars else ()
-                if e.strategy_key in HYPER_RUNTIME_KEYS:
+                if e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS):
                     utc_minute=end.astimezone(timezone.utc).replace(
                         second=0,microsecond=0)
                     safety_points=_hyper_safety_1m_points_v3(
