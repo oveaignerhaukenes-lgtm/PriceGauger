@@ -145,6 +145,8 @@ def _seed_discovered_history_best_effort() -> None:
 
 def load_runtime_instruments_v2(
     configured: Mapping[str, SaxoInstrument],
+    *,
+    refresh_auxiliary: bool = True,
 ) -> RuntimeInstrumentSetV2:
     """Overlay explicit v2 collection subscriptions on the legacy configured feed set.
 
@@ -159,11 +161,16 @@ def load_runtime_instruments_v2(
     multiple enabled instruments for the same canonical market fail closed instead of
     silently mixing two price series.
     """
-    _discover_open_positions_best_effort()
-    rollover_ready = _prepare_futures_rollover_audit_best_effort()
-    if rollover_ready:
-        _resolve_futures_rollovers_best_effort()
-    _seed_discovered_history_best_effort()
+    # Keep fast local DB subscription discovery independent of slower
+    # Saxo account GETs, history seeding and futures reference-data checks.
+    # At service startup (default) these always run once, and the stream
+    # watcher schedules an explicit bounded refresh on a slower cadence.
+    if refresh_auxiliary:
+        _discover_open_positions_best_effort()
+        rollover_ready = _prepare_futures_rollover_audit_best_effort()
+        if rollover_ready:
+            _resolve_futures_rollovers_best_effort()
+        _seed_discovered_history_best_effort()
 
     result = dict(configured)
     sources = list_subscribed_sources_v2(provider="saxo")
