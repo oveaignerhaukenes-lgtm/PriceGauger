@@ -28,7 +28,7 @@ def test_minute_rollover_summarizes_rejections_and_veto():
     assert "STALE_QUOTES:1" in old
     assert "CHASE_LONG:1" in old
     assert "RISK_VETO:1" in old
-    assert "evaluations=4" in old  # Includes diagnostic veto count; not trades.
+    assert "evaluations=3" in old  # Exactly three strategy evaluations, not trades.
 
 
 def test_flat_sustained_counts_do_not_spam():
