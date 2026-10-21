@@ -40,7 +40,7 @@ def evaluate_hyper_closed_bar_compat_v3(
     *,trader_id,observation,strategy_key,actual_inventory=0.,**kwargs):
     """Registry probe contract, never generates a synthetic candle LIVE trade."""
     del trader_id,observation,kwargs
-    return _decision(strategy_key=strategy_key,amount=actual_inventory,
+    return _decision(strategy_key=strategy_key,amount=(0. if actual_inventory is None else actual_inventory),
         action="WAIT_FRESH_QUOTE",reason="Live signals require genuine Saxo 1s BBO",
         stamp="no-quote")
 
