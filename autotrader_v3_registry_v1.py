@@ -21,6 +21,16 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
+    StrategySpecV3(
+        "hyper-chase-10s-fast","HyperVigilant Chase 10s · FAST",
+        "LIVE: ekte Saxo Tech100 bid/ask 1s, 10s impuls >=4,5bp + støy/spread-filter. Umiddelbart LONG/SHORT-mål; V3 lukker og bekrefter FLAT før motsatt OPEN, ingen strategisk cooldown. Ingen 10s utførelsesgaranti.",
+        "hyper-chase-10s-fast-v1",True,
+    ),
+    StrategySpecV3(
+        "hyper-chase-10s-filtered","HyperVigilant Chase 10s · FILTERED",
+        "LIVE: ekte Saxo Tech100 bid/ask 1s, >=8bp og konsistent retning i begge 5s-halvdeler. Motsatt mål uten signalpause, ordinær Saxo CLOSE/RECONCILE/OPEN; ingen 10s utførelsesgaranti.",
+        "hyper-chase-10s-filtered-v1",True,
+    ),
     StrategySpecV3("fraktal-1", "Fraktal#1 · SIM", "Kun SIM/PAPER: 1m bekreftede mikrosving med meso/makro enighet; én Saxo-lovlig tranche, FLAT ved motsignal. Ingen LIVE-autorisasjon.", "fraktal-1-v1", True),
     StrategySpecV3("aen-core-hold", "AEn Core · MACD Hold", "AEn Core LIVE: MACD-retning med bekreftet HH/HL eller LL/LH, 5m prisstruktur og én Saxo-lovlig enhet. Ingen impulse eller pyramidering.", "aen-core-hold-v1", True),
     StrategySpecV3("aen-core-histogram", "AEn Core · Histogram", "AEn Core LIVE: MACD-histogramets endring styrer regime; bekreftet HH/HL og LL/LH åpner én enhet. Ingen impulse eller pyramidering.", "aen-core-histogram-v1", True),
@@ -149,6 +159,9 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
+HYPER_CHASE_10S_CATALOG_KEYS_V3=frozenset({
+    "hyper-chase-10s-fast","hyper-chase-10s-filtered",
+})
 PRICE_MACD_1M_KEYS_V3 = frozenset({
     "precross-price-1m-macd2m","histogram-price-1m-macd2m",
 })
@@ -196,6 +209,8 @@ def live_config_issues_v3(
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3:
         issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
+    if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3 and timeframe != "1m":
+        issues.append("HyperChase 10s requires 1m selection for V3 UI; signal reads genuine 1s BBO")
     if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
         issues.append("PreCross/Histogram+Price krever 1m prissignal og ferdiglukkede 2m MACD")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
