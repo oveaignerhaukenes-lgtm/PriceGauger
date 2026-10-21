@@ -265,20 +265,26 @@ def main():
         daemon=True,
     )
     hyper_thread.start()
-    ai_thread=threading.Thread(
-        target=run_ai_technical_research_loop,
-        kwargs={"db_path":args.db,"stop_event":stop_event,"interval":5.0},
-        name="pricegauger-ai-paper",
-        daemon=True,
-    )
-    ai_thread.start()
-    pair_thread=threading.Thread(
-        target=run_ai_context_pair_loop,
-        kwargs={"db_path":args.db,"stop_event":stop_event,"interval":60.0},
-        name="pricegauger-ai-context-paper",
-        daemon=True,
-    )
-    pair_thread.start()
+    # Costly AI PAPER experiments are explicit opt-ins. This does not affect
+    # historical simulator, 1s HyperChase PAPER, or any V3 LIVE AI modifier.
+    if os.getenv("PRICEGAUGER_LAB_AI_TECH_ENABLED", "0").strip().lower() in ("1","true","yes","on"):
+        ai_thread=threading.Thread(
+            target=run_ai_technical_research_loop,
+            kwargs={"db_path":args.db,"stop_event":stop_event,"interval":5.0},
+            name="pricegauger-ai-paper",daemon=True,
+        )
+        ai_thread.start()
+    else:
+        LOGGER.info("AI technical PAPER LLM loop disabled; opt in PRICEGAUGER_LAB_AI_TECH_ENABLED=1")
+    if os.getenv("PRICEGAUGER_LAB_AI_PAIRS_ENABLED", "0").strip().lower() in ("1","true","yes","on"):
+        pair_thread=threading.Thread(
+            target=run_ai_context_pair_loop,
+            kwargs={"db_path":args.db,"stop_event":stop_event,"interval":60.0},
+            name="pricegauger-ai-context-paper",daemon=True,
+        )
+        pair_thread.start()
+    else:
+        LOGGER.info("AI context-pair PAPER LLM loop disabled; opt in PRICEGAUGER_LAB_AI_PAIRS_ENABLED=1")
     while True:
         started = time.monotonic()
         try:
