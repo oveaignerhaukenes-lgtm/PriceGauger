@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `74e11430ce5693e1d331c637990aee189b486553`
+Latest tracked main commit: `5abcab49f2e8afb6b255d8623228950c62aa2271`
 
 ## Recent main commits
 
+- 2026-10-21 [`5abcab49f2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5abcab49f2e8afb6b255d8623228950c62aa2271) — Fix TradingDesk false-free V3 Saxo account status (#794)
 - 2026-10-21 [`74e11430ce`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74e11430ce5693e1d331c637990aee189b486553) — Record tested Hunter/Rabid live routes and Railway build pause (#793)
 - 2026-10-21 [`055ed54a73`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/055ed54a73e909e70d1369a4847fe76cb1297fdb) — Add guarded Hunter and Rabid Dog V3 LIVE tick strategies (#792)
 - 2026-10-21 [`192fa78112`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/192fa78112e19c8dc01b2039772d61296a45ec1f) — Log bounded HyperChase LIVE rejection reason counts (#791)
@@ -46,6 +47,5 @@ Latest tracked main commit: `74e11430ce5693e1d331c637990aee189b486553`
 - 2026-10-19 [`a802893aef`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a802893aefdf168cf6eb65b2ccfcb7174be0e0c5) — Account statistics: plot NAV and observed strategy periods for each active V3 account (#752)
 - 2026-10-19 [`899db5eb96`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/899db5eb96f656b8ea135c05484a8400d832575c) — Saxo balances: exact client/account scoped GET and safe status diagnostics (#751)
 - 2026-10-19 [`11e9aa8713`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/11e9aa87132bc7ad00a04c9991fdcc29a48a5280) — Saxo account performance: EOD P/L TWR cash flows and safe collection diagnostics (#750)
-- 2026-10-19 [`2f1077e432`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2f1077e432a9106bbefd155b7fc1b36ee6644cdd) — Saxo account truth: collect account NAV with historical strategy and market context (#749)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
