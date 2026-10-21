@@ -150,6 +150,21 @@ def test_data_gap_never_replays_previous_open_signal(tmp_path):
     assert gap.decision.action in ("HOLD_FLAT","WAIT_GAP")
 
 
+def test_rabid_quote_gap_forces_actual_position_flat(tmp_path):
+    db,rec=make_db(tmp_path)
+    put(rec,0,30000)
+    boot=run(db,0,DOG_CATALOG_KEY,actual=.01)
+    assert boot.decision.target.amount==.01
+    put(rec,12,30001)
+    gap=run(db,12,DOG_CATALOG_KEY,actual=.01)
+    assert gap.decision.target.amount==0
+    assert gap.decision.action=="QUOTE_GAP_FLAT"
+    # After broker FLAT, no old target can re-open without a new signal.
+    put(rec,13,30001)
+    nxt=run(db,13,DOG_CATALOG_KEY,actual=0)
+    assert nxt.decision.target.amount==0
+
+
 def test_catalog_controls_and_quote_only_worker_gating():
     assert len(TICK_RUNTIME_KEYS)==2
     for key in (HUNTER_CATALOG_KEY,DOG_CATALOG_KEY):
