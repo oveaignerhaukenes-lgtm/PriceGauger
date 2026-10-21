@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from autotrader_v3_hyper_chase_live_v1 import (
+    FAST_RUNTIME_KEY,FILTERED_RUNTIME_KEY,evaluate_hyper_closed_bar_compat_v3,
+)
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
 from autotrader_v3_macd_histogram_flip_build_v1 import STRATEGY_KEY_V3 as HISTOGRAM_FLIP_BUILD_KEY
 from autotrader_v3_macd_histogram_peak_flip_v1 import STRATEGY_KEY_V3 as PEAK_FLIP_KEY
@@ -69,6 +72,14 @@ STRATEGIES_V3.update({
     for key in AEN_CORE_KEYS_V3
 })
 
+
+# Exact-UIC 1s BBO is evaluated on the LIVE quote path, never by a bar driver.
+# This registry callable is a safe HOLD probe for generic compatibility tests.
+for hyper_key in (FAST_RUNTIME_KEY,FILTERED_RUNTIME_KEY):
+    STRATEGIES_V3[hyper_key]=StrategyAdapterV3(
+        key=hyper_key,evaluate_closed_bar=evaluate_hyper_closed_bar_compat_v3,
+        live_route_enabled=True,
+    )
 
 # Research-only. LIVE always denies this key before constructing any order.
 STRATEGIES_V3.update({
