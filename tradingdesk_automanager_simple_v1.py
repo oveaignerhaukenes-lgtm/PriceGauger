@@ -64,7 +64,7 @@ from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
 from autotrader_engine_identity_v1 import ENGINE_V2, ENGINE_V3, enrollment_engine_v1, engine_for_strategy_key_v1
 from autotrader_v3_control_plane_v1 import authority_state_v3, set_live_enabled_v3
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
-from autotrader_engine_account_ownership_v1 import load_account_owner_v1
+from autotrader_engine_account_ownership_v1 import EngineAccountOwnershipV1
 from tradingdesk_account_controller_v3 import account_controller_truth_v1
 from database import connect
 
@@ -427,7 +427,18 @@ def render_tradingdesk_automanager_simple_v1(
         # Old pg_v2 enrollments cannot determine whether a V3 account is free.
         # The canonical enabled V3 registry and exact execution ownership do.
         registered_instances=load_v3_instances_v1()
-        owners={aid:load_account_owner_v1(aid) for aid, _, _ in accounts}
+        # One read-only ownership SELECT per page render (not one DDL + SELECT
+        # per Saxo account). Failure blocks the whole panel, not free fallback.
+        with connect() as db:
+            owner_rows=db.execute(
+                "SELECT account_id,engine_id,owner_key "
+                "FROM autotrader_engine_account_ownership"
+            ).fetchall()
+        owners={
+            str(row["account_id"]):EngineAccountOwnershipV1(
+                str(row["account_id"]),str(row["engine_id"]),str(row["owner_key"]))
+            for row in owner_rows
+        }
         account_truth=account_controller_truth_v1(
             (aid for aid, _, _ in accounts),instances=registered_instances,
             owners=owners,enrollments=active_enrollments)
