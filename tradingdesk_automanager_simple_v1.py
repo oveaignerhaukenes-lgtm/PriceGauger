@@ -63,6 +63,9 @@ from trading_desk_v2_context import TradingDeskV2Context
 from tradingdesk_strategy_family_ui_v1 import render_strategy_family_builder_v1
 from autotrader_engine_identity_v1 import ENGINE_V2, ENGINE_V3, enrollment_engine_v1, engine_for_strategy_key_v1
 from autotrader_v3_control_plane_v1 import authority_state_v3, set_live_enabled_v3
+from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
+from autotrader_engine_account_ownership_v1 import load_account_owner_v1
+from tradingdesk_account_controller_v3 import account_controller_truth_v1
 from database import connect
 
 
@@ -372,6 +375,33 @@ def _bootstrap_candidate_v1(
     return matches[0] if matches else None
 
 
+def _render_selected_v3_instance_v1(instance, *, selected_account: str, context) -> None:
+    """Selected-account V3 truth, without legacy enrollment or V2 order controls."""
+    assert str(instance.account_id) == str(selected_account)
+    st.markdown("**Aktiv V3-instans på valgt Saxo-konto**")
+    st.caption(
+        f"Konto {selected_account} · V3 {instance.instance_id[:8]} · "
+        f"{instance.market_name} · UIC {instance.uic} · {instance.asset_type}"
+    )
+    authority=authority_state_v3(instance.instance_id)
+    runtime=_v3_runtime_state_v1(instance.instance_id)
+    st.caption(f"LIVE: {'ON' if authority.live_armed else 'OFF'} · "
+               f"SIM: {'ON' if authority.sim_armed else 'OFF'}")
+    if runtime is None:
+        st.warning("V3-runtime har ingen rapportert status for denne instansen.")
+    else:
+        status, detail, updated=runtime
+        st.caption(f"V3-runtime: {status} · {updated}"
+                   + (f" · {detail}" if detail else ""))
+    if (context.instrument is not None and
+        (int(context.instrument.provider_instrument_id)!=int(instance.uic) or
+         str(context.instrument.asset_type or "")!=str(instance.asset_type))):
+        st.warning("V3-kontoen er opptatt av en annen instrumentbinding enn "
+                   "markedet som vises i TradingDesk. Ingen handel herfra.")
+    st.page_link("pages/0_AutoTrader_V3.py",
+                 label="Åpne korrekt V3-instans i Fleet", icon="⚙️")
+
+
 def render_tradingdesk_automanager_simple_v1(
     context: TradingDeskV2Context,
 ) -> tuple[PositionObservationV2, ...] | None:
@@ -394,6 +424,13 @@ def render_tradingdesk_automanager_simple_v1(
         observations = _position_observations_v2(client)
         active_enrollments = tuple(item for item in load_active_strategy_enrollments_v2()
                                    if item.execution_mode == EXECUTION_MODE_LIVE and item.enabled)
+        # Old pg_v2 enrollments cannot determine whether a V3 account is free.
+        # The canonical enabled V3 registry and exact execution ownership do.
+        registered_instances=load_v3_instances_v1()
+        owners={aid:load_account_owner_v1(aid) for aid, _, _ in accounts}
+        account_truth=account_controller_truth_v1(
+            (aid for aid, _, _ in accounts),instances=registered_instances,
+            owners=owners,enrollments=active_enrollments)
         enrollments = {account_id: _active_live_for_context_v1(context, account_id=account_id)
                        for account_id, _, _ in accounts}
     except Exception as exc:
@@ -405,9 +442,13 @@ def render_tradingdesk_automanager_simple_v1(
     tabs = st.tabs(["AutoTrader V3", "AutoTrader V2"])
     for tab, engine_key in zip(tabs, (ENGINE_V3, ENGINE_V2)):
         with tab:
+            # A registered V3 account may not appear in V2, and vice versa.
+            # Conflicted accounts remain visible for diagnosis but are never
+            # offered controls by either engine.
             claimed_by_other = {
-                item.account_id for item in active_enrollments
-                if ("V3" if enrollment_engine_v1(item) == ENGINE_V3 else "V2") != engine_key
+                aid for aid, truth in account_truth.items()
+                if truth.engine is not None and truth.engine != engine_key
+                and truth.conflict is None
             }
             eligible = tuple(row for row in accounts if row[0] not in claimed_by_other)
             if not eligible:
@@ -423,8 +464,24 @@ def render_tradingdesk_automanager_simple_v1(
                 key=f"td-account-tab:{engine_key}:{context.market_id}",
             )
             enrollment = enrollments[selected_account]
+            selected_truth=account_truth[selected_account]
             account_name = next(name for aid, _, name in eligible if aid == selected_account)
             st.caption(f"Konto: {account_name} · {selected_account}")
+            if selected_truth.conflict:
+                st.error("Kontotilknytning er inkonsistent: "
+                         + selected_truth.conflict
+                         + ". Ingen handel kan styres herfra.")
+                continue
+            if engine_key==ENGINE_V3 and selected_truth.instance is not None:
+                _render_selected_v3_instance_v1(
+                    selected_truth.instance,selected_account=selected_account,
+                    context=context)
+                continue
+            if engine_key==ENGINE_V3 and selected_truth.engine==ENGINE_V3:
+                st.warning("Kontoen er merket V3-eid, men aktiv V3-instans ble "
+                           "ikke funnet i registeret. Kontoen er ikke ledig. "
+                           "Kontroller V3 Fleet og eierskap før endringer.")
+                continue
             if enrollment is not None:
                 actual_engine = enrollment_engine_v1(enrollment)
                 if actual_engine != engine_key:
@@ -439,8 +496,11 @@ def render_tradingdesk_automanager_simple_v1(
                     context=context, client=client, observations=observations,
                     selected_account=selected_account, enrollment=None,
                 )
-            else:
+            elif selected_truth.engine is None:
                 st.info("Kontoen er ledig. Opprett en V3-instans med + under AutoTrader i TradingDesk eller i V3 fleet.")
+            else:
+                st.warning("Kontoen er ikke ledig: registrert motor "
+                           + str(selected_truth.engine) + ". Ingen automatisk overtakelse.")
     st.caption("Kontoer som er knyttet til én motor, skjules i den andre fanen. Ingen automatisk overtakelse av posisjoner.")
     selected_by_engine = {
         engine_key: st.session_state.get(f"td-account-tab:{engine_key}:{context.market_id}")
