@@ -18,6 +18,7 @@ from live_sim_hyper_chase_10s_v1 import (
     ARMS,chase_signal_v1,MAX_QUOTE_AGE_SECONDS,MAX_FEED_GAP_SECONDS,
 )
 from live_sim_hyper_quotes_v1 import _utc
+from autotrader_v3_tick_shadow_live_v1 import TICK_CATALOG_KEYS
 
 FAST_CATALOG_KEY="hyper-chase-10s-fast"
 FILTERED_CATALOG_KEY="hyper-chase-10s-filtered"
@@ -158,7 +159,7 @@ def live_hyper_quote_cursors_v3(*,db_path="pricegauger.db",now=None):
     try:
         for inst in load_v3_runtime_instances_v1(db_path=db_path):
             cfg=load_autotrader_config_v3(inst.pilot_key,db_path=db_path)
-            if cfg.strategy_key not in HYPER_CATALOG_KEYS:
+            if cfg.strategy_key not in (HYPER_CATALOG_KEYS | TICK_CATALOG_KEYS):
                 continue
             if not live_authority_armed_v3(inst.pilot_key,db_path=db_path):
                 continue
