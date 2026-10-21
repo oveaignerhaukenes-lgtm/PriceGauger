@@ -39,6 +39,13 @@ from saxo_provider import SaxoInstrument, configured_instruments
 LOGGER = logging.getLogger("pricegauger.realtime_worker")
 FRESHNESS_PROBE_SECONDS = 60
 
+def legacy_shadow_research_enabled() -> bool:
+    """Historical research consumers are opt-in; never gates Saxo risk or LIVE."""
+    return os.getenv("PRICEGAUGER_LEGACY_SHADOW_RESEARCH", "0").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PriceGauger Saxo realtime stream worker")
@@ -552,22 +559,29 @@ def main() -> None:
         db_path=args.db,
         interval_seconds=args.v2_ta_interval_seconds,
     )
-    _start_autotrader_macd_dry_run(
-        db_path=args.db,
-        interval_seconds=args.autotrader_macd_dry_run_seconds,
-    )
-    _start_autotrader_fast_15m_shadow(
-        db_path=args.db,
-        interval_seconds=args.autotrader_fast_15m_shadow_seconds,
-    )
-    _start_autotrader_mtf_entry_shadow(
-        db_path=args.db,
-        interval_seconds=args.autotrader_mtf_entry_shadow_seconds,
-    )
-    _start_autotrader_cocktail_mode_1_shadow(
-        db_path=args.db,
-        interval_seconds=args.autotrader_cocktail_mode_1_shadow_seconds,
-    )
+    # Legacy V2 research is NOT needed for live Saxo streaming, account data,
+    # order reconciliation, live risk or the explicit V3 / StrategyLab systems.
+    # Historically these loops reloaded up to 100k old bars per market every
+    # 30-60 seconds and consumed CPU/DB while no user watched them.
+    if legacy_shadow_research_enabled():
+        _start_autotrader_macd_dry_run(
+            db_path=args.db,
+            interval_seconds=args.autotrader_macd_dry_run_seconds,
+        )
+        _start_autotrader_fast_15m_shadow(
+            db_path=args.db,
+            interval_seconds=args.autotrader_fast_15m_shadow_seconds,
+        )
+        _start_autotrader_mtf_entry_shadow(
+            db_path=args.db,
+            interval_seconds=args.autotrader_mtf_entry_shadow_seconds,
+        )
+        _start_autotrader_cocktail_mode_1_shadow(
+            db_path=args.db,
+            interval_seconds=args.autotrader_cocktail_mode_1_shadow_seconds,
+        )
+    else:
+        LOGGER.info("legacy V2 research shadows disabled (opt in with PRICEGAUGER_LEGACY_SHADOW_RESEARCH=1)")
     _start_autotrader_strategy(
         db_path=args.db,
         interval_seconds=args.autotrader_strategy_seconds,
