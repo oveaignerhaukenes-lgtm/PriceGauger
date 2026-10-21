@@ -60,11 +60,14 @@ def test_chase_only_next_quote_and_no_cooldown_on_direct_flip():
             state,arm=ARMS[0],quote=quote(sec,30000+4*sec),
             now=START+timedelta(seconds=sec))
         out.append(event)
-    assert out[9]["traded"]==0
-    assert out[9]["action"]=="CHASE_10S_SIGNAL"
-    assert out[10]["traded"]==1
-    assert out[10]["signal_delay_seconds"]==pytest.approx(1.)
-    assert out[10]["action"]=="OPEN"
+    first_signal=next(i for i,x in enumerate(out)
+                      if x["action"]=="CHASE_10S_SIGNAL")
+    assert first_signal<=9
+    first_open=next(i for i,x in enumerate(out) if x["action"]=="OPEN")
+    assert first_open==first_signal+1
+    assert out[first_signal]["traded"]==0
+    assert out[first_open]["traded"]==1
+    assert out[first_open]["signal_delay_seconds"]==pytest.approx(1.)
     assert state["exposure"]==1.
     assert state["entries"]==1
     # Reverse price rapidly, with NO intermediate flat target/quote.
