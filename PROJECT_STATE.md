@@ -30,7 +30,7 @@ The separate V2/Lager account must not accidentally acquire V3 authority. Preser
 ## Current verification status
 
 - **Code head:** resolve from GitHub on every session (do not pin a mutable SHA here).
-- **Open PRs/CI:** inspect live; journal below is supplemental.
+- **Open PRs/CI (inspected 2026-10-21):** #721 (Unngå tap V1) is the only open PR and remains DRAFT; do not merge without separate review. Recheck every session; this journal-maintenance PR is not included in that snapshot.
 - **Railway deployed SHA (verified 2026-10-21 ~01:15 UTC):** `4a9c571737d0a9619be254c4b17a9251070bbb27` was reported `SUCCESS` on all five app services (web, worker, stream, Spring engine, Live-Sim). Runtime logs show V3 managing existing instances, not evidence of a HyperChase fill.
 - **Saxo positions, arming, margin, trades and balances:** NOT broker-reconciled by this handoff. A portfolio screenshot shown 2026-10-21 displays several profitable Tech100 accounts, but is not proof of HyperChase fills or net strategy attribution; do not commit private balance figures.
 - **Latest tested capabilities:** derive from current code/tests and PRs, not old handoffs.
@@ -43,11 +43,12 @@ Update this small section in the same PR whenever a change affects architecture,
 | --- | --- | --- |
 | HyperVigilant Chase 10s LIVE | **Merged [#775](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/775)** (`4a9c5717`), CI green, five Railway app services SUCCESS; real LIVE catalog FAST/FILTERED, no automatic arming | Check continuous genuine 1s BBO on exact Tech100 UIC + decision/close/reconcile/open timestamps; use separately bounded account only after explicit user selection |
 | HyperVigilant direct reversals | V3 target changes LONG↔SHORT immediately on 10s impulse; execution is guarded CLOSE → Saxo FLAT reconciliation → fresh-signal OPEN | No atomic opposite-side netting and no guaranteed 10s Saxo fill; report actual latency/failures |
-| HyperVigilant PAPER | Merged [#774](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/774) (FAST/FILTERED) on prospective Saxo BBO in Strategilab v2 | Compare realized PAPER signal-to-next-quote delay, actual quote density, and net after spread/slippage in matched regimes; do not infer Saxo fills |
-| Project continuity | Active: `PROJECT_STATE.md` authoritative decision/sync summary + automated git journal | Verify journal workflow runs after each merge |
-| V3 LIVE strategies | Verify fresh main | Map catalog/runtime/arming; check recent PRs and CI |
-| Account-level outcome collection | User priority, implementation unverified | Inspect Saxo account snapshots, DB schema and strategy assignment history |
-| UI performance | Investigation requested | Profile first; avoid redundant polling and queries |
+| HyperVigilant PAPER | Merged [#774](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/774) (FAST/FILTERED) on prospective Saxo BBO in Strategilab v2 | Compare PAPER signal-to-next-quote delay, quote density and net after costs; do not infer Saxo fills |
+| Strategilab v2 | Isolated historical multi-replay, Saxo cost/account overlays (#771); 18 V3 replay routes and chart scrubbing (#772); bounded AI error handling (#773); quote-based HyperChase PAPER (#774) | Check model/replay coverage and costs against real account/product data; maintain historical replay vs prospective PAPER vs LIVE evidence separation |
+| Project continuity | `PROJECT_STATE.md` + `AGENTS.md` established by #760; journal automation previously remained at its placeholder. This PR repairs generator links, adds deterministic tests and push retries, and seeds journal history | Verify the journal workflow actually runs and commits after merge; if not, inspect Actions permissions and branch protection; never call it repaired from code review alone |
+| V3 LIVE strategies | LIVE route additions merged for rhythm (#753/#755), MACD setups (#765/#766) and HyperChase (#775). Catalog presence is not per-account arming or broker success | Verify exact catalog-to-runtime mapping, live safeguards, instance assignment and broker evidence before changing any account |
+| Account-level outcomes | NAV + strategy epochs and Saxo/EOD/TWR collection paths merged (#749–#752, #757–#758); Strategilab v2 account performance UI merged (#771). Code presence does not establish complete broker-reconciled history or causal attribution | Validate real Saxo snapshots and freshness, cash-flow/FX/fee handling, effective-time strategy joins and P&L consistency before ranking LIVE strategies |
+| UI performance | Incremental UI/chart reads and reduced duplicate DB work merged (#736/#737/#739); no measured production latency profile in this file | Measure p95 UI latency and per-session query/refresh load before further restructuring |
 
 ## Important decisions / invariants
 
@@ -78,10 +79,10 @@ At the end of meaningful work, update this file within the relevant PR with:
 
 Keep it concise: prune completed items, retain durable decisions, link PRs for details. A new chat starts here; there is no need for a narrative handoff.
 
-### Last verified handoff (2026-10-21 UTC)
+### Most recent operational checkpoint (2026-10-21 UTC)
 
 - **Delivered:** quote-driven HyperChase FAST/FILTERED LIVE in normal V3 chooser (#775), continuous prospectively sampled 1s PAPER experiment (#774), guarded close→broker-flat→fresh-quote open; no account enabled by deployment.
 - **Validated:** GitHub CI for #775 green; Railway all five app services deployed merge SHA `4a9c5717` SUCCESS. This verifies delivery, not ≤10s broker execution.
 - **Next action:** measure per-UIC `lsim_hyper_quotes_1s` sample gaps, quote age and true BBO freshness; run limited prospective PAPER comparison, then, only with explicitly selected small LIVE account, check ORDER/PENDING/RECONCILED timestamps, margin and fees. Any missing data means do not open automatically.
-- **Synchronization:** update this same file in the PR for each substantive feature; auto-generated changelog is supplementary. No additional narrative handoff needed.
+- **Synchronization:** update this file in each substantive PR; use the auto-generated Git journal only for commit provenance. Journal automation is not verified until a post-merge workflow successfully updates it.
 
