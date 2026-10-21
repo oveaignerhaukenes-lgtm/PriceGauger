@@ -38,7 +38,8 @@ st.info(
     "T gir tidligst PAPER-fill ved T+1m åpning. Manglende 1m-data stopper "
     "strategien; nåværende spread/kurtasje er ikke dokumentert historisk pris."
 )
-tabs=st.tabs(("Historisk SIM / Strategier","Kontoprestasjon"))
+tabs=st.tabs(("Historisk SIM / Strategier","Kontoprestasjon",
+              "HyperChase · 10s PAPER"))
 with tabs[0]:
     left,right=st.columns([3.3,1.35],gap="large")
     with left:
@@ -459,3 +460,8 @@ with tabs[0]:
 with tabs[1]:
     render_account_performance_v2(
         sim_results=st.session_state.get("slab2:results",{}))
+
+
+with tabs[2]:
+    from strategy_lab_v2_hyper_chase_ui import render_hyper_chase_v1
+    render_hyper_chase_v1()
