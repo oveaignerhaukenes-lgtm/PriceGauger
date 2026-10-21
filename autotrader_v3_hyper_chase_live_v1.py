@@ -155,16 +155,19 @@ def live_hyper_quote_cursors_v3(*,db_path="pricegauger.db",now=None):
     from autotrader_v3_live_authority_v1 import live_authority_armed_v3
     from autotrader_engine_account_ownership_v1 import load_account_owner_v1,ENGINE_V3
     uics=set()
-    for inst in load_v3_runtime_instances_v1(db_path=db_path):
-        cfg=load_autotrader_config_v3(inst.pilot_key,db_path=db_path)
-        if cfg.strategy_key not in HYPER_CATALOG_KEYS:
-            continue
-        if not live_authority_armed_v3(inst.pilot_key,db_path=db_path):
-            continue
-        owner=load_account_owner_v1(inst.account_id,db_path=db_path)
-        if owner is None or owner.engine_id!=ENGINE_V3 or owner.owner_key!=inst.pilot_key:
-            continue
-        uics.add(int(inst.uic))
+    try:
+        for inst in load_v3_runtime_instances_v1(db_path=db_path):
+            cfg=load_autotrader_config_v3(inst.pilot_key,db_path=db_path)
+            if cfg.strategy_key not in HYPER_CATALOG_KEYS:
+                continue
+            if not live_authority_armed_v3(inst.pilot_key,db_path=db_path):
+                continue
+            owner=load_account_owner_v1(inst.account_id,db_path=db_path)
+            if owner is None or owner.engine_id!=ENGINE_V3 or owner.owner_key!=inst.pilot_key:
+                continue
+            uics.add(int(inst.uic))
+    except Exception:
+        return ()
     if not uics:
         return ()
     clock=_utc(now or datetime.now(timezone.utc))
