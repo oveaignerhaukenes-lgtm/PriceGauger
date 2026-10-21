@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import time
 import threading
 from datetime import datetime, timezone, timedelta
@@ -249,6 +250,13 @@ def run_ai_context_pair_loop(*,db_path="pricegauger.db",stop_event,interval=60.0
         stop_event.wait(max(0.1,interval-(time.monotonic()-started)))
 
 
+def optional_paper_ai_enabled(variable: str) -> bool:
+    """All legacy LLM PAPER loops opt in individually, not by presence of API key."""
+    if variable not in {"PRICEGAUGER_LAB_AI_TECH_ENABLED", "PRICEGAUGER_LAB_AI_PAIRS_ENABLED"}:
+        raise ValueError("Unknown PAPER AI feature gate")
+    return os.getenv(variable, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="pricegauger.db")
@@ -265,20 +273,26 @@ def main():
         daemon=True,
     )
     hyper_thread.start()
-    ai_thread=threading.Thread(
-        target=run_ai_technical_research_loop,
-        kwargs={"db_path":args.db,"stop_event":stop_event,"interval":5.0},
-        name="pricegauger-ai-paper",
-        daemon=True,
-    )
-    ai_thread.start()
-    pair_thread=threading.Thread(
-        target=run_ai_context_pair_loop,
-        kwargs={"db_path":args.db,"stop_event":stop_event,"interval":60.0},
-        name="pricegauger-ai-context-paper",
-        daemon=True,
-    )
-    pair_thread.start()
+    # Costly AI PAPER experiments are explicit opt-ins. This does not affect
+    # historical simulator, 1s HyperChase PAPER, or any V3 LIVE AI modifier.
+    if optional_paper_ai_enabled("PRICEGAUGER_LAB_AI_TECH_ENABLED"):
+        ai_thread=threading.Thread(
+            target=run_ai_technical_research_loop,
+            kwargs={"db_path":args.db,"stop_event":stop_event,"interval":5.0},
+            name="pricegauger-ai-paper",daemon=True,
+        )
+        ai_thread.start()
+    else:
+        LOGGER.info("AI technical PAPER LLM loop disabled; opt in PRICEGAUGER_LAB_AI_TECH_ENABLED=1")
+    if optional_paper_ai_enabled("PRICEGAUGER_LAB_AI_PAIRS_ENABLED"):
+        pair_thread=threading.Thread(
+            target=run_ai_context_pair_loop,
+            kwargs={"db_path":args.db,"stop_event":stop_event,"interval":60.0},
+            name="pricegauger-ai-context-paper",daemon=True,
+        )
+        pair_thread.start()
+    else:
+        LOGGER.info("AI context-pair PAPER LLM loop disabled; opt in PRICEGAUGER_LAB_AI_PAIRS_ENABLED=1")
     while True:
         started = time.monotonic()
         try:
