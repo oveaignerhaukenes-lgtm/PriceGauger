@@ -21,7 +21,7 @@ from strategy_lab_v2_saxo_costs import (
     saxo_replay_costs_v2,saxobank_accounts_v2,verified_replay_costs_v2,
 )
 from strategy_lab_v2_ai import (
-    build_lab_asof_evidence_v2,lab_ai_evidence_fingerprint_v2,
+    LabAIError,build_lab_asof_evidence_v2,lab_ai_evidence_fingerprint_v2,
     ask_lab_ai_v2,
 )
 from strategy_lab_v2_accounts import render_account_performance_v2
@@ -443,8 +443,14 @@ with tabs[0]:
                     st.session_state["slab2:ai_history"]=history+[{
                         "question":question,"answer":answer}]
                     st.rerun()
+                except LabAIError as exc:
+                    st.warning("AI-analyse ikke fullført: "+str(exc))
+                    st.caption("Diagnose: "+exc.code+" · Ingen PAPER- eller LIVE-ordre ble endret.")
                 except Exception as exc:
-                    st.warning("AI-samtalen kunne ikke fullføres: "+type(exc).__name__)
+                    st.warning("AI-analyse ikke fullført på grunn av en uventet feil. "
+                               "Prøv igjen, eller eksporter replay-data til denne chatten.")
+                    st.caption("Feilkategori: "+type(exc).__name__+
+                               " · Ingen PAPER- eller LIVE-ordre ble endret.")
             st.caption("Eksportér JSON fra Rådata-panelet og last opp filen "
                        "i denne chatten for dypere analyse her.")
         else:
