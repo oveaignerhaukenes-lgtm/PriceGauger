@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `c7e22742ff7bddc86f46382f7d3b682efe322765`
+Latest tracked main commit: `de4a47bd9365c5f88eff1a9f12ce2adfcaaa1548`
 
 ## Recent main commits
 
+- 2026-10-21 [`de4a47bd93`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/de4a47bd9365c5f88eff1a9f12ce2adfcaaa1548) — Confirm tested docs-only continuity deploy filter (#779)
 - 2026-10-21 [`c7e22742ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c7e22742ff7bddc86f46382f7d3b682efe322765) — Document verified journal automation and Railway deploy filters (#778)
 - 2026-10-21 [`fbef5fc610`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fbef5fc610c17ac731adc91d8211e423cdc64cfe) — Repair project continuity journal and reconcile living state (#777)
 - 2026-10-21 [`a5c80fc0a3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5c80fc0a31bcd7732f97296270cbcb7ca2e0254) — Sync PROJECT_STATE HyperVigilant 10s LIVE production verification (#776)
@@ -46,6 +47,5 @@ Latest tracked main commit: `c7e22742ff7bddc86f46382f7d3b682efe322765`
 - 2026-10-18 [`2028f7401e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2028f7401e8e68df77f766afce42731bbe913079) — Natural Gas: read-only broker candidate evidence and bounded futures rollover checks (#741)
 - 2026-10-18 [`41097e5472`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/41097e5472f2871258cddb08b6d6ea3312df3ced) — Recover expired Saxo futures lineage with exact UIC + nontradable search (#740)
 - 2026-10-18 [`bb06ea313b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/bb06ea313bc91c53c3c538cf93a9a8ba7592886e) — Avoid repeat PostgreSQL schema checks in research shadow cycles (#739)
-- 2026-10-18 [`9a2a8b6bc1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9a2a8b6bc1443daf0a80ddc39ba11c57d87caa25) — Research V2: bounded missing-history retry for shadow evaluators (#738)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
