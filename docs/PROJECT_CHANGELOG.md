@@ -3,15 +3,16 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `a5c80fc0a31bcd7732f97296270cbcb7ca2e0254`
+Latest tracked main commit: `fbef5fc610c17ac731adc91d8211e423cdc64cfe`
 
 ## Recent main commits
 
+- 2026-10-21 [`fbef5fc610`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fbef5fc610c17ac731adc91d8211e423cdc64cfe) — Repair project continuity journal and reconcile living state (#777)
 - 2026-10-21 [`a5c80fc0a3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5c80fc0a31bcd7732f97296270cbcb7ca2e0254) — Sync PROJECT_STATE HyperVigilant 10s LIVE production verification (#776)
 - 2026-10-21 [`4a9c571737`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a9c571737d0a9619be254c4b17a9251070bbb27) — HyperChase 10s guarded LIVE strategies and project sync (#775)
 - 2026-10-21 [`0bb432379b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0bb432379b25400bf04d3b8d91096ee291ab8795) — HyperVigilant Chase 10s: direct-flip price PAPER research (#774)
 - 2026-10-21 [`196959c97e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/196959c97e5e8b356022ebf62c7e76a5b08e0748) — Strategy Lab v2 AI: safe error diagnostics and incomplete Responses retry (#773)
-- 2026-10-20 [`a24b9f7c54`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a24b9f7c54633887e22bf52b3a8a624d796431ed) — Strategilab v2: fix manual Saxo selection, expand 18 paper replays and click-to-scrub (#772)
+- 2026-10-21 [`a24b9f7c54`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a24b9f7c54633887e22bf52b3a8a624d796431ed) — Strategilab v2: fix manual Saxo selection, expand 18 paper replays and click-to-scrub (#772)
 - 2026-10-20 [`4a791c7496`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a791c74968f0819b91597eacbd6d970af4728c8) — Strategilab v2: isolated multi-replay and Saxo account performance (#771)
 - 2026-10-20 [`2530059ae7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2530059ae779bebfebad953f773195328ecea9c9) — V3 Saxo cost guard: skip needless GETs unless OPEN/ADD (#770)
 - 2026-10-20 [`a96d908c4b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a96d908c4b6ff80a6b0645650acf0f49cf76a81a) — Product Browser: keyword NOK trade increments and fee-model filtering (#769)
@@ -46,6 +47,5 @@ Latest tracked main commit: `a5c80fc0a31bcd7732f97296270cbcb7ca2e0254`
 - 2026-10-18 [`bb06ea313b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/bb06ea313bc91c53c3c538cf93a9a8ba7592886e) — Avoid repeat PostgreSQL schema checks in research shadow cycles (#739)
 - 2026-10-18 [`9a2a8b6bc1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9a2a8b6bc1443daf0a80ddc39ba11c57d87caa25) — Research V2: bounded missing-history retry for shadow evaluators (#738)
 - 2026-10-18 [`c045a0dbd1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c045a0dbd102e06b72da63b11fd66e11410bc450) — Reduce duplicate realtime and canonical bar UPSERT writes (#737)
-- 2026-10-18 [`75f0d7de23`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/75f0d7de23f570866013b14e8c49055b62031a4f) — perf(ui): incremental TradingDesk refresh and bounded chart history reads (#736)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
