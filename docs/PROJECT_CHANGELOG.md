@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `8a6293b1f9e73378a73e8b6bc1a8685d9f867da9`
+Latest tracked main commit: `96675e3d4ebbbe762eb8f8a8d4cbfbd6aeef3237`
 
 ## Recent main commits
 
+- 2026-10-21 [`96675e3d4e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/96675e3d4ebbbe762eb8f8a8d4cbfbd6aeef3237) — Reduce legacy research and PAPER AI background load (#784)
 - 2026-10-21 [`8a6293b1f9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8a6293b1f9e73378a73e8b6bc1a8685d9f867da9) — Sync tested HyperChase safety fixes and Railway deploy blocker (#783)
 - 2026-10-21 [`5c4ba31732`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5c4ba317323b9f303daf4c394d1ae1d13706ba3f) — Fix HyperChase LIVE volatility safety input (#780)
 - 2026-10-21 [`a5b41a9c51`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5b41a9c51177967fa956a14efec7401c9806e0a) — HyperChase read-only 1s Saxo quote density diagnostics (#782)
@@ -46,6 +47,5 @@ Latest tracked main commit: `8a6293b1f9e73378a73e8b6bc1a8685d9f867da9`
 - 2026-10-18 [`7e535cd969`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7e535cd969ab410d1ac4fb80e6506027cd4a70ec) — Saxo NG: accept broker consensus GroupId if front DETAILS omits it (#747)
 - 2026-10-18 [`53390a1066`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/53390a106623c153de4b60e258931a613b019335) — Inspect exact Saxo Henry Hub front-details lineage before any collection switch (#746)
 - 2026-10-18 [`a4bd93a951`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a4bd93a951d10e06ec323e0ab5307b84864f2596) — Natural Gas: verify successor via 3+ Saxo group consensuses when old GroupId missing (#745)
-- 2026-10-18 [`f1da526098`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f1da5260985d146e5b64fa67052d37787fca8159) — Saxo Natural Gas: redacted read-only old/front futures metadata evidence (#744)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
