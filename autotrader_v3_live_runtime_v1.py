@@ -54,6 +54,7 @@ from autotrader_v3_hyper_chase_live_v1 import (
     HYPER_RUNTIME_KEYS,evaluate_hyper_chase_live_v3,
 )
 from autotrader_v3_signal_trace_v1 import v3_transition_trace
+from autotrader_v3_hyper_gate_audit_v1 import count_hyper_decision
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
 from autotrader_v3_fractal_rhythm_variants_v1 import RHYTHM_TREND_FRACTAL_KEY_V3
@@ -577,6 +578,19 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             trader=trader,base_target=decision.decision.target,
             actual_inventory=actual,modifiers=tuple(modifiers))
         snapshot=pipeline.snapshot
+        # Summarize every HyperChase WAIT/CHASE action once per minute, including
+        # missing/gapped quotes and post-modifier risk veto. Never affect orders.
+        if e.strategy_key in HYPER_RUNTIME_KEYS:
+            try:
+                summary=count_hyper_decision(
+                    trader_id=e.pilot_key,strategy_key=e.strategy_key,now=end,
+                    action=decision.decision.action,actual_amount=actual.amount,
+                    raw_target=decision.decision.target.amount,
+                    approved_target=snapshot.risk_approved_target.amount)
+                if summary:
+                    LOGGER.info("%s",summary)
+            except Exception:
+                pass  # Telemetry failure cannot block a broker cycle.
         # Read-only, per-minute, deduplicated transition evidence. This does
         # not affect broker reconciliation, target sizing, or order authority.
         trace=v3_transition_trace(
