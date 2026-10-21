@@ -212,6 +212,7 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                 model=_decode_model(strategy_key,row["state_json"])
                 signal_at=_utc(row["last_signal_at"]) if row["last_signal_at"] else None
             newest_decision=None
+            gap_exit=False
             if not reset:
                 for at,bid,ask in clean:
                     # Never bridge a stale/unobserved interval with invented ticks.
@@ -219,7 +220,11 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                         # Reset to broker-confirmed inventory, never replay an
                         # old desired direction across a network/feed outage.
                         model=_new_model(strategy_key)
-                        _bootstrap(model,current,at,bid,ask)
+                        # Preserve original Rabid Dog's explicit quote-gap FLAT
+                        # policy. Hunter's shadow policy instead HOLDS on a gap.
+                        gap_exit = gap_exit or (strategy_key==DOG_CATALOG_KEY and abs(current)>1e-12)
+                        _bootstrap(model,0. if strategy_key==DOG_CATALOG_KEY else current,
+                                   at,bid,ask)
                         signal_at=None
                         newest_decision=None
                         last_at=at
@@ -241,6 +246,9 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                  signal_at.isoformat() if signal_at else None,_encode_model(strategy_key,model)))
             if reset:
                 return hold("BOOTSTRAP","State reset on account/strategy switch; wait for new quotes",latest.isoformat())
+            if gap_exit:
+                return _decision(strategy_key,0.,"QUOTE_GAP_FLAT",
+                    "Rabid Dog BBO gap >5s; close only, never open",latest.isoformat())
             side={"LONG":float(tranche),"SHORT":-float(tranche),"FLAT":0.0}[model.target]
             # A signal can justify closing exposure after a direction change,
             # but NOT re-opening on a stale decision after Saxo reconciliation.
@@ -256,8 +264,7 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                 # Count durable reservations, not shadow signals; preserve one
                 # possible CLOSE even if an open/flip consumes the hourly cap.
                 remaining=_broker_quota_remaining(db,trader_id,clock)
-                required=2 if side*current<0 else 2
-                if remaining<required:
+                if remaining<2:
                     if side*current<0 and abs(current)>1e-12:
                         return _decision(strategy_key,0,"QUOTA_FLAT",
                             "Cap reached; reduction only",latest.isoformat())
