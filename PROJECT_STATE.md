@@ -31,8 +31,8 @@ The separate V2/Lager account must not accidentally acquire V3 authority. Preser
 
 - **Code head:** resolve from GitHub on every session (do not pin a mutable SHA here).
 - **Open PRs/CI:** inspect live; journal below is supplemental.
-- **Railway deployed SHA, health and logs:** not verified by creating this document.
-- **Saxo positions, arming, margin, trades and balances:** not verified by creating this document.
+- **Railway deployed SHA (verified 2026-10-21 ~01:15 UTC):** `4a9c571737d0a9619be254c4b17a9251070bbb27` was reported `SUCCESS` on all five app services (web, worker, stream, Spring engine, Live-Sim). Runtime logs show V3 managing existing instances, not evidence of a HyperChase fill.
+- **Saxo positions, arming, margin, trades and balances:** NOT broker-reconciled by this handoff. A portfolio screenshot shown 2026-10-21 displays several profitable Tech100 accounts, but is not proof of HyperChase fills or net strategy attribution; do not commit private balance figures.
 - **Latest tested capabilities:** derive from current code/tests and PRs, not old handoffs.
 
 ## Active work ledger (maintained by the acting developer)
@@ -41,9 +41,9 @@ Update this small section in the same PR whenever a change affects architecture,
 
 | Topic | State | Next evidence/action |
 | --- | --- | --- |
-| HyperVigilant Chase 10s LIVE | PR in progress: quote-based FAST/FILTERED in canonical V3 LIVE, no automatic arming | Verify CI and Railway SHA; manually select a separately bounded Tech100 account; check genuine 1s BBO coverage and broker order latency |
+| HyperVigilant Chase 10s LIVE | **Merged [#775](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/775)** (`4a9c5717`), CI green, five Railway app services SUCCESS; real LIVE catalog FAST/FILTERED, no automatic arming | Check continuous genuine 1s BBO on exact Tech100 UIC + decision/close/reconcile/open timestamps; use separately bounded account only after explicit user selection |
 | HyperVigilant direct reversals | V3 target changes LONG↔SHORT immediately on 10s impulse; execution is guarded CLOSE → Saxo FLAT reconciliation → fresh-signal OPEN | No atomic opposite-side netting and no guaranteed 10s Saxo fill; report actual latency/failures |
-| HyperVigilant PAPER | Existing prospective quote 1s PAPER experiments `CHASE_10S_FAST`/`CHASE_10S_FILTERED` in Strategilab v2 | Compare net after spread/slippage with matching market regimes before expanding risk |
+| HyperVigilant PAPER | Merged [#774](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/774) (FAST/FILTERED) on prospective Saxo BBO in Strategilab v2 | Compare realized PAPER signal-to-next-quote delay, actual quote density, and net after spread/slippage in matched regimes; do not infer Saxo fills |
 | Project continuity | Active: `PROJECT_STATE.md` authoritative decision/sync summary + automated git journal | Verify journal workflow runs after each merge |
 | V3 LIVE strategies | Verify fresh main | Map catalog/runtime/arming; check recent PRs and CI |
 | Account-level outcome collection | User priority, implementation unverified | Inspect Saxo account snapshots, DB schema and strategy assignment history |
@@ -77,3 +77,11 @@ At the end of meaningful work, update this file within the relevant PR with:
 - remaining concrete blocker and next step.
 
 Keep it concise: prune completed items, retain durable decisions, link PRs for details. A new chat starts here; there is no need for a narrative handoff.
+
+### Last verified handoff (2026-10-21 UTC)
+
+- **Delivered:** quote-driven HyperChase FAST/FILTERED LIVE in normal V3 chooser (#775), continuous prospectively sampled 1s PAPER experiment (#774), guarded close→broker-flat→fresh-quote open; no account enabled by deployment.
+- **Validated:** GitHub CI for #775 green; Railway all five app services deployed merge SHA `4a9c5717` SUCCESS. This verifies delivery, not ≤10s broker execution.
+- **Next action:** measure per-UIC `lsim_hyper_quotes_1s` sample gaps, quote age and true BBO freshness; run limited prospective PAPER comparison, then, only with explicitly selected small LIVE account, check ORDER/PENDING/RECONCILED timestamps, margin and fees. Any missing data means do not open automatically.
+- **Synchronization:** update this same file in the PR for each substantive feature; auto-generated changelog is supplementary. No additional narrative handoff needed.
+
