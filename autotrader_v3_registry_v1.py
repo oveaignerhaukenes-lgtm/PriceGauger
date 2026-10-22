@@ -21,6 +21,17 @@ class ModifierSpecV3:
 
 
 STRATEGIES_V3 = (
+    StrategySpecV3(
+        "pricetrend-1","PriceTrend #1 · SMA/ATR/ER · Tech100 · SIM",
+        "Tech100-only research: completed 5m SMA9/21 direction, 21SMA slope, "
+        "12-bar directional efficiency, 14-bar ATR trail; completed 2m SMA9 timing. "
+        "One legal tranche, price-first exits. Historical replay only, NO LIVE authorization.",
+        "pricetrend-1-v1",True),
+    StrategySpecV3(
+        "sma-9-21-baseline","SMA 9/21 · 2m · Baseline SIM",
+        "Tech100-only benchmark: simple 2m SMA9 vs SMA21, one legal tranche. "
+        "No ATR/trend efficiency or live authority.",
+        "sma-9-21-2m-baseline-v1",True),
     StrategySpecV3("hunter-tick-v1","Hunter · LIVE tick","Ekte Saxo Tech100 BBO: 8p/8s impuls; FLAT ved utmattelse, én minste tranche. V3 sikker eksekvering; separat kontoarming.","hunter-tick-live-v1",True),
     StrategySpecV3("rabid-dog-tick-v1","Rabid Dog · LIVE tick (begrenset)","Saxo BBO hysterese, V3 CLOSE→FLAT→OPEN, én tranche, ordrekvote og separat arming.","rabid-dog-tick-live-v1",True),
     StrategySpecV3(
@@ -160,6 +171,7 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
     "1m": 1, "2m": 2, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60,
 }
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
+PRICETREND_RESEARCH_CATALOG_KEYS_V3=frozenset({"pricetrend-1","sma-9-21-baseline"})
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
 TICK_SHADOW_LIVE_CATALOG_KEYS_V3=frozenset({"hunter-tick-v1","rabid-dog-tick-v1"})
 HYPER_CHASE_10S_CATALOG_KEYS_V3=frozenset({
@@ -210,8 +222,12 @@ def live_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not LIVE runtime-ready")
     if timeframe not in LIVE_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not LIVE runtime-ready")
+    if strategy_key in PRICETREND_RESEARCH_CATALOG_KEYS_V3:
+        issues.append("PriceTrend/SMA-benchmark kun SIM/PAPER; ingen LIVE-rute")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3:
         issues.append("Fraktal#1 er kun SIM/PAPER; LIVE er sperret")
+    if strategy_key in PRICETREND_RESEARCH_CATALOG_KEYS_V3 and timeframe != "2m":
+        issues.append("PriceTrend og SMA-benchmark krever ferdiglukket 2m signal")
     if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Hunter/Rabid require 1m UI and genuine Saxo 1s BBO")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3 and timeframe != "1m":
@@ -260,6 +276,8 @@ def sim_config_issues_v3(
         issues.append(f"strategy {strategy_key} is not SIM runtime-ready")
     if timeframe not in SIM_TIMEFRAMES_V3:
         issues.append(f"timeframe {timeframe} is not SIM runtime-ready")
+    if strategy_key in PRICETREND_RESEARCH_CATALOG_KEYS_V3 and timeframe != "2m":
+        issues.append("PriceTrend og SMA-benchmark krever ferdiglukket 2m signal")
     if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3:
         issues.append("Hunter/Rabid tick-only PAPER required; cannot replay minute OHLC")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3:

@@ -35,6 +35,10 @@ from autotrader_v3_macd_stoch_v21 import (
 from autotrader_v3_macd_stoch_rhythm_build_v1 import (
     STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY, macd_stoch_rhythm_build_target_v3,
 )
+from autotrader_v3_pricetrend_v1 import (
+    STRATEGY_KEY_V3 as PRICETREND_KEY,BASELINE_KEY_V3 as SMA_BASELINE_KEY,
+    pricetrend_target_v1,sma_9_21_baseline_target_v1,
+)
 from autotrader_v3_rhythm_trend_v1 import (
     STRATEGY_KEY_V3 as RHYTHM_TREND_KEY, rhythm_trend_target_v3,
 )
@@ -167,15 +171,19 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3}:
+    if strategy_key not in {PRICETREND_KEY,SMA_BASELINE_KEY,PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3}:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
         config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3} else MacdHistogramConfigV3()
     if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3} and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
-    if strategy_key in {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3} and not isinstance(config, MacdHistogramConfigV3):
+    if strategy_key in {PRICETREND_KEY,SMA_BASELINE_KEY,PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
-    if strategy_key == PRECROSS_KEY_V3:
+    if strategy_key == PRICETREND_KEY:
+        decide = pricetrend_target_v1
+    elif strategy_key == SMA_BASELINE_KEY:
+        decide = sma_9_21_baseline_target_v1
+    elif strategy_key == PRECROSS_KEY_V3:
         decide = precross_price_target_v3
     elif strategy_key == HIST_PRICE_KEY_V3:
         decide = histogram_price_target_v3
@@ -237,7 +245,10 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         else:
             target=0.0; previous=None
         extra = {}
-        if strategy_key in {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3}:
+        if strategy_key in {PRICETREND_KEY,SMA_BASELINE_KEY}:
+            extra["source_bars"] = source_bars
+            extra["market_name"] = str(market_name)
+        elif strategy_key in {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3}:
             extra["bars"] = bars
             extra["source_bars"] = source_bars
             extra["market_name"] = str(market_name)
