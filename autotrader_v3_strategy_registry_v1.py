@@ -8,6 +8,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from autotrader_v3_pricetrend_v1 import (
+    STRATEGY_KEY_V3 as PRICETREND_KEY,
+    BASELINE_KEY_V3 as SMA_BASELINE_KEY,
+)
 from autotrader_v3_tick_shadow_live_v1 import TICK_RUNTIME_KEYS,evaluate_tick_closed_bar_compat_v3
 from autotrader_v3_hyper_chase_live_v1 import (
     FAST_RUNTIME_KEY,FILTERED_RUNTIME_KEY,evaluate_hyper_closed_bar_compat_v3,
@@ -87,6 +91,13 @@ for key in TICK_RUNTIME_KEYS:
     STRATEGIES_V3[key]=StrategyAdapterV3(
         key=key,evaluate_closed_bar=evaluate_tick_closed_bar_compat_v3,
         live_route_enabled=True)
+
+# PriceTrend is research-only: SIM state and historical replay; never V3 LIVE.
+for price_key in (PRICETREND_KEY, SMA_BASELINE_KEY):
+    STRATEGIES_V3[price_key] = StrategyAdapterV3(
+        key=price_key,evaluate_closed_bar=evaluate_closed_bar_once_v3,
+        live_route_enabled=False,
+    )
 
 # Research-only. LIVE always denies this key before constructing any order.
 STRATEGIES_V3.update({
