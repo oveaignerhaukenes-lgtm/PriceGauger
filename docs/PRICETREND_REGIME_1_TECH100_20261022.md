@@ -18,6 +18,8 @@ additional data ingestion.
 
 - 5m SMA 21 slope over three completed 5m bars, normalized by 14 x 5m ATR.
 - 5m SMA 9 above/below SMA 21 and price offset from SMA 21 (0.10 ATR).
+- 5m price structure: compare most recent 3 completed high/low bars against
+  preceding 3 (LH/LL for BEAR, HH/HL for BULL, ATR noise tolerance).
 - 5m directional efficiency over 12 completed closes:
   abs(last - first) / sum(abs(each consecutive difference)).
 - Entry only when efficiency >= 0.35, SMA21 slope magnitude >= 0.08 ATR,
