@@ -217,6 +217,12 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     if 'regime_timeframe' in suggested:
         st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']=suggested['regime_timeframe']
     st.session_state[viewed_key]=selected
+    if strategy=="pricetrend-1":
+        st.info("PriceTrend #1: Tech100 UIC 4912, prisbasert 5m regime og "
+                "valgbar 1m / 2m / 5m / 10m / 15m / 30m / 1h "
+                "signalperiode. Én Saxo-minstetranche, ATR14 pris-exit, "
+                "V3 margin og CLOSE → bekreftet FLAT → OPEN. "
+                "Strategivalg lagres uten automatisk LIVE-arming.")
     if strategy in ("hunter-tick-v1","rabid-dog-tick-v1"):
         st.info(
             "Hunter/Rabid Dog: ekte Saxo 1s bid/ask, kun Tech100 UIC 4912. "
