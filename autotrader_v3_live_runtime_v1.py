@@ -8,6 +8,11 @@ from autotrader_mtf_entry_shadow_v2 import closed_bars_v2,macd_observations_v2
 from autotrader_engine_account_ownership_v1 import ENGINE_V3, load_account_owner_v1
 from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, evaluate_strategy_bar_v3
+from autotrader_v3_pricetrend_v1 import (
+    STRATEGY_KEY_V3 as PRICETREND_KEY,
+    TECH100_UIC as PRICETREND_TECH100_UIC,
+    TECH100_ASSET_TYPE as PRICETREND_TECH100_ASSET,
+)
 from autotrader_v3_closed_bar_driver_v1 import align_closed_bar_target_v3, ensure_closed_bar_driver_schema_v3
 from autotrader_v3_domain import AccountBoundaryV3,ControlModeV3,TargetInventoryV3,signed_inventory_v3
 from autotrader_v3_execution_plan_v1 import plan_execution_v3
@@ -406,6 +411,16 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
         if account is None:
             _record_runtime(e.pilot_key,'BLOCKED',f'V3 LIVE account unavailable: {e.account_id}',db_path=db_path)
             continue
+        # Explicit product guard in addition to V3 exact ownership.
+        if e.strategy_key==PRICETREND_KEY and (
+            str(e.market_name)!="US Tech 100 NAS" or
+            int(e.uic)!=PRICETREND_TECH100_UIC or
+            str(e.asset_type)!=PRICETREND_TECH100_ASSET
+        ):
+            _record_runtime(e.pilot_key,"BLOCKED",
+                "PriceTrend supports only Tech100 CfdOnIndex UIC 4912; no orders",
+                db_path=db_path)
+            continue
         instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
         try:
             instrument_rules=load_entry_instrument_rules_v2(
@@ -417,6 +432,12 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 e.pilot_key,'BLOCKED',
                 f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
                 db_path=db_path)
+            continue
+        if (e.strategy_key==PRICETREND_KEY
+                and abs(actual.amount)>float(strategy_amount_config.tranche)+1e-9):
+            _record_runtime(e.pilot_key,"BLOCKED",
+                "PriceTrend max one broker-legal tranche; oversize inventory "
+                "requires account review; no new orders",db_path=db_path)
             continue
         context_strategy_key=(
             f"{e.strategy_key}:R{config.regime_timeframe}"
@@ -471,7 +492,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 strategy_key=e.strategy_key,config=strategy_amount_config,db_path=db_path,
                 **({"actual_inventory":actual.amount,
                     "signal_timeframe_minutes":timeframe_minutes,
-                    "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
+                    "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else
+                    {"signal_timeframe_minutes":timeframe_minutes}
+                    if e.strategy_key==PRICETREND_KEY else {}))
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
