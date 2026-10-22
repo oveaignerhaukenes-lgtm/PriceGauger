@@ -92,12 +92,15 @@ for key in TICK_RUNTIME_KEYS:
         key=key,evaluate_closed_bar=evaluate_tick_closed_bar_compat_v3,
         live_route_enabled=True)
 
-# PriceTrend is research-only: SIM state and historical replay; never V3 LIVE.
-for price_key in (PRICETREND_KEY, SMA_BASELINE_KEY):
-    STRATEGIES_V3[price_key] = StrategyAdapterV3(
-        key=price_key,evaluate_closed_bar=evaluate_closed_bar_once_v3,
-        live_route_enabled=False,
-    )
+# PriceTrend uses the normal V3 exact-account/position/reconciliation pipeline.
+# Registering the LIVE route never arms or switches an account automatically.
+STRATEGIES_V3[PRICETREND_KEY]=StrategyAdapterV3(
+    key=PRICETREND_KEY,evaluate_closed_bar=evaluate_closed_bar_once_v3,
+    live_route_enabled=True)
+# The independent SMA-only comparator remains research-only.
+STRATEGIES_V3[SMA_BASELINE_KEY]=StrategyAdapterV3(
+    key=SMA_BASELINE_KEY,evaluate_closed_bar=evaluate_closed_bar_once_v3,
+    live_route_enabled=False)
 
 # Research-only. LIVE always denies this key before constructing any order.
 STRATEGIES_V3.update({
@@ -119,12 +122,14 @@ def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, 
                              config=None, db_path="pricegauger.db",
                              actual_inventory=None,signal_timeframe_minutes=None,now=None):
     adapter = strategy_adapter_v3(strategy_key)
+    extras=({"actual_inventory":actual_inventory,
+             "signal_timeframe_minutes":signal_timeframe_minutes,
+             "now":now} if strategy_key in (AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3)
+            else {"signal_timeframe_minutes":signal_timeframe_minutes}
+            if strategy_key in (PRICETREND_KEY,SMA_BASELINE_KEY) else {})
     return adapter.evaluate_closed_bar(
         trader_id=trader_id, observation=observation,
         strategy_key=adapter.key, bars=bars, source_bars=source_bars,
         regime_timeframe_minutes=regime_timeframe_minutes, market_name=market_name,
-        config=config, db_path=db_path,
-        **({"actual_inventory":actual_inventory,
-            "signal_timeframe_minutes":signal_timeframe_minutes,
-            "now":now} if strategy_key in (AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3) else {}),
+        config=config, db_path=db_path, **extras,
     )
