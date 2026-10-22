@@ -141,14 +141,26 @@ def price_regime_v1(bars_5m: Sequence[Candle]) -> RegimeEvidence:
     slope = (sma21 - old_sma21) / atr
     efficiency = _er(closes)
     price = closes[-1]
+    # Robust, completed 5m LH/LL vs prior 3-bar block, rather than demanding
+    # every tiny candle extend the trend. This structure filters SMA crossovers.
+    prev_block = bars_5m[-6:-3]
+    recent_block = bars_5m[-3:]
+    lower_high = max(b.high for b in recent_block) <= max(
+        b.high for b in prev_block) + 0.15 * atr
+    lower_low = min(b.low for b in recent_block) < min(
+        b.low for b in prev_block) - 0.15 * atr
+    higher_high = max(b.high for b in recent_block) > max(
+        b.high for b in prev_block) + 0.15 * atr
+    higher_low = min(b.low for b in recent_block) >= min(
+        b.low for b in prev_block) - 0.15 * atr
     # ER prevents new exposure to pure noise. Existing exposure is handled
     # separately using direction, 21SMA and ATR trailing protection.
     if efficiency < MIN_EFFICIENCY:
         regime = "SIDEWAYS"
-    elif (slope <= -MIN_SLOPE_ATR and sma9 < sma21 and
+    elif (lower_high and lower_low and slope <= -MIN_SLOPE_ATR and sma9 < sma21 and
           price < sma21 - MIN_PRICE_DISTANCE_ATR * atr):
         regime = "BEAR"
-    elif (slope >= MIN_SLOPE_ATR and sma9 > sma21 and
+    elif (higher_high and higher_low and slope >= MIN_SLOPE_ATR and sma9 > sma21 and
           price > sma21 + MIN_PRICE_DISTANCE_ATR * atr):
         regime = "BULL"
     else:
@@ -220,10 +232,10 @@ def pricetrend_target_v1(*,current_target:TargetInventoryV3,
             f"SMA21 slope/ATR={evidence.slope_atr:.2f}",observation)
     if evidence.regime=="BEAR" and close < fast and fast <= old_fast:
         return _decision(current,-config.tranche,"OPEN_SHORT",
-            f"5m BEAR ER={evidence.er:.2f} ATR={atr:.2f}; 2m SMA9 below price",observation)
+            f"5m BEAR+LH/LL ER={evidence.er:.2f} ATR={atr:.2f}; price below 2m SMA9",observation)
     if evidence.regime=="BULL" and close > fast and fast >= old_fast:
         return _decision(current,config.tranche,"OPEN_LONG",
-            f"5m BULL ER={evidence.er:.2f} ATR={atr:.2f}; 2m SMA9 up",observation)
+            f"5m BULL+HH/HL ER={evidence.er:.2f} ATR={atr:.2f}; price above 2m SMA9",observation)
     return _decision(current,0,"WAIT_TREND",
         f"5m {evidence.regime}; awaiting 2m continuation/valid structure",observation)
 
