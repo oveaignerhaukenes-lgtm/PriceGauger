@@ -33,12 +33,17 @@ from autotrader_v3_vwap_regime_histogram_v1 import vwap_regime_histogram_target_
 from autotrader_v3_macd_regime_histogram_v1 import macd_regime_histogram_target_v3
 from autotrader_v3_aen2_sticky_regime_v1 import aen2_sticky_regime_target_v3
 from autotrader_v3_aen21_sticky_fast_exit_v1 import aen21_sticky_fast_exit_target_v3
+from autotrader_v3_pricetrend_v1 import (
+    pricetrend_target_v1,sma_9_21_baseline_target_v1,
+)
 from autotrader_v3_rhythm_trend_v1 import rhythm_trend_target_v3
 from autotrader_v3_fractal_rhythm_variants_v1 import (
     rhythm_build_fractal_target_v3,rhythm_trend_fractal_target_v3,
 )
 
 PURE_V3={
+    "pricetrend-1":pricetrend_target_v1,
+    "sma-9-21-baseline":sma_9_21_baseline_target_v1,
     "macd-flip":macd_flip_target_v3,
     "macd":macd_trailing_target_v3,
     "macd-histogram":macd_histogram_target_v3,
@@ -61,7 +66,8 @@ PURE_V3={
 PRECROSS=frozenset(("precross-price-1m-macd2m","histogram-price-1m-macd2m"))
 REGIME=frozenset(("macd-regime-histogram","aen2-sticky-regime",
                   "aen21-sticky-fast-exit","rhythm-trend-1","rhythm-trend-fractal"))
-SOURCE_ONLY=frozenset(("vwap-regime-histogram",))
+SOURCE_ONLY=frozenset(("vwap-regime-histogram",
+    "pricetrend-1","sma-9-21-baseline"))
 FRACTAL_BUILD=frozenset(("rhythm-build-fractal",))
 MICRO_TIMING=PRECROSS|FRACTAL_BUILD|frozenset((
     "macd-stoch-rhythm-build","rhythm-trend-1","rhythm-trend-fractal"))
@@ -85,6 +91,8 @@ def strategy_family_v2(key:str)->str:
     k=str(key)
     if k.startswith("aen-") or k.startswith("aen2") or k.startswith("aen21"):
         return "AEn / adaptive"
+    if "sma-9-21" in k or "pricetrend" in k:
+        return "Pris / trend (Tech100)"
     if "precross" in k or "price" in k or "fraktal" in k:
         return "Pris / fraktal"
     if "stoch" in k or "rhythm" in k:
@@ -231,6 +239,8 @@ def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market):
             args["bars"]=bars
     elif key in SOURCE_ONLY:
         args["source_bars"]=source
+        if key in ("pricetrend-1","sma-9-21-baseline"):
+            args["market_name"]=market
     elif key in FRACTAL_BUILD:
         args.update(bars=bars,source_bars=source)
     return func(**args),peak_state
@@ -249,6 +259,8 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
         raise ValueError(f"Strategy not yet replay-ready: {strategy_key}")
     if timeframe not in PERIODS:
         raise ValueError("unsupported signal timeframe")
+    if strategy_key in {"pricetrend-1","sma-9-21-baseline"} and timeframe!="2m":
+        raise ValueError("PriceTrend and SMA baseline require complete 2m signals")
     if strategy_key in MICRO_TIMING and timeframe!="1m":
         raise ValueError("Price, rhythm and fractal microstructure strategies require 1m signal")
     segments=_segments(bars)
