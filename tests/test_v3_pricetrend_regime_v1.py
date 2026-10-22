@@ -100,7 +100,7 @@ def test_invalid_1m_feed_flattens_and_never_opens(bad):
         bars.pop()
     else:
         bars[-1].close=float("nan")
-    result=decide(bars,current=-.01)
+    result=decide(bars,now=260,current=-.01)
     assert result.action=="FLAT_DATA_GAP"
     assert result.target.amount==0
 
@@ -120,7 +120,7 @@ def test_sma_baseline_is_distinct_from_price_atr_regime():
     trend=decide(bars)
     assert baseline.action=="SMA_SHORT"
     assert trend.action=="OPEN_SHORT"
-    assert "ATR" not in baseline.reason
+    assert "no ATR/ER confirmation" in baseline.reason
     assert "ATR" in trend.reason
 
 
