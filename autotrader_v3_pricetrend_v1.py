@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Sequence
 
+from autotrader_mtf_entry_shadow_v2 import MtfObservationV2
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_macd_histogram_v1 import (
     MacdHistogramConfigV3, MacdHistogramDecisionV3,
@@ -56,6 +57,26 @@ class RegimeEvidence:
     sma9: float | None
     slope_atr: float | None
     price: float | None
+
+
+def closed_price_observations_v1(closed_signal_bars, timeframe_minutes):
+    """PriceTrend S-clock observations: no MACD history or MACD signal gate.
+
+    All input is an already *closed* canonical S candle; the driver cursor and
+    V3 broker checks are unchanged. This allows real 1h trend signals without
+    demanding 34 continuous hours of unrelated MACD indicator warmup.
+    """
+    minutes=int(timeframe_minutes)
+    if minutes not in SUPPORTED_SIGNAL_MINUTES:
+        raise ValueError("unsupported PriceTrend signal timeframe")
+    out=[]
+    for bar in closed_signal_bars:
+        at=_utc(bar.bar_time)
+        out.append(MtfObservationV2(
+            bar_time=at,closed_at=at+timedelta(minutes=minutes),
+            timeframe_minutes=minutes,close=float(bar.close),
+            macd=0.0,signal=0.0))
+    return tuple(out)
 
 
 def _utc(value) -> datetime:
