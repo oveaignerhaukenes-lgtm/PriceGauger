@@ -12,6 +12,7 @@ from autotrader_v3_pricetrend_v1 import (
     STRATEGY_KEY_V3 as PRICETREND_KEY,
     TECH100_UIC as PRICETREND_TECH100_UIC,
     TECH100_ASSET_TYPE as PRICETREND_TECH100_ASSET,
+    closed_price_observations_v1,
 )
 from autotrader_v3_closed_bar_driver_v1 import align_closed_bar_target_v3, ensure_closed_bar_driver_schema_v3
 from autotrader_v3_domain import AccountBoundaryV3,ControlModeV3,TargetInventoryV3,signed_inventory_v3
@@ -479,7 +480,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 instrument_id=e.instrument_id,start=end-timedelta(days=14),end=end,limit=20000)
             closed=closed_bars_v2(tuple(b.point for b in bars),market=e.market_name,
                 timeframe_minutes=timeframe_minutes) if bars else ()
-            obs=macd_observations_v2(closed,timeframe_minutes=timeframe_minutes) if closed else ()
+            obs=(closed_price_observations_v1(closed,timeframe_minutes)
+                 if e.strategy_key==PRICETREND_KEY else
+                 macd_observations_v2(closed,timeframe_minutes=timeframe_minutes)
+                 ) if closed else ()
             if not obs:
                 _record_runtime(e.pilot_key,"DEGRADED",
                     f"no closed {config.timeframe} MACD observation",db_path=db_path)
