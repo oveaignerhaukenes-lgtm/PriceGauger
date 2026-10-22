@@ -221,7 +221,8 @@ def _complete_candles(segment,minutes,market):
     return tuple(out)
 
 
-def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market):
+def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market,
+                   signal_timeframe_minutes=2):
     func=PURE_V3[key]
     args=dict(current_target=TargetInventoryV3(target),observation=obs,
               previous_observation=prev,config=config)
@@ -241,6 +242,7 @@ def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market):
         args["source_bars"]=source
         if key in ("pricetrend-1","sma-9-21-baseline"):
             args["market_name"]=market
+            args["signal_timeframe_minutes"]=signal_timeframe_minutes
     elif key in FRACTAL_BUILD:
         args.update(bars=bars,source_bars=source)
     return func(**args),peak_state
@@ -259,8 +261,8 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
         raise ValueError(f"Strategy not yet replay-ready: {strategy_key}")
     if timeframe not in PERIODS:
         raise ValueError("unsupported signal timeframe")
-    if strategy_key in {"pricetrend-1","sma-9-21-baseline"} and timeframe!="2m":
-        raise ValueError("PriceTrend and SMA baseline require complete 2m signals")
+    if strategy_key=="sma-9-21-baseline" and timeframe!="2m":
+        raise ValueError("SMA baseline requires complete 2m signals")
     if strategy_key in MICRO_TIMING and timeframe!="1m":
         raise ValueError("Price, rhythm and fractal microstructure strategies require 1m signal")
     segments=_segments(bars)
@@ -348,14 +350,14 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                     visible=signal_chart[max(0,end_i-130):end_i]
                     # 15m macro MACD requires > 35*15 observed minutes to warm up.
                     # A 650m as-of window is bounded but preserves its context.
-                    source=segment[max(0,ix-650):ix+1]
+                    source=segment[max(0,ix-840):ix+1]
                     # Price strategies check last 5 contiguous source bars,
                     # and the only 2m observation available at this minute.
                     args_bars=(tuple(segment[max(0,ix-130):ix+1])
                                if strategy_key in MICRO_TIMING else visible)
                     decision,peak_state=_call_strategy(
                         strategy_key,target,obs,previous_obs,args_bars,source,
-                        peak_state,config,market)
+                        peak_state,config,market,tf)
                     target=max(-max_lots,min(max_lots,float(decision.target.amount)))
                     sig=str(decision.action)
                     if abs(target-position)>1e-9:
