@@ -166,6 +166,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
                                 config: MacdTrailingConfigV3 | MacdHistogramConfigV3 | None = None,
                                 bars: Sequence = (), source_bars: Sequence = (),
                                 regime_timeframe_minutes: int = 15, market_name: str = "",
+                                signal_timeframe_minutes: int = 2,
                                 db_path: str = "pricegauger.db") -> ClosedBarDecisionV3:
     """Persistently reduce one *new* closed MACD bar into one target transition.
 
@@ -248,6 +249,7 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         if strategy_key in {PRICETREND_KEY,SMA_BASELINE_KEY}:
             extra["source_bars"] = source_bars
             extra["market_name"] = str(market_name)
+            extra["signal_timeframe_minutes"] = int(signal_timeframe_minutes)
         elif strategy_key in {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3}:
             extra["bars"] = bars
             extra["source_bars"] = source_bars
