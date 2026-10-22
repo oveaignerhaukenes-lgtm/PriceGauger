@@ -2,7 +2,8 @@
 
 Offline tests only. Never send Saxo orders or change live account state.
 """
-from datetime import timedelta
+from datetime import datetime,timedelta,timezone
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,26 @@ from autotrader_v3_strategy_registry_v1 import strategy_adapter_v3
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_macd_histogram_v1 import MacdHistogramConfigV3
 
-from tests.test_v3_pricetrend_regime_v1 import make_bars, obs, START
+START=datetime(2026,10,21,0,0,tzinfo=timezone.utc)
+
+def make_bars(n=840):
+    result=[]
+    prev=30000.
+    for i in range(n):
+        close=30000.-.85*i+.16*((i%7)-3)
+        result.append(SimpleNamespace(
+            bar_time=START+timedelta(minutes=i),
+            market_name="US Tech 100 NAS",open=prev,
+            high=max(close,prev)+.6,low=min(close,prev)-.6,
+            close=close,volume=None))
+        prev=close
+    return result
+
+def obs(minute):
+    return SimpleNamespace(
+        closed_at=START+timedelta(minutes=minute),
+        bar_time=START+timedelta(minutes=minute-1),spread=0.)
+
 
 
 @pytest.mark.parametrize("minutes", SUPPORTED_SIGNAL_MINUTES)
