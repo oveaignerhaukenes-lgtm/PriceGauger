@@ -34,7 +34,7 @@ from autotrader_v3_macd_regime_histogram_v1 import macd_regime_histogram_target_
 from autotrader_v3_aen2_sticky_regime_v1 import aen2_sticky_regime_target_v3
 from autotrader_v3_aen21_sticky_fast_exit_v1 import aen21_sticky_fast_exit_target_v3
 from autotrader_v3_pricetrend_v1 import (
-    pricetrend_target_v1,sma_9_21_baseline_target_v1,
+    pricetrend_target_v1,sma_9_21_baseline_target_v1,closed_price_observations_v1,
 )
 from autotrader_v3_rhythm_trend_v1 import rhythm_trend_target_v3
 from autotrader_v3_fractal_rhythm_variants_v1 import (
@@ -293,7 +293,10 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
         tf=PERIODS[timeframe]
         macd_tf=2 if strategy_key in PRECROSS else tf
         chart=_complete_candles(segment,macd_tf,market)
-        observations=macd_observations_v2(chart,timeframe_minutes=macd_tf) if len(chart)>=34 else ()
+        observations=(closed_price_observations_v1(chart,macd_tf)
+                      if strategy_key=="pricetrend-1"
+                      else macd_observations_v2(chart,timeframe_minutes=macd_tf)
+                      if len(chart)>=34 else ())
         by_end={utc(x.closed_at):x for x in observations}
         signal_chart=_complete_candles(segment,tf,market) if tf!=macd_tf else chart
         signal_by_end={utc(x.bar_time)+timedelta(minutes=tf):j
