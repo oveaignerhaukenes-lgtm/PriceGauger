@@ -1,6 +1,7 @@
 from pathlib import Path
 import pytest
 
+from autotrader_v3_pricetrend_v1 import STRATEGY_KEY_V3 as PRICETREND_KEY,BASELINE_KEY_V3 as SMA_BASELINE_KEY
 from autotrader_v3_hyper_chase_live_v1 import HYPER_RUNTIME_KEYS,evaluate_hyper_closed_bar_compat_v3
 from autotrader_v3_tick_shadow_live_v1 import TICK_RUNTIME_KEYS,evaluate_tick_closed_bar_compat_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3 as HISTOGRAM_KEY
@@ -22,12 +23,16 @@ from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIM
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
 from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_strategy_registry_v1 import STRATEGIES_V3, strategy_adapter_v3
+from autotrader_v3_closed_bar_driver_v1 import evaluate_closed_bar_once_v3
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3, evaluate_aen_core_v3
 from autotrader_v3_fraktal1_bridge_v1 import FRAKTAL1_RUNTIME_KEYS_V3, evaluate_fraktal1_v3
 
 
 def test_v3_registry_routes_all_strategies_through_same_decision_contract():
-    assert set(STRATEGIES_V3) == {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3 | HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS
+    assert set(STRATEGIES_V3) == {PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3} | AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3 | HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS | {PRICETREND_KEY,SMA_BASELINE_KEY}
+    for key in (PRICETREND_KEY,SMA_BASELINE_KEY):
+        assert not strategy_adapter_v3(key).live_route_enabled
+        assert strategy_adapter_v3(key).evaluate_closed_bar is evaluate_closed_bar_once_v3
     for key in TICK_RUNTIME_KEYS:
         assert strategy_adapter_v3(key).live_route_enabled
         assert strategy_adapter_v3(key).evaluate_closed_bar is evaluate_tick_closed_bar_compat_v3
