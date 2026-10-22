@@ -114,6 +114,27 @@ def test_missing_warmup_and_other_market_fail_closed():
     assert response.target.amount==0
 
 
+def test_sideways_5m_chop_is_not_an_entry_but_can_hold_prior_short():
+    bars=[]
+    prev=30000.
+    for minute in range(260):
+        # Twelve independent 5m oscillations around the same absolute price.
+        close=30000.+(3 if (minute//5)%2 else -3)
+        bars.append(SimpleNamespace(
+            bar_time=START+timedelta(minutes=minute),
+            market_name="US Tech 100 NAS",open=prev,
+            high=max(prev,close)+.5,low=min(prev,close)-.5,
+            close=close,volume=None))
+        prev=close
+    regime=price_regime_v1(
+        _aggregate(_closed_source(bars,START+timedelta(minutes=260)),5))
+    assert regime.regime=="SIDEWAYS"
+    assert decide(bars).action=="WAIT_TREND"
+    # A transient drop in ER alone must not liquidate a valid prior short.
+    prior=decide(bars,current=-.01)
+    assert prior.action=="HOLD_SHORT"
+
+
 def test_sma_baseline_is_distinct_from_price_atr_regime():
     bars=make_bars()
     baseline=decide(bars,func=sma_9_21_baseline_target_v1)
