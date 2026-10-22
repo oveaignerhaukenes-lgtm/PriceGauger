@@ -1,6 +1,9 @@
 # PriceTrend #1 — Tech100-only price regime research (2026-10-22)
 
-**Status: V3 catalog + Strategilab v2 historical PAPER replay only. No LIVE routing/arming.**
+**Status: PriceTrend #1 V3 LIVE route and SIM replay ready in code, subject to CI,
+Railway deployment, exact Saxo instrument/risk verification and explicit
+user-selected account/arming. No accounts auto-enabled.**
+The pure SMA9/21 baseline remains SIM-only.
 
 ## Hypothesis
 
@@ -12,7 +15,10 @@ owns regime direction, not the derivatives of momentum.
 
 Only valid, contiguous and **fully closed** 1-minute canonical Saxo OHLC from
 exact market 'US Tech 100 NAS'. Construct aligned, completed 5m candles for the
-regime and 2m candles for entry timing. No volume requirement; VWAP is *not*
+regime and fully closed signal-period candles for entry timing.
+Selectable fixed S periods: **1m, 2m, 5m, 10m, 15m, 30m and 1h**.
+The 5m trend regime remains fixed across signal periods; selecting 1m
+does not remove the higher-level trend filter. No volume requirement; VWAP is *not*
 used while volume reliability is unverified. No AI calls, broker access or
 additional data ingestion.
 
@@ -23,7 +29,7 @@ additional data ingestion.
 - 5m directional efficiency over 12 completed closes:
   abs(last - first) / sum(abs(each consecutive difference)).
 - Entry only when efficiency >= 0.35, SMA21 slope magnitude >= 0.08 ATR,
-  SMA9/21 align, and completed 2m close/2m SMA9 slope confirm direction.
+  SMA9/21 align, and completed **selected S** close/S SMA9 slope confirm direction.
 - Single minimum Saxo-legal tranche. Initial research deliberately avoids
   pyramiding, to isolate whether **holding direction** is the actual advantage.
 - In an existing SHORT, MACD becoming positive does not cause an exit. It
@@ -44,8 +50,9 @@ additional data ingestion.
 2m closes, one tranche, flat before reversal, without 5m direction, ATR or ER.
 
 Both candidates appear in Strategilab v2's separate **Pris / trend (Tech100)**
-family and route through 'strategy_lab_v2_replay.PURE_V3', not a stateful LIVE
-worker. Replays use next 1m open for execution; reversal cannot net cross in
+family and route through 'strategy_lab_v2_replay.PURE_V3'.
+Only PriceTrend #1 additionally has a guarded V3 LIVE closed-bar decision route;
+the SMA-only baseline remains strictly SIM-only. Replays use next 1m open for execution; reversal cannot net cross in
 one fill, and spread/fees are explicitly scenario-driven. Test matched periods
 including the 2026-10-22 00:00–07:42 decline and sideways regimes. Report
 net NAV, max drawdown, transactions, cost, first-entry lag, and time in
@@ -53,10 +60,24 @@ correct trend direction. No outperformance or real Saxo execution is claimed.
 
 ## Release gate
 
-Never enable LIVE based on source presence or a favorable replay. LIVE
-capability is explicitly rejected by 'live_config_issues_v3'; V3 strategy
-adapter has 'live_route_enabled=False'. New LIVE work requires separate
-user request, broker-cost and instrument verification, CI, a separate PR,
-Railway deployed SHA and exact-account consent. Existing V3 strategies,
-live pilot ownership, margin limits, pending order reconciliation and
-armed instances are not changed.
+LIVE readiness in GitHub is **not** deployment or activation. PriceTrend V3
+adapter and supported fixed-period config allow LIVE, but only on the exact
+Tech100 `US Tech 100 NAS` / CfdOnIndex / Saxo UIC 4912 and at most
+one Saxo-legal tranche. Existing V3 LIVE authority, broker product/account
+ownership, precheck, budget/margin/cost limits, durable order guard, and
+CLOSE -> Saxo-confirmed FLAT -> next OPEN are mandatory. Account config or
+LIVE arming is never changed by this PR.
+
+A new strategy/timeframe selection resets its decision context to broker
+inventory and does not replay stale candles as a fresh opening. Gapped,
+stale or malformed canonical 1m input fails closed for new entries.
+PriceTrend ATR exit is a **rolling technical signal** rather than a
+broker-native protective stop; any real-money rollout needs separate
+verification of trade logs, exposure and contingency exits.
+Deployment must match GitHub SHA and show correct worker/web health.
+After release user must deliberately select and arm the intended bounded
+account. No historical real-Saxo outperformance is claimed.
+
+The selectable S timeframe also determines **decision frequency**:
+1m responds to complete minute bars, 1h only to complete hour bars.
+No partial candles, artificial quotes or adaptive timeframe in this version.
