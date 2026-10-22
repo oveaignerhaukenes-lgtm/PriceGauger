@@ -125,7 +125,8 @@ def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, 
     extras=({"actual_inventory":actual_inventory,
              "signal_timeframe_minutes":signal_timeframe_minutes,
              "now":now} if strategy_key in (AEN_CORE_KEYS_V3 | FRAKTAL1_RUNTIME_KEYS_V3)
-            else {"signal_timeframe_minutes":signal_timeframe_minutes}
+            else {"signal_timeframe_minutes":(
+                2 if signal_timeframe_minutes is None else int(signal_timeframe_minutes))}
             if strategy_key in (PRICETREND_KEY,SMA_BASELINE_KEY) else {})
     return adapter.evaluate_closed_bar(
         trader_id=trader_id, observation=observation,
