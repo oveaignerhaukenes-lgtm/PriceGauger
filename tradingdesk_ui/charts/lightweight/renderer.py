@@ -4,6 +4,8 @@ from typing import Any, Mapping
 
 import streamlit as st
 
+from .v3_execution_triangles_v1 import V3_EXECUTION_TRIANGLE_JS
+
 
 _LIGHTWEIGHT_CHARTS_VERSION = "5.2.1"
 _LIGHTWEIGHT_CHARTS_URL = (
@@ -15,6 +17,8 @@ _LIGHTWEIGHT_CHARTS_URL = (
 _LIGHTWEIGHT_LIVE_JS = rf"""
 const LIB_URL = {_LIGHTWEIGHT_CHARTS_URL!r};
 const LIB_VERSION = {_LIGHTWEIGHT_CHARTS_VERSION!r};
+
+{V3_EXECUTION_TRIANGLE_JS}
 
 export default function(component) {{
     const {{ data, parentElement }} = component;
@@ -276,9 +280,11 @@ export default function(component) {{
             }}
         }}
 
+        const triangleLayer = createPgV3TradeTriangleLayer(chart,candles,root);
+        triangleLayer.setMarkers(payload.markers);
         let markers = null;
         if (LWC.createSeriesMarkers) {{
-            markers = LWC.createSeriesMarkers(candles, Array.from(payload.markers || []), {{
+            markers = LWC.createSeriesMarkers(candles, pgV3NativeMarkers(payload.markers), {{
                 autoScale: false,
                 zOrder: 'top',
             }});
@@ -337,6 +343,7 @@ export default function(component) {{
             series,
             labels,
             markers,
+            triangleLayer,
             signature: String(payload.signature || ''),
         }};
     }}
@@ -363,7 +370,8 @@ export default function(component) {{
                 color: point.direction === 'up' ? 'rgba(22,163,74,.28)' : 'rgba(220,38,38,.28)',
             }})));
         }}
-        entry.markers?.setMarkers?.(Array.from(payload.markers || []));
+        entry.markers?.setMarkers?.(pgV3NativeMarkers(payload.markers));
+        entry.triangleLayer?.setMarkers(payload.markers);
     }}
 
     parentElement.innerHTML = '<div style="padding:.75rem;color:#64748b;font:500 12px system-ui">Laster Lightweight Charts…</div>';
@@ -376,6 +384,7 @@ export default function(component) {{
         if (entry && (!sameParent || !sameSignature)) {{
             let visible = null;
             try {{ visible = entry.chart.timeScale().getVisibleLogicalRange(); }} catch (_) {{}}
+            try {{ entry.triangleLayer?.destroy(); }} catch (_) {{}}
             try {{ entry.chart.remove(); }} catch (_) {{}}
             registry.delete(chartId);
             entry = buildChart(LWC, sameSignature ? visible : null);
