@@ -11,6 +11,15 @@
 
 Never treat an earlier handoff, chat response, or this file alone as proof of LIVE readiness.
 
+## Latest verified handoff — 2026-10-23 18:26 UTC
+
+- **GitHub journal current through [#799](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/799)**: `docs/PROJECT_CHANGELOG.md` includes main merge `21f8566b1952` (2026-10-23). It is an automatic record of commits, not an account or fill report.
+- **V3 trade-marker request delivered — #799 merged** (`21f8566b1952`): V3 reconciled executions are displayed as small BUY-up / SELL-down triangles, anchored to actual candle time/price, without verbose label/square for FLAT. Shared Lightweight charts and V3 instance inspection were updated. Presentation-only; historical/manual fills and separate AI annotations retain their contracts. Do not confuse triangles with entry *signals*: they depict recorded executions.
+- **Duplicate 1m/2m MACD+Stochastic crash repaired — [#798](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/798)** (`829d27493128`): duplicate-bar `HOLD_DUPLICATE` decision envelope fixed, idempotency tested, no strategy parameter/arming change.
+- **Railway verification at 18:26 UTC:** all five app services (web, worker, stream, Spring Trade Engine and Live-Sim) reported `SUCCESS` for deployment SHA `262d03dcff839e`, newer than #798/#799. This is runtime *deployment* evidence only; it does not establish specific Saxo fills, P/L, 10s reversal latency or which strategy a given account is running.
+- **Next review:** visually verify triangles on chosen LIVE chart against exact account-scoped reconciled Saxo execution events; check label clarity on mobile. Continue HyperChase quote-quality/gate audit and Strategilab v2 replay validation separately; never auto-switch or arm accounts because docs were updated.
+- **Continuity status:** human-readable `PROJECT_STATE.md` updated alongside the already-current automatic Git journal. The docs-only update should not redeploy trading code; if CI/journal advances, confirm GitHub history but do not infer LIVE changes.
+
 ## Architecture in one minute
 
 PriceGauger: canonical market data → Technical Core → optional analytical layers → TradingDesk / AutoTrader. PostgreSQL is production shared state. Railway services: `pricegauger-web`, `PriceGauger-worker`, `PriceGauger-stream`, PostgreSQL.
@@ -102,7 +111,7 @@ At the end of meaningful work, update this file within the relevant PR with:
 
 Keep it concise: prune completed items, retain durable decisions, link PRs for details. A new chat starts here; there is no need for a narrative handoff.
 
-### Most recent operational checkpoint (2026-10-21 UTC)
+### Historical operational checkpoint (2026-10-21 UTC)
 
 - **Delivered:** quote-driven HyperChase FAST/FILTERED LIVE in normal V3 chooser (#775), continuous prospectively sampled 1s PAPER experiment (#774), guarded close→broker-flat→fresh-quote open; no account enabled by deployment.
 - **Validated:** GitHub CI for #775 green; Railway all five app services deployed merge SHA `4a9c5717` SUCCESS. This verifies delivery, not ≤10s broker execution.
