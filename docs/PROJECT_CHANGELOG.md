@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `829d274931287087a5630178d8fc8aca32c5d417`
+Latest tracked main commit: `21f8566b1952b9bd9cbf6d510b5293e64c611ade`
 
 ## Recent main commits
 
+- 2026-10-23 [`21f8566b19`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/21f8566b1952b9bd9cbf6d510b5293e64c611ade) — V3 charts: exact reconciled trades as triangle-only markers (#799)
 - 2026-10-23 [`829d274931`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/829d274931287087a5630178d8fc8aca32c5d417) — Fix idempotent MACD+Stoch HOLD_DUPLICATE LIVE crash (#798)
 - 2026-10-22 [`4f3386a12b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4f3386a12b75927b775763cfc3f3efa4ab9771a8) — Add Tech100 PriceTrend #1 and SMA9/21 research baseline (#796)
 - 2026-10-21 [`5abcab49f2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5abcab49f2e8afb6b255d8623228950c62aa2271) — Fix TradingDesk false-free V3 Saxo account status (#794)
@@ -46,6 +47,5 @@ Latest tracked main commit: `829d274931287087a5630178d8fc8aca32c5d417`
 - 2026-10-19 [`abc1061629`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/abc10616295e9876878678eb8843de1757b61593) — Fix rhythm LIVE configuration save vs SIM validation (#756)
 - 2026-10-19 [`86995bcb47`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/86995bcb47ef037075437f3a15618d1c06a8c57f) — Rhythm strategies: Fraktaltempo LIVE routes via normal V3 arming (#755)
 - 2026-10-19 [`e382a94b6c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e382a94b6c122970fe9d84b99a6861f6fcb57dc1) — Rytmebygg and RytmeTrend V3: guarded LIVE-compatible routes (#753)
-- 2026-10-19 [`a802893aef`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a802893aefdf168cf6eb65b2ccfcb7174be0e0c5) — Account statistics: plot NAV and observed strategy periods for each active V3 account (#752)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
