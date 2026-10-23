@@ -456,8 +456,9 @@ export default function(component) {
                 color: Number(point.value) >= 0 ? 'rgba(22,163,74,.34)' : 'rgba(220,38,38,.34)',
             })));
         }
-        entry.markers?.setMarkers?.(Array.from(payload.markers || []).map(marker => {
-            // Keep V3 broker execution-side arrows intact on 1s fragment refreshes.
+        entry.triangleLayer?.setMarkers(payload.markers);
+        entry.markers?.setMarkers?.(pgV3NativeMarkers(Array.from(payload.markers || []).map(marker => {
+            // V3 broker execution events are drawn by triangleLayer alone.
             if (String(marker.source || '') === 'AUTOTRADER_V3') return marker;
             const direction = String(marker.direction || '').toUpperCase();
             if (!['LONG', 'SHORT', 'FLAT'].includes(direction)) return marker;
@@ -468,7 +469,7 @@ export default function(component) {
                 shape: isFlat ? 'square' : (direction === 'LONG' ? 'arrowUp' : 'arrowDown'),
                 color: isFlat ? '#64748b' : marker.color,
             };
-        }));
+        })));
         }
         return true;
     }
