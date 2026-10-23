@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `21f8566b1952b9bd9cbf6d510b5293e64c611ade`
+Latest tracked main commit: `e87d43457cea635e71fd159681986f3b3f35398c`
 
 ## Recent main commits
 
+- 2026-10-23 [`e87d43457c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e87d43457cea635e71fd159681986f3b3f35398c) — Update PriceGauger living handoff for Oct 23 V3 fixes (#801)
 - 2026-10-23 [`21f8566b19`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/21f8566b1952b9bd9cbf6d510b5293e64c611ade) — V3 charts: exact reconciled trades as triangle-only markers (#799)
 - 2026-10-23 [`829d274931`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/829d274931287087a5630178d8fc8aca32c5d417) — Fix idempotent MACD+Stoch HOLD_DUPLICATE LIVE crash (#798)
 - 2026-10-22 [`4f3386a12b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4f3386a12b75927b775763cfc3f3efa4ab9771a8) — Add Tech100 PriceTrend #1 and SMA9/21 research baseline (#796)
@@ -46,6 +47,5 @@ Latest tracked main commit: `21f8566b1952b9bd9cbf6d510b5293e64c611ade`
 - 2026-10-19 [`15865c2e91`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/15865c2e913f3af35a249970400ccd7a8a534fb6) — Saxo account NAV observation windows and EOD diagnostic coverage (#757)
 - 2026-10-19 [`abc1061629`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/abc10616295e9876878678eb8843de1757b61593) — Fix rhythm LIVE configuration save vs SIM validation (#756)
 - 2026-10-19 [`86995bcb47`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/86995bcb47ef037075437f3a15618d1c06a8c57f) — Rhythm strategies: Fraktaltempo LIVE routes via normal V3 arming (#755)
-- 2026-10-19 [`e382a94b6c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e382a94b6c122970fe9d84b99a6861f6fcb57dc1) — Rytmebygg and RytmeTrend V3: guarded LIVE-compatible routes (#753)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
