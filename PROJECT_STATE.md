@@ -27,6 +27,14 @@ The separate V2/Lager account must not accidentally acquire V3 authority. Preser
 - Improve responsiveness without duplicating canonical data loading.
 - Keep SIM and LIVE evidence clearly separate.
 
+## HyperChase and LIVE worker check (2026-10-23 07:55 UTC)
+
+- Five Railway app deployments: `SUCCESS` commit `2aa2f639fc18` (2026-10-22); verify new deploy SHA after the fix PR.
+- Saxo Tech100 UIC 4912 genuine BBO quality improved: last 60s typically 47–53 received quotes, latest ~1–3s old, valid 10s windows present. This is an input-quality check, NOT evidence of profitability or ten-second fills.
+- No `hyper-chase-10s-*` LIVE SIGNAL_TRACE / GATE_SUMMARY in the inspected 2026-10-22/23 logs. Five armed LIVE instances running other strategies; in particular `b800fdec` (historically Tech100-E) showed `rhythm-trend-1-v1` signals, not HyperChase, and broker-target/actual +0.01 at 07:54 UTC. **Do not assume HyperC is active, and do not change any user's arming/strategy choice.**
+- Critical unrelated worker fault: repeated `TypeError: MacdStochDecisionV3.__init__() missing stochastic_k/stochastic_d` on duplicate 1m/2m bar. `autotrader_v3_closed_bar_driver_v1.py` built a four-argument `HOLD_DUPLICATE` with six-field Stoch V1 type. A small no-op decision-envelope fix is under isolated PR, with idempotency tests, no strategy or Saxo-order change. Verify GitHub CI and matching Railway worker deployment before declaring repaired.
+- HyperChase opposite target is immediate, but actual Saxo reversals remain protected CLOSE → broker-confirmed FLAT → fresh signal OPEN; not an atomic net flip.
+
 ## Current verification status
 
 - **Railway production build pause reconfirmed 2026-10-21:** an attempted source reconnect of isolated LiveSimLab from GitHub `main` returned `Deploys have been paused temporarily`. Cost saving PRs #784, #786 and #788 are merged with green CI, but no matching new production deployments observed. Do not claim reduced billed consumption yet. Preserve LIVE and account controls. Once Railway resumes, roll out LiveSimLab, stream and worker deliberately, check their deployed SHAs, then compare comparable 6h CPU/RAM and DB growth; stop if runtime regressions.
