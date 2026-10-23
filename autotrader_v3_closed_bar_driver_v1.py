@@ -229,13 +229,13 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             target = float(row["target_amount"] if isinstance(row,dict) else row[1])
             prev_spread = row["previous_spread"] if isinstance(row,dict) else row[2]
             if bar_time <= last:
-                hold_type=(
-                    MacdTrailingDecisionV3 if strategy_key in {TRAILING_KEY, FLIP_KEY}
-                    else MacdStochDecisionV3 if strategy_key == STOCH_KEY
-                    else MacdStochV2DecisionV3 if strategy_key in {STOCH_V2_KEY, STOCH_V21_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3}
-                    else MacdHistogramDecisionV3
-                )
-                hold=hold_type(
+                # Duplicate bars are idempotent bookkeeping, not new
+                # strategy evaluations. Return the canonical four-field
+                # decision envelope for EVERY strategy. MacdStochDecisionV3
+                # additionally requires K and D (unavailable on a duplicate),
+                # so constructing it with four arguments crashes the LIVE
+                # worker loop. Never fabricate indicator values or new targets.
+                hold=MacdHistogramDecisionV3(
                     TargetInventoryV3(target),"HOLD_DUPLICATE",
                     f"closed bar {bar_time} already evaluated",float(observation.spread))
                 return ClosedBarDecisionV3(f"{trader_id}|{bar_time}",hold,False)
