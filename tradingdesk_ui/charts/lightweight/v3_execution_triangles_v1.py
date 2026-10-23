@@ -38,8 +38,10 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
             const price = Number(marker.price);
             const time = Number(marker.time);
             if (!Number.isFinite(price) || !Number.isFinite(time)) continue;
-            const x = Number(chart.timeScale().timeToCoordinate(time));
-            const y = Number(priceSeries.priceToCoordinate(price));
+            const xRaw = chart.timeScale().timeToCoordinate(time);
+            const yRaw = priceSeries.priceToCoordinate(price);
+            if (xRaw == null || yRaw == null) continue;
+            const x = Number(xRaw), y = Number(yRaw);
             if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
             if (x < -10 || x > width + 10 || y < -15 || y > height + 15) continue;
             const up = side === 'BUY';
