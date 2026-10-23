@@ -6,6 +6,8 @@ from typing import Any, Mapping
 
 import streamlit as st
 
+from .v3_execution_triangles_v1 import V3_EXECUTION_TRIANGLE_JS
+
 
 _LIGHTWEIGHT_CHARTS_URL = (
     "https://unpkg.com/lightweight-charts@5.2.1/dist/"
@@ -15,6 +17,8 @@ _LIGHTWEIGHT_CHARTS_URL = (
 
 _SIMPLE_LIVE_JS = rf"""
 const LIB_URL = {_LIGHTWEIGHT_CHARTS_URL!r};
+
+{V3_EXECUTION_TRIANGLE_JS}
 
 export default function(component) {{
     const {{ data, parentElement }} = component;
@@ -261,9 +265,11 @@ export default function(component) {{
             }});
         }}
 
+        const triangleLayer = createPgV3TradeTriangleLayer(chart,candles,root);
+        triangleLayer.setMarkers(markerPayload());
         let markers = null;
         if (LWC.createSeriesMarkers) {{
-            markers = LWC.createSeriesMarkers(candles, markerPayload(), {{
+            markers = LWC.createSeriesMarkers(candles, pgV3NativeMarkers(markerPayload()), {{
                 autoScale: false, zOrder: 'top',
             }});
         }}
@@ -327,7 +333,7 @@ export default function(component) {{
         if (candleData.length) chart.timeScale().fitContent();
 
         return {{
-            parent: parentElement, root, chart, candles, series, markers, selection, resizeObserver,
+            parent: parentElement, root, chart, candles, series, markers, triangleLayer, selection, resizeObserver,
             signature: String(payload.signature || ''),
             closedRevision: JSON.stringify(candleData), formingTime: null,
             lastRevision: Number(payload.update_revision || 0),
@@ -365,7 +371,8 @@ export default function(component) {{
                 color: Number(point.value) >= 0 ? 'rgba(22,163,74,.34)' : 'rgba(220,38,38,.34)',
             }})));
         }}
-        entry.markers?.setMarkers?.(markerPayload());
+        entry.markers?.setMarkers?.(pgV3NativeMarkers(markerPayload()));
+        entry.triangleLayer?.setMarkers(markerPayload());
     }}
 
     const mounted = registry.get(chartId);
@@ -379,6 +386,7 @@ export default function(component) {{
         if (!valid || !sameSignature) {{
             if (entry) {{
                 try {{ entry.resizeObserver?.disconnect(); }} catch (_) {{}}
+                try {{ entry.triangleLayer?.destroy(); }} catch (_) {{}}
                 try {{ entry.chart.remove(); }} catch (_) {{}}
                 registry.delete(chartId);
             }}
@@ -402,7 +410,7 @@ _simple_live_component = st.components.v2.component(
 )
 
 
-_SIMPLE_LIVE_REFRESH_JS = r"""
+_SIMPLE_LIVE_REFRESH_JS = V3_EXECUTION_TRIANGLE_JS + r"""
 export default function(component) {
     const { data, parentElement } = component;
     const payload = data.payload || {};
