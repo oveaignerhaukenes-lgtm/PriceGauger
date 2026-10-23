@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import threading
 from contextlib import contextmanager, nullcontext
@@ -417,7 +418,29 @@ class SaxoOAuthClient:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise SaxoAuthError("tokenresponsen var ikke gyldig JSON", status="INVALID_RESPONSE", status_code=response.status_code) from exc
+            # Saxo /token can return non-JSON (e.g. HTML from an auth gateway).
+            # Preserve the HTTP failure instead of misclassifying a 401 as a
+            # malformed successful response. Never log the body or credentials.
+            headers = getattr(response, "headers", {}) or {}
+            content_type = str(headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            if content_type not in {"application/json", "text/html", "text/plain"}:
+                content_type = "other" if content_type else "missing"
+            correlation = str(headers.get("X-Correlation") or "")
+            if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", correlation):
+                correlation = "unavailable"
+            if response.status_code in {401, 403}:
+                status, message = "REAUTH_REQUIRED", "Saxo avviste tokenforespørselen"
+            elif response.status_code == 429:
+                status, message = "RATE_LIMITED", "Saxo begrenset tokenforespørslene"
+            elif response.status_code >= 500:
+                status, message = "AUTH_SERVICE_ERROR", "Saxo tokenendepunkt svarte med en serverfeil"
+            else:
+                status, message = "INVALID_RESPONSE", "tokenresponsen var ikke gyldig JSON"
+            raise SaxoAuthError(
+                f"{message}; content-type={content_type}; x-correlation={correlation}",
+                status=status,
+                status_code=response.status_code,
+            ) from exc
 
         if not response.ok:
             message = "tokenforespørselen ble avvist"
