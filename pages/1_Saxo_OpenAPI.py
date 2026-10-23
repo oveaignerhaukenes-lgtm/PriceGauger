@@ -8,6 +8,7 @@ import streamlit as st
 from build_info import render_build_badge
 from saxo_auth import SaxoAuthError, configured_oauth_client
 from saxo_auth_ui import handle_saxo_oauth_callback, render_saxo_auth_panel
+from saxo_oauth_diagnostics import safe_oauth_runtime_preflight
 from saxo_discover import discover_pricegauger_instruments
 from saxo_provider import (
     configured_client,
@@ -46,6 +47,19 @@ c1.metric("Tilkobling", "Tilkoblet" if connected else "Ikke tilkoblet")
 c2.metric("Miljø", environment)
 remaining = status.get("access_seconds_remaining")
 c3.metric("Access-token", f"{max(int(remaining or 0), 0) // 60} min" if connected else "—")
+
+with st.expander("OAuth-diagnose: faktisk konfigurasjon (uten hemmeligheter)", expanded=False):
+    diagnostic = safe_oauth_runtime_preflight(oauth.config)
+    st.json(diagnostic, expanded=True)
+    st.caption(
+        "Leses kun fra kjørende tjeneste. Sammenlign AppKey-suffiks og "
+        "SHA-256-fingeravtrykk mot Saxo LIVE-appen. "
+        "Ingen apphemmeligheter, tokenverdier eller autorisasjonskoder vises."
+    )
+    if not diagnostic["auth_endpoint_matches_environment"] or diagnostic["client_id_contains_quotes_or_controls"]:
+        st.warning("OAuth-konfigurasjonen har et mulig avvik. Kontroller Railway-variablene.")
+    if diagnostic["redirect_contains_query"]:
+        st.warning("Redirect-URL inneholder query eller fragment. Sammenlign med Saxo-appens registrerte URL.")
 
 if status.get("refresh_expires_at"):
     try:
