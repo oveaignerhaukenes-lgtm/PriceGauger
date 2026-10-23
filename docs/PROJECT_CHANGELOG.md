@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `62e32dba4e60282ac50a3f3c108f4f57a0bc5cc9`
+Latest tracked main commit: `74d84632000fdcd38867ad1b9295e99ca7745320`
 
 ## Recent main commits
 
+- 2026-10-23 [`74d8463200`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74d84632000fdcd38867ad1b9295e99ca7745320) — Add safe Saxo LIVE OAuth runtime diagnostics (#803)
 - 2026-10-23 [`62e32dba4e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/62e32dba4e60282ac50a3f3c108f4f57a0bc5cc9) — Fix Saxo OAuth 401 classification and callback diagnostics (#802)
 - 2026-10-23 [`e87d43457c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e87d43457cea635e71fd159681986f3b3f35398c) — Update PriceGauger living handoff for Oct 23 V3 fixes (#801)
 - 2026-10-23 [`21f8566b19`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/21f8566b1952b9bd9cbf6d510b5293e64c611ade) — V3 charts: exact reconciled trades as triangle-only markers (#799)
@@ -46,6 +47,5 @@ Latest tracked main commit: `62e32dba4e60282ac50a3f3c108f4f57a0bc5cc9`
 - 2026-10-19 [`be790be6eb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/be790be6eb1696446c5e2ce8f9adb087f2fe1fa4) — Add persistent project state and automatic Git journal (#760)
 - 2026-10-19 [`63c1224d63`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/63c1224d63c8c868675b67b929f8baca388347a8) — Saxo EOD: empty account history is normal, not an API failure (#758)
 - 2026-10-19 [`15865c2e91`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/15865c2e913f3af35a249970400ccd7a8a534fb6) — Saxo account NAV observation windows and EOD diagnostic coverage (#757)
-- 2026-10-19 [`abc1061629`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/abc10616295e9876878678eb8843de1757b61593) — Fix rhythm LIVE configuration save vs SIM validation (#756)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
