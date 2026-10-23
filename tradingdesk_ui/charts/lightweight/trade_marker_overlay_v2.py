@@ -5,8 +5,10 @@ from typing import Any, Sequence
 
 import streamlit as st
 
+from .v3_execution_triangles_v1 import V3_EXECUTION_TRIANGLE_JS
 
-_MARKER_OVERLAY_JS = r"""
+
+_MARKER_OVERLAY_JS = V3_EXECUTION_TRIANGLE_JS + r"""
 export default function(component) {
     const { data, parentElement } = component;
     const chartId = String(data.chart_id || '');
@@ -63,6 +65,7 @@ export default function(component) {
                     text: '',
                     size: Number(marker.marker_size || 0.42),
                     id: `${marker.id || raw}:${index}:execution`,
+                    source: 'AUTOTRADER_V3', side, action: String(marker.action || ''),
                 }];
             }
 
@@ -85,7 +88,12 @@ export default function(component) {
         const entry = registry?.get?.(chartId);
         if (!entry?.markers?.setMarkers || !entry?.baseCandles) return false;
         try {
-            entry.markers.setMarkers(payload(entry));
+            const rendered = payload(entry);
+            if (!entry.triangleLayer) {
+                entry.triangleLayer = createPgV3TradeTriangleLayer(entry.chart,entry.candles,entry.root);
+            }
+            entry.triangleLayer.setMarkers(rendered);
+            entry.markers.setMarkers(pgV3NativeMarkers(rendered));
             return true;
         } catch (_) {
             return false;

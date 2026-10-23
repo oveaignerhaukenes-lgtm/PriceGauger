@@ -51,4 +51,6 @@ def test_simple_renderer_supports_tap_series_identification_and_live_marker_upda
     assert "chart.subscribeClick" in source
     assert "__pgLabel" in source
     assert "selection.textContent = picked.__pgLabel" in source
-    assert "entry.markers?.setMarkers?.(markerPayload())" in source
+    assert "entry.markers?.setMarkers?.(pgV3NativeMarkers(markerPayload()))" in source
+    assert "entry.triangleLayer?.setMarkers(markerPayload())" in source
+    assert "createPgV3TradeTriangleLayer" in source

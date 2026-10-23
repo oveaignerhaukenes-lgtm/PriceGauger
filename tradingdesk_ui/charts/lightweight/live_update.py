@@ -5,6 +5,8 @@ from typing import Any, Sequence
 
 import streamlit as st
 
+from .v3_execution_triangles_v1 import V3_EXECUTION_TRIANGLE_JS
+
 from autotrader_trade_markers_v1 import AutoTraderTradeMarkerV1
 from saxo_chart_live import FormingCandle1m
 from tradingdesk_ui.charts.lightweight.contract import (
@@ -14,7 +16,7 @@ from tradingdesk_ui.charts.lightweight.contract import (
 )
 
 
-_LIGHTWEIGHT_LIVE_UPDATE_JS = r"""
+_LIGHTWEIGHT_LIVE_UPDATE_JS = V3_EXECUTION_TRIANGLE_JS + r"""
 export default function(component) {
     const { data, parentElement, setTriggerValue } = component;
     const chartId = String(data.chart_id || '');
@@ -75,6 +77,7 @@ export default function(component) {
                     text: '',
                     size: Number(marker.marker_size || 0.42),
                     id: `${source}:${marker.id || raw}:${index}`,
+                    source: 'AUTOTRADER_V3', side, action: String(marker.action || ''),
                 }];
             }
             if (direction !== 'LONG' && direction !== 'SHORT') return [];
@@ -501,7 +504,14 @@ export default function(component) {
             restoreBase(entry);
         }
 
-        try { entry.markers?.setMarkers?.(markerPayload(entry)); } catch (_) {}
+        try {
+            const rendered = markerPayload(entry);
+            if (!entry.triangleLayer) {
+                entry.triangleLayer = createPgV3TradeTriangleLayer(entry.chart,entry.candles,entry.root);
+            }
+            entry.triangleLayer.setMarkers(rendered);
+            entry.markers?.setMarkers?.(pgV3NativeMarkers(rendered));
+        } catch (_) {}
         return true;
     }
 
