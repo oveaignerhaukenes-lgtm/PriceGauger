@@ -18,5 +18,6 @@ def test_trade_markers_are_refreshed_not_one_time_drawings():
     assert "@st.fragment(run_every=\"1000ms\")" in CHART
     assert "trade_markers=_load_trade_markers()" in CHART
     assert "ttl=3" in ADAPTER
-    assert "entry.markers?.setMarkers?.(markerPayload());" in RENDERER
+    assert "entry.markers?.setMarkers?.(pgV3NativeMarkers(markerPayload()));" in RENDERER
+    assert "entry.triangleLayer?.setMarkers(markerPayload());" in RENDERER
     assert "pg_v2_saxo_manual_trade_marker_sync" in CHART
