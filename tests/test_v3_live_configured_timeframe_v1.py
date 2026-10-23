@@ -76,9 +76,10 @@ def test_v3_live_runtime_routes_selected_config_timeframe_to_macd():
     config=source.index("config=load_autotrader_config_v3(e.pilot_key")
     resolve=source.index("timeframe_minutes=_live_timeframe_minutes_v3(config.timeframe)",config)
     closed=source.index("closed=closed_bars_v2(",resolve)
-    observation=source.index("obs=macd_observations_v2(",closed)
+    observation=source.index("obs=(closed_price_observations_v1(",closed)
     assert config < resolve < closed < observation
-    assert "timeframe_minutes=timeframe_minutes" in source[closed:observation+200]
+    assert "macd_observations_v2(closed,timeframe_minutes=timeframe_minutes)" in source[observation:observation+280]
+    assert "timeframe_minutes=timeframe_minutes" in source[closed:observation+280]
     old_window=source[source.index("actual=_actual(e,broker)"):source.index("decision=evaluate_strategy_bar_v3(")]
     assert "timeframe_minutes=5" not in old_window
 
