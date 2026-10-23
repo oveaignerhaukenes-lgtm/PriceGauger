@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 
@@ -12,6 +13,7 @@ from saxo_auth import SaxoAuthError, configured_oauth_client
 
 
 _STATE_MAX_AGE_SECONDS = 10 * 60
+_LOGGER = logging.getLogger("pricegauger.saxo.oauth")
 
 
 def _format_remaining(seconds: int | None) -> str:
@@ -90,16 +92,24 @@ def handle_saxo_oauth_callback() -> None:
         return
 
     if oauth_error:
+        _LOGGER.warning("Saxo OAuth callback reported provider error; no code/state logged")
         detail = error_description or oauth_error
         st.error(f"Saxo-innloggingen ble avbrutt: {detail}")
     elif not valid_signed_oauth_state(returned_state, client.config.client_secret):
+        _LOGGER.warning("Saxo OAuth callback rejected invalid/expired state; no code/state logged")
         st.error("Saxo OAuth state var ugyldig eller utløpt. Start innloggingen på nytt fra Saxo OpenAPI-siden.")
     else:
         try:
             client.exchange_code(code)
+            _LOGGER.info("Saxo OAuth callback stored token environment=%s", client.config.environment)
             st.session_state["saxo_oauth_connected"] = True
-            st.success("Saxo SIM er koblet til. Access-token fornyes nå automatisk.")
+            st.success(f"Saxo {client.config.environment.upper()} er koblet til. Access-token fornyes nå automatisk.")
         except SaxoAuthError as exc:
+            _LOGGER.warning(
+                "Saxo OAuth callback token exchange failed status=%s http_status=%s",
+                exc.status,
+                exc.status_code,
+            )
             st.error(f"Kunne ikke fullføre Saxo-innloggingen: {exc}")
 
     _clear_oauth_query_params()
@@ -153,5 +163,5 @@ def render_saxo_auth_panel() -> None:
                 st.info("Ikke koblet til Saxo.")
             state = build_signed_oauth_state(client.config.client_secret)
             authorization_url, _ = client.build_authorization_url(state=state)
-            st.link_button("Koble til Saxo SIM", authorization_url, use_container_width=True)
+            st.link_button(f"Koble til Saxo {client.config.environment.upper()}", authorization_url, use_container_width=True)
             st.caption("Saxo sender nettleseren tilbake til den registrerte redirect-URL-en etter innlogging.")

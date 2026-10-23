@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from database import connect
 from saxo_auth import (
+    SaxoAuthError,
     SaxoDatabaseTokenStore,
     SaxoOAuthClient,
     SaxoOAuthConfig,
@@ -175,3 +178,66 @@ def test_configured_client_uses_database_store_when_database_url_exists(monkeypa
     client = configured_oauth_client(lambda name: values.get(name, ""))
 
     assert isinstance(client.store, SaxoDatabaseTokenStore)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_status"),
+    [
+        (401, "REAUTH_REQUIRED"),
+        (403, "REAUTH_REQUIRED"),
+        (429, "RATE_LIMITED"),
+        (503, "AUTH_SERVICE_ERROR"),
+        (200, "INVALID_RESPONSE"),
+    ],
+)
+def test_non_json_token_response_reports_http_cause_without_leaking_body(tmp_path, status_code, expected_status):
+    class NonJsonResponse:
+        ok = status_code == 200
+        headers = {
+            "Content-Type": "text/html; charset=utf-8",
+            "X-Correlation": "saxo-request-123",
+        }
+        text = "SECRET_TOKEN_AND_HTML_SHOULD_NEVER_BE_EMITTED"
+
+        def __init__(self):
+            self.status_code = status_code
+
+        def json(self):
+            raise ValueError("not JSON")
+
+    class NonJsonSession:
+        def post(self, url, *, data, auth, headers, timeout):
+            return NonJsonResponse()
+
+    client = SaxoOAuthClient(config(tmp_path), session=NonJsonSession())
+
+    with pytest.raises(SaxoAuthError) as err:
+        client.exchange_code("test-code")
+
+    assert err.value.status == expected_status
+    assert err.value.status_code == status_code
+    assert "content-type=text/html" in str(err.value)
+    assert "x-correlation=saxo-request-123" in str(err.value)
+    assert "SECRET_TOKEN" not in str(err.value)
+    assert "test-code" not in str(err.value)
+    assert "app-secret" not in str(err.value)
+
+
+def test_token_error_ignores_unsafe_correlation_header(tmp_path):
+    class BadGatewayResponse:
+        ok = False
+        status_code = 401
+        headers = {"Content-Type": "text/html", "X-Correlation": "injected\\nheader"}
+
+        def json(self):
+            raise ValueError("not JSON")
+
+    class Session:
+        def post(self, url, *, data, auth, headers, timeout):
+            return BadGatewayResponse()
+
+    client = SaxoOAuthClient(config(tmp_path), session=Session())
+    with pytest.raises(SaxoAuthError) as err:
+        client.exchange_code("safe-code")
+    assert "x-correlation=unavailable" in str(err.value)
+    assert "injected" not in str(err.value)
