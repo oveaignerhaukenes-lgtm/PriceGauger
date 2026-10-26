@@ -171,7 +171,7 @@ def walk_forward_probability(
     groups = _segments(bars)
     resolved: list[ProbabilityForecast] = []
     preview = None
-    for group in groups:
+    for group_index, group in enumerate(groups):
         if len(group) < max(lag + horizon + 26, 40):
             continue
         # First prediction requires 24+ resolved h-ahead training examples.
@@ -180,7 +180,7 @@ def walk_forward_probability(
             item = _predict_at(group, i, horizon=horizon, lag=lag, window=window)
             if item.actual is not None:
                 resolved.append(item)
-            elif i == len(group) - 1:
+            elif group_index == len(groups) - 1 and i == len(group) - 1:
                 preview = item
     return resolved, preview, max(0, len(groups) - 1)
 
