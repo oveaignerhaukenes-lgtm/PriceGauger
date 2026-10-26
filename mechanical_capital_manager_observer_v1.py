@@ -84,11 +84,14 @@ def shadow_observer_from_completed_bars_v1(
     bars: Sequence[ChartBar], *, instance_id: str, strategy_key: str,
     manual_slider_pct: float, cost_roundtrip_bps: float = 8.,
     max_inventory: float = .03,
+    hypothetical_leverage: float = 1.,
 ) -> StrategyObserver:
     if strategy_key not in SUPPORTED_SHADOW_KEYS:
         raise ValueError("no independent PAPER strategy adapter for this V3 strategy")
     if not 0 <= cost_roundtrip_bps <= 500 or not isfinite(cost_roundtrip_bps):
         raise ValueError("invalid hypothetical roundtrip BBO cost")
+    if not isfinite(hypothetical_leverage) or not 1 <= hypothetical_leverage <= 10:
+        raise ValueError("hypothetical leverage must be 1..10")
     settings = MacdTrailingConfigV3(max_inventory=max_inventory)
     observer = []
     if len(bars) < MIN_WARMUP_MINUTES+15:
@@ -107,7 +110,7 @@ def shadow_observer_from_completed_bars_v1(
         if last_close is not None:
             # Existing virtual inventory from previous closed bar earns
             # subsequent market move; today's decision cannot trade on it.
-            signed = position / max_inventory
+            signed = hypothetical_leverage*position/max_inventory
             nav = max(1.e-8, nav * (1 + signed*(close/last_close-1)))
         last_close = close
         ob = by_time.get(at)
@@ -125,7 +128,7 @@ def shadow_observer_from_completed_bars_v1(
             # Idealized closed-bar rebalance + explicit assumed cost, 1x proxy.
             turnover = abs(next_pos-position)/max_inventory
             nav = max(1.e-8, nav *
-                      (1 - turnover*cost_roundtrip_bps/20000.))
+                      (1 - turnover*hypothetical_leverage*cost_roundtrip_bps/20000.))
             position = next_pos
         end = at+timedelta(minutes=1)
         if end.minute % 15 == 0 and i >= MIN_WARMUP_MINUTES:
