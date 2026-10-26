@@ -52,7 +52,7 @@ source = st.selectbox(
     ), key="tempo:instrument",
 )
 a, b, c = st.columns(3)
-hours = a.selectbox("Registrert historikk", (1, 3, 6, 12, 24), index=2,
+hours = a.selectbox("Registrert historikk", (3, 6, 12, 24), index=1,
                     format_func=lambda x: f"Siste {x} timer", key="tempo:hours")
 delay = b.selectbox(
     "Antatt ekstra ordre- / beslutningslatens", (0, 1, 3, 5), index=1,
@@ -153,7 +153,7 @@ elif result:
         "Quoted bid/ask er medregnet. Segmenter med åpne posisjoner rapporteres "
         "med separat markering; samlet resultat holdes tilbake når "
         "markedshistorikken ikke viser en faktisk testavslutning. "
-        "Forskjeller i datadekning/oppvarming kan også påvirke sammenligningen."
+        "Felles 60 minutters oppvarmingstid per sammenhengende datasegment er brukt. Kortere intervaller har fortsatt kortere teknisk indikatorhorisont."
     )
     ready = all(x.modeled_bars >= 50 for x in result["results"])
     closed = all(x.incomplete_segments == 0 for x in result["results"])
