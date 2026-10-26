@@ -186,12 +186,13 @@ elif r:
         ])
         if not curves.empty:
             st.subheader("PAPER-porteføljekurve mot fast startvekt")
-            st.line_chart(curves.pivot_table(index="Tid",columns="Mekanikk" if False else "Tid",
-                                            values="Mekanisk PAPER") if False else
-                          pd.DataFrame({
-                              "Mekanisk PAPER":[v for _,v in t.portfolio_equity],
-                              "Fast nøytral PAPER":[v for _,v in t.fixed_equity],
-                          },index=[k for k,_ in t.portfolio_equity]),use_container_width=True)
+            st.line_chart(
+                pd.DataFrame({
+                    "Mekanisk PAPER":[v for _,v in t.portfolio_equity],
+                    "Fast nøytral PAPER":[v for _,v in t.fixed_equity],
+                },index=[k for k,_ in t.portfolio_equity]),
+                use_container_width=True,
+            )
         if t.correlations:
             st.subheader("Samvariasjon mellom strategiene")
             st.dataframe(pd.DataFrame([
