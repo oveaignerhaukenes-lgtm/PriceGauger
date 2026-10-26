@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `ef5f22c7db5f03cfdfa127db9d5a2926750d9f4f`
+Latest tracked main commit: `d15ff05a0462a73bc06f818aea5445b7e9d1985e`
 
 ## Recent main commits
 
+- 2026-10-26 [`d15ff05a04`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d15ff05a0462a73bc06f818aea5445b7e9d1985e) — docs: record merged and deployed Probability Lab tournament, pending real historical evaluation
 - 2026-10-26 [`ef5f22c7db`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ef5f22c7db5f03cfdfa127db9d5a2926750d9f4f) — feat: stochastic model tournament and interpreted Probability Lab report (#806)
 - 2026-10-26 [`a34b96181d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a34b96181d1ca5fd3436ce54ad05f0464dece09f) — feat: Probability Lab 1m Markov and Poisson/Skellam research (#805)
 - 2026-10-23 [`74d8463200`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74d84632000fdcd38867ad1b9295e99ca7745320) — Add safe Saxo LIVE OAuth runtime diagnostics (#803)
@@ -46,6 +47,5 @@ Latest tracked main commit: `ef5f22c7db5f03cfdfa127db9d5a2926750d9f4f`
 - 2026-10-19 [`dfcd34a3d4`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/dfcd34a3d40588558d8876dfbead28969154a590) — Correct V3 AI SHADOW model review accounting for flat positions (#763)
 - 2026-10-19 [`0e52a5ca0c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0e52a5ca0cfe38394396a1c1f6c0509f16c593c4) — V3 AI loss SHADOW manager and TradingView Lightweight inspection (#762)
 - 2026-10-19 [`2be6e75eff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2be6e75eff5ec461b595790aee2787f1206826d5) — V3 per-instance visual audit: trade chart, MACD/Stoch and causal AI memory (#761)
-- 2026-10-19 [`be790be6eb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/be790be6eb1696446c5e2ce8f9adb087f2fe1fa4) — Add persistent project state and automatic Git journal (#760)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
