@@ -179,7 +179,7 @@ def replay_mechanical_allocator(
             for i in range(len(models))
         ) / len(models)
         static = sum(
-            (m.manual_slider_pct/100.) * (returns[i]/100.)
+            (m.manual_slider_pct*initial_fraction/100.) * (returns[i]/100.)
             for i,m in enumerate(models)
         ) / len(models)
         nav = max(0., nav * (1.+applied))
@@ -187,6 +187,7 @@ def replay_mechanical_allocator(
         curve.append((at, nav))
         fixed_curve.append((at, fixed_nav))
         observed += 1
+        previous_weights = tuple(fraction)
         for i,m in enumerate(models):
             increments[i].append(returns[i])
             current = sample_maps[i][at]
@@ -223,15 +224,15 @@ def replay_mechanical_allocator(
                     state, detail="SHADOW_ZERO","Continuous loss reduced PAPER exposure to zero"
                 else:
                     state,detail="PAPER_ADJUST","+/-10 points of manual cap per 1% 15m shadow return"
-                # Turnover is a separate hypothetical cost on allocated
-                # capital fractions, not simulated broker execution.
-                change_frac = abs(prior_fraction-fraction[i])/100.
-                nav *= max(0., 1. - change_frac*turnover_cost_bps/10000./len(models))
-                curve[-1] = (at, nav)
             decisions.append(AllocationDecision(
                 at,m.instance_id,m.strategy_key,returns[i],dd,
                 m.manual_slider_pct,round(fraction[i],6),state,detail
             ))
+        # Apply the hypothetical reallocation cost on EVERY change, including
+        # SHADOW_STOP, REENTRY and reduction to zero, once per 15m decision.
+        turnover = sum(abs(old-new)/100. for old,new in zip(previous_weights, fraction))
+        nav *= max(0., 1.-turnover*turnover_cost_bps/10000./len(models))
+        curve[-1] = (at, nav)
         last = at
     correlations = []
     for i in range(len(models)):
