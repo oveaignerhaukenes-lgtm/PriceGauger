@@ -14,6 +14,9 @@ from probability_lab_v1 import (
     HORIZONS, MAX_BARS, score_forecasts, up_calibration,
     walk_forward_probability,
 )
+from probability_lab_tournament_v1 import (
+    MODELS, explain_tournament, run_model_tournament,
+)
 
 st.set_page_config(page_title="Probability Lab · PriceGauger", layout="wide")
 st.title("Probability Lab · 1m")
@@ -60,7 +63,8 @@ roundtrip_bps = st.number_input(
     min_value=0., max_value=1000., value=8., step=1., key="plab:cost"
 )
 run_key = (int(source.instrument_id), str(end_day), int(hours),
-           int(horizon), int(lag), int(window))
+           int(horizon), int(lag), int(window),
+           float(threshold), float(roundtrip_bps))
 if st.button("Kjør kausal walk-forward på lagrede 1m-barer", type="primary", key="plab:run"):
     try:
         end = min(datetime.now(timezone.utc),
@@ -81,8 +85,13 @@ if st.button("Kjør kausal walk-forward på lagrede 1m-barer", type="primary", k
             raise ValueError(
                 "For lite sammenhengende 1m-historikk. Velg lengre vindu eller et aktivt marked."
             )
+        tournament = run_model_tournament(
+            bars, horizon=horizon, window=window,
+            threshold=float(threshold), roundtrip_bps=float(roundtrip_bps),
+        )
         st.session_state["plab:result"] = {
             "key": run_key, "data": resolved, "preview": preview,
+            "tournament": tournament,
             "gaps": gap_count, "bars": len(bars),
             "start": start.isoformat(), "end": end.isoformat(),
             "instrument_id": int(source.instrument_id),
@@ -101,6 +110,83 @@ if result and result["key"] != run_key:
     st.warning("Parameterne er endret. Kjør testen på nytt for å unngå gamle resultater.")
 elif result:
     forecast = result["data"]
+    tournament = result.get("tournament")
+    if tournament:
+        explanation = explain_tournament(
+            tournament, market=result["market"],
+            roundtrip_bps=float(roundtrip_bps),
+        )
+        st.subheader("Automatisk oppsummering, tolkning og anbefaling")
+        st.markdown("**Oppsummering.** " + explanation["summary"])
+        st.markdown("**Tolkning.** " + explanation["interpretation"])
+        st.markdown("**Anbefaling.** " + explanation["recommendation"])
+        st.caption(
+            "Konklusjonen er deterministisk utledet av evaluerte priser og "
+            "målt sannsynlighetskvalitet, ikke et AI-generert markedsnarrativ. "
+            "En valgt modell er ikke det samme som en lønnsom handelsstrategi."
+        )
+        st.subheader("Stokastisk modellturnering · ni kandidater")
+        st.caption(
+            "Alle kandidatene evalueres på samme faktiske 1m-observasjoner. "
+            "Første 70 % brukes til modellvalg; siste 30 % holdes utenfor "
+            "modellvalget. Brier (lav er bra) er primærmetrikken. "
+            "Intervallene for evaluering er ikke overlappende. "
+            "Testen evaluerer neste close, ikke Saxo-ordreutførelse."
+        )
+        table_rows = []
+        reference = tournament.holdout_scores["baseline"]["brier"]
+        for model in sorted(
+            MODELS,
+            key=lambda m: tournament.validation_scores[m]["brier"]
+            if tournament.validation_scores[m]["brier"] is not None else float("inf"),
+        ):
+            validation = tournament.validation_scores[model]
+            holdout = tournament.holdout_scores[model]
+            tested = holdout["brier"]
+            table_rows.append({
+                "Modell": MODELS[model],
+                "Valgt": "Ja" if model == tournament.selected else "",
+                "Validerings-Brier": (
+                    round(validation["brier"], 5)
+                    if validation["brier"] is not None else None
+                ),
+                "Holdout-Brier": round(tested, 5) if tested is not None else None,
+                "Holdout-forbedring mot baseline": (
+                    round(reference - tested, 5)
+                    if reference is not None and tested is not None else None
+                ),
+                "Treff %": (
+                    round(100 * holdout["hit_rate"], 1)
+                    if holdout["hit_rate"] is not None else None
+                ),
+                "Log-loss": (
+                    round(holdout["log_loss"], 4)
+                    if holdout["log_loss"] is not None else None
+                ),
+                "Antall holdout-observasjoner": holdout["n"],
+                "Hypotetiske signaler": holdout["signals"],
+                "Gj.snittsignal netto % (ikke fills)": (
+                    round(holdout["mean_net_signal_pct"], 4)
+                    if holdout["mean_net_signal_pct"] is not None else None
+                ),
+            })
+        st.dataframe(
+            pd.DataFrame(table_rows), hide_index=True, use_container_width=True
+        )
+        for note in tournament.notes:
+            st.caption(note)
+        if tournament.evidence:
+            st.success(
+                "Valgt modell har positiv holdout-Brier-forbedring, "
+                "og et blokk-bootstrap-intervall over null. Dette er "
+                "prediksjonsevidens, ikke dokumentert tradbar gevinst."
+            )
+        else:
+            st.info(
+                "Ingen robust, reservert holdout-overlegenhet er etablert "
+                "etter minimumskravene. Modellene forblir forskningskandidater."
+            )
+
     st.subheader("Walk-forward · historiske, tidligere usette utfall")
     st.caption(
         f"{result['market']} · Saxo UIC {result['uic']} · "
@@ -184,6 +270,17 @@ elif result:
                         "Each forecast uses as-of resolved labels only.",
                         "Cost-adjusted signal payoff is not cumulative strategy P/L."],
         "gaps": result["gaps"],
+        "tournament": ({
+            "selected_model": tournament.selected,
+            "validation_scores": tournament.validation_scores,
+            "holdout_scores": tournament.holdout_scores,
+            "brier_gain": tournament.gain_brier,
+            "brier_gain_ci95": tournament.gain_ci95,
+            "evidence": tournament.evidence,
+            "note": tournament.notes,
+            "narrative": explanation,
+            "heldout_asof": [x.asof for x in tournament.holdout],
+        } if tournament else None),
         "forecast_rows": [asdict(p) for p in forecast],
         "latest_unresolved_preview": asdict(preview) if preview else None,
     }
