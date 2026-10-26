@@ -289,12 +289,12 @@ def run_v21_quote_paper_v1(
                 before = position
                 position = new_pos
                 all_actions.append(PaperFill30V1(
-                    quote.at.isoformat(), item.bar.bar_time, action,
+                    quote.received_at.isoformat(), item.bar.bar_time, action,
                     before, position, price, quote.bid, quote.ask,
                     _mark(local_cash, position, quote),
                 ))
             local_marks.append(_mark(local_cash, position, quote))
-            local_last = quote.at.isoformat()
+            local_last = quote.received_at.isoformat()
         if not local_modeled:
             continue
         assessed += 1
