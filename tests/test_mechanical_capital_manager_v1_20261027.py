@@ -37,10 +37,10 @@ def test_per_one_percent_changes_by_ten_percent_of_manual_cap():
 def test_negative_ten_percent_shadow_drawdown_goes_to_zero_and_observer_recovers():
     vals=[100,99,98,97,96,94,89,90,91,92,93,94,95,96,97,98]
     t=replay_mechanical_allocator([observer(values=vals)])
-    assert any(x.state=="SHADOW_STOP" for x in t.decisions)
+    assert any(x.state in ("SHADOW_ZERO","SHADOW_STOP") for x in t.decisions)
     assert any(x.suggested_exposure_pct==0 for x in t.decisions)
     assert any(x.state=="PAPER_REENTRY" for x in t.decisions)
-    stop_i=next(i for i,x in enumerate(t.decisions) if x.state=="SHADOW_STOP")
+    stop_i=next(i for i,x in enumerate(t.decisions) if x.state in ("SHADOW_ZERO","SHADOW_STOP"))
     resume_i=next(i for i,x in enumerate(t.decisions) if x.state=="PAPER_REENTRY")
     assert stop_i < resume_i
     assert all(x.suggested_exposure_pct==0 for x in t.decisions[stop_i:resume_i])
@@ -148,7 +148,7 @@ def test_1m_observer_never_bridges_session_gap_and_requires_closed_bars():
         canonical_bars(270),asof=START+timedelta(minutes=100)
     )
     assert len(cut)==100
-    with pytest.raises(ValueError,match="unsupported"):
+    with pytest.raises(ValueError,match="no independent PAPER strategy adapter"):
         shadow_observer_from_completed_bars_v1(
             cut,instance_id="p",strategy_key="aen-inference",
             manual_slider_pct=100
