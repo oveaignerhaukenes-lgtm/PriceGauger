@@ -1,4 +1,4 @@
-"""Research-only 30s vs 1m MACD+Stoch V2.1 on genuine archived Saxo BBO.
+"""Research-only 15s vs 30s vs 1m MACD+Stoch V2.1 on genuine archived Saxo BBO.
 
 Never routes to broker, config, LIVE strategy registry or execution. Both
 cadences use completed bars reconstructed from received, timestamped bid/ask.
@@ -105,8 +105,8 @@ def build_completed_bars_v1(
     quotes: Sequence[Quote30V1], *, interval_seconds: int, market: str,
     observed_through: datetime,
 ) -> tuple[CompletedBar30V1, ...]:
-    if interval_seconds not in (30, 60):
-        raise ValueError("only native 30s and comparator 1m are supported")
+    if interval_seconds not in (15, 30, 60):
+        raise ValueError("only native 15s, 30s, and 1m are supported")
     cutoff = _utc(observed_through)
     windows: list[list[Quote30V1]] = []
     starts: list[datetime] = []
@@ -121,7 +121,7 @@ def build_completed_bars_v1(
             windows.append([])
             last = bucket
         windows[-1].append(q)
-    minimum = max(8, interval_seconds // 4)
+    minimum = max(5, interval_seconds // 4)
     completed = []
     for start, rows in zip(starts, windows):
         end = start + timedelta(seconds=interval_seconds)
