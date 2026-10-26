@@ -171,7 +171,7 @@ elif result:
             "Neste prisendring %": round(x.return_pct, 4),
             "Tilgjengelige treningsutfall": x.sample_size,
             "Samme Markov-tilstand": x.state_matches,
-        } for x in forecast[-100:]), hide_index=True, use_container_width=True)
+        } for x in forecast[-100:]]), hide_index=True, use_container_width=True)
     package = {
         "schema": "PG_PROBABILITY_LAB_1M_V1",
         "instrument": {"id": result["instrument_id"], "uic": result["uic"],
