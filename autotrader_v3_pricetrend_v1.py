@@ -1,4 +1,4 @@
-"""PriceTrend #1: causal Tech100 price-regime research strategy (SIM/PAPER only).
+"""PriceTrend #1: causal Tech100 price-regime strategy (V3 SIM and guarded LIVE).
 
 MACD/Stoch never determine direction here. Completed 1m Saxo OHLC is
 aggregated into completed 5m regime and 2m timing candles. Missing/gapped
@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Sequence
 
+from autotrader_mtf_entry_shadow_v2 import MtfObservationV2
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_macd_histogram_v1 import (
     MacdHistogramConfigV3, MacdHistogramDecisionV3,
@@ -32,7 +33,10 @@ MIN_SLOPE_ATR = 0.08         # 5m SMA21 change over 3 completed bars
 MIN_PRICE_DISTANCE_ATR = 0.10
 TRAIL_ATR_MULTIPLE = 2.5
 TRAIL_LOOKBACK_5M = 12
-MIN_HISTORY_1M = 150        # enough fully aligned 5m and 2m windows
+MIN_HISTORY_1M = 150        # 5m regime warmup, independent of signal period
+SUPPORTED_SIGNAL_MINUTES = (1,2,5,10,15,30,60)
+TECH100_UIC = 4912
+TECH100_ASSET_TYPE = "CfdOnIndex"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +59,26 @@ class RegimeEvidence:
     price: float | None
 
 
+def closed_price_observations_v1(closed_signal_bars, timeframe_minutes):
+    """PriceTrend S-clock observations: no MACD history or MACD signal gate.
+
+    All input is an already *closed* canonical S candle; the driver cursor and
+    V3 broker checks are unchanged. This allows real 1h trend signals without
+    demanding 34 continuous hours of unrelated MACD indicator warmup.
+    """
+    minutes=int(timeframe_minutes)
+    if minutes not in SUPPORTED_SIGNAL_MINUTES:
+        raise ValueError("unsupported PriceTrend signal timeframe")
+    out=[]
+    for bar in closed_signal_bars:
+        at=_utc(bar.bar_time)
+        out.append(MtfObservationV2(
+            bar_time=at,closed_at=at+timedelta(minutes=minutes),
+            timeframe_minutes=minutes,close=float(bar.close),
+            macd=0.0,signal=0.0))
+    return tuple(out)
+
+
 def _utc(value) -> datetime:
     result = value if isinstance(value, datetime) else datetime.fromisoformat(
         str(value).replace("Z", "+00:00")
@@ -64,15 +88,19 @@ def _utc(value) -> datetime:
     return result.astimezone(timezone.utc)
 
 
-def _closed_source(source_bars: Sequence, cutoff: datetime) -> tuple[Candle, ...]:
+def _closed_source(source_bars: Sequence, cutoff: datetime,
+                   signal_minutes: int=2) -> tuple[Candle, ...]:
     """Accept only contiguous, valid, fully completed 1m candles ending at cutoff."""
     bars = sorted(
         (bar for bar in source_bars if _utc(bar.bar_time) < cutoff),
         key=lambda bar: _utc(bar.bar_time),
     )
-    if len(bars) < MIN_HISTORY_1M:
-        raise ValueError("PriceTrend needs at least 150 closed canonical 1m bars")
-    bars = bars[-180:]
+    minimum=max(MIN_HISTORY_1M,10*signal_minutes+signal_minutes)
+    if len(bars) < minimum:
+        raise ValueError("PriceTrend needs more completed 1m bars for chosen S timeframe")
+    # Keep more than the 9+1 completed S bars plus the 5m macro warmup.
+    # At S=60m retain >= 660 genuine 1m bars, without any extra SQL requests.
+    bars = bars[-max(180,12*signal_minutes):]
     result = []
     for bar in bars:
         t = _utc(bar.bar_time)
@@ -176,41 +204,54 @@ def _decision(current, wanted, action, why, observation):
     )
 
 
-def _common(*, current_target, observation, source_bars, config, market_name):
+def _common(*, current_target, observation, source_bars, config,
+            market_name,signal_timeframe_minutes=2):
     current = float(current_target.amount)
     if str(market_name) != TECH100_MARKET:
         return current, None, None, _decision(current,0,"FLAT_OTHER_MARKET",
-            "SIM research restricted to canonical US Tech 100 NAS", observation)
+            "PriceTrend allowed only on canonical US Tech 100 NAS", observation)
     try:
+        signal_minutes=int(signal_timeframe_minutes)
+        if signal_minutes not in SUPPORTED_SIGNAL_MINUTES:
+            raise ValueError("Unsupported PriceTrend signal period")
         closed_at = _utc(observation.closed_at)
-        bars_1m = _closed_source(source_bars,closed_at)
+        bars_1m = _closed_source(source_bars,closed_at,signal_minutes)
         five = _aggregate(bars_1m,5)
-        two = _aggregate(bars_1m,2)
-        if len(five)<SMA_SLOW+3 or len(two)<SMA_SLOW+1:
-            raise ValueError("not enough aligned 2m/5m completed candles")
+        signal = _aggregate(bars_1m,signal_minutes)
+        # Require an actual newly completed signal bar at this decision.
+        if (not signal or signal[-1].at + timedelta(minutes=signal_minutes)!=closed_at
+                or len(five)<SMA_SLOW+3 or len(signal)<SMA_FAST+1):
+            raise ValueError("not enough aligned completed 5m regime and S signal candles")
     except (ValueError, TypeError, AttributeError, OverflowError):
         return current, None, None, _decision(current,0,"FLAT_DATA_GAP",
             "missing/incomplete source; no synthetic candle or stale entry",observation)
-    return current, five, two, None
+    return current, five, signal, None
 
 
 def pricetrend_target_v1(*,current_target:TargetInventoryV3,
                          observation,previous_observation=None,
                          source_bars:Sequence=(),market_name="",
                          config:MacdHistogramConfigV3=MacdHistogramConfigV3(),
-                         **_):
+                         signal_timeframe_minutes:int=2, **_):
     """One legal tranche; opposite side requires a separate FLAT decision."""
-    current, five, two, blocked = _common(
+    current, five, signal, blocked = _common(
         current_target=current_target,observation=observation,
-        source_bars=source_bars,config=config,market_name=market_name)
+        source_bars=source_bars,config=config,market_name=market_name,
+        signal_timeframe_minutes=signal_timeframe_minutes)
     if blocked is not None:
         return blocked
     evidence = price_regime_v1(five)
+    # Never add exposure to a broker-confirmed position larger than the
+    # chosen one-tranche strategy can manage. Avoid a forced liquidation
+    # merely because the previous strategy held multiple tranches.
+    if abs(current)>float(config.tranche)+1e-9:
+        return _decision(current,current,"HOLD_OVERSIZE",
+            "Position exceeds PriceTrend one-tranche LIVE envelope",observation)
     if evidence.regime == "UNKNOWN":
         return _decision(current,0,"FLAT_WARMUP","5m ATR/SMA warmup",observation)
-    close = two[-1].close
-    fast = _sma([b.close for b in two],SMA_FAST)
-    old_fast = _sma([b.close for b in two[:-1]],SMA_FAST)
+    close = signal[-1].close
+    fast = _sma([b.close for b in signal],SMA_FAST)
+    old_fast = _sma([b.close for b in signal[:-1]],SMA_FAST)
     atr = evidence.atr
     if current < 0:
         trail = min(b.low for b in five[-TRAIL_LOOKBACK_5M:]) + TRAIL_ATR_MULTIPLE*atr
@@ -232,23 +273,27 @@ def pricetrend_target_v1(*,current_target:TargetInventoryV3,
             f"SMA21 slope/ATR={evidence.slope_atr:.2f}",observation)
     if evidence.regime=="BEAR" and close < fast and fast <= old_fast:
         return _decision(current,-config.tranche,"OPEN_SHORT",
-            f"5m BEAR+LH/LL ER={evidence.er:.2f} ATR={atr:.2f}; price below 2m SMA9",observation)
+            f"5m BEAR+LH/LL ER={evidence.er:.2f} ATR={atr:.2f}; price below S{signal_timeframe_minutes} SMA9",observation)
     if evidence.regime=="BULL" and close > fast and fast >= old_fast:
         return _decision(current,config.tranche,"OPEN_LONG",
-            f"5m BULL+HH/HL ER={evidence.er:.2f} ATR={atr:.2f}; price above 2m SMA9",observation)
+            f"5m BULL+HH/HL ER={evidence.er:.2f} ATR={atr:.2f}; price above S{signal_timeframe_minutes} SMA9",observation)
     return _decision(current,0,"WAIT_TREND",
-        f"5m {evidence.regime}; awaiting 2m continuation/valid structure",observation)
+        f"5m {evidence.regime}; awaiting S{signal_timeframe_minutes} continuation",observation)
 
 
 def sma_9_21_baseline_target_v1(*,current_target:TargetInventoryV3,
                                observation,previous_observation=None,
                                source_bars:Sequence=(),market_name="",
                                config:MacdHistogramConfigV3=MacdHistogramConfigV3(),
-                               **_):
+                               signal_timeframe_minutes:int=2,**_):
     """Independent 2m SMA9/21 no ATR or ER: explicit comparator, SIM only."""
+    if signal_timeframe_minutes!=2:
+        return _decision(current,0,"FLAT_BASELINE_TIMEFRAME",
+            "SMA research baseline is 2m only",observation)
     current, five, two, blocked = _common(
         current_target=current_target,observation=observation,
-        source_bars=source_bars,config=config,market_name=market_name)
+        source_bars=source_bars,config=config,market_name=market_name,
+        signal_timeframe_minutes=2)
     if blocked is not None:
         return blocked
     vals = [b.close for b in two]

@@ -34,7 +34,7 @@ from autotrader_v3_macd_regime_histogram_v1 import macd_regime_histogram_target_
 from autotrader_v3_aen2_sticky_regime_v1 import aen2_sticky_regime_target_v3
 from autotrader_v3_aen21_sticky_fast_exit_v1 import aen21_sticky_fast_exit_target_v3
 from autotrader_v3_pricetrend_v1 import (
-    pricetrend_target_v1,sma_9_21_baseline_target_v1,
+    pricetrend_target_v1,sma_9_21_baseline_target_v1,closed_price_observations_v1,
 )
 from autotrader_v3_rhythm_trend_v1 import rhythm_trend_target_v3
 from autotrader_v3_fractal_rhythm_variants_v1 import (
@@ -221,7 +221,8 @@ def _complete_candles(segment,minutes,market):
     return tuple(out)
 
 
-def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market):
+def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market,
+                   signal_timeframe_minutes=2):
     func=PURE_V3[key]
     args=dict(current_target=TargetInventoryV3(target),observation=obs,
               previous_observation=prev,config=config)
@@ -241,6 +242,7 @@ def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market):
         args["source_bars"]=source
         if key in ("pricetrend-1","sma-9-21-baseline"):
             args["market_name"]=market
+            args["signal_timeframe_minutes"]=signal_timeframe_minutes
     elif key in FRACTAL_BUILD:
         args.update(bars=bars,source_bars=source)
     return func(**args),peak_state
@@ -259,8 +261,8 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
         raise ValueError(f"Strategy not yet replay-ready: {strategy_key}")
     if timeframe not in PERIODS:
         raise ValueError("unsupported signal timeframe")
-    if strategy_key in {"pricetrend-1","sma-9-21-baseline"} and timeframe!="2m":
-        raise ValueError("PriceTrend and SMA baseline require complete 2m signals")
+    if strategy_key=="sma-9-21-baseline" and timeframe!="2m":
+        raise ValueError("SMA baseline requires complete 2m signals")
     if strategy_key in MICRO_TIMING and timeframe!="1m":
         raise ValueError("Price, rhythm and fractal microstructure strategies require 1m signal")
     segments=_segments(bars)
@@ -291,7 +293,10 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
         tf=PERIODS[timeframe]
         macd_tf=2 if strategy_key in PRECROSS else tf
         chart=_complete_candles(segment,macd_tf,market)
-        observations=macd_observations_v2(chart,timeframe_minutes=macd_tf) if len(chart)>=34 else ()
+        observations=(closed_price_observations_v1(chart,macd_tf)
+                      if strategy_key=="pricetrend-1"
+                      else macd_observations_v2(chart,timeframe_minutes=macd_tf)
+                      if len(chart)>=34 else ())
         by_end={utc(x.closed_at):x for x in observations}
         signal_chart=_complete_candles(segment,tf,market) if tf!=macd_tf else chart
         signal_by_end={utc(x.bar_time)+timedelta(minutes=tf):j
@@ -348,14 +353,14 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                     visible=signal_chart[max(0,end_i-130):end_i]
                     # 15m macro MACD requires > 35*15 observed minutes to warm up.
                     # A 650m as-of window is bounded but preserves its context.
-                    source=segment[max(0,ix-650):ix+1]
+                    source=segment[max(0,ix-840):ix+1]
                     # Price strategies check last 5 contiguous source bars,
                     # and the only 2m observation available at this minute.
                     args_bars=(tuple(segment[max(0,ix-130):ix+1])
                                if strategy_key in MICRO_TIMING else visible)
                     decision,peak_state=_call_strategy(
                         strategy_key,target,obs,previous_obs,args_bars,source,
-                        peak_state,config,market)
+                        peak_state,config,market,tf)
                     target=max(-max_lots,min(max_lots,float(decision.target.amount)))
                     sig=str(decision.action)
                     if abs(target-position)>1e-9:

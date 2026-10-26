@@ -145,19 +145,19 @@ def test_sma_baseline_is_distinct_from_price_atr_regime():
     assert "ATR" in trend.reason
 
 
-def test_lab_and_v3_catalogue_are_replay_only_and_tech100_2m():
+def test_lab_v3_price_trend_live_and_baseline_research_only():
     for catalog,runtime in (("pricetrend-1",STRATEGY_KEY_V3),
                             ("sma-9-21-baseline",BASELINE_KEY_V3)):
         assert strategy_v3(catalog).runtime_key==runtime
         assert strategy_v3(catalog).runtime_ready
-        assert not strategy_adapter_v3(runtime).live_route_enabled
+        assert strategy_adapter_v3(runtime).live_route_enabled == (catalog=="pricetrend-1")
         assert catalog in PURE_V3
         assert sim_config_issues_v3(strategy_key=catalog,timeframe="2m",
                                     control_mode="Manuell",modifiers=())==()
-        assert live_config_issues_v3(strategy_key=catalog,timeframe="2m",
-                                     control_mode="Manuell",modifiers=())
-        assert sim_config_issues_v3(strategy_key=catalog,timeframe="5m",
-                                    control_mode="Manuell",modifiers=())
+        assert bool(live_config_issues_v3(strategy_key=catalog,timeframe="2m",
+                                     control_mode="Manuell",modifiers=()))==(catalog!="pricetrend-1")
+        assert bool(sim_config_issues_v3(strategy_key=catalog,timeframe="5m",
+                                    control_mode="Manuell",modifiers=()))==(catalog!="pricetrend-1")
     source=Path("autotrader_v3_live_runtime_v1.py").read_text()
     assert "adapter.live_route_enabled" in source
 
@@ -176,6 +176,6 @@ def test_realistic_next_bar_paper_replay_charges_costs_and_isolates_no_orders():
     assert trend.events[0].at.minute%2==0
     assert all(event.at>=START+timedelta(minutes=150)
                for event in trend.events)
-    with pytest.raises(ValueError,match="complete 2m"):
-        replay_v3_strategy_v2(strategy_key="pricetrend-1",
+    with pytest.raises(ValueError,match="SMA baseline"):
+        replay_v3_strategy_v2(strategy_key="sma-9-21-baseline",
                              bars=bars,costs=costs,timeframe="5m")
