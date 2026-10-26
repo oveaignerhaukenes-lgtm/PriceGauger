@@ -70,7 +70,7 @@ def test_model_selection_has_holdout_and_abstains_for_insufficient_data():
     story = explain_tournament(tiny, market="Tech100", roundtrip_bps=8)
     assert "For lite" in story["summary"]
     assert "Ikke" in story["recommendation"]
-    medium = run_model_tournament(bars(250), horizon=5, window=120)
+    medium = run_model_tournament(bars(550), horizon=5, window=120)
     assert medium.selected in MODELS
     assert not medium.evidence  # <100 independent late-period comparisons
 
