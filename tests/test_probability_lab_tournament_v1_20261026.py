@@ -38,7 +38,7 @@ def test_all_models_normalized_forward_and_holdout_nonoverlap(h):
     assert t.candidates == tuple(MODELS)
     assert t.rows
     assert t.validation and t.holdout
-    assert t.selected in MODELS
+    assert (t.selected is None if h == 10 else t.selected in MODELS)
     for r in t.rows:
         assert r.actual in ("up", "down", "flat")
         assert r.probabilities.keys() == MODELS.keys()
