@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `d15ff05a0462a73bc06f818aea5445b7e9d1985e`
+Latest tracked main commit: `35ebc45683cf42e7867b8514005311a380b48f31`
 
 ## Recent main commits
 
+- 2026-10-27 [`35ebc45683`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/35ebc45683cf42e7867b8514005311a380b48f31) — feat: V2.1 Tempo Lab 15s 30s 1m and PAPER direct net flip (#807)
 - 2026-10-26 [`d15ff05a04`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d15ff05a0462a73bc06f818aea5445b7e9d1985e) — docs: record merged and deployed Probability Lab tournament, pending real historical evaluation
 - 2026-10-26 [`ef5f22c7db`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ef5f22c7db5f03cfdfa127db9d5a2926750d9f4f) — feat: stochastic model tournament and interpreted Probability Lab report (#806)
 - 2026-10-26 [`a34b96181d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a34b96181d1ca5fd3436ce54ad05f0464dece09f) — feat: Probability Lab 1m Markov and Poisson/Skellam research (#805)
@@ -46,6 +47,5 @@ Latest tracked main commit: `d15ff05a0462a73bc06f818aea5445b7e9d1985e`
 - 2026-10-20 [`b9704a2486`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b9704a2486357e0709e650a2af0782242beceaf4) — V3 AI Loss Manager: optional LIVE modifier via normal Saxo execution (#764)
 - 2026-10-19 [`dfcd34a3d4`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/dfcd34a3d40588558d8876dfbead28969154a590) — Correct V3 AI SHADOW model review accounting for flat positions (#763)
 - 2026-10-19 [`0e52a5ca0c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0e52a5ca0cfe38394396a1c1f6c0509f16c593c4) — V3 AI loss SHADOW manager and TradingView Lightweight inspection (#762)
-- 2026-10-19 [`2be6e75eff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2be6e75eff5ec461b595790aee2787f1206826d5) — V3 per-instance visual audit: trade chart, MACD/Stoch and causal AI memory (#761)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
