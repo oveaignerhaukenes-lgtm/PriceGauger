@@ -77,7 +77,7 @@ def test_appending_future_does_not_change_existing_probabilities():
 def test_future_target_change_cannot_affect_earlier_prediction():
     old, _, _ = walk_forward_probability(make_bars(180), horizon=1, lag=2)
     changed, _, _ = walk_forward_probability(
-        make_bars(180, replace_at=179, replacement=25000.), horizon=1, lag=2
+        make_bars(180, replace_at=179, replacement=1.), horizon=1, lag=2
     )
     assert old[-1].asof == changed[-1].asof
     assert old[-1].markov == changed[-1].markov
