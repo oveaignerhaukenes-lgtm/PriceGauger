@@ -1,6 +1,6 @@
 """Research-only 15s vs 30s vs 1m MACD+Stoch V2.1 on genuine archived Saxo BBO.
 
-Never routes to broker, config, LIVE strategy registry or execution. Both
+Never routes to broker, config, LIVE strategy registry or execution. All
 cadences use completed bars reconstructed from received, timestamped bid/ask.
 Marks and hypothetical fills use observable BBO *after* candle close, never
 the same candle's closing price. Point-lot P/L has no NOK conversion, funding,
@@ -17,6 +17,7 @@ from typing import Sequence
 from autotrader_mtf_entry_shadow_v2 import macd_observations_v2
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_macd_stoch_v21 import macd_stoch_v21_target_v3
+from autotrader_v3_macd_stoch_v2 import ENTRY_THRESHOLD
 from autotrader_v3_macd_trailing_v1 import MacdTrailingConfigV3
 from trading_desk import ChartBar
 
@@ -71,6 +72,11 @@ class PaperResult30V1:
     skipped_no_fill: int
     first_bar: str | None
     last_bar: str | None
+    reversal_mode: str = "flat_first"
+    hypothetical_latency_seconds: int = 0
+    incomplete_segments: int = 0
+    marked_unrealized_points_lots: float = 0.
+    completed_pnl_points_lots: float = 0.
 
 
 def _utc(x) -> datetime:
@@ -159,12 +165,40 @@ def _mark(cash: float, pos: float, quote: Quote30V1) -> float:
     return cash + pos * (quote.bid if pos > 0 else quote.ask if pos < 0 else quote.mid)
 
 
+def _hypothetical_target(decision, position: float, *, reversal_mode: str,
+                         tranche: float) -> tuple[float, str]:
+    """Quote-reversal proposal, only for PAPER; NEVER broker-authorized."""
+    target = float(decision.target.amount)
+    action = decision.action
+    if (reversal_mode == "direct_1bar" and action == "OPPOSITE_FLAT"
+            and abs(position) >= tranche / 2
+            and abs(decision.composite_score) >= ENTRY_THRESHOLD):
+        # Strong opposite composite on this CLOSED bar: skip mandatory
+        # FLAT-next-bar wait in simulated strategy, use one NET order.
+        # In real Saxo LIVE, inventory+margin/order gates still apply.
+        side = 1 if decision.composite_score > 0 else -1
+        target = side * tranche
+        action = "DIRECT_NET_FLIP_1BAR_PAPER"
+    return target, action
+
+
 def run_v21_quote_paper_v1(
     quotes: Sequence[Quote30V1], *, seconds: int,
     market: str = "US Tech 100 NAS", observed_through: datetime,
     tranche: float = .01, max_inventory: float = .03,
+    reversal_mode: str = "flat_first",
+    hypothetical_latency_seconds: int = 0,
 ) -> PaperResult30V1:
-    """Deterministic replay. Missing bar/quote => no invented trade."""
+    """Deterministic bid/ask scenario replay with no API calls or live writes.
+
+    No 'profit' is reported as complete if any test segment ends with an open
+    position. Such positions are instead separately marked at liquidation-side
+    quotes, NOT asserted to have been closed at that price.
+    """
+    if reversal_mode not in ("flat_first", "direct_1bar"):
+        raise ValueError("only controlled native and PAPER immediate-net flip")
+    if hypothetical_latency_seconds not in (0, 1, 3, 5):
+        raise ValueError("unsupported latency scenario")
     bars = build_completed_bars_v1(
         quotes, interval_seconds=seconds, market=market,
         observed_through=observed_through,
@@ -172,15 +206,15 @@ def run_v21_quote_paper_v1(
     segments = _contiguous(bars, seconds)
     stamp = [q.at for q in quotes]
     settings = MacdTrailingConfigV3(tranche=tranche, max_inventory=max_inventory)
-    cash = 0.
-    all_actions = []
+    completed_cash = 0.
+    unrealized = 0.
+    all_actions: list[PaperFill30V1] = []
     marks: list[float] = []
-    skipped = modeled = 0
+    skipped = modeled = incomplete = 0
     last_at = None
     assessed = 0
+    running_mark = 0.
     for segment in segments:
-        # Restart in FLAT for each distinct session. Results remain PAPER:
-        # only segments whose inventory is fully closed can be scored.
         if len(segment) < MIN_SEGMENT_BARS:
             continue
         full_bars = tuple(x.bar for x in segment)
@@ -188,10 +222,9 @@ def run_v21_quote_paper_v1(
         by_time = {x.bar_time.isoformat(): x for x in observations}
         position = 0.
         local_cash = 0.
-        local_actions: list[PaperFill30V1] = []
-        local_marks: list[float] = []
         local_skipped = 0
         local_modeled = 0
+        local_marks: list[float] = []
         local_last = None
         for i in range(1, len(segment)):
             item = segment[i]
@@ -199,15 +232,17 @@ def run_v21_quote_paper_v1(
             prior = by_time.get(segment[i-1].bar.bar_time)
             if ob is None or prior is None:
                 continue
+            # Signal computed from fully CLOSED prior bars, but fill can
+            # only use a NEW actual quote at/after end + latency.
             end = item.closed_at
-            k = bisect_left(stamp, end)
+            k = bisect_left(stamp, end + timedelta(seconds=hypothetical_latency_seconds))
             if k >= len(quotes):
                 local_skipped += 1
                 continue
             quote = quotes[k]
-            # A genuine new BBO must arrive promptly after candle closed,
-            # otherwise skip and never backfill a fake market order.
-            if (quote.at - end).total_seconds() > MAX_QUOTE_AGE_SECONDS:
+            if (quote.at - end).total_seconds() > (
+                MAX_QUOTE_AGE_SECONDS + hypothetical_latency_seconds
+            ):
                 local_skipped += 1
                 continue
             decision = macd_stoch_v21_target_v3(
@@ -216,39 +251,51 @@ def run_v21_quote_paper_v1(
                 bars=full_bars[:i+1], config=settings,
             )
             local_modeled += 1
-            new_pos = float(decision.target.amount)
+            new_pos, action = _hypothetical_target(
+                decision, position, reversal_mode=reversal_mode,
+                tranche=tranche,
+            )
             delta = round(new_pos - position, 10)
             if abs(delta) > 1.e-9:
-                fill = quote.ask if delta > 0 else quote.bid
-                local_cash -= delta * fill
+                price = quote.ask if delta > 0 else quote.bid
+                local_cash -= delta * price
                 before = position
                 position = new_pos
-                local_actions.append(PaperFill30V1(
-                    quote.at.isoformat(), item.bar.bar_time, decision.action,
-                    before, position, fill, quote.bid, quote.ask,
+                all_actions.append(PaperFill30V1(
+                    quote.at.isoformat(), item.bar.bar_time, action,
+                    before, position, price, quote.bid, quote.ask,
                     _mark(local_cash, position, quote),
                 ))
             local_marks.append(_mark(local_cash, position, quote))
             local_last = quote.at.isoformat()
-        if local_modeled == 0:
-            continue
-        # No forced liquidation at gaps or test boundary with knowledge
-        # unavailable at the time. Score only fully closed runs. Incomplete
-        # runs are excluded, rather than generating fictional exit fills.
-        if abs(position) > 1.e-9:
-            skipped += local_skipped + 1
+        if not local_modeled:
             continue
         assessed += 1
-        skipped += local_skipped
         modeled += local_modeled
-        all_actions.extend(local_actions)
-        marks.extend([cash + x for x in local_marks])
-        cash += local_cash
+        skipped += local_skipped
         last_at = local_last
-    if assessed == 0 or not marks:
+        if abs(position) > 1.e-9:
+            incomplete += 1
+            # Do not drop losing/open segments from the comparison. Mark at
+            # last genuine BBO before the final eligible bar close, not
+            # a fabricated broker liquidation/fill.
+            close_time = segment[-1].closed_at
+            q_idx = bisect_left(stamp, close_time) - 1
+            final_quote = quotes[q_idx] if q_idx >= 0 else None
+            local_final = (_mark(local_cash, position, final_quote)
+                           if final_quote is not None else local_cash)
+            unrealized += local_final
+        else:
+            completed_cash += local_cash
+            local_final = local_cash
+        marks.extend([running_mark + x for x in local_marks])
+        running_mark += local_final
+    if not assessed or not marks:
         pnl = dd = None
     else:
-        pnl = cash
+        # PNL withheld on unliquidated segments; descriptive mark reported
+        # distinctly with no claim that the reset was executable.
+        pnl = completed_cash if incomplete == 0 else None
         peak = 0.
         dd = 0.
         for mark in marks:
@@ -259,4 +306,6 @@ def run_v21_quote_paper_v1(
         tuple(all_actions), pnl, dd, last_at, skipped,
         bars[0].bar.bar_time if bars else None,
         bars[-1].bar.bar_time if bars else None,
+        reversal_mode, hypothetical_latency_seconds,
+        incomplete, unrealized, completed_cash,
     )
