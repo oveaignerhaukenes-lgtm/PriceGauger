@@ -153,3 +153,25 @@ def test_1m_observer_never_bridges_session_gap_and_requires_closed_bars():
             cut,instance_id="p",strategy_key="aen-inference",
             manual_slider_pct=100
         )
+
+
+def test_leverage_is_explicit_and_only_changes_paper_returns():
+    bars=latest_contiguous_completed_1m_v1(
+        canonical_bars(270),asof=START+timedelta(minutes=270)
+    )
+    one=shadow_observer_from_completed_bars_v1(
+        bars,instance_id="pilot",strategy_key="macd-stoch-v2-1",
+        manual_slider_pct=100.,hypothetical_leverage=1.
+    )
+    five=shadow_observer_from_completed_bars_v1(
+        bars,instance_id="pilot",strategy_key="macd-stoch-v2-1",
+        manual_slider_pct=100.,hypothetical_leverage=5.
+    )
+    assert len(one.points)==len(five.points)
+    assert any(abs(a.shadow_equity-b.shadow_equity)>1.e-7
+               for a,b in zip(one.points,five.points))
+    with pytest.raises(ValueError,match="leverage"):
+        shadow_observer_from_completed_bars_v1(
+            bars,instance_id="pilot",strategy_key="macd-stoch-v2-1",
+            manual_slider_pct=100.,hypothetical_leverage=20.
+        )
