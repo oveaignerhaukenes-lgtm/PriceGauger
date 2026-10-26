@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `74d84632000fdcd38867ad1b9295e99ca7745320`
+Latest tracked main commit: `a34b96181d1ca5fd3436ce54ad05f0464dece09f`
 
 ## Recent main commits
 
+- 2026-10-26 [`a34b96181d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a34b96181d1ca5fd3436ce54ad05f0464dece09f) — feat: Probability Lab 1m Markov and Poisson/Skellam research (#805)
 - 2026-10-23 [`74d8463200`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74d84632000fdcd38867ad1b9295e99ca7745320) — Add safe Saxo LIVE OAuth runtime diagnostics (#803)
 - 2026-10-23 [`62e32dba4e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/62e32dba4e60282ac50a3f3c108f4f57a0bc5cc9) — Fix Saxo OAuth 401 classification and callback diagnostics (#802)
 - 2026-10-23 [`e87d43457c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e87d43457cea635e71fd159681986f3b3f35398c) — Update PriceGauger living handoff for Oct 23 V3 fixes (#801)
@@ -46,6 +47,5 @@ Latest tracked main commit: `74d84632000fdcd38867ad1b9295e99ca7745320`
 - 2026-10-19 [`2be6e75eff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2be6e75eff5ec461b595790aee2787f1206826d5) — V3 per-instance visual audit: trade chart, MACD/Stoch and causal AI memory (#761)
 - 2026-10-19 [`be790be6eb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/be790be6eb1696446c5e2ce8f9adb087f2fe1fa4) — Add persistent project state and automatic Git journal (#760)
 - 2026-10-19 [`63c1224d63`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/63c1224d63c8c868675b67b929f8baca388347a8) — Saxo EOD: empty account history is normal, not an API failure (#758)
-- 2026-10-19 [`15865c2e91`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/15865c2e913f3af35a249970400ccd7a8a534fb6) — Saxo account NAV observation windows and EOD diagnostic coverage (#757)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
