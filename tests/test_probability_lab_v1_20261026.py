@@ -98,6 +98,16 @@ def test_breaks_never_bridge_missing_one_minute_bars():
         assert target - start == timedelta(minutes=10)
 
 
+def test_short_segment_after_market_gap_has_no_stale_preview():
+    # A new five-minute session cannot reuse the prior session's old forecast.
+    resolved, preview, gaps = walk_forward_probability(
+        make_bars(200, gap_at=195), horizon=1, lag=2
+    )
+    assert gaps == 1
+    assert resolved
+    assert preview is None
+
+
 def test_input_rejects_bad_times_and_nonpositive_quotes():
     with pytest.raises(ValueError, match="sorted and unique"):
         walk_forward_probability(make_bars(80) + [make_bars(80)[-1]])
