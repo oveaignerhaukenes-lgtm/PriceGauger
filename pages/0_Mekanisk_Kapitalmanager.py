@@ -90,13 +90,15 @@ for key in selected_ids:
         col2.metric("Manuell slider (maks)",f"{policy.exposure_pct:g} %")
     else:
         col2.warning("Ingen LIVE-ramme; PAPER benytter 100 % maksimum")
-a,b,c = st.columns(3)
+a,b,c,d=st.columns(4)
 hours=a.selectbox("1m-historikk", (6,12,24,48), index=1,
                   format_func=lambda n:f"Siste {n} timer",key="mm:hours")
 cost=b.slider("Hypotetisk rundturkost (bps)",0.,50.,8.,1.,
               key="mm:cost")
 initial=c.slider("Nøytral PAPER-andel av slider",10,100,50,5,
                  key="mm:neutral")
+lever=d.select_slider("Teoretisk effekt av gearing",options=(1,2,3,5),
+                      value=1,key="mm:leverage")
 turnover = st.slider(
     "Ekstra PAPER-kost for managerens allokeringsendring (bps)",
     0.,30.,0.,1.,key="mm:turnover",
@@ -123,7 +125,7 @@ if st.button("Kjør mekanisk 15-minutters manager · PAPER",type="primary"):
             streams.append(shadow_observer_from_completed_bars_v1(
                 bars,instance_id=key,strategy_key=chosen[key],
                 manual_slider_pct=float(policy.exposure_pct if policy else 100),
-                cost_roundtrip_bps=float(cost),
+                cost_roundtrip_bps=float(cost),hypothetical_leverage=float(lever),
             ))
         replay = replay_mechanical_allocator(
             streams,initial_fraction=initial/100.,
@@ -131,7 +133,7 @@ if st.button("Kjør mekanisk 15-minutters manager · PAPER",type="primary"):
         )
         st.session_state["mm:report"]=dict(
             fingerprint=(source.instrument_id,tuple(selected_ids),
-                         tuple(chosen.values()),hours,cost,initial,turnover),
+                         tuple(chosen.values()),hours,cost,initial,turnover,lever),
             replay=replay,streams=streams,captured=len(raw),
             closed=len(bars),at=end.isoformat(),
         )
@@ -144,13 +146,14 @@ if st.button("Kjør mekanisk 15-minutters manager · PAPER",type="primary"):
 r=st.session_state.get("mm:report")
 if r and r["fingerprint"]!=(
     source.instrument_id,tuple(selected_ids),tuple(chosen.values()),
-    hours,cost,initial,turnover
+    hours,cost,initial,turnover,lever
 ):
     st.info("Innstillingene er endret – kjør forsøket på nytt.")
 elif r:
     t=r["replay"]
     st.caption(f"{r['captured']} kanoniske barer hentet, {r['closed']} "
-               f"fullførte sammenhengende 1m-barer, siste kjøring {r['at']} UTC.")
+               f"fullførte sammenhengende 1m-barer, {lever}× hypotetisk gearing, "
+               f"siste kjøring {r['at']} UTC.")
     if t.status!="PAPER_ONLY":
         st.warning("Utilstrekkelig felles data: "+t.status)
     else:
@@ -212,6 +215,7 @@ elif r:
             "status":t.status,"as_of":r["at"],
             "instrument_id":source.instrument_id,
             "observed_bars":r["closed"],"interval_minutes":15,
+            "hypothetical_leverage":lever,
             "decisions":[{**asdict(x),"at":x.at.isoformat()} for x in t.decisions],
             "correlations":t.correlations,
             "note":t.notes,
