@@ -151,6 +151,7 @@ def replay_mechanical_allocator(
     fixed_curve = [(clock[0], fixed_nav)]
     increments = [[] for _ in models]
     observed = 0
+    consecutive_slots = 0
     last = clock[0]
     for at in clock[1:]:
         if at - last != timedelta(minutes=SLOT_MINUTES):
@@ -160,6 +161,7 @@ def replay_mechanical_allocator(
             stops = [True]*len(models)
             peaks = [sample_maps[i][at] for i in range(len(models))]
             green_streak = [0]*len(models)
+            consecutive_slots = 0
             for i, m in enumerate(models):
                 decisions.append(AllocationDecision(
                     at, m.instance_id, m.strategy_key, 0., 0.,
@@ -168,6 +170,7 @@ def replay_mechanical_allocator(
                 ))
             last = at
             continue
+        consecutive_slots += 1
         returns = [
             (sample_maps[i][at]/sample_maps[i][last] - 1.) * 100
             for i in range(len(models))
@@ -197,7 +200,7 @@ def replay_mechanical_allocator(
                 green_streak[i] = (green_streak[i]+1) if returns[i] > 0 else 0
                 before = at-timedelta(minutes=60)
                 four_ago = sample_maps[i].get(before)
-                recovery = (four_ago is not None
+                recovery = (four_ago is not None and consecutive_slots >= 4
                             and current > four_ago and green_streak[i] >= RECOVERY_POSITIVE_SLOTS)
                 if recovery:
                     stops[i] = False
