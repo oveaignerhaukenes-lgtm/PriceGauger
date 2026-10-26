@@ -14,7 +14,8 @@ from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Sequence
 
-from autotrader_mtf_entry_shadow_v2 import macd_observations_v2
+from autotrader_macd_dry_run_v2 import MacdObservationV2
+from trading_desk_indicators import calculate_indicators
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_macd_stoch_v21 import macd_stoch_v21_target_v3
 from autotrader_v3_macd_stoch_v2 import ENTRY_THRESHOLD
@@ -24,6 +25,7 @@ from trading_desk import ChartBar
 MAX_QUOTES = 65000
 MIN_SEGMENT_BARS = 55
 MAX_QUOTE_AGE_SECONDS = 5
+COMMON_WARMUP_SECONDS = 60 * 60
 
 
 @dataclass(frozen=True)
@@ -165,6 +167,19 @@ def _mark(cash: float, pos: float, quote: Quote30V1) -> float:
     return cash + pos * (quote.bid if pos > 0 else quote.ask if pos < 0 else quote.mid)
 
 
+def _macd_observations_native(bars: tuple[ChartBar, ...]):
+    """MACD features built from genuine native-timeframe bars (not 1m labels)."""
+    values = calculate_indicators(
+        bars, macd_fast=12, macd_slow=26, macd_signal=9,
+    )
+    macd = {_utc(x.bar_time): float(x.value) for x in values.macd}
+    signal = {_utc(x.bar_time): float(x.value) for x in values.macd_signal}
+    return tuple(
+        MacdObservationV2(bar_time=at, macd=macd[at], signal=signal[at])
+        for at in sorted(set(macd).intersection(signal))
+    )
+
+
 def _hypothetical_target(decision, position: float, *, reversal_mode: str,
                          tranche: float) -> tuple[float, str]:
     """Quote-reversal proposal, only for PAPER; NEVER broker-authorized."""
@@ -218,7 +233,7 @@ def run_v21_quote_paper_v1(
         if len(segment) < MIN_SEGMENT_BARS:
             continue
         full_bars = tuple(x.bar for x in segment)
-        observations = macd_observations_v2(full_bars, timeframe_minutes=1)
+        observations = _macd_observations_native(full_bars)
         by_time = {x.bar_time.isoformat(): x for x in observations}
         position = 0.
         local_cash = 0.
@@ -232,15 +247,27 @@ def run_v21_quote_paper_v1(
             prior = by_time.get(segment[i-1].bar.bar_time)
             if ob is None or prior is None:
                 continue
+            # Same time-of-day warmup for all 15s/30s/60s candidates,
+            # despite the differing fixed MACD periods (bars vs minutes).
+            segment_start = _utc(segment[0].bar.bar_time)
+            if (item.closed_at - segment_start).total_seconds() < COMMON_WARMUP_SECONDS:
+                continue
             # Signal computed from fully CLOSED prior bars, but fill can
             # only use a NEW actual quote at/after end + latency.
             end = item.closed_at
-            k = bisect_left(stamp, end + timedelta(seconds=hypothetical_latency_seconds))
+            # The last candle constituent may arrive AFTER the bar boundary.
+            # Never place a simulated order using a quote that the collector
+            # could not yet have seen. A next-quote response is still NOT a
+            # genuine Saxo order latency/fill model.
+            last_in_bar = bisect_left(stamp, end) - 1
+            ready = max(end, quotes[last_in_bar].received_at)
+            seek = ready + timedelta(seconds=hypothetical_latency_seconds)
+            k = bisect_left(stamp, seek)
             if k >= len(quotes):
                 local_skipped += 1
                 continue
             quote = quotes[k]
-            if (quote.at - end).total_seconds() > (
+            if (quote.at - ready).total_seconds() > (
                 MAX_QUOTE_AGE_SECONDS + hypothetical_latency_seconds
             ):
                 local_skipped += 1
