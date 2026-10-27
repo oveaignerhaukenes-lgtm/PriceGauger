@@ -27,6 +27,7 @@ from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
 from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
+from autotrader_v3_macd_stoch_v22_flip import STRATEGY_KEY_V3 as STOCH_V22_KEY
 from autotrader_v3_macd_stoch_rhythm_build_v1 import STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
 from autotrader_v3_fractal_rhythm_variants_v1 import (
