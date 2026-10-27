@@ -97,3 +97,16 @@ def load_modifier_live_events_v3(*,trader_id:str,modifier_key:str,limit:int=25,
           WHERE trader_id=? AND modifier_key=?
           ORDER BY observed_at DESC LIMIT ?""",(trader_id,modifier_key,n)).fetchall()
     return tuple(dict(row) for row in rows)
+
+
+def record_modifier_operator_event_v3(*,trader_id:str,modifier_key:str,
+                                      status:str,detail:str,db_path="pricegauger.db"):
+    """Human-only reset/event log. Never issued by execution worker."""
+    from uuid import uuid4
+    ensure_modifier_audit_schema_v3(db_path)
+    with connect(db_path) as db:
+        db.execute("""INSERT INTO autotrader_v3_modifier_live_events(
+            id,trader_id,modifier_key,observed_at,event_type,status,detail)
+            VALUES(?,?,?,?,?,?,?)""",(
+                str(uuid4()),trader_id,modifier_key,_utc_now(),
+                "OPERATOR",status,detail[:350]))
