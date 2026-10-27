@@ -15,6 +15,7 @@ from analysis_status import AnalysisStatusStore
 from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
 from autotrader_v3_sim_runtime_v1 import run_v3_sim_cycle_v1
+from autotrader_v3_fleet_observer_v1 import run_monitor_once
 from autotrader_v3_live_runtime_v1 import run_v3_live_cycle_v1
 from config import openai_api_key, openai_market_model
 from database import using_postgres
@@ -290,6 +291,16 @@ def run_once(
                 LOGGER.info("v3 LIVE executed mutations=%d", v3_live_executed)
         except Exception as exc:
             LOGGER.warning("v3 LIVE cycle failed; worker continues: %s", exc, exc_info=True)
+
+    # Read-only fleet guardian: once per ordinary 60s worker cycle.
+    # No Saxo request, active strategy switch, order/arm or parameter mutation.
+    try:
+        monitored=run_monitor_once(db_path=str(db_path))
+        if any(x["severity"]=="CRITICAL" for x in monitored):
+            LOGGER.warning("V3 fleet observer critical accounts=%d",
+                           sum(x["severity"]=="CRITICAL" for x in monitored))
+    except Exception as exc:
+        LOGGER.warning("V3 fleet observer unavailable kind=%s",type(exc).__name__)
 
     summary = WorkerRunSummary(fetched=len(all_plans))
     LOGGER.info("cycle complete fetched=%s", summary.fetched)
