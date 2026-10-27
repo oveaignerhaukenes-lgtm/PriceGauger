@@ -218,3 +218,24 @@ def test_protective_control_has_broker_order_gates_and_no_auto_arming():
     for forbidden in ("place_order(", "set_live_enabled_v3(",
                       "claim_reserved_for_submission_v3("):
         assert forbidden not in source
+
+
+
+def test_new_live_modifiers_sort_first_before_any_saved_toggle(tmp_path):
+    db=str(tmp_path/"ordering.db")
+    items=[
+        SimpleNamespace(key="whipsaw"),
+        SimpleNamespace(key="impulse-exit"),
+        SimpleNamespace(key="account-loss-lock"),
+        SimpleNamespace(key="volatility-pause"),
+    ]
+    ordered=sorted_modifiers_by_last_change_v3("new_account",items,db_path=db)
+    assert [v.key for v in ordered[:2]]==["impulse-exit","account-loss-lock"]
+    record_modifier_selection_changes_v3(
+        trader_id="new_account",before=(),after=("volatility-pause",),
+        db_path=db,at="2026-10-27T03:50:00+00:00"
+    )
+    new_order=sorted_modifiers_by_last_change_v3(
+        "new_account",items,db_path=db
+    )
+    assert new_order[0].key=="volatility-pause"
