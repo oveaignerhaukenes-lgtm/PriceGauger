@@ -64,6 +64,14 @@ STRATEGIES_V3 = (
         "macd-stoch-v2-1", True,
     ),
     StrategySpecV3(
+        "macd-stoch-v2-2-flip", "MACD+Stoch V2.2 · Flip",
+        "V2.1 beholdt for OPEN og BUILD, men sterk motsatt 70/30-score "
+        "på én lukket candle sender straks motsatt minste-tranche-mål. "
+        "Saxo V3 krever fortsatt CLOSE → CONFIRM FLAT → OPEN. "
+        "Test mot V2.1 og kostnader; ingen konto byttes automatisk.",
+        "macd-stoch-v2-2-flip", True,
+    ),
+    StrategySpecV3(
         "macd-stoch-rhythm-build", "MACD+Stoch · Rytmebygg v1",
         "Separat kontrolltest mot MACD+Stoch v2. Samme 70/30-score og FLAT-signal; holder høyst én enhet ved whipsaw/usikker struktur. Bygger én enhet per bekreftet 1m retning med god effektivitet og stigende/fallende høyder og bunner. LIVE-kompatibel kodebane; separat LIVE-kontoaktivering er fortsatt påkrevd.",
         "macd-stoch-rhythm-build-v1", True,

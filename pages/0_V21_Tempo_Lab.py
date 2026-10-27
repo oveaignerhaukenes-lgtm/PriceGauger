@@ -16,7 +16,7 @@ from macd_stoch_v21_30s_research_v1 import (
 
 st.set_page_config(page_title="V2.1 Tempo-lab · PriceGauger", layout="wide")
 st.title("V2.1 Tempo-lab · 15s / 30s / 1m")
-st.caption("Sammenlign ren MACD+Stoch V2.1 med samme modell og hypotetisk direkte NET-flip.")
+st.caption("V2.1 FLAT-først, V2.1 direkte PAPER NET-flip og V2.2 Flip, på 15s/30s/1m.")
 st.warning(
     "PAPER-forskning, ikke LIVE. Direkte flip innebærer aldri tillatelse til "
     "å fjerne posisjons-, ordre-, risikogrense- eller Saxo-kontroller. "
@@ -63,7 +63,7 @@ max_lots = c.selectbox(
     format_func=lambda x: f"{x:.2f} lot", key="tempo:lots",
 )
 
-if st.button("Kjør seks sammenlignbare PAPER-varianter", type="primary", key="tempo:run"):
+if st.button("Kjør ni sammenlignbare PAPER-varianter", type="primary", key="tempo:run"):
     try:
         end = datetime.now(timezone.utc)
         start = end - timedelta(hours=int(hours))
@@ -86,11 +86,15 @@ if st.button("Kjør seks sammenlignbare PAPER-varianter", type="primary", key="t
         quotes = validate_quotes_v1([dict(x) for x in raw])
         results = []
         for seconds in (15, 30, 60):
-            for mode in ("flat_first", "direct_1bar"):
+            for model, mode in (
+                ("v21","flat_first"),("v21","direct_1bar"),
+                ("v22","flat_first"),
+            ):
                 results.append(run_v21_quote_paper_v1(
                     quotes, seconds=seconds, market=source.market_name,
                     observed_through=end, max_inventory=float(max_lots),
-                    reversal_mode=mode, hypothetical_latency_seconds=int(delay),
+                    reversal_mode=mode, decision_model=model,
+                    hypothetical_latency_seconds=int(delay),
                 ))
         st.session_state["tempo:result"] = {
             "key": (int(source.provider_instrument_id), hours, delay, max_lots),
@@ -124,7 +128,10 @@ elif result:
     for x in result["results"]:
         scores.append({
             "Bar": f"{x.interval_seconds}s",
+            "Modell": "V2.2 Flip" if x.decision_model=="v22" else "V2.1",
             "Reverseringsmåte": (
+                "V2.2 motsatt strategimål"
+                if x.decision_model=="v22" else
                 "FLAT først (dagens V2.1)" if x.reversal_mode == "flat_first"
                 else "NET-flip 1 bar (PAPER)"
             ),
@@ -160,9 +167,9 @@ elif result:
     if ready and closed:
         pairs = []
         for seconds in (15, 30, 60):
-            base = next(x for x in result["results"] if x.interval_seconds == seconds
+            base = next(x for x in result["results"] if x.interval_seconds == seconds and x.decision_model=="v21"
                         and x.reversal_mode == "flat_first")
-            flip = next(x for x in result["results"] if x.interval_seconds == seconds
+            flip = next(x for x in result["results"] if x.interval_seconds == seconds and x.decision_model=="v21"
                         and x.reversal_mode == "direct_1bar")
             pairs.append((
                 seconds, flip.hypothetical_pnl_points_lots
@@ -192,7 +199,7 @@ elif result:
             for x in res.actions[-100:]:
                 details.append({
                     "Tidsramme": f"{res.interval_seconds}s",
-                    "Variant": res.reversal_mode,
+                    "Variant":res.decision_model+" / "+res.reversal_mode,
                     **asdict(x),
                 })
         st.dataframe(pd.DataFrame(details), hide_index=True, use_container_width=True)
@@ -208,6 +215,7 @@ elif result:
                 "Genuine archived Saxo BBO, not synthetic subminute candles",
                 "All execution attempts are simulations on next quote, not broker fills",
                 "P/L in index points times Saxo lots, not NOK or total account P/L",
+                "V2.2 models target reversal; actual LIVE Saxo still CLOSE -> confirmed FLAT -> OPEN, so this PAPER proxy is optimistic about live latency",
                 "NET-flip tests one confirmed closed bar only; no LIVE authority",
                 "Open end/gap exposure is marked separately and suppresses finished total",
                 "No allowance for financing, slippage, commission, funding, cash/FX",
