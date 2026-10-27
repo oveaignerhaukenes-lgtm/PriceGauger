@@ -200,11 +200,11 @@ def drawdown_evidence_v3(*,total_value:float|None,verified:bool,
         return ProtectiveEvidenceV3("account-loss-lock","DATA_MISSING",
                                     "exact Saxo account NAV/currency/reliability unverified")
     dd=100*(1-total_value/peak_value)
-    if dd>=DRAWDOWN_FLAT_PCT:
+    if dd+1e-9>=DRAWDOWN_FLAT_PCT:
         status="DRAWDOWN_LOCK"
-    elif dd>=DRAWDOWN_NO_ADD_PCT:
+    elif dd+1e-9>=DRAWDOWN_NO_ADD_PCT:
         status="DRAWDOWN_NO_ADD"
-    elif dd>=DRAWDOWN_WARN_PCT:
+    elif dd+1e-9>=DRAWDOWN_WARN_PCT:
         status="DRAWDOWN_WARN"
     else: status="CLEAR"
     return ProtectiveEvidenceV3("account-loss-lock",status,
