@@ -246,3 +246,37 @@ def evaluate_account_loss_live_v3(*,trader_id:str,context:str,
               float(previous["reference_value"]) if previous and previous["reference_value"] else total,
               peak,db_path)
     return evidence
+
+
+def reset_account_loss_lock_v3(*,trader_id:str,context:str,
+                               account_id:str,uic:int,asset_type:str,
+                               broker,now:datetime,db_path="pricegauger.db"):
+    """Explicit human-only unlock after verified Saxo FLAT and good NAV.
+
+    Never used by LIVE worker or timer. A disabled toggle is NOT a reset.
+    """
+    from autotrader_saxo_account_truth_v1 import parse_saxo_balance_v1
+    clock=utc(now)
+    previous=_load(trader_id,"account-loss-lock",db_path)
+    if not previous or previous["status"]!="DRAWDOWN_LOCK":
+        raise ValueError("no account drawdown lock to reset")
+    if previous["context"]!=context:
+        raise ValueError("account/product/currency changed; retain safety lock")
+    actual=broker.signed_inventory_exact(
+        account_id=account_id,uic=int(uic),asset_type=asset_type)
+    if abs(float(actual))>1e-9:
+        raise ValueError("Saxo exact position must be confirmed FLAT before manual unlock")
+    matches=[x for x in broker.accounts()
+             if str(x.get("AccountId") or "")==account_id]
+    if len(matches)!=1:
+        raise ValueError("unique Saxo account not verified")
+    account=matches[0]
+    payload=broker.client._get("port/v1/balances",params={
+        "AccountKey":account["AccountKey"],"ClientKey":account["ClientKey"],
+    })
+    snap=parse_saxo_balance_v1(account=account,payload=payload,observed_at=clock)
+    if not snap.verified or snap.total_value<=0:
+        raise ValueError("verified positive exact Saxo NAV required")
+    _save(trader_id,"account-loss-lock",context,"CLEAR",clock,None,
+          snap.total_value,snap.total_value,db_path)
+    return snap.total_value
