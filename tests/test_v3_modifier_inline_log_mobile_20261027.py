@@ -13,7 +13,7 @@ def test_mobile_modifier_log_is_one_row_icon_control():
     tail=ui.index("    mode=st.selectbox(",head)
     block=ui[head:tail]
     assert 'left,right=st.columns(' in block
-    assert '[5,1],gap="small",vertical_alignment="center",wrap=False' in block
+    assert '[3,1],gap="small",vertical_alignment="center",wrap=False' in block
     assert "chosen_modifier=left.toggle(" in block
     assert "wrap=False," in block
     assert 'with right.popover(' in block
