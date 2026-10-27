@@ -239,3 +239,33 @@ def test_new_live_modifiers_sort_first_before_any_saved_toggle(tmp_path):
         "new_account",items,db_path=db
     )
     assert new_order[0].key=="volatility-pause"
+
+
+
+def test_reconciled_fill_log_is_exact_account_scoped_and_read_only(tmp_path):
+    from autotrader_v3_modifier_audit_v1 import load_exact_reconciled_executions_v3
+    from database import connect
+    db=str(tmp_path/"fill_log.db")
+    with connect(db) as con:
+        con.execute("""CREATE TABLE autotrader_v3_execution_events(
+            instance_id TEXT, account_id TEXT, uic INTEGER, asset_type TEXT,
+            action TEXT,side TEXT,amount REAL,inventory_after REAL,
+            executed_at TEXT
+        )""")
+        for who,acc,uic,action in (
+            ("i1","a1",4912,"CLOSE"),
+            ("i1","a2",4912,"ADD"),
+            ("i2","a1",4912,"REDUCE"),
+            ("i1","a1",5591,"OPEN"),
+        ):
+            con.execute("""INSERT INTO autotrader_v3_execution_events
+                VALUES(?,?,?,?,?,?,?,?,?)""",(
+                who,acc,uic,"CfdOnIndex",action,"Sell",.01,0.,
+                "2026-10-27T02:45:00+00:00"
+            ))
+    records=load_exact_reconciled_executions_v3(
+        trader_id="i1",account_id="a1",uic=4912,
+        asset_type="CfdOnIndex",db_path=db
+    )
+    assert len(records)==1
+    assert records[0]["action"]=="CLOSE"
