@@ -95,7 +95,7 @@ for key in TICK_RUNTIME_KEYS:
         live_route_enabled=True)
 
 STRATEGIES_V3[HYBRID_KEY] = StrategyAdapterV3(key=HYBRID_KEY,
-    evaluate_closed_bar=evaluate_hybrid_compat_v3,live_route_enabled=True)
+    evaluate_closed_bar=evaluate_hybrid_compat_v3,live_route_enabled=False)
 
 # PriceTrend is research-only: SIM state and historical replay; never V3 LIVE.
 for price_key in (PRICETREND_KEY, SMA_BASELINE_KEY):
