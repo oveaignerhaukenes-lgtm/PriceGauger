@@ -16,6 +16,10 @@ from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_v3_whipsaw_live_v1 import is_whipsaw_live_approved_v3,set_whipsaw_live_approval_v3
+from autotrader_v3_modifier_audit_v1 import (
+    load_modifier_live_events_v3,record_modifier_selection_changes_v3,
+    sorted_modifiers_by_last_change_v3,
+)
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_live_truth_v1 import inventory_label_v1,load_v3_live_truth_v1
 from autotrader_v3_registry_v1 import (
@@ -291,13 +295,28 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     )
     enabled=['ai-loss-manager'] if (ai_enabled or is_ai_preset) else []
     st.markdown('**Andre options / modifiers**')
-    other_modifiers=[item for item in MODIFIERS_V3 if item.key!='ai-loss-manager']
-    cols=st.columns(3)
-    for n,item in enumerate(other_modifiers):
+    st.caption("Sist lagrede endring øverst. Logg viser faktiske vurderingstilstander, "
+               "ikke ubekreftede Saxo-fills. Brytere må lagres med «Bruk på denne instansen».")
+    other_modifiers=sorted_modifiers_by_last_change_v3(
+        trader_id,[item for item in MODIFIERS_V3 if item.key!='ai-loss-manager'])
+    for item in other_modifiers:
         label=item.label if item.key in LIVE_MODIFIERS_V3 else f'{item.label} · ikke LIVE'
-        help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Lagres for V3/SIM, men er ikke koblet til LIVE-runtime ennå.')
-        if cols[n%3].toggle(label,value=item.key in config.modifiers,key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text):
+        help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Ikke koblet til LIVE-runtime.')
+        left,right=st.columns([5,2],vertical_alignment='center')
+        chosen_modifier=left.toggle(
+            label,value=item.key in config.modifiers,
+            key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text)
+        if chosen_modifier:
             enabled.append(item.key)
+        with right.popover("Logg",use_container_width=True):
+            st.caption(item.label + " · hendelseskanal")
+            events=load_modifier_live_events_v3(
+                trader_id=trader_id,modifier_key=item.key,limit=30)
+            if events:
+                st.dataframe(events,use_container_width=True,hide_index=True)
+            else:
+                st.caption("Ingen registrerte statusendringer ennå. "
+                           "Dette er ikke bevis på at modifikatoren har kjørt.")
     mode=st.selectbox(
         'Kontrollmodus', CONTROL_MODES_V3, index=CONTROL_MODES_V3.index(config.control_mode),
         format_func=lambda value: value if value in LIVE_CONTROL_MODES_V3 else f'{value} · ikke LIVE',
@@ -342,6 +361,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption('Valgt config støttes ikke av aktiv motor. Slå motoren av eller velg et kompatibelt oppsett.')
     if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
+        record_modifier_selection_changes_v3(
+            trader_id=trader_id,before=config.modifiers,after=desired.modifiers)
         # A removed safety option cannot retain previously granted approval.
         if 'whipsaw' in config.modifiers and 'whipsaw' not in desired.modifiers:
             set_whipsaw_live_approval_v3(trader_id,False)
