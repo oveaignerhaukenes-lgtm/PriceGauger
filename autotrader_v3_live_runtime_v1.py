@@ -535,7 +535,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 # closed 1m evidence; otherwise data_ok is ALWAYS false and
                 # a live reversal can close but never re-enter.
                 safety_points=tuple(b.point for b in bars) if bars else ()
-                if e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS):
+                if e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS | {HYBRID_KEY}):
                     utc_minute=end.astimezone(timezone.utc).replace(
                         second=0,microsecond=0)
                     safety_points=_hyper_safety_1m_points_v3(
