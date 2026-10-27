@@ -72,6 +72,14 @@ STRATEGIES_V3 = (
         "macd-stoch-v2-2-flip", True,
     ),
     StrategySpecV3(
+        "macd-stoch-v2-3-hybrid", "MACD+Stoch V2.3 · Hybrid 1m/15s",
+        "Lukket 1m V2.1-score bestemmer retning; to lukkede ekte Saxo "
+        "15s BBO-prisbarer styrer inngang, oppbygging og mikroexit. "
+        "LIVE kan velges manuelt, men Saxo CLOSE/FLAT-bekreftelse, margin "
+        "og kapitalkontroller er uendret.",
+        "macd-stoch-v2-3-hybrid-v1", True,
+    ),
+    StrategySpecV3(
         "macd-stoch-rhythm-build", "MACD+Stoch · Rytmebygg v1",
         "Separat kontrolltest mot MACD+Stoch v2. Samme 70/30-score og FLAT-signal; holder høyst én enhet ved whipsaw/usikker struktur. Bygger én enhet per bekreftet 1m retning med god effektivitet og stigende/fallende høyder og bunner. LIVE-kompatibel kodebane; separat LIVE-kontoaktivering er fortsatt påkrevd.",
         "macd-stoch-rhythm-build-v1", True,
@@ -184,6 +192,7 @@ LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 PRICETREND_RESEARCH_CATALOG_KEYS_V3=frozenset({"pricetrend-1","sma-9-21-baseline"})
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
 TICK_SHADOW_LIVE_CATALOG_KEYS_V3=frozenset({"hunter-tick-v1","rabid-dog-tick-v1"})
+HYBRID_15S_CATALOG_KEYS_V3=frozenset({"macd-stoch-v2-3-hybrid"})
 HYPER_CHASE_10S_CATALOG_KEYS_V3=frozenset({
     "hyper-chase-10s-fast","hyper-chase-10s-filtered",
 })
@@ -240,6 +249,8 @@ def live_config_issues_v3(
         issues.append("PriceTrend og SMA-benchmark krever ferdiglukket 2m signal")
     if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Hunter/Rabid require 1m UI and genuine Saxo 1s BBO")
+    if strategy_key in HYBRID_15S_CATALOG_KEYS_V3 and timeframe != "1m":
+        issues.append("Hybrid V2.3 requires 1m macro plus genuine Saxo 15s BBO decision clock")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("HyperChase 10s requires 1m selection for V3 UI; signal reads genuine 1s BBO")
     if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
@@ -290,6 +301,8 @@ def sim_config_issues_v3(
         issues.append("PriceTrend og SMA-benchmark krever ferdiglukket 2m signal")
     if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3:
         issues.append("Hunter/Rabid tick-only PAPER required; cannot replay minute OHLC")
+    if strategy_key in HYBRID_15S_CATALOG_KEYS_V3:
+        issues.append("V2.3 Hybrid 15s SIM needs the separate real-quote BBO lab")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3:
         issues.append("HyperChase 10s V3 SIM uses the separate prospective 1s PAPER lab, not a 1m bar replay")
     if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
