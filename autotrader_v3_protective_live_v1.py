@@ -17,7 +17,6 @@ from typing import Mapping, Sequence
 
 from autotrader_v3_domain import TargetInventoryV3
 from database import connect
-from autotrader_v3_modifier_log_v1 import record_modifier_event_v3
 
 IMPULSE_LOOKBACK_S = 80
 IMPULSE_WINDOW_S = 10
@@ -87,7 +86,6 @@ def _load(trader_id,key,db_path):
 
 
 def _save(trader_id,key,context,status,at,quiet,reference,peak,db_path):
-    previous=_load(trader_id,key,db_path)
     with connect(db_path) as db:
         db.execute("""INSERT INTO autotrader_v3_protective_state(
           trader_id,modifier_key,context,status,since_at,updated_at,
@@ -102,12 +100,6 @@ def _save(trader_id,key,context,status,at,quiet,reference,peak,db_path):
           reference_value=excluded.reference_value,peak_value=excluded.peak_value""",
           (trader_id,key,context,status,at.isoformat(),at.isoformat(),
            quiet.isoformat() if quiet else None,reference,peak))
-    if not previous or previous["status"] != status or previous["context"] != context:
-        record_modifier_event_v3(
-            trader_id=trader_id,modifier_key=key,
-            event_type="EVIDENCE_TRANSITION",state=status,
-            detail="Risk evidence status changed; actual Saxo order/fill must be checked separately",
-            db_path=db_path)
 
 
 def impulse_evidence_v3(*, rows:Sequence[Mapping], now:datetime,
