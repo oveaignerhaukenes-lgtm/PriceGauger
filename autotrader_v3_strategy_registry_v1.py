@@ -28,6 +28,7 @@ from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
 from autotrader_v3_macd_stoch_v22_flip import STRATEGY_KEY_V3 as STOCH_V22_KEY
+from autotrader_v3_macd_stoch_v23_hybrid import RUNTIME_KEY as HYBRID_KEY, evaluate_hybrid_compat_v3
 from autotrader_v3_macd_stoch_rhythm_build_v1 import STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
 from autotrader_v3_fractal_rhythm_variants_v1 import (
@@ -92,6 +93,9 @@ for key in TICK_RUNTIME_KEYS:
     STRATEGIES_V3[key]=StrategyAdapterV3(
         key=key,evaluate_closed_bar=evaluate_tick_closed_bar_compat_v3,
         live_route_enabled=True)
+
+STRATEGIES_V3[HYBRID_KEY] = StrategyAdapterV3(key=HYBRID_KEY,
+    evaluate_closed_bar=evaluate_hybrid_compat_v3,live_route_enabled=True)
 
 # PriceTrend is research-only: SIM state and historical replay; never V3 LIVE.
 for price_key in (PRICETREND_KEY, SMA_BASELINE_KEY):
