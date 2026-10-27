@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `611fd468b1f14ec44da47825c51ae00fab045965`
+Latest tracked main commit: `e09ebb2474eecff19fa47fb8bb6800a704d30bdc`
 
 ## Recent main commits
 
+- 2026-10-27 [`e09ebb2474`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e09ebb2474eecff19fa47fb8bb6800a704d30bdc) — feat: MACD+Stoch V2.2 Flip and real 1s Tech100 impulse study (#814)
 - 2026-10-27 [`611fd468b1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/611fd468b1f14ec44da47825c51ae00fab045965) — fix: keep V3 modifier logbook icon inline on mobile (#813)
 - 2026-10-27 [`315cad58bf`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/315cad58bfefaa3b9b2a2a93567d3333c24cdfa4) — fix: V3 impulse guard on 1s fast wake and auditable modifier controls (#811)
 - 2026-10-27 [`4a10ebf0cf`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a10ebf0cf68b3ce1b931f239b0740eb3359510f) — feat: opt-in V3 protective LIVE risk buttons and per-modifier event logs (#809)
@@ -46,6 +47,5 @@ Latest tracked main commit: `611fd468b1f14ec44da47825c51ae00fab045965`
 - 2026-10-20 [`2530059ae7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2530059ae779bebfebad953f773195328ecea9c9) — V3 Saxo cost guard: skip needless GETs unless OPEN/ADD (#770)
 - 2026-10-20 [`a96d908c4b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a96d908c4b6ff80a6b0645650acf0f49cf76a81a) — Product Browser: keyword NOK trade increments and fee-model filtering (#769)
 - 2026-10-20 [`8956b8897f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8956b8897f94f63ad41d1085f79f45152f08cee3) — Account Learning: account-scoped observer with SIM research journal (#767)
-- 2026-10-20 [`99c5bd070d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/99c5bd070d1af946ca53d8f1cf59e80ca28f0e9d) — V3 LIVE mechanical PreCross#1 and MACD Histogram+Price (#766)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
