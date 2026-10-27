@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `4a10ebf0cf68b3ce1b931f239b0740eb3359510f`
+Latest tracked main commit: `315cad58bfefaa3b9b2a2a93567d3333c24cdfa4`
 
 ## Recent main commits
 
+- 2026-10-27 [`315cad58bf`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/315cad58bfefaa3b9b2a2a93567d3333c24cdfa4) — fix: V3 impulse guard on 1s fast wake and auditable modifier controls (#811)
 - 2026-10-27 [`4a10ebf0cf`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a10ebf0cf68b3ce1b931f239b0740eb3359510f) — feat: opt-in V3 protective LIVE risk buttons and per-modifier event logs (#809)
 - 2026-10-27 [`3caa82325d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/3caa82325d8406147cc6a4668b7a3216b6286010) — feat: PAPER mechanical capital manager with 15m shadow recovery (#808)
 - 2026-10-27 [`35ebc45683`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/35ebc45683cf42e7867b8514005311a380b48f31) — feat: V2.1 Tempo Lab 15s 30s 1m and PAPER direct net flip (#807)
@@ -46,6 +47,5 @@ Latest tracked main commit: `4a10ebf0cf68b3ce1b931f239b0740eb3359510f`
 - 2026-10-20 [`8956b8897f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8956b8897f94f63ad41d1085f79f45152f08cee3) — Account Learning: account-scoped observer with SIM research journal (#767)
 - 2026-10-20 [`99c5bd070d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/99c5bd070d1af946ca53d8f1cf59e80ca28f0e9d) — V3 LIVE mechanical PreCross#1 and MACD Histogram+Price (#766)
 - 2026-10-20 [`2791e46c1a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2791e46c1a9fa72dfeb196da534497de54b6d7c3) — Expose V3 AI-managed MACD setups directly in LIVE strategy picker (#765)
-- 2026-10-20 [`b9704a2486`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b9704a2486357e0709e650a2af0782242beceaf4) — V3 AI Loss Manager: optional LIVE modifier via normal Saxo execution (#764)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
