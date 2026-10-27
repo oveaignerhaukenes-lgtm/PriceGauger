@@ -179,3 +179,42 @@ def test_event_channel_orders_last_saved_first_and_idempotent_targets(tmp_path):
     events=load_modifier_live_events_v3(
         trader_id="A",modifier_key="third",db_path=db)
     assert any(x["status"]=="FLAT" and "not yet" in x["detail"] for x in events)
+
+
+
+def test_fast_wake_accepts_opted_in_regular_macd_stoch_and_denies_default(monkeypatch):
+    """1s quote wake must service V2.1 Impulse Exit, not HyperChase alone."""
+    import inspect
+    import autotrader_v3_live_runtime_v1 as live
+    from autotrader_v3_hyper_chase_live_v1 import live_hyper_quote_cursors_v3
+    normal=SimpleNamespace(pilot_key="normal",strategy_key="macd-stoch-v2-1")
+    configured=[]
+    def configuration(key,*,db_path):
+        configured.append((key,db_path))
+        return SimpleNamespace(modifiers=("impulse-exit",))
+    monkeypatch.setattr(live,"load_autotrader_config_v3",configuration)
+    assert live._fast_quote_eligible_v3(normal,db_path="test.db")
+    assert configured==[("normal","test.db")]
+    monkeypatch.setattr(live,"load_autotrader_config_v3",
+                        lambda *a,**k: SimpleNamespace(modifiers=()))
+    assert not live._fast_quote_eligible_v3(normal,db_path="test.db")
+    monkeypatch.setattr(live,"load_autotrader_config_v3",
+                        lambda *a,**k: (_ for _ in ()).throw(RuntimeError("DB unavailable")))
+    assert not live._fast_quote_eligible_v3(normal,db_path="test.db")
+    assert "impulse-exit" in inspect.getsource(live_hyper_quote_cursors_v3)
+
+
+def test_protective_control_has_broker_order_gates_and_no_auto_arming():
+    import inspect
+    import autotrader_v3_live_runtime_v1 as live
+    import autotrader_v3_protective_live_v1 as guard
+    assert "hyper_quote_only" in inspect.getsource(live.run_v3_live_cycle_v1)
+    assert "_fast_quote_eligible_v3" in inspect.getsource(live.run_v3_live_cycle_v1)
+    text=inspect.getsource(live.run_v3_live_cycle_v1)
+    for critical in ("reserve_order_v3(", "broker.precheck(order)",
+                     "reconcile_position_v3(", "broker.place_order("):
+        assert critical in text
+    source=inspect.getsource(guard)
+    for forbidden in ("place_order(", "set_live_enabled_v3(",
+                      "claim_reserved_for_submission_v3("):
+        assert forbidden not in source
