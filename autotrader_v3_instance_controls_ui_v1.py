@@ -16,6 +16,10 @@ from autotrader_v3_control_plane_v1 import authority_state_v3,set_live_enabled_v
 from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3,load_execution_policy_v3,save_execution_policy_v3
 from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_v3_whipsaw_live_v1 import is_whipsaw_live_approved_v3,set_whipsaw_live_approval_v3
+from autotrader_v3_modifier_audit_v1 import (
+    load_modifier_live_events_v3,record_modifier_selection_changes_v3,
+    sorted_modifiers_by_last_change_v3,
+)
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_live_truth_v1 import inventory_label_v1,load_v3_live_truth_v1
 from autotrader_v3_registry_v1 import (
@@ -276,28 +280,34 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     if not spec.runtime_ready: st.warning('Denne strategien er SIM/sammenlignbar, men ikke runtime-klar for LIVE.')
     p1,p2=st.columns(2); budget=p1.number_input('Budsjett (NOK)',min_value=100.0,value=float(policy.budget_nok if policy else 2000),step=100.0,key=f'{key_prefix}:budget:{trader_id}'); exposure=p2.slider('Eksponering (%)',1,100,int(policy.exposure_pct if policy else 100),key=f'{key_prefix}:exposure:{trader_id}')
     st.caption(f'LIVE kapitalgrense: {float(budget)*float(exposure)/100.0:,.0f} NOK · håndheves mot Saxo precheck (margin/cash).')
-    st.markdown('**AI-forvaltning**')
-    st.caption("AI Manager er et tillegg til grunnstrategien, ikke en egen "
-               "PreCross-strategi. Ved vedvarende tap kan AI foreslå HOLD, "
-               "REDUCE eller FLAT. LIVE utfører kun reduksjon/lukking, "
-               "aldri en ny AI-styrt inngang.")
-    ai_enabled=st.toggle(
-        'AI Loss Manager · LIVE (styr eksisterende posisjon)',
-        value='ai-loss-manager' in config.modifiers,
-        key=f'{key_prefix}:mod:{trader_id}:ai-loss-manager',
-        disabled=is_ai_preset,
-        help='AI-kontroll og tidsgrense finnes også under handelskartet. '
-             'AI-lukking går gjennom vanlig Saxo-ordrekjede.',
-    )
-    enabled=['ai-loss-manager'] if (ai_enabled or is_ai_preset) else []
-    st.markdown('**Andre options / modifiers**')
-    other_modifiers=[item for item in MODIFIERS_V3 if item.key!='ai-loss-manager']
-    cols=st.columns(3)
-    for n,item in enumerate(other_modifiers):
-        label=item.label if item.key in LIVE_MODIFIERS_V3 else f'{item.label} · ikke LIVE'
-        help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Lagres for V3/SIM, men er ikke koblet til LIVE-runtime ennå.')
-        if cols[n%3].toggle(label,value=item.key in config.modifiers,key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text):
+    st.markdown('**Options / modifiers · sist endret øverst**')
+    enabled=[]
+    st.caption("Sist lagrede endring øverst. Logg viser faktiske vurderingstilstander, "
+               "ikke ubekreftede Saxo-fills. Brytere må lagres med «Bruk på denne instansen».")
+    other_modifiers=sorted_modifiers_by_last_change_v3(
+        trader_id,MODIFIERS_V3)
+    for item in other_modifiers:
+        label=('AI Loss Manager · LIVE (styr eksisterende posisjon)'
+               if item.key=='ai-loss-manager' else
+               item.label if item.key in LIVE_MODIFIERS_V3 else
+               f'{item.label} · ikke LIVE')
+        help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Ikke koblet til LIVE-runtime.')
+        left,right=st.columns([5,2],vertical_alignment='center')
+        chosen_modifier=left.toggle(
+            label,value=item.key in config.modifiers,
+            key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text,
+            disabled=(is_ai_preset and item.key=='ai-loss-manager'))
+        if chosen_modifier or (is_ai_preset and item.key=='ai-loss-manager'):
             enabled.append(item.key)
+        with right.popover("Logg",use_container_width=True):
+            st.caption(item.label + " · hendelseskanal")
+            events=load_modifier_live_events_v3(
+                trader_id=trader_id,modifier_key=item.key,limit=30)
+            if events:
+                st.dataframe(events,use_container_width=True,hide_index=True)
+            else:
+                st.caption("Ingen registrerte statusendringer ennå. "
+                           "Dette er ikke bevis på at modifikatoren har kjørt.")
     mode=st.selectbox(
         'Kontrollmodus', CONTROL_MODES_V3, index=CONTROL_MODES_V3.index(config.control_mode),
         format_func=lambda value: value if value in LIVE_CONTROL_MODES_V3 else f'{value} · ikke LIVE',
@@ -342,6 +352,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption('Valgt config støttes ikke av aktiv motor. Slå motoren av eller velg et kompatibelt oppsett.')
     if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
         save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
+        record_modifier_selection_changes_v3(
+            trader_id=trader_id,before=config.modifiers,after=desired.modifiers)
         # A removed safety option cannot retain previously granted approval.
         if 'whipsaw' in config.modifiers and 'whipsaw' not in desired.modifiers:
             set_whipsaw_live_approval_v3(trader_id,False)
@@ -372,6 +384,36 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             "blokkerer nye innganger/ADD ved HIGH_VOL. "
             "Utganger og reduksjoner er alltid tillatt."
         )
+    if 'account-loss-lock' in config.modifiers:
+        with st.expander("Account Loss Lock · manuell gjenaktivering",expanded=False):
+            st.warning("Låsen kan bare nullstilles etter at Saxo bekrefter FLAT "
+                       "og eksakt, pålitelig kontoverdi er tilgjengelig. "
+                       "Deaktivering av modifikatoren fjerner ikke historisk lås.")
+            confirmed=st.checkbox("Jeg ønsker eksplisitt ny risikoepoke etter kontroll",
+                                  key=f'{key_prefix}:loss-reset-confirm:{trader_id}')
+            if st.button("Nullstill tapslås",disabled=not confirmed,
+                         key=f'{key_prefix}:loss-reset:{trader_id}'):
+                from datetime import datetime,timezone
+                from autotrader_v3_protective_live_v1 import reset_account_loss_lock_v3
+                from autotrader_v3_modifier_audit_v1 import record_modifier_operator_event_v3
+                try:
+                    broker=configured_live_pilot_client_v3()
+                    if broker is None: raise ValueError("Saxo tilkobling mangler")
+                    accounts=[x for x in broker.accounts()
+                              if str(x.get("AccountId") or "")==str(instance.account_id)]
+                    if len(accounts)!=1: raise ValueError("Saxo-konto kan ikke verifiseres")
+                    currency=str(accounts[0].get("Currency") or "").upper()
+                    context=f"{instance.account_id}|{int(instance.uic)}|{instance.asset_type}|{currency}"
+                    reset_account_loss_lock_v3(
+                        trader_id=trader_id,context=context,account_id=str(instance.account_id),
+                        uic=int(instance.uic),asset_type=str(instance.asset_type),
+                        broker=broker,now=datetime.now(timezone.utc))
+                    record_modifier_operator_event_v3(
+                        trader_id=trader_id,modifier_key='account-loss-lock',
+                        status='MANUAL_RESET',detail='Exact Saxo FLAT + fresh NAV verified')
+                    st.success("Tapslås tilbakestilt. LIVE-arming og andre grenser er uendret.")
+                except Exception as exc:
+                    st.error("Kunne ikke nullstille tapslås: "+str(exc)[:200])
     flash_key=f'{key_prefix}:flash:{trader_id}'
     if flash_key in st.session_state:
         st.success(st.session_state.pop(flash_key))

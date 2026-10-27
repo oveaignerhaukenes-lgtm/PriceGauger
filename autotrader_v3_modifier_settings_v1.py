@@ -17,6 +17,8 @@ DEFAULTS_V3: dict[str, dict[str, Any]] = {
     "ai-loss-manager": {},  # Per-instance AI timing lives in dedicated shadow settings.
     "whipsaw": {"lookback_bars": 12, "max_direction_changes": 6, "cooldown_bars": 3},
     "volatility-pause": {},  # Exactly same fixed HIGH_VOL proxy as LAB.
+    "impulse-exit": {},  # strict fixed evidence; LIVE opt-in only
+    "account-loss-lock": {},  # strict verified Saxo balance and persistent latch
     "regime": {"lookback_bars": 30, "trend_threshold": 0.60},
 }
 

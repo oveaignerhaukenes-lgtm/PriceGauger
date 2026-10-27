@@ -34,6 +34,11 @@ from autotrader_v3_whipsaw_live_v1 import (
     assess_volatility_live_v3, is_whipsaw_live_approved_v3,
 )
 from autotrader_v3_modifier_settings_v1 import load_modifier_settings_v3
+from autotrader_v3_protective_live_v1 import (
+    ProtectiveEvidenceV3, ProtectiveModifierV3,
+    evaluate_impulse_live_v3, evaluate_account_loss_live_v3,
+)
+from autotrader_v3_modifier_audit_v1 import (record_modifier_evaluation_v3,record_modifier_target_change_v3)
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
 from autotrader_v3_live_sizing_v1 import (
@@ -265,6 +270,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             _record_runtime(e.pilot_key,"FAILED",f"{type(exc).__name__}: {exc}",db_path=db_path)
         raise
     accounts={}
+    account_full={}
     account_currencies={}
     account_contexts={}
     account_labels={}
@@ -275,6 +281,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
         account_key=str(row.get("AccountKey") or "").strip()
         if account_id and account_key:
             accounts[account_id]=account_key
+            account_full[account_id]=row
             account_currencies[account_id]=str(row.get('Currency') or '').upper()
             account_contexts[account_id]=(account_key,str(row.get('ClientKey') or ''))
             account_labels[account_id]=str(row.get('AccountName') or row.get('DisplayName') or row.get('Name') or '').strip()
@@ -581,10 +588,96 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 LOGGER.warning('V3 AI LIVE evidence unavailable trader=%s kind=%s; base strategy unchanged',
                                e.pilot_key,type(exc).__name__)
                 ai_live_advice=None
+        # New LIVE protective controls are opt-in modifiers. They do not place
+        # orders: all changes go through the existing exact-account V3 plan,
+        # durable order reservation and Saxo reconciliation.
+        protective_status={}
+        for protective_key in ("impulse-exit","account-loss-lock"):
+            if protective_key not in config.modifiers:
+                continue
+            try:
+                boundary=f"{e.account_id}|{int(e.uic)}|{e.asset_type}|{account_currencies.get(e.account_id,'')}"
+                if protective_key=="impulse-exit":
+                    evidence=evaluate_impulse_live_v3(
+                        trader_id=e.pilot_key,context=boundary,uic=int(e.uic),
+                        actual_amount=actual.amount,now=end,db_path=db_path)
+                else:
+                    exact_account=account_full.get(e.account_id)
+                    if exact_account is None:
+                        raise ValueError("exact Saxo account unavailable")
+                    evidence=evaluate_account_loss_live_v3(
+                        trader_id=e.pilot_key,context=boundary,
+                        account=exact_account,broker=broker,now=end,db_path=db_path)
+            except Exception as exc:
+                LOGGER.warning("V3 LIVE protective evidence unavailable trader=%s modifier=%s kind=%s",
+                               e.pilot_key,protective_key,type(exc).__name__)
+                evidence=ProtectiveEvidenceV3(protective_key,"DATA_MISSING",
+                                              "protective evidence unavailable; block risk expansion")
+            protective_status[protective_key]=evidence
+            modifiers.append(ProtectiveModifierV3(
+                key=protective_key,evidence=evidence,actual_inventory=actual.amount))
+            try:
+                changed_status=record_modifier_evaluation_v3(
+                    trader_id=e.pilot_key,modifier_key=protective_key,
+                    status=evidence.status,detail=evidence.reason,now=end,db_path=db_path)
+                if changed_status:
+                    LOGGER.warning("V3 LIVE PROTECTIVE transition trader=%s modifier=%s status=%s",
+                                   e.pilot_key,protective_key,evidence.status)
+            except Exception as exc:
+                LOGGER.warning("V3 protective audit unavailable trader=%s modifier=%s kind=%s",
+                               e.pilot_key,protective_key,type(exc).__name__)
         pipeline=evaluate_trader_v3(
             trader=trader,base_target=decision.decision.target,
             actual_inventory=actual,modifiers=tuple(modifiers))
         snapshot=pipeline.snapshot
+        # Record selected modifier decisions in the per-button event channel.
+        # Events describe observed target changes, NOT reconciled broker fills.
+        audited_modifiers=set()
+        for transform in pipeline.transforms:
+            if transform.source not in config.modifiers:
+                continue
+            audited_modifiers.add(transform.source)
+            changed_target=abs(transform.after.amount-transform.before.amount)>1e-9
+            try:
+                if transform.source not in protective_status:
+                    record_modifier_evaluation_v3(
+                        trader_id=e.pilot_key,modifier_key=transform.source,
+                        status="CHANGED_TARGET" if changed_target else "PASSTHROUGH",
+                        detail=(f"target {transform.before.amount:+.2f} -> "
+                                f"{transform.after.amount:+.2f}; "
+                                f"{transform.reason[:220]}; no fill implied"),
+                        now=end,db_path=db_path)
+                if changed_target:
+                    record_modifier_target_change_v3(
+                        trader_id=e.pilot_key,modifier_key=transform.source,
+                        decision_key=decision.decision_key,
+                        before_amount=transform.before.amount,
+                        after_amount=transform.after.amount,
+                        now=end,db_path=db_path)
+            except Exception as exc:
+                LOGGER.warning("V3 modifier audit failed trader=%s key=%s kind=%s",
+                               e.pilot_key,transform.source,type(exc).__name__)
+        for key in config.modifiers:
+            if key not in ('reset-on-loss','whipsaw','volatility-pause',
+                           'ai-loss-manager','impulse-exit','account-loss-lock'):
+                continue
+            if key in audited_modifiers:
+                continue
+            try:
+                record_modifier_evaluation_v3(
+                    trader_id=e.pilot_key,modifier_key=key,
+                    status="NOT_EVALUATED",
+                    detail="No modifier evidence available in this cycle; did not alter target",
+                    now=end,db_path=db_path)
+            except Exception:
+                LOGGER.warning("V3 modifier missing-evidence audit unavailable trader=%s key=%s",
+                               e.pilot_key,key)
+        # A forced protective FLAT must replace any queued prior BUILD intent.
+        # Never clear pending Saxo orders (handled by the earlier guard branch).
+        if any(evidence.status in ("IMPULSE_PAUSE","DRAWDOWN_LOCK")
+               for evidence in protective_status.values()):
+            align_closed_bar_target_v3(
+                trader_id=e.pilot_key,target_amount=0.,db_path=db_path)
         # Summarize every HyperChase WAIT/CHASE action once per minute, including
         # missing/gapped quotes and post-modifier risk veto. Never affect orders.
         if e.strategy_key in HYPER_RUNTIME_KEYS:
