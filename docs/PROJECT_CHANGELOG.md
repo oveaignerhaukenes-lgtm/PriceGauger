@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `d91e0384d2261231ce0775060559873db1429c11`
+Latest tracked main commit: `f3dbf878a28f47cbb31576635d871beeffa661b0`
 
 ## Recent main commits
 
+- 2026-10-28 [`f3dbf878a2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f3dbf878a28f47cbb31576635d871beeffa661b0) — feat: autonomous per-active-V3 60s fleet observer and 5m account learning (#818)
 - 2026-10-28 [`d91e0384d2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d91e0384d2261231ce0775060559873db1429c11) — feat: V3 observer dashboard and honest modifier readiness (#816)
 - 2026-10-27 [`e09ebb2474`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e09ebb2474eecff19fa47fb8bb6800a704d30bdc) — feat: MACD+Stoch V2.2 Flip and real 1s Tech100 impulse study (#814)
 - 2026-10-27 [`611fd468b1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/611fd468b1f14ec44da47825c51ae00fab045965) — fix: keep V3 modifier logbook icon inline on mobile (#813)
@@ -46,6 +47,5 @@ Latest tracked main commit: `d91e0384d2261231ce0775060559873db1429c11`
 - 2026-10-21 [`a24b9f7c54`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a24b9f7c54633887e22bf52b3a8a624d796431ed) — Strategilab v2: fix manual Saxo selection, expand 18 paper replays and click-to-scrub (#772)
 - 2026-10-20 [`4a791c7496`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a791c74968f0819b91597eacbd6d970af4728c8) — Strategilab v2: isolated multi-replay and Saxo account performance (#771)
 - 2026-10-20 [`2530059ae7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2530059ae779bebfebad953f773195328ecea9c9) — V3 Saxo cost guard: skip needless GETs unless OPEN/ADD (#770)
-- 2026-10-20 [`a96d908c4b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a96d908c4b6ff80a6b0645650acf0f49cf76a81a) — Product Browser: keyword NOK trade increments and fee-model filtering (#769)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
