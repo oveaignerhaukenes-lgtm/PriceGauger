@@ -632,9 +632,11 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
         snapshot=pipeline.snapshot
         # Record selected modifier decisions in the per-button event channel.
         # Events describe observed target changes, NOT reconciled broker fills.
+        audited_modifiers=set()
         for transform in pipeline.transforms:
             if transform.source not in config.modifiers:
                 continue
+            audited_modifiers.add(transform.source)
             changed_target=abs(transform.after.amount-transform.before.amount)>1e-9
             try:
                 if transform.source not in protective_status:
@@ -642,7 +644,8 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                         trader_id=e.pilot_key,modifier_key=transform.source,
                         status="CHANGED_TARGET" if changed_target else "PASSTHROUGH",
                         detail=(f"target {transform.before.amount:+.2f} -> "
-                                f"{transform.after.amount:+.2f}; no fill implied"),
+                                f"{transform.after.amount:+.2f}; "
+                                f"{transform.reason[:220]}; no fill implied"),
                         now=end,db_path=db_path)
                 if changed_target:
                     record_modifier_target_change_v3(
@@ -654,6 +657,21 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             except Exception as exc:
                 LOGGER.warning("V3 modifier audit failed trader=%s key=%s kind=%s",
                                e.pilot_key,transform.source,type(exc).__name__)
+        for key in config.modifiers:
+            if key not in ('reset-on-loss','whipsaw','volatility-pause',
+                           'ai-loss-manager','impulse-exit','account-loss-lock'):
+                continue
+            if key in audited_modifiers:
+                continue
+            try:
+                record_modifier_evaluation_v3(
+                    trader_id=e.pilot_key,modifier_key=key,
+                    status="NOT_EVALUATED",
+                    detail="No modifier evidence available in this cycle; did not alter target",
+                    now=end,db_path=db_path)
+            except Exception:
+                LOGGER.warning("V3 modifier missing-evidence audit unavailable trader=%s key=%s",
+                               e.pilot_key,key)
         # A forced protective FLAT must replace any queued prior BUILD intent.
         # Never clear pending Saxo orders (handled by the earlier guard branch).
         if any(evidence.status in ("IMPULSE_PAUSE","DRAWDOWN_LOCK")
