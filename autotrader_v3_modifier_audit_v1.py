@@ -143,3 +143,24 @@ def record_modifier_target_change_v3(*,trader_id:str,modifier_key:str,
            "TARGET",direction,
            f"Target {before_amount:+.2f} -> {after_amount:+.2f}; not yet a confirmed Saxo execution"))
     return result.rowcount>0
+
+
+
+def load_exact_reconciled_executions_v3(*,trader_id:str,account_id:str,
+                                        uic:int,asset_type:str,limit:int=12,
+                                        db_path="pricegauger.db"):
+    """Read-only actual V3 reconciled execution events for same broker boundary.
+
+    These fills are NOT automatically attributed to a modifier: compare
+    their timestamp to the selected button's TARGET/EVALUATED history.
+    """
+    n=max(1,min(30,int(limit)))
+    with connect(db_path) as db:
+        rows=db.execute("""SELECT action,side,amount,inventory_after,
+                                  executed_at
+            FROM autotrader_v3_execution_events
+            WHERE instance_id=? AND account_id=? AND uic=? AND asset_type=?
+            ORDER BY executed_at DESC LIMIT ?""",(
+            str(trader_id),str(account_id),int(uic),str(asset_type),n,
+        )).fetchall()
+    return tuple(dict(row) for row in rows)
