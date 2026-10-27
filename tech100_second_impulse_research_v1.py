@@ -124,7 +124,15 @@ def _outcome(session: Sequence[BboSecond], times: Sequence[datetime],
         return None
     path=session[index+1:last+1]
     if not path: return None
-    entry=trigger.ask if side>0 else trigger.bid
+    # A decision can only be made when the triggering quote has been
+    # RECEIVED. Cross spread using the first later observable BBO >=1s later;
+    # these still are hypothetical fills, not Saxo order acknowledgements.
+    entered=next((q for q in path
+                  if q.received>=trigger.received+timedelta(seconds=1)
+                  and (q.received-trigger.received).total_seconds()<=5),None)
+    if entered is None:
+        return None
+    entry=entered.ask if side>0 else entered.bid
     end=path[-1]
     exit_price=end.bid if side>0 else end.ask
     net=10000*side*(exit_price-entry)/trigger.mid
@@ -225,6 +233,11 @@ def summarize_thresholds(
     boundary=_utc(chronological_cutoff)
     by={}
     for ev in outcomes:
+        # Do not train on a crossing whose future scoring horizon falls
+        # inside the chronologically held-out sample.
+        if ev.triggered_at < boundary <= ev.triggered_at+timedelta(
+                seconds=ev.horizon_seconds):
+            continue
         sample="FØRSTE_70PCT" if ev.triggered_at<boundary else "SISTE_30PCT"
         by.setdefault((sample,ev.lookback_seconds,ev.threshold_bps,
                        ev.horizon_seconds),[]).append(ev)
