@@ -10,9 +10,10 @@ from autotrader_account_learning_v1 import load_account_learning_findings_v1
 from autotrader_v3_registry_v1 import MODIFIERS_V3,LIVE_MODIFIERS_V3
 
 st.title("AutoTrader · Observatør")
+st.info("Første versjon: Kjør «Oppdater operativ vurdering nå». Bakgrunnsovervåking er ennå ikke aktivert.")
 st.caption(
     "Én operativ observatør per LIVE-aktiv, V3-eid konto og en samlet "
-    "flåteoversikt. 60-sekunders databasekontroller, ingen Saxo ordre "
+    "flåteoversikt. Manuell databasekontroll (automatisk minuttscheduler ikke koblet til ennå), ingen Saxo ordre "
     "eller automatisk strategiendring. Konto-læring analyserer separat "
     "bekreftede 5-minutters NAV-observasjoner."
 )
