@@ -10,6 +10,14 @@ from datetime import datetime, timezone
 from database import connect
 
 
+# Last substantive software revision, used when a modifier has never been
+# toggled on this account. Real saved toggle changes take precedence after
+# their timestamp. New capabilities therefore appear first immediately.
+MODIFIER_RELEASE_TIMES_V3 = {
+    "impulse-exit": "2026-10-27T00:00:00+00:00",
+    "account-loss-lock": "2026-10-27T00:00:00+00:00",
+}
+
 def _utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -59,8 +67,11 @@ def sorted_modifiers_by_last_change_v3(trader_id:str,items,*,db_path="pricegauge
           FROM autotrader_v3_modifier_change_order WHERE trader_id=?""",
           (trader_id,)).fetchall()
     stamps={str(x["modifier_key"]):str(x["changed_at"]) for x in rows}
-    # Most recently explicitly saved button first; stable legacy catalog
-    # position for modifiers without a per-button timestamp.
+    for key, release_at in MODIFIER_RELEASE_TIMES_V3.items():
+        if release_at > stamps.get(key,""):
+            stamps[key]=release_at
+    # Software updates as well as the latest explicitly saved toggle move
+    # a button upward; stable catalog order for unknown older modifiers.
     original={x.key:i for i,x in enumerate(items)}
     return tuple(sorted(items,key=lambda x:(1 if x.key in stamps else 0,
                   stamps.get(x.key,""),-original[x.key]),reverse=True))
