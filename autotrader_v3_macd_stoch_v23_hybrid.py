@@ -31,7 +31,7 @@ RUNTIME_KEY="macd-stoch-v2-3-hybrid-v1"
 MIN_MICRO_BARS=4
 MAX_1M_AGE_SECONDS=95
 MAX_MICRO_AGE_SECONDS=6
-MAX_QUOTE_FETCH=240
+MAX_QUOTE_FETCH=275
 MICRO_WINDOW_MINUTES=4
 
 
@@ -59,6 +59,8 @@ def macro_direction_from_closed_1m(bars,observations,*,now):
     if len(bars)<40 or len(observations)<2:
         return 0,"NO_MACRO_HISTORY"
     latest_bar=utc(bars[-1].bar_time)
+    if (latest_bar-utc(bars[-2].bar_time)).total_seconds()!=60:
+        return 0,"GAPPED_MACRO"
     if not 0 <= (clock-latest_bar-timedelta(minutes=1)).total_seconds() <= MAX_1M_AGE_SECONDS:
         return 0,"STALE_MACRO"
     now_score=composite_score_v3(observations[-1],bars)
