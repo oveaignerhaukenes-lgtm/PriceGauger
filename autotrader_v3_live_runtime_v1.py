@@ -224,7 +224,7 @@ def _fast_quote_eligible_v3(instance, *, db_path="pricegauger.db"):
     Caller already enforces exact LIVE ownership. Unavailable config never
     grants a quote-only strategy evaluation or fresh orders.
     """
-    if instance.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS):
+    if instance.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS | {HYBRID_KEY}):
         return True
     try:
         return "impulse-exit" in load_autotrader_config_v3(
