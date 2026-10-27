@@ -287,7 +287,10 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     other_modifiers=sorted_modifiers_by_last_change_v3(
         trader_id,MODIFIERS_V3)
     for item in other_modifiers:
-        label=item.label if item.key in LIVE_MODIFIERS_V3 else f'{item.label} · ikke LIVE'
+        label=('AI Loss Manager · LIVE (styr eksisterende posisjon)'
+               if item.key=='ai-loss-manager' else
+               item.label if item.key in LIVE_MODIFIERS_V3 else
+               f'{item.label} · ikke LIVE')
         help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Ikke koblet til LIVE-runtime.')
         left,right=st.columns([5,2],vertical_alignment='center')
         chosen_modifier=left.toggle(
