@@ -297,7 +297,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         # The toggle label ellipsizes on narrow screens; its help retains
         # the complete modifier description.
         left,right=st.columns(
-            [5,1],gap="small",vertical_alignment="center",wrap=False)
+            [3,1],gap="small",vertical_alignment="center",wrap=False)
         chosen_modifier=left.toggle(
             label,value=item.key in config.modifiers,
             key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text,
