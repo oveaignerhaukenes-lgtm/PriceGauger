@@ -221,12 +221,20 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                          hyper_quote_only:bool=False)->int:
     """One Saxo-safe LIVE order pipeline, including quote-driven 10s signals.
 
-    quote-only cycles evaluate ONLY 10s instances; regular/bar/heartbeat
-    cycles always include every normal LIVE instance for reconciliation.
+    Quote-only cycles evaluate 10s instances and explicitly opted-in Impulse
+    Exit guards even on ordinary 1m strategies. Regular/bar/heartbeat cycles
+    still reconcile every armed instance. No unarmed account is added.
     """
     active=_load_owned_armed_runtime_instances_v3(db_path=db_path)
     if hyper_quote_only:
-        active=tuple(e for e in active if e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS))
+        # A fast 1s wake must NOT silently skip a normal 1m strategy whose
+        # owner explicitly enabled Impulse Exit. Preserve ownership/arming,
+        # registry capability and all ordinary broker safeguards downstream.
+        active=tuple(e for e in active if (
+            e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS)
+            or "impulse-exit" in load_autotrader_config_v3(
+                e.pilot_key,db_path=db_path).modifiers
+        ))
     LOGGER.info("v3 LIVE active owned armed instances=%d",len(active))
     enrollments=[]
     for e in active:
