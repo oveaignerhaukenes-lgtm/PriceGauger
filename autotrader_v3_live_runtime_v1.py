@@ -475,6 +475,15 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             # A missing or stale 1s source must NEVER create a new position.
             # HOLD keeps the broker-confirmed inventory, so ordinary account
             # ownership/position policies remain the authority for risk exits.
+        elif e.strategy_key == HYBRID_KEY:
+            decision=evaluate_hybrid_live_v3(
+                trader_id=e.pilot_key,strategy_key=e.strategy_key,
+                account_uic=int(e.uic),instrument_id=int(e.instrument_id),
+                market_name=e.market_name,actual_amount=actual.amount,
+                tranche=float(strategy_amount_config.tranche),
+                max_inventory=float(strategy_amount_config.max_inventory),
+                context_changed=context_changed,db_path=db_path,now=end,
+            )
         elif e.strategy_key in TICK_RUNTIME_KEYS:
             decision=evaluate_tick_live_v3(
                 trader_id=e.pilot_key,strategy_key=config.strategy_key,
