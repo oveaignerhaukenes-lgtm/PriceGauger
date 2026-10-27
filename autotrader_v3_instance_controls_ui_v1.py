@@ -18,7 +18,7 @@ from autotrader_v3_cost_guard_v1 import assess_transaction_cost_v3
 from autotrader_v3_whipsaw_live_v1 import is_whipsaw_live_approved_v3,set_whipsaw_live_approval_v3
 from autotrader_v3_modifier_audit_v1 import (
     load_modifier_live_events_v3,record_modifier_selection_changes_v3,
-    sorted_modifiers_by_last_change_v3,
+    sorted_modifiers_by_last_change_v3,load_exact_reconciled_executions_v3,
 )
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_live_truth_v1 import inventory_label_v1,load_v3_live_truth_v1
@@ -308,6 +308,16 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             else:
                 st.caption("Ingen registrerte statusendringer ennå. "
                            "Dette er ikke bevis på at modifikatoren har kjørt.")
+            st.caption("Bekreftede Saxo-utførelser på SAMME instans/konto/instrument. "
+                       "Ikke automatisk tilskrevet denne knappen; sammenlign tidspunktene.")
+            try:
+                fills=load_exact_reconciled_executions_v3(
+                    trader_id=trader_id,account_id=str(instance.account_id),
+                    uic=int(instance.uic),asset_type=str(instance.asset_type),limit=12)
+                if fills: st.dataframe(fills,hide_index=True,use_container_width=True)
+                else: st.caption("Ingen avstemte handler funnet.")
+            except Exception as exc:
+                st.caption("Saxo-utførelsesloggen er utilgjengelig: "+type(exc).__name__)
     mode=st.selectbox(
         'Kontrollmodus', CONTROL_MODES_V3, index=CONTROL_MODES_V3.index(config.control_mode),
         format_func=lambda value: value if value in LIVE_CONTROL_MODES_V3 else f'{value} · ikke LIVE',
