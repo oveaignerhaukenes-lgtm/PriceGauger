@@ -77,7 +77,7 @@ STRATEGIES_V3 = (
         "15s BBO-prisbarer styrer inngang, oppbygging og mikroexit. "
         "LIVE kan velges manuelt, men Saxo CLOSE/FLAT-bekreftelse, margin "
         "og kapitalkontroller er uendret.",
-        "macd-stoch-v2-3-hybrid-v1", True,
+        "macd-stoch-v2-3-hybrid-v1", False,
     ),
     StrategySpecV3(
         "macd-stoch-rhythm-build", "MACD+Stoch · Rytmebygg v1",
