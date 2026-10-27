@@ -10,6 +10,14 @@ from datetime import datetime, timezone
 from database import connect
 
 
+# Last substantive software revision, used when a modifier has never been
+# toggled on this account. Real saved toggle changes take precedence after
+# their timestamp. New capabilities therefore appear first immediately.
+MODIFIER_RELEASE_TIMES_V3 = {
+    "impulse-exit": "2026-10-27T00:00:00+00:00",
+    "account-loss-lock": "2026-10-27T00:00:00+00:00",
+}
+
 def _utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -59,8 +67,11 @@ def sorted_modifiers_by_last_change_v3(trader_id:str,items,*,db_path="pricegauge
           FROM autotrader_v3_modifier_change_order WHERE trader_id=?""",
           (trader_id,)).fetchall()
     stamps={str(x["modifier_key"]):str(x["changed_at"]) for x in rows}
-    # Most recently explicitly saved button first; stable legacy catalog
-    # position for modifiers without a per-button timestamp.
+    for key, release_at in MODIFIER_RELEASE_TIMES_V3.items():
+        if release_at > stamps.get(key,""):
+            stamps[key]=release_at
+    # Software updates as well as the latest explicitly saved toggle move
+    # a button upward; stable catalog order for unknown older modifiers.
     original={x.key:i for i,x in enumerate(items)}
     return tuple(sorted(items,key=lambda x:(1 if x.key in stamps else 0,
                   stamps.get(x.key,""),-original[x.key]),reverse=True))
@@ -132,3 +143,24 @@ def record_modifier_target_change_v3(*,trader_id:str,modifier_key:str,
            "TARGET",direction,
            f"Target {before_amount:+.2f} -> {after_amount:+.2f}; not yet a confirmed Saxo execution"))
     return result.rowcount>0
+
+
+
+def load_exact_reconciled_executions_v3(*,trader_id:str,account_id:str,
+                                        uic:int,asset_type:str,limit:int=12,
+                                        db_path="pricegauger.db"):
+    """Read-only actual V3 reconciled execution events for same broker boundary.
+
+    These fills are NOT automatically attributed to a modifier: compare
+    their timestamp to the selected button's TARGET/EVALUATED history.
+    """
+    n=max(1,min(30,int(limit)))
+    with connect(db_path) as db:
+        rows=db.execute("""SELECT action,side,amount,inventory_after,
+                                  executed_at
+            FROM autotrader_v3_execution_events
+            WHERE instance_id=? AND account_id=? AND uic=? AND asset_type=?
+            ORDER BY executed_at DESC LIMIT ?""",(
+            str(trader_id),str(account_id),int(uic),str(asset_type),n,
+        )).fetchall()
+    return tuple(dict(row) for row in rows)

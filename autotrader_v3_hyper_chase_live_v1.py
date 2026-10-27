@@ -150,7 +150,7 @@ def evaluate_hyper_chase_live_v3(*,trader_id:str,strategy_key:str,
 
 
 def live_hyper_quote_cursors_v3(*,db_path="pricegauger.db",now=None):
-    """DB-only 1s waking for explicitly LIVE-armed HyperVigilant instances."""
+    """DB-only 1s waking for explicitly LIVE-armed 1s engines or Impulse Exit."""
     from autotrader_v3_runtime_instances_v1 import load_v3_runtime_instances_v1
     from autotrader_v3_config_v1 import load_autotrader_config_v3
     from autotrader_v3_live_authority_v1 import live_authority_armed_v3
@@ -159,7 +159,8 @@ def live_hyper_quote_cursors_v3(*,db_path="pricegauger.db",now=None):
     try:
         for inst in load_v3_runtime_instances_v1(db_path=db_path):
             cfg=load_autotrader_config_v3(inst.pilot_key,db_path=db_path)
-            if cfg.strategy_key not in (HYPER_CATALOG_KEYS | TICK_CATALOG_KEYS):
+            if (cfg.strategy_key not in (HYPER_CATALOG_KEYS | TICK_CATALOG_KEYS)
+                    and "impulse-exit" not in cfg.modifiers):
                 continue
             if not live_authority_armed_v3(inst.pilot_key,db_path=db_path):
                 continue

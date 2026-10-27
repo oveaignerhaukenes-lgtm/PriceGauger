@@ -58,10 +58,8 @@ class ProtectiveModifierV3:
         status=self.evidence.status
         if status in ("IMPULSE_PAUSE","DRAWDOWN_LOCK"):
             return TargetInventoryV3(0.),self.evidence.reason+"; protective target FLAT"
-        if status in ("DATA_MISSING","DRAWDOWN_NO_ADD","DRAWDOWN_WARN"):
-            if status=="DRAWDOWN_WARN":
-                # gentle: no extra tranche, do not block existing reductions
-                pass
+        if status in ("DATA_MISSING","DRAWDOWN_NO_ADD"):
+            # Missing safety evidence or early drawdown: never increase exposure.
             if abs(current)>1.e-9 and wanted*current<0:
                 return TargetInventoryV3(0.),"protective opposite -> FLAT"
             if abs(wanted)>abs(current)+1.e-9:
@@ -234,6 +232,11 @@ def evaluate_account_loss_live_v3(*,trader_id:str,context:str,
         total=snap.total_value if verified else None
     except Exception:
         total=None;verified=False
+    # Reuse fresh verified observation for at most 10s. This is an early
+    # protective gate, not the slow 15-minute capital manager.
+    if previous and previous["status"]=="DRAWDOWN_LOCK":
+        return ProtectiveEvidenceV3("account-loss-lock","DRAWDOWN_LOCK",
+                                    "persistent exact account risk lock; manual verified reset required")
     old_peak=float(previous["peak_value"]) if previous and previous["peak_value"] is not None else None
     old_locked=bool(previous and previous["status"]=="DRAWDOWN_LOCK")
     peak=max(old_peak,total) if old_peak is not None and total is not None else (old_peak or total)

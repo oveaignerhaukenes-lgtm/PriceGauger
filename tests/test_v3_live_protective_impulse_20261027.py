@@ -179,3 +179,93 @@ def test_event_channel_orders_last_saved_first_and_idempotent_targets(tmp_path):
     events=load_modifier_live_events_v3(
         trader_id="A",modifier_key="third",db_path=db)
     assert any(x["status"]=="FLAT" and "not yet" in x["detail"] for x in events)
+
+
+
+def test_fast_wake_accepts_opted_in_regular_macd_stoch_and_denies_default(monkeypatch):
+    """1s quote wake must service V2.1 Impulse Exit, not HyperChase alone."""
+    import inspect
+    import autotrader_v3_live_runtime_v1 as live
+    from autotrader_v3_hyper_chase_live_v1 import live_hyper_quote_cursors_v3
+    normal=SimpleNamespace(pilot_key="normal",strategy_key="macd-stoch-v2-1")
+    configured=[]
+    def configuration(key,*,db_path):
+        configured.append((key,db_path))
+        return SimpleNamespace(modifiers=("impulse-exit",))
+    monkeypatch.setattr(live,"load_autotrader_config_v3",configuration)
+    assert live._fast_quote_eligible_v3(normal,db_path="test.db")
+    assert configured==[("normal","test.db")]
+    monkeypatch.setattr(live,"load_autotrader_config_v3",
+                        lambda *a,**k: SimpleNamespace(modifiers=()))
+    assert not live._fast_quote_eligible_v3(normal,db_path="test.db")
+    monkeypatch.setattr(live,"load_autotrader_config_v3",
+                        lambda *a,**k: (_ for _ in ()).throw(RuntimeError("DB unavailable")))
+    assert not live._fast_quote_eligible_v3(normal,db_path="test.db")
+    assert "impulse-exit" in inspect.getsource(live_hyper_quote_cursors_v3)
+
+
+def test_protective_control_has_broker_order_gates_and_no_auto_arming():
+    import inspect
+    import autotrader_v3_live_runtime_v1 as live
+    import autotrader_v3_protective_live_v1 as guard
+    assert "hyper_quote_only" in inspect.getsource(live.run_v3_live_cycle_v1)
+    assert "_fast_quote_eligible_v3" in inspect.getsource(live.run_v3_live_cycle_v1)
+    text=inspect.getsource(live.run_v3_live_cycle_v1)
+    for critical in ("reserve_order_v3(", "broker.precheck(order)",
+                     "reconcile_position_v3(", "broker.place_order("):
+        assert critical in text
+    source=inspect.getsource(guard)
+    for forbidden in ("place_order(", "set_live_enabled_v3(",
+                      "claim_reserved_for_submission_v3("):
+        assert forbidden not in source
+
+
+
+def test_new_live_modifiers_sort_first_before_any_saved_toggle(tmp_path):
+    db=str(tmp_path/"ordering.db")
+    items=[
+        SimpleNamespace(key="whipsaw"),
+        SimpleNamespace(key="impulse-exit"),
+        SimpleNamespace(key="account-loss-lock"),
+        SimpleNamespace(key="volatility-pause"),
+    ]
+    ordered=sorted_modifiers_by_last_change_v3("new_account",items,db_path=db)
+    assert [v.key for v in ordered[:2]]==["impulse-exit","account-loss-lock"]
+    record_modifier_selection_changes_v3(
+        trader_id="new_account",before=(),after=("volatility-pause",),
+        db_path=db,at="2026-10-27T03:50:00+00:00"
+    )
+    new_order=sorted_modifiers_by_last_change_v3(
+        "new_account",items,db_path=db
+    )
+    assert new_order[0].key=="volatility-pause"
+
+
+
+def test_reconciled_fill_log_is_exact_account_scoped_and_read_only(tmp_path):
+    from autotrader_v3_modifier_audit_v1 import load_exact_reconciled_executions_v3
+    from database import connect
+    db=str(tmp_path/"fill_log.db")
+    with connect(db) as con:
+        con.execute("""CREATE TABLE autotrader_v3_execution_events(
+            instance_id TEXT, account_id TEXT, uic INTEGER, asset_type TEXT,
+            action TEXT,side TEXT,amount REAL,inventory_after REAL,
+            executed_at TEXT
+        )""")
+        for who,acc,uic,action in (
+            ("i1","a1",4912,"CLOSE"),
+            ("i1","a2",4912,"ADD"),
+            ("i2","a1",4912,"REDUCE"),
+            ("i1","a1",5591,"OPEN"),
+        ):
+            con.execute("""INSERT INTO autotrader_v3_execution_events
+                VALUES(?,?,?,?,?,?,?,?,?)""",(
+                who,acc,uic,"CfdOnIndex",action,"Sell",.01,0.,
+                "2026-10-27T02:45:00+00:00"
+            ))
+    records=load_exact_reconciled_executions_v3(
+        trader_id="i1",account_id="a1",uic=4912,
+        asset_type="CfdOnIndex",db_path=db
+    )
+    assert len(records)==1
+    assert records[0]["action"]=="CLOSE"
