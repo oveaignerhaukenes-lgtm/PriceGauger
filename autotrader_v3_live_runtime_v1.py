@@ -21,6 +21,7 @@ from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIM
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
 from autotrader_v3_aen21_sticky_fast_exit_v1 import STRATEGY_KEY_V3 as AEN21_FAST_EXIT_KEY
 from autotrader_v3_macd_trailing_v1 import STRATEGY_KEY_V3 as TRAILING_KEY
+from autotrader_v3_macd_stoch_v23_hybrid import RUNTIME_KEY as HYBRID_KEY, evaluate_hybrid_live_v3
 from autotrader_v3_pipeline_v1 import TraderV3,evaluate_trader_v3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_registry_v1 import fixed_timeframe_minutes_v3, live_config_issues_v3
@@ -223,7 +224,7 @@ def _fast_quote_eligible_v3(instance, *, db_path="pricegauger.db"):
     Caller already enforces exact LIVE ownership. Unavailable config never
     grants a quote-only strategy evaluation or fresh orders.
     """
-    if instance.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS):
+    if instance.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS | {HYBRID_KEY}):
         return True
     try:
         return "impulse-exit" in load_autotrader_config_v3(
@@ -474,6 +475,15 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             # A missing or stale 1s source must NEVER create a new position.
             # HOLD keeps the broker-confirmed inventory, so ordinary account
             # ownership/position policies remain the authority for risk exits.
+        elif e.strategy_key == HYBRID_KEY:
+            decision=evaluate_hybrid_live_v3(
+                trader_id=e.pilot_key,strategy_key=e.strategy_key,
+                account_uic=int(e.uic),instrument_id=int(e.instrument_id),
+                market_name=e.market_name,actual_amount=actual.amount,
+                tranche=float(strategy_amount_config.tranche),
+                max_inventory=float(strategy_amount_config.max_inventory),
+                context_changed=context_changed,db_path=db_path,now=end,
+            )
         elif e.strategy_key in TICK_RUNTIME_KEYS:
             decision=evaluate_tick_live_v3(
                 trader_id=e.pilot_key,strategy_key=config.strategy_key,
@@ -525,7 +535,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 # closed 1m evidence; otherwise data_ok is ALWAYS false and
                 # a live reversal can close but never re-enter.
                 safety_points=tuple(b.point for b in bars) if bars else ()
-                if e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS):
+                if e.strategy_key in (HYPER_RUNTIME_KEYS | TICK_RUNTIME_KEYS | {HYBRID_KEY}):
                     utc_minute=end.astimezone(timezone.utc).replace(
                         second=0,microsecond=0)
                     safety_points=_hyper_safety_1m_points_v3(
