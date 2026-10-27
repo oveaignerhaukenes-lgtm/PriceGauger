@@ -18,6 +18,7 @@ from autotrader_macd_dry_run_v2 import MacdObservationV2
 from trading_desk_indicators import calculate_indicators
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_macd_stoch_v21 import macd_stoch_v21_target_v3
+from autotrader_v3_macd_stoch_v22_flip import macd_stoch_v22_flip_target_v3
 from autotrader_v3_macd_stoch_v2 import ENTRY_THRESHOLD
 from autotrader_v3_macd_trailing_v1 import MacdTrailingConfigV3
 from trading_desk import ChartBar
@@ -79,6 +80,7 @@ class PaperResult30V1:
     incomplete_segments: int = 0
     marked_unrealized_points_lots: float = 0.
     completed_pnl_points_lots: float = 0.
+    decision_model: str = "v21"
 
 
 def _utc(x) -> datetime:
@@ -203,6 +205,7 @@ def run_v21_quote_paper_v1(
     tranche: float = .01, max_inventory: float = .03,
     reversal_mode: str = "flat_first",
     hypothetical_latency_seconds: int = 0,
+    decision_model: str = "v21",
 ) -> PaperResult30V1:
     """Deterministic bid/ask scenario replay with no API calls or live writes.
 
@@ -212,6 +215,10 @@ def run_v21_quote_paper_v1(
     """
     if reversal_mode not in ("flat_first", "direct_1bar"):
         raise ValueError("only controlled native and PAPER immediate-net flip")
+    if decision_model not in ("v21", "v22"):
+        raise ValueError("only V2.1 and V2.2 Flip PAPER strategies supported")
+    if decision_model == "v22" and reversal_mode != "flat_first":
+        raise ValueError("V2.2 already owns reversal target; no extra PAPER flip override")
     if hypothetical_latency_seconds not in (0, 1, 3, 5):
         raise ValueError("unsupported latency scenario")
     bars = build_completed_bars_v1(
@@ -272,7 +279,9 @@ def run_v21_quote_paper_v1(
             ):
                 local_skipped += 1
                 continue
-            decision = macd_stoch_v21_target_v3(
+            decider = (macd_stoch_v21_target_v3 if decision_model=="v21"
+                       else macd_stoch_v22_flip_target_v3)
+            decision = decider(
                 current_target=TargetInventoryV3(position),
                 observation=ob, previous_observation=prior,
                 bars=full_bars[:i+1], config=settings,
@@ -334,5 +343,5 @@ def run_v21_quote_paper_v1(
         bars[0].bar.bar_time if bars else None,
         bars[-1].bar.bar_time if bars else None,
         reversal_mode, hypothetical_latency_seconds,
-        incomplete, unrealized, completed_cash,
+        incomplete, unrealized, completed_cash, decision_model,
     )
