@@ -292,14 +292,22 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                item.label if item.key in LIVE_MODIFIERS_V3 else
                f'{item.label} · ikke LIVE')
         help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Ikke koblet til LIVE-runtime.')
-        left,right=st.columns([5,2],vertical_alignment='center')
+        # Never stack the audit button below its modifier on phones:
+        # Streamlit >=1.62 no-wrap columns keep the book icon on the same row.
+        # The toggle label ellipsizes on narrow screens; its help retains
+        # the complete modifier description.
+        left,right=st.columns(
+            [3,1],gap="small",vertical_alignment="center",wrap=False)
         chosen_modifier=left.toggle(
             label,value=item.key in config.modifiers,
             key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text,
+            wrap=False,
             disabled=(is_ai_preset and item.key=='ai-loss-manager'))
         if chosen_modifier or (is_ai_preset and item.key=='ai-loss-manager'):
             enabled.append(item.key)
-        with right.popover("Logg",use_container_width=True):
+        with right.popover(
+            "📖",width="content",wrap=False,
+            help=f"Vis hendelsesloggen for {item.label}"):
             st.caption(item.label + " · hendelseskanal")
             events=load_modifier_live_events_v3(
                 trader_id=trader_id,modifier_key=item.key,limit=30)
