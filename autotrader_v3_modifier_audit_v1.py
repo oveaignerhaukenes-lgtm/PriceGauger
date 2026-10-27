@@ -110,3 +110,25 @@ def record_modifier_operator_event_v3(*,trader_id:str,modifier_key:str,
             VALUES(?,?,?,?,?,?,?)""",(
                 str(uuid4()),trader_id,modifier_key,_utc_now(),
                 "OPERATOR",status,detail[:350]))
+
+
+def record_modifier_target_change_v3(*,trader_id:str,modifier_key:str,
+                                     decision_key:str,before_amount:float,
+                                     after_amount:float,now:datetime,db_path="pricegauger.db"):
+    """One idempotent proposed-target log, NEVER a confirmed broker trade."""
+    from uuid import uuid5,NAMESPACE_URL
+    if abs(before_amount-after_amount)<1.e-9:return False
+    ensure_modifier_audit_schema_v3(db_path)
+    signature=(f"{trader_id}|{modifier_key}|{decision_key}|"
+               f"{before_amount:.6f}|{after_amount:.6f}")
+    key=str(uuid5(NAMESPACE_URL,signature))
+    direction="FLAT" if abs(after_amount)<1.e-9 else (
+        "REDUCE" if abs(after_amount)<abs(before_amount) else "TARGET_CHANGE")
+    with connect(db_path) as db:
+        result=db.execute("""INSERT INTO autotrader_v3_modifier_live_events(
+          id,trader_id,modifier_key,observed_at,event_type,status,detail)
+          VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING""",
+          (key,trader_id,modifier_key,now.astimezone(timezone.utc).isoformat(),
+           "TARGET",direction,
+           f"Target {before_amount:+.2f} -> {after_amount:+.2f}; not yet a confirmed Saxo execution"))
+    return result.rowcount>0
