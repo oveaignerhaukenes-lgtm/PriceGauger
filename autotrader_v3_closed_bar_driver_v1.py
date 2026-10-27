@@ -32,6 +32,9 @@ from autotrader_v3_macd_stoch_v2 import (
 from autotrader_v3_macd_stoch_v21 import (
     STRATEGY_KEY_V3 as STOCH_V21_KEY, macd_stoch_v21_target_v3,
 )
+from autotrader_v3_macd_stoch_v22_flip import (
+    STRATEGY_KEY_V3 as STOCH_V22_KEY, macd_stoch_v22_flip_target_v3,
+)
 from autotrader_v3_macd_stoch_rhythm_build_v1 import (
     STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY, macd_stoch_rhythm_build_target_v3,
 )
