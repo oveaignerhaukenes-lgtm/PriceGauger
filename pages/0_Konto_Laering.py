@@ -18,8 +18,8 @@ from datetime import datetime,timezone
 
 st.title("Konto-læring · Observatør")
 st.caption(
-    "Velg en Saxo-konto. Når observasjon er PÅ, følger en egen worker "
-    "kontoens bekreftede kontoverdier, V3-ordrer og tidslåst strategikontekst "
+    "Aktive eide V3-kontoer følges automatisk. Andre Saxo-kontoer kan "
+    "følges manuelt. Workeren kobler kontoverdi, V3-ordrer og tidslåst strategikontekst "
     "og lagrer mulige forbedringer til SIM A/B. "
     "Ingen strategi, konto eller ordretillatelse endres automatisk."
 )
@@ -54,7 +54,7 @@ latest=newest[account]
 selected_samples=tuple(x for x in all_samples
                        if str(x["account_id"])==account)
 tracked=bool(watches.get(account,False))
-enabled=st.toggle("Følg kontoen automatisk hvert femte minutt",
+enabled=st.toggle("Manuell tilleggsovervåking (aktive V3 følges automatisk)",
                   value=tracked,key=f"learning-follow:{account}")
 if enabled!=tracked:
     try:

@@ -275,12 +275,29 @@ def propose_account_learning_v1(*,account_id:str,
     return tuple(result)
 
 
+def auto_active_v3_learning_accounts(*,db_path="pricegauger.db"):
+    """Observe all armed, exact-owned V3 account IDs on existing 5m sidecar."""
+    from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
+    from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+    from autotrader_engine_account_ownership_v1 import load_account_owner_v1,ENGINE_V3
+    tracked=set()
+    for inst in load_v3_instances_v1(db_path=db_path):
+        if not live_authority_armed_v3(inst.instance_id,db_path=db_path):
+            continue
+        owner=load_account_owner_v1(inst.account_id,db_path=db_path)
+        if owner and owner.engine_id==ENGINE_V3 and owner.owner_key==inst.instance_id:
+            tracked.add(str(inst.account_id))
+    return tuple(sorted(tracked))
+
+
 def run_account_learning_cycle_v1(*,db_path="pricegauger.db",
                                   now:datetime|None=None)->dict[str,int]:
     """Five-minute sidecar. Reads durable telemetry; writes only research rows."""
     ensure_account_learning_schema_v1(db_path=db_path)
-    accounts=[str(x["account_id"]) for x in load_account_learning_watches_v1(
-        db_path=db_path) if bool(x["enabled"])]
+    accounts=sorted(set(
+        str(x["account_id"]) for x in load_account_learning_watches_v1(
+            db_path=db_path) if bool(x["enabled"])
+    ).union(auto_active_v3_learning_accounts(db_path=db_path)))
     observed=proposals=inserted=errors=0
     for account in accounts:
         try:
