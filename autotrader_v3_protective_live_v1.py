@@ -17,6 +17,7 @@ from typing import Mapping, Sequence
 
 from autotrader_v3_domain import TargetInventoryV3
 from database import connect
+from autotrader_v3_modifier_log_v1 import record_modifier_event_v3
 
 IMPULSE_LOOKBACK_S = 80
 IMPULSE_WINDOW_S = 10
@@ -58,10 +59,8 @@ class ProtectiveModifierV3:
         status=self.evidence.status
         if status in ("IMPULSE_PAUSE","DRAWDOWN_LOCK"):
             return TargetInventoryV3(0.),self.evidence.reason+"; protective target FLAT"
-        if status in ("DATA_MISSING","DRAWDOWN_NO_ADD","DRAWDOWN_WARN"):
-            if status=="DRAWDOWN_WARN":
-                # gentle: no extra tranche, do not block existing reductions
-                pass
+        if status in ("DATA_MISSING","DRAWDOWN_NO_ADD"):
+            # Missing safety evidence or early drawdown: never increase exposure.
             if abs(current)>1.e-9 and wanted*current<0:
                 return TargetInventoryV3(0.),"protective opposite -> FLAT"
             if abs(wanted)>abs(current)+1.e-9:
@@ -88,6 +87,7 @@ def _load(trader_id,key,db_path):
 
 
 def _save(trader_id,key,context,status,at,quiet,reference,peak,db_path):
+    previous=_load(trader_id,key,db_path)
     with connect(db_path) as db:
         db.execute("""INSERT INTO autotrader_v3_protective_state(
           trader_id,modifier_key,context,status,since_at,updated_at,
@@ -102,6 +102,12 @@ def _save(trader_id,key,context,status,at,quiet,reference,peak,db_path):
           reference_value=excluded.reference_value,peak_value=excluded.peak_value""",
           (trader_id,key,context,status,at.isoformat(),at.isoformat(),
            quiet.isoformat() if quiet else None,reference,peak))
+    if not previous or previous["status"] != status or previous["context"] != context:
+        record_modifier_event_v3(
+            trader_id=trader_id,modifier_key=key,
+            event_type="EVIDENCE_TRANSITION",state=status,
+            detail="Risk evidence status changed; actual Saxo order/fill must be checked separately",
+            db_path=db_path)
 
 
 def impulse_evidence_v3(*, rows:Sequence[Mapping], now:datetime,
@@ -234,6 +240,11 @@ def evaluate_account_loss_live_v3(*,trader_id:str,context:str,
         total=snap.total_value if verified else None
     except Exception:
         total=None;verified=False
+    # Reuse fresh verified observation for at most 10s. This is an early
+    # protective gate, not the slow 15-minute capital manager.
+    if previous and previous["status"]=="DRAWDOWN_LOCK":
+        return ProtectiveEvidenceV3("account-loss-lock","DRAWDOWN_LOCK",
+                                    "persistent exact account risk lock; manual verified reset required")
     old_peak=float(previous["peak_value"]) if previous and previous["peak_value"] is not None else None
     old_locked=bool(previous and previous["status"]=="DRAWDOWN_LOCK")
     peak=max(old_peak,total) if old_peak is not None and total is not None else (old_peak or total)
