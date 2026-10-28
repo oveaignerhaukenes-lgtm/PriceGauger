@@ -284,6 +284,25 @@ def classify_completed_regime(bars:Sequence,*,min_bars=12)->CompletedRegime|None
     )
 
 
+def market_session_coverage(*,bars,start:datetime,end:datetime):
+    """Actual timestamp coverage, no OHLC approximation for missing minutes."""
+    first,last=utc(start),utc(end)
+    expected=max(0,int((last-first).total_seconds()//60))
+    clocks=[utc(b.bar_time) for b in bars if first<=utc(b.bar_time)<last]
+    actual=len(set(clocks))
+    ratio=actual/expected if expected else 0.
+    at_min=min(clocks) if clocks else None
+    at_max=max(clocks) if clocks else None
+    starts=bool(at_min and (at_min-first)<=timedelta(minutes=3))
+    ends=bool(at_max and last-at_max<=timedelta(minutes=4))
+    return {
+        "expected_1m":expected,"observed_1m":actual,
+        "coverage_pct":100*ratio,
+        "has_session_start":starts,"has_session_end":ends,
+        "comparable":bool(expected>=45 and ratio>=0.80 and starts and ends),
+    }
+
+
 def split_completed_regimes(bars:Sequence,*,minutes=30,
                             start:datetime,end:datetime):
     """Window-by-window, no bridging missing candles or pretending gaps are flat."""
