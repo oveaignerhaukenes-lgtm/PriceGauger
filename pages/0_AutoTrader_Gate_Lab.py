@@ -56,7 +56,7 @@ if strategy in ("macd-stoch-rhythm-build",):
     timeframe="1m"
 if strategy in ("pricetrend-1","sma-9-21-baseline"):
     timeframe="2m"
-hours=st.selectbox("Historikk i timer",(12,24,36,48),index=3)
+hours=st.selectbox("Historikk i timer",(12,24,36),index=2)
 a,b,c=st.columns(3)
 spread=a.number_input("Spread i bp (scenario)",min_value=0.,value=2.0,step=.5)
 point=c.number_input("NOK per punkt/lot (scenario)",min_value=.01,
