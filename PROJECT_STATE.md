@@ -11,6 +11,13 @@
 
 Never treat an earlier handoff, chat response, or this file alone as proof of LIVE readiness.
 
+## 2026-10-28 UI & market-regime observation
+
+- Fleet's `Relativ prestasjon · nåværende åpne P/L` previously used `st.bar_chart` without unit or positive/negative distinction and was reported to vanish during mobile scrolling. `fix/v3-fleet-pnl-unit-stable-mobile-20261028` changes it to a simple static signed HTML bar display that persists on scroll; full account names, exact per-account open P/L amounts, clear **not percent** labels. Different currencies are grouped, not compared or summed.
+- Currency status comes only from matching Saxo `AccountId/Currency` plus explicit `NetPositionView.ProfitLossOnTradeInBaseCurrency`. Any Saxo dynamic/inferred P/L without verified monetary units is shown only as an **unverified-unit** numeric amount on its account card, excluded from currency charts. No broker order/risk path is altered.
+- User identified a candidate loss regime from Saxo 2m USNAS100.I screenshots around 2026-10-28 01:40 Oslo: repeated narrow ~29,650–29,700 swings and weak oscillating MACD/Stoch. Research issue #821 requires actual timestamped Saxo fills and account NAV to determine whether this is a phase-trap, contraction or genuine directional reversal. No trading rules modified based on chart alone.
+- Next: run UI + unit regression CI, squash merge if green, confirm Railway web deploy and visually check mobile scroll, then inspect actual loss-regime fills separately.
+
 ## Latest verified handoff — 2026-10-23 18:26 UTC
 
 - **GitHub journal current through [#799](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/799)**: `docs/PROJECT_CHANGELOG.md` includes main merge `21f8566b1952` (2026-10-23). It is an automatic record of commits, not an account or fill report.
