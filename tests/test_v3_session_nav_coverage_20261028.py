@@ -56,12 +56,12 @@ def test_funded_cohort_keeps_missing_03_baselines_and_excludes_zero_silver():
 
 
 def test_out_of_sync_latest_snapshots_cannot_be_presented_as_fleet_daily():
-    early=result("A",(snap("A",1,950.),snap("A",520,945.)))
+    early=result("A",(snap("A",1,950.),snap("A",530,945.)))
     late=result("B",(snap("B",2,120.),snap("B",539,110.)))
     total=summarize_fleet_sessions((early,late))[0]
     assert total["accounts"]==2
     assert total["status"]=="ACCOUNT_TIMES_NOT_ALIGNED"
-    assert total["last_spread_minutes"]==19
+    assert total["last_spread_minutes"]==9
     assert total["unadjusted_nav_pct"] is None
 
 
