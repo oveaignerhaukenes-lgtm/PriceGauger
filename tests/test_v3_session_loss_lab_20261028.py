@@ -150,7 +150,8 @@ def test_paper_session_comparison_uses_actual_observed_baseline():
 def test_proposals_are_research_only_and_never_issued_as_orders():
     regs=(classify_completed_regime([
         candle(i,100+2*sin(i*1.6)) for i in range(30)]),)
-    accounts=(SimpleNamespace(nav_change_pct=-2.),SimpleNamespace(nav_change_pct=-4.))
+    accounts=(SimpleNamespace(nav_change_pct=-2.,status="OBSERVED_NAV_UNADJUSTED"),
+              SimpleNamespace(nav_change_pct=-4.,status="OBSERVED_NAV_UNADJUSTED"))
     titles=[x[0] for x in proposal_from_evidence(
         regimes=regs,account_results=accounts,executions_available=True)]
     assert "Retningsfilter + anti-churn" in titles
