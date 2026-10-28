@@ -24,7 +24,7 @@ from strategy_lab_v2_replay import (
 from autotrader_v3_session_loss_lab_v1 import (
     OSLO,utc,current_oslo_session,oslo_session_start,
     account_session_result,summarize_fleet_sessions,
-    split_completed_regimes,replay_session_delta,
+    split_completed_regimes,market_session_coverage,replay_session_delta,
     filter_reconciled_account_fills,load_exact_product_executions,
     fill_price_followthrough,proposal_from_evidence,
 )
@@ -157,6 +157,7 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
         fleet=summarize_fleet_sessions(account_results)
         market_rows=()
         regimes=()
+        coverage=None
         paper=[]
         failures={}
         if source is not None:
@@ -169,9 +170,10 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
                                  "Velg smalere døgn eller utvid trygg replaygrense.")
             clipped=tuple(x for x in market_rows
                           if start<=utc(x.bar_time)<finish)
+            coverage=market_session_coverage(bars=clipped,start=start,end=finish)
             regimes=split_completed_regimes(
                 clipped,minutes=30,start=start,end=finish)
-            if len(market_rows)>=90:
+            if coverage["comparable"] and len(market_rows)>=90:
                 costs=ReplayCostsV2(
                     point_value_nok=float(per_point),
                     spread_bps=float(spread),variable_fee_bps=float(variable),
@@ -225,6 +227,7 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
             "proposals":proposals,"source":source.market_name if source else None,
             "raw_bars":len(market_rows),
             "cashflows_reconciled":False,
+            "market_session_coverage":coverage,
         }
     except Exception as exc:
         st.session_state.pop("losslab:report",None)
@@ -289,6 +292,18 @@ if report:
         st.caption(f"{report['raw_bars']} lagrede kanoniske 1m-barer inkludert "
                    "10 timer for oppvarming. Hver regimeetikett beskriver bare "
                    "en FERDIG historisk 30m-periode, ikke et sanntidssignal.")
+        if report["market_session_coverage"]:
+            cov=report["market_session_coverage"]
+            st.caption(
+                f"Datadekning i selve handelsdøgnet: "
+                f"{cov['observed_1m']}/{cov['expected_1m']} "
+                f"barminutter ({cov['coverage_pct']:.1f} %). "
+                "PAPER-rangering krever minst 80 % dekning og kursobservasjoner "
+                "både nær 03:00 og vindusslutt."
+            )
+            if not cov["comparable"]:
+                st.warning("Mangelfull markedsdekning. Ingen rangering av "
+                           "alternativstrategier før sammenlignbare data finnes.")
         if report["regimes"]:
             st.dataframe(pd.DataFrame([{
                 "Fra, norsk":r.from_at.astimezone(OSLO).strftime("%H:%M"),
@@ -379,6 +394,7 @@ if report:
             "paper_failures":report["errors"],
             "research_hypotheses":report["proposals"],
             "market":report["source"],"archived_1m_rows":report["raw_bars"],
+            "market_session_coverage":report["market_session_coverage"],
             "cashflows_reconciled":False,
             "live_orders_changed":False,
         }
