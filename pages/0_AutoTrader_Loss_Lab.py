@@ -24,7 +24,7 @@ from strategy_lab_v2_replay import (
 from autotrader_v3_session_loss_lab_v1 import (
     OSLO,utc,current_oslo_session,oslo_session_start,
     account_session_result,summarize_fleet_sessions,
-    funded_account_cohort_v1,
+    funded_account_cohort_v1,MAX_PRE_RESET_BASELINE,
     split_completed_regimes,market_session_coverage,replay_session_delta,
     filter_reconciled_account_fills,load_exact_product_executions,
     fill_price_followthrough,proposal_from_evidence,
@@ -55,8 +55,8 @@ finish=min(oslo_session_start(day+timedelta(days=1)),clock)
 st.caption(
     f"Faktisk analysevindu: **{start.astimezone(OSLO):%d.%m %H:%M %Z}** "
     f"til **{finish.astimezone(OSLO):%d.%m %H:%M %Z}**. "
-    "Nærmeste pålitelige kontomåling ETTER kl. 03 er baseline; "
-    "ingen verdi blir interpolert til 03."
+    "Nærmeste pålitelige kontomåling rundt kl. 03 brukes (inntil 2 minutter "
+    "før eller 12 minutter etter). Verdien er tilnærmet, aldri interpolert."
 )
 if finish<=start:
     st.info("Dette handelsdøgnet har ennå ikke begynt.")
@@ -106,7 +106,7 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
         for sample in snapshots:
             at=utc(sample["observed_at"])
             aid=str(sample["account_id"])
-            if start<=at<=finish and aid in groups:
+            if start-MAX_PRE_RESET_BASELINE<=at<=finish and aid in groups:
                 groups[aid].append(sample)
         account_results=tuple(
             replace(account_session_result(
@@ -145,7 +145,7 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
                 "Sluttid norsk":(
                     result.end_observed_at.astimezone(OSLO).strftime("%H:%M")
                     if result.end_observed_at else None),
-                "Forsinkelse etter 03 (min)":result.baseline_delay_minutes,
+                "Avvik fra 03 (min)":result.baseline_delay_minutes,
                 "Siste måling alder (min)":result.latest_age_minutes,
                 "Målinger":result.samples,
                 "Start TotalValue":result.baseline_value,
@@ -290,15 +290,15 @@ if report:
                     else:
                         status_labels={
                             "NO_VERIFIED_NAV":"Ingen gyldige kontomålinger i vinduet",
-                            "BASELINE_TOO_LATE":"Startmåling for langt etter 03:00",
+                            "BASELINE_TOO_LATE":"Ingen pålitelig baseline innen 2 min før / 12 min etter 03:00",
                             "LATEST_TOO_OLD":"Siste kontomåling er for gammel",
                             "INSUFFICIENT_SAMPLES":"For få kontomålinger",
                         }
                         st.warning(status_labels.get(status,status)+
                                    " – ingen dagsendring kan rapporteres.")
                     st.caption(
-                        f"Startmåling: {row['Starttid norsk'] or 'mangler'} "
-                        f"(+{row['Forsinkelse etter 03 (min)']:.1f} min)"
+                        f"Baseline nær 03: {row['Starttid norsk'] or 'mangler'} "
+                        f"({row['Avvik fra 03 (min)']:+.1f} min fra 03:00)"
                         if row["Forsinkelse etter 03 (min)"] is not None
                         else "Startmåling: mangler"
                     )
@@ -355,8 +355,9 @@ if report:
                 st.dataframe(pd.DataFrame(report["fleet"]),
                              hide_index=True,use_container_width=True)
         st.caption(
-            "Endring % = (siste verifiserte Saxo TotalValue / første "
-            "verifiserte TotalValue ETTER 03:00 − 1) × 100. "
+            "Endring % = (siste verifiserte Saxo TotalValue / nærmeste "
+            "verifiserte verdi rundt 03:00 − 1) × 100. "
+            "Nærmeste baseline kan være inntil to minutter FØR 03:00. "
             "Vi har ikke nødvendigvis en måling ved nøyaktig 03:00, "
             "og beregner aldri et kunstig startpunkt eller manglende kontoer. "
             "Kontoendringene er ikke justert for innskudd, uttak, "
