@@ -25,7 +25,8 @@ from autotrader_v3_session_loss_lab_v1 import (
     OSLO,utc,current_oslo_session,oslo_session_start,
     account_session_result,summarize_fleet_sessions,
     split_completed_regimes,replay_session_delta,
-    filter_reconciled_account_fills,proposal_from_evidence,
+    filter_reconciled_account_fills,load_exact_product_executions,
+    fill_price_followthrough,proposal_from_evidence,
 )
 
 st.set_page_config(page_title="AutoTrader · Tapslab 03:00",layout="wide")
@@ -115,8 +116,14 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
             samples=groups[result.account_id]
             account_labels[result.account_id]=result.account_name
             try:
-                raw=load_account_learning_executions_v1(
-                    account_id=result.account_id,since=start)
+                raw=(load_exact_product_executions(
+                    account_id=result.account_id,
+                    uic=int(source.provider_instrument_id),
+                    asset_type=str(source.asset_type),
+                    start=start,end=finish)
+                    if source is not None else
+                    load_account_learning_executions_v1(
+                        account_id=result.account_id,since=start))
                 fills=filter_reconciled_account_fills(
                     executions=raw,account_id=result.account_id,
                     start=start,end=finish)
@@ -198,6 +205,11 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
                             source_uic=int(source.provider_instrument_id)))
                     except Exception as exc:
                         failures[f"{key} {timeframe}"]=str(exc)[:180]
+        followthrough={}
+        if market_rows and source is not None:
+            for account_id,fills in events_by_account.items():
+                followthrough[account_id]=fill_price_followthrough(
+                    fills=fills,bars=market_rows,account_id=account_id)
         proposals=proposal_from_evidence(
             regimes=regimes,account_results=account_results,
             executions_available=any(v is not None for v in events_by_account.values()),
@@ -209,7 +221,7 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
             "account_results":account_rows,"fleet":fleet,
             "contexts":contexts,"fills":events_by_account,
             "account_labels":account_labels,
-            "regimes":regimes,"paper":paper,"errors":failures,
+            "followthrough":followthrough,"regimes":regimes,"paper":paper,"errors":failures,
             "proposals":proposals,"source":source.market_name if source else None,
             "raw_bars":len(market_rows),
             "cashflows_reconciled":False,
@@ -292,7 +304,28 @@ if report:
         else:
             st.warning("Ingen fullstendige sammenhengende 30m-vinduer: "
                        "kan ikke klassifisere markedet på tilgjengelige data.")
-        st.subheader("4 · Hvilke strategier kunne gjort det bedre? PAPER")
+        st.subheader("4 · Hva skjedde etter avstemte innganger?")
+        st.caption("Fremtidig kursretning 1/3/5 min etter FØRSTE observerte "
+                   "1m-åpning etter Saxos posisjonsbekreftelse. "
+                   "Positivt betyr at prisen senere gikk i posisjonens retning. "
+                   "Dette er verken Saxo-fyllpris eller P/L, og en uverifisert "
+                   "ordre gir ingen kunstig verdi.")
+        raw_follow=[dict(row,Konto=report["account_labels"].get(aid,aid))
+                    for aid,rows in report["followthrough"].items()
+                    if rows is not None for row in rows]
+        if raw_follow:
+            st.dataframe(pd.DataFrame([{
+                "Konto":x["Konto"],"Handling":x["action"],
+                "Saxo-tid":x["executed_at"].astimezone(OSLO),
+                "Posisjon etter (lot)":x["signed_lots_after"],
+                "+1m retning bp":x.get("signed_future_1m_bps"),
+                "+3m retning bp":x.get("signed_future_3m_bps"),
+                "+5m retning bp":x.get("signed_future_5m_bps"),
+            }for x in raw_follow]),hide_index=True,use_container_width=True)
+        else:
+            st.caption("Ingen kvalifiserte, eksakt avstemte innganger + "
+                       "sammenhengende etterfølgende kursdata i perioden.")
+        st.subheader("5 · Hvilke strategier kunne gjort det bedre? PAPER")
         st.caption(
             "Samme instrument, prisarkiv og manuelle kostnadsscenario. "
             "Strategiene er simulert med faktiske historiske 1m-kurser; "
@@ -324,7 +357,7 @@ if report:
         if report["errors"]:
             with st.expander("Strategier uten kvalifisert replay"):
                 st.json(report["errors"])
-        st.subheader("5 · Eksperimenter som kan forklare tapene")
+        st.subheader("6 · Eksperimenter som kan forklare tapene")
         for name,method in report["proposals"]:
             st.markdown(f"**{name}** — {method}")
         st.caption(
@@ -338,6 +371,7 @@ if report:
             "account_nav":report["account_results"],
             "fleet_nav":report["fleet"],
             "confirmed_v3_executions":report["fills"],
+            "post_confirmation_price_direction":report["followthrough"],
             "observed_live_strategies":{
                 k:[asdict(p) for p in v] for k,v in report["contexts"].items()},
             "completed_market_regimes":[asdict(x) for x in report["regimes"]],
