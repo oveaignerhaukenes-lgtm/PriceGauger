@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 OSLO=ZoneInfo("Europe/Oslo")
 MAX_BASELINE_DELAY=timedelta(minutes=12)
+MAX_PRE_RESET_BASELINE=timedelta(minutes=2)
 MAX_END_AGE=timedelta(minutes=15)
 MAX_BAR_GAP=timedelta(minutes=1)
 
@@ -60,7 +61,11 @@ class AccountSessionResult:
 
 def account_session_result(*,account_id:str,samples:Sequence[Mapping],
                            start:datetime,end:datetime)->AccountSessionResult:
-    """No interpolation to 03:00, no cross-account/currency mixing."""
+    """Choose closest reliable ±03 reset sample (max 2m before/12m after).
+
+    The observed value remains approximate, never a fabricated exact 03:00
+    Saxo official baseline. Zero-balance, foreign accounts stay separate.
+    """
     begin,stop=utc(start),utc(end)
     if stop<=begin:raise ValueError("invalid window")
     if any(str(s.get("account_id"))!=str(account_id) for s in samples):
@@ -74,7 +79,7 @@ def account_session_result(*,account_id:str,samples:Sequence[Mapping],
     good=[]
     for sample in ordered:
         when=utc(sample["observed_at"])
-        if not begin<=when<=stop:continue
+        if not begin-MAX_PRE_RESET_BASELINE<=when<=stop:continue
         if str(sample.get("calculation_reliability") or "").lower()!="ok":
             continue
         try:
@@ -88,13 +93,26 @@ def account_session_result(*,account_id:str,samples:Sequence[Mapping],
                                     0,None,None,None,None,None,"NO_VERIFIED_NAV")
     # All 03:00 baselines are first verified observations AT/AFTER reset.
     # An observation just BEFORE reset is a previous-day NAV value.
-    first,val0=good[0]
-    last,val1=good[-1]
+    baseline_candidates=[
+        item for item in good
+        if (begin-MAX_PRE_RESET_BASELINE<=item[0]<=begin+MAX_BASELINE_DELAY)]
+    if baseline_candidates:
+        # Prefer a 02:59:30 Saxo value over 03:04:30, but never assign
+        # that previous-day value the timestamp 03:00.
+        first,val0=min(
+            baseline_candidates,
+            key=lambda item:(abs((item[0]-begin).total_seconds()),
+                             item[0]<begin))
+    else:
+        first,val0=good[0]
+    after=[item for item in good if item[0]>=begin]
+    last,val1=after[-1] if after else good[-1]
     delay=(first-begin).total_seconds()/60.
     age=(stop-last).total_seconds()/60.
-    status=("BASELINE_TOO_LATE" if first-begin>MAX_BASELINE_DELAY else
+    status=("BASELINE_TOO_LATE" if not baseline_candidates else
             "LATEST_TOO_OLD" if stop-last>MAX_END_AGE else
-            "INSUFFICIENT_SAMPLES" if len(good)<2 else "OBSERVED_NAV_UNADJUSTED")
+            "INSUFFICIENT_SAMPLES" if last<=first else
+            "OBSERVED_NAV_UNADJUSTED")
     if status=="BASELINE_TOO_LATE":
         return AccountSessionResult(account_id,name,currency,first,last,delay,age,
                                     len(good),val0,val1,None,None,None,status)
@@ -181,8 +199,9 @@ def funded_account_cohort_v1(*,samples:Sequence[Mapping],end:datetime,
         at=utc(row["observed_at"])
         if not low<=at<=end_at:
             continue
-        if str(row.get("calculation_reliability") or "").lower()!="ok":
-            continue
+        # Latest *reported* account TotalValue establishes which accounts
+        # exist and are funded. It does not qualify a snapshot as
+        # trustworthy for return calculation; that is a separate test.
         try:
             value=float(row["total_value"])
         except (KeyError,TypeError,ValueError):
