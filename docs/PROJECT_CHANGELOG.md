@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `2b2bd96a6a17b7dcf9d6694ab170fb9fe1a888a1`
+Latest tracked main commit: `afc3eedad9a02692d2535d9512e52c75bcf53206`
 
 ## Recent main commits
 
+- 2026-10-28 [`afc3eedad9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/afc3eedad9a02692d2535d9512e52c75bcf53206) — fix: readable mobile V3 modifier controls and lazy audit dialog (#820)
 - 2026-10-28 [`2b2bd96a6a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2b2bd96a6a17b7dcf9d6694ab170fb9fe1a888a1) — feat: V2.3 Hybrid 1m direction and 15s Saxo BBO execution (#819)
 - 2026-10-28 [`f3dbf878a2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f3dbf878a28f47cbb31576635d871beeffa661b0) — feat: autonomous per-active-V3 60s fleet observer and 5m account learning (#818)
 - 2026-10-28 [`d91e0384d2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d91e0384d2261231ce0775060559873db1429c11) — feat: V3 observer dashboard and honest modifier readiness (#816)
@@ -46,6 +47,5 @@ Latest tracked main commit: `2b2bd96a6a17b7dcf9d6694ab170fb9fe1a888a1`
 - 2026-10-21 [`0bb432379b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0bb432379b25400bf04d3b8d91096ee291ab8795) — HyperVigilant Chase 10s: direct-flip price PAPER research (#774)
 - 2026-10-21 [`196959c97e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/196959c97e5e8b356022ebf62c7e76a5b08e0748) — Strategy Lab v2 AI: safe error diagnostics and incomplete Responses retry (#773)
 - 2026-10-21 [`a24b9f7c54`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a24b9f7c54633887e22bf52b3a8a624d796431ed) — Strategilab v2: fix manual Saxo selection, expand 18 paper replays and click-to-scrub (#772)
-- 2026-10-20 [`4a791c7496`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a791c74968f0819b91597eacbd6d970af4728c8) — Strategilab v2: isolated multi-replay and Saxo account performance (#771)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
