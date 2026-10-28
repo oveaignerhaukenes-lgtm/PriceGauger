@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `a3b5301088e9491a309b6b159b4e66d695a126a1`
+Latest tracked main commit: `cda827746218802cadcb95b1cfc7f9837afe41ab`
 
 ## Recent main commits
 
+- 2026-10-28 [`cda8277462`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cda827746218802cadcb95b1cfc7f9837afe41ab) — feat: empirical trade-vs-flat price-regime PAPER lab (#826)
 - 2026-10-28 [`a3b5301088`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a3b5301088e9491a309b6b159b4e66d695a126a1) — feat: Saxo historical costs and per-instrument BBO spread audit (#824)
 - 2026-10-28 [`4919f62c4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4919f62c4aefb6fb50f3cf34b0f7840377ee43f7) — feat: AutoTrader 03 Oslo loss forensics and strategy counterfactual lab (#823)
 - 2026-10-28 [`76530d4ec8`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/76530d4ec863ba0c88c716e7ee2ea00a37cdc371) — fix: mobile-stable fleet P/L with verified currency units (#822)
@@ -46,6 +47,5 @@ Latest tracked main commit: `a3b5301088e9491a309b6b159b4e66d695a126a1`
 - 2026-10-21 [`c7e22742ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c7e22742ff7bddc86f46382f7d3b682efe322765) — Document verified journal automation and Railway deploy filters (#778)
 - 2026-10-21 [`fbef5fc610`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fbef5fc610c17ac731adc91d8211e423cdc64cfe) — Repair project continuity journal and reconcile living state (#777)
 - 2026-10-21 [`a5c80fc0a3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5c80fc0a31bcd7732f97296270cbcb7ca2e0254) — Sync PROJECT_STATE HyperVigilant 10s LIVE production verification (#776)
-- 2026-10-21 [`4a9c571737`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a9c571737d0a9619be254c4b17a9251070bbb27) — HyperChase 10s guarded LIVE strategies and project sync (#775)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
