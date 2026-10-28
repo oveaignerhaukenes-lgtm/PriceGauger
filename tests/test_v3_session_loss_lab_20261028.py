@@ -10,6 +10,7 @@ from autotrader_v3_session_loss_lab_v1 import (
     account_session_result,summarize_fleet_sessions,
     filter_reconciled_account_fills,classify_completed_regime,
     split_completed_regimes,replay_session_delta,proposal_from_evidence,
+    fill_price_followthrough,
 )
 
 DAY=date(2026,10,28)
@@ -169,3 +170,34 @@ def test_ui_requires_03_oslo_and_disables_trading_control():
     assert "place_order(" not in s
     assert "save_autotrader_config_v3(" not in s
     assert "set_live_authority_v3(" not in s
+
+
+
+def test_exact_reconciled_fill_future_retuses_real_next_open_not_fill_price():
+    rows=[candle(i,100+i,100+i-.2) for i in range(15)]
+    event=dict(account_id="A",executed_at=(
+        START+timedelta(minutes=2,seconds=12)).isoformat(),
+        inventory_after=.01,instance_id="i1",action="OPEN")
+    result=fill_price_followthrough(
+        fills=(event,),bars=rows,account_id="A")
+    assert len(result)==1
+    assert result[0]["first_post_confirmation_price_at"]==START+timedelta(minutes=3)
+    assert result[0]["signed_future_1m_bps"]>0
+    short=fill_price_followthrough(
+        fills=(dict(event,inventory_after=-.01),),bars=rows,account_id="A")
+    assert short[0]["signed_future_1m_bps"]<0
+    assert fill_price_followthrough(fills=None,bars=rows,account_id="A") is None
+    with pytest.raises(ValueError,match="cross-account"):
+        fill_price_followthrough(
+            fills=(dict(event,account_id="B"),),bars=rows,account_id="A")
+
+
+def test_fill_outcome_censors_missing_subminute_market_history():
+    rows=[candle(i,100+i) for i in range(15) if i!=4]
+    event=dict(account_id="A",executed_at=(
+        START+timedelta(minutes=2,seconds=20)).isoformat(),
+        inventory_after=.01,action="ADD",instance_id="i1")
+    result=fill_price_followthrough(fills=(event,),bars=rows,account_id="A")
+    assert len(result)==1
+    assert result[0]["signed_future_1m_bps"] is None
+    assert result[0]["signed_future_5m_bps"] is None
