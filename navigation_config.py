@@ -17,6 +17,7 @@ PAGE_GROUPS: dict[str, tuple[dict[str, Any], ...]] = {
         {"page": "pages/0_Kontostatistikk.py", "title": "Kontostatistikk", "icon": "💰", "url_path": "Kontostatistikk"},
         {"page": "pages/0_Konto_Laering.py", "title": "Konto-læring", "icon": "🧠", "url_path": "Konto_Laering"},
         {"page": "pages/0_AutoTrader_Observer.py", "title": "AutoTrader-observatør", "icon": "🩺", "url_path": "AutoTrader_Observer"},
+        {"page": "pages/0_AutoTrader_Loss_Lab.py", "title": "AutoTrader tapslab · 03:00", "icon": "🔬", "url_path": "AutoTrader_Loss_Lab"},
         {"page": "pages/0_Strategy_Lab_V2.py", "title": "Strategilab v2", "icon": "🧪", "url_path": "Strategy_Lab_V2"},
         {"page": "pages/0_Probability_Lab.py", "title": "Probability Lab", "icon": "🎲", "url_path": "Probability_Lab"},
         {"page": "pages/0_V21_Tempo_Lab.py", "title": "V2.1 Tempo-lab", "icon": "⏱️", "url_path": "V21_Tempo_Lab"},
