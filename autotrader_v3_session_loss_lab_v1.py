@@ -109,23 +109,24 @@ def account_session_result(*,account_id:str,samples:Sequence[Mapping],
     last,val1=after[-1] if after else good[-1]
     delay=(first-begin).total_seconds()/60.
     age=(stop-last).total_seconds()/60.
+    valid_window=[item for item in good if first<=item[0]<=last]
     status=("BASELINE_TOO_LATE" if not baseline_candidates else
             "LATEST_TOO_OLD" if stop-last>MAX_END_AGE else
-            "INSUFFICIENT_SAMPLES" if last<=first else
+            "INSUFFICIENT_SAMPLES" if len(valid_window)<2 else
             "OBSERVED_NAV_UNADJUSTED")
     if status=="BASELINE_TOO_LATE":
         return AccountSessionResult(account_id,name,currency,first,last,delay,age,
-                                    len(good),val0,val1,None,None,None,status)
+                                    len(valid_window),val0,val1,None,None,None,status)
     peak=val0
     dd=0.
-    for _,amount in good:
+    for _,amount in valid_window:
         peak=max(peak,amount)
         dd=max(dd,100.*(peak-amount)/peak)
-    change=val1-val0 if len(good)>1 else None
+    change=val1-val0 if len(valid_window)>1 else None
     pct=100.*change/val0 if change is not None else None
     return AccountSessionResult(
-        account_id,name,currency,first,last,delay,age,len(good),
-        val0,val1,change,pct,dd if len(good)>1 else None,status,
+        account_id,name,currency,first,last,delay,age,len(valid_window),
+        val0,val1,change,pct,dd if len(valid_window)>1 else None,status,
     )
 
 
