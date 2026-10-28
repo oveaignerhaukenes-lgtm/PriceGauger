@@ -6,6 +6,7 @@ TradingDesk and fleet management render this same component. Durable config/poli
 owned by the engine instance, never by either page.
 """
 import streamlit as st
+from html import escape
 from autotrader_v3_config_v1 import AutoTraderConfigV3,load_autotrader_config_v3,save_autotrader_config_v3
 from autotrader_v3_ai_live_presets_v1 import (
     AI_LIVE_PRESETS_V3,PRESETS_BY_KEY_V3,initial_selector_key_v3,
@@ -110,6 +111,44 @@ def _render_cost_guard_v3(assessment):
         st.error(text)
     if assessment.assumptions:
         st.caption('Saxo cost assumptions: '+', '.join(assessment.assumptions))
+
+
+@st.dialog("Modifikatorlogg", width="large")
+def _show_modifier_log_v3(*,trader_id:str,modifier_key:str,modifier_label:str,
+                          account_id:str,uic:int,asset_type:str):
+    """Read database only after an explicit logbook-icon click.
+
+    Streamlit popovers eagerly render their children on every rerun even
+    when collapsed. A dialog triggered by a button avoids 12 modifier
+    history scans and 12 exact-fill scans per ordinary controls rerun.
+    None of these reads can authorize or submit a Saxo order.
+    """
+    st.markdown(f"**{modifier_label}**")
+    st.caption("Vurdering og ønsket posisjonsmål er ikke bekreftede Saxo-handler.")
+    try:
+        events=load_modifier_live_events_v3(
+            trader_id=trader_id,modifier_key=modifier_key,limit=30)
+    except Exception as exc:
+        st.error("Modifikatorloggen er utilgjengelig: "+type(exc).__name__)
+        events=()
+    if events:
+        st.dataframe(events,use_container_width=True,hide_index=True)
+    else:
+        st.caption("Ingen registrerte statusendringer ennå. "
+                   "Det betyr ikke at modifikatoren aldri har kjørt.")
+    st.markdown("**Bekreftede Saxo-utførelser**")
+    st.caption("Samme instans/konto/instrument. "
+               "Ikke automatisk tilskrevet modifikatoren; sammenlign tidspunktene.")
+    try:
+        fills=load_exact_reconciled_executions_v3(
+            trader_id=trader_id,account_id=account_id,
+            uic=int(uic),asset_type=asset_type,limit=12)
+        if fills:
+            st.dataframe(fills,hide_index=True,use_container_width=True)
+        else:
+            st.caption("Ingen avstemte handler funnet.")
+    except Exception as exc:
+        st.caption("Saxo-utførelsesloggen er utilgjengelig: "+type(exc).__name__)
 
 
 def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
@@ -287,45 +326,44 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     other_modifiers=sorted_modifiers_by_last_change_v3(
         trader_id,MODIFIERS_V3)
     for item in other_modifiers:
-        label=('AI Loss Manager · LIVE (styr eksisterende posisjon)'
-               if item.key=='ai-loss-manager' else
-               item.label if item.key in LIVE_MODIFIERS_V3 else
-               f'{item.label} · ikke LIVE')
-        help_text=item.description + ('' if item.key in LIVE_MODIFIERS_V3 else ' Ikke koblet til LIVE-runtime.')
-        # Never stack the audit button below its modifier on phones:
-        # Streamlit >=1.62 no-wrap columns keep the book icon on the same row.
-        # The toggle label ellipsizes on narrow screens; its help retains
-        # the complete modifier description.
-        left,right=st.columns(
-            [3,1],gap="small",vertical_alignment="center",wrap=False)
-        chosen_modifier=left.toggle(
-            label,value=item.key in config.modifiers,
-            key=f'{key_prefix}:mod:{trader_id}:{item.key}',help=help_text,
-            wrap=False,
-            disabled=(is_ai_preset and item.key=='ai-loss-manager'))
+        is_live=item.key in LIVE_MODIFIERS_V3
+        display_label=('AI Loss Manager · LIVE (styr eksisterende posisjon)'
+                       if item.key=='ai-loss-manager' else item.label)
+        help_text=item.description + ('' if is_live else ' Ikke koblet til LIVE-runtime.')
+        # The narrow 3:1 no-wrap layout truncated all names and rendered
+        # Streamlit's minimum-width popover as a large book+chevron control.
+        # Split the row into: compact switch | FULL WRAPPING label | 40px
+        # logbook button.  Every event/fill query runs only on log click.
+        toggle_col,label_col,log_col=st.columns(
+            [1.12,4.8,0.88],gap="small",vertical_alignment="center",wrap=False)
+        chosen_modifier=toggle_col.toggle(
+            item.label,value=item.key in config.modifiers,
+            label_visibility="collapsed",
+            key=f'{key_prefix}:mod:{trader_id}:{item.key}',
+            disabled=((is_ai_preset and item.key=='ai-loss-manager')
+                      or (not is_live and item.key not in config.modifiers)))
         if chosen_modifier or (is_ai_preset and item.key=='ai-loss-manager'):
             enabled.append(item.key)
-        with right.popover(
-            "📖",width="content",wrap=False,
-            help=f"Vis hendelsesloggen for {item.label}"):
-            st.caption(item.label + " · hendelseskanal")
-            events=load_modifier_live_events_v3(
-                trader_id=trader_id,modifier_key=item.key,limit=30)
-            if events:
-                st.dataframe(events,use_container_width=True,hide_index=True)
-            else:
-                st.caption("Ingen registrerte statusendringer ennå. "
-                           "Dette er ikke bevis på at modifikatoren har kjørt.")
-            st.caption("Bekreftede Saxo-utførelser på SAMME instans/konto/instrument. "
-                       "Ikke automatisk tilskrevet denne knappen; sammenlign tidspunktene.")
-            try:
-                fills=load_exact_reconciled_executions_v3(
-                    trader_id=trader_id,account_id=str(instance.account_id),
-                    uic=int(instance.uic),asset_type=str(instance.asset_type),limit=12)
-                if fills: st.dataframe(fills,hide_index=True,use_container_width=True)
-                else: st.caption("Ingen avstemte handler funnet.")
-            except Exception as exc:
-                st.caption("Saxo-utførelsesloggen er utilgjengelig: "+type(exc).__name__)
+        # Escape both label and tooltip; the label never ellipsizes. Disabled
+        # research-only controls remain identifiable without dimming the
+        # ENTIRE active LIVE section.
+        title=escape(display_label)
+        tooltip=escape(help_text,quote=True)
+        flag=(' <small style="opacity:.8;display:inline-block">'
+              '· ikke LIVE</small>' if not is_live else '')
+        label_col.markdown(
+            f'<span style="white-space:normal;overflow-wrap:anywhere;'
+            f'line-height:1.3;font-weight:500">{title}</span>{flag} '
+            f'<span title="{tooltip}" aria-label="Hjelp: {title}" '
+            f'style="cursor:help;opacity:.8">ⓘ</span>',
+            unsafe_allow_html=True)
+        if log_col.button(
+            "📖",key=f'{key_prefix}:mod-log:{trader_id}:{item.key}',
+            width=40,help=f"Vis logg for {item.label}"):
+            _show_modifier_log_v3(
+                trader_id=trader_id,modifier_key=item.key,
+                modifier_label=item.label,account_id=str(instance.account_id),
+                uic=int(instance.uic),asset_type=str(instance.asset_type))
     mode=st.selectbox(
         'Kontrollmodus', CONTROL_MODES_V3, index=CONTROL_MODES_V3.index(config.control_mode),
         format_func=lambda value: value if value in LIVE_CONTROL_MODES_V3 else f'{value} · ikke LIVE',
