@@ -27,6 +27,7 @@ from autotrader_v3_macd_histogram_peak_flip_v1 import (
 from autotrader_v3_macd_stoch_v1 import macd_stoch_target_v3
 from autotrader_v3_macd_stoch_v2 import macd_stoch_v2_target_v3
 from autotrader_v3_macd_stoch_v21 import macd_stoch_v21_target_v3
+from autotrader_v3_macd_stoch_v22_flip import macd_stoch_v22_flip_target_v3
 from autotrader_v3_macd_stoch_rhythm_build_v1 import macd_stoch_rhythm_build_target_v3
 from autotrader_v3_precross_price_v1 import precross_price_target_v3,histogram_price_target_v3
 from autotrader_v3_vwap_regime_histogram_v1 import vwap_regime_histogram_target_v3
@@ -52,6 +53,7 @@ PURE_V3={
     "macd-stoch-v1":macd_stoch_target_v3,
     "macd-stoch-v2":macd_stoch_v2_target_v3,
     "macd-stoch-v2-1":macd_stoch_v21_target_v3,
+    "macd-stoch-v2-2-flip":macd_stoch_v22_flip_target_v3,
     "macd-stoch-rhythm-build":macd_stoch_rhythm_build_target_v3,
     "precross-price-1m-macd2m":precross_price_target_v3,
     "histogram-price-1m-macd2m":histogram_price_target_v3,
@@ -72,9 +74,9 @@ FRACTAL_BUILD=frozenset(("rhythm-build-fractal",))
 MICRO_TIMING=PRECROSS|FRACTAL_BUILD|frozenset((
     "macd-stoch-rhythm-build","rhythm-trend-1","rhythm-trend-fractal"))
 STOCH=frozenset(("macd-stoch-v1","macd-stoch-v2",
-                 "macd-stoch-v2-1","macd-stoch-rhythm-build"))
+                 "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build"))
 TRAILING=frozenset(("macd-flip","macd","macd-stoch-v1","macd-stoch-v2",
-                    "macd-stoch-v2-1","macd-stoch-rhythm-build","rhythm-build-fractal"))
+                    "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build","rhythm-build-fractal"))
 PERIODS={"1m":1,"2m":2,"5m":5,"10m":10,"15m":15,"30m":30,"1h":60}
 MIN_HISTORY=45
 MAX_BARS=3000
