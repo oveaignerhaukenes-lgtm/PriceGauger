@@ -6,7 +6,7 @@ No order, strategy config, exposure or LIVE authority is ever written.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict,replace
 from datetime import datetime,date,timedelta,timezone
 import json
 
@@ -24,6 +24,7 @@ from strategy_lab_v2_replay import (
 from autotrader_v3_session_loss_lab_v1 import (
     OSLO,utc,current_oslo_session,oslo_session_start,
     account_session_result,summarize_fleet_sessions,
+    funded_account_cohort_v1,
     split_completed_regimes,market_session_coverage,replay_session_delta,
     filter_reconciled_account_fills,load_exact_product_executions,
     fill_price_followthrough,proposal_from_evidence,
@@ -97,16 +98,21 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
     try:
         # Explicit bounded historical data. No Saxo GET calls for the analysis.
         snapshots=load_account_truth_v1(days=14)
-        groups={}
+        funded,zero_balance_accounts=funded_account_cohort_v1(
+            samples=snapshots,end=finish)
+        # Cohort comes from latest verified broker NAV, not only those
+        # accounts that happen to possess a 03:00 baseline.
+        groups={aid:[] for aid in funded}
         for sample in snapshots:
             at=utc(sample["observed_at"])
-            if start<=at<=finish:
-                groups.setdefault(str(sample["account_id"]),[]).append(sample)
+            aid=str(sample["account_id"])
+            if start<=at<=finish and aid in groups:
+                groups[aid].append(sample)
         account_results=tuple(
-            account_session_result(
-                account_id=aid,samples=rows,start=start,end=finish)
-            for aid,rows in sorted(groups.items(),
-                key=lambda item:item[1][-1].get("account_name",""))
+            replace(account_session_result(
+                account_id=aid,samples=groups[aid],
+                start=start,end=finish),account_name=name)
+            for aid,name in sorted(funded.items(),key=lambda x:x[1])
         )
         account_rows=[]
         events_by_account={}
@@ -133,9 +139,14 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
             account_rows.append({
                 "Konto":result.account_name,
                 "Valuta":result.currency,
-                "03:00-observert fra":(
+                "Starttid norsk":(
                     result.start_observed_at.astimezone(OSLO).strftime("%H:%M")
                     if result.start_observed_at else None),
+                "Sluttid norsk":(
+                    result.end_observed_at.astimezone(OSLO).strftime("%H:%M")
+                    if result.end_observed_at else None),
+                "Forsinkelse etter 03 (min)":result.baseline_delay_minutes,
+                "Siste måling alder (min)":result.latest_age_minutes,
                 "Målinger":result.samples,
                 "Start TotalValue":result.baseline_value,
                 "Slutt TotalValue":result.latest_value,
@@ -221,6 +232,9 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
                    per_point,spread,variable,fixed,max_lots,nav),
             "session_start":start.isoformat(),"session_end":finish.isoformat(),
             "account_results":account_rows,"fleet":fleet,
+            "zero_balance_accounts":zero_balance_accounts,
+            "funded_source_count":len(funded),
+            "report_generated_at":datetime.now(timezone.utc).isoformat(),
             "contexts":contexts,"fills":events_by_account,
             "account_labels":account_labels,
             "followthrough":followthrough,"regimes":regimes,"paper":paper,"errors":failures,
@@ -242,23 +256,112 @@ if report:
         st.info("Input er endret. Kjør analysen på nytt for dette vinduet.")
     else:
         st.divider()
-        st.subheader("1 · Faktisk Saxo-kontoutvikling siden 03:00")
-        if report["account_results"]:
-            st.dataframe(pd.DataFrame(report["account_results"]),
-                         hide_index=True,use_container_width=True)
-        else:
-            st.error("Ingen lagrede kontomålinger i perioden – kan ikke "
-                     "rekonstruere dagens Saxo-resultater fra skjermbilder.")
-        if report["fleet"]:
-            st.dataframe(pd.DataFrame(report["fleet"]),hide_index=True,
-                         use_container_width=True)
+        st.subheader("1 · Faktiske Saxo-snapshot siden 03:00")
+        gathered=utc(report["report_generated_at"])
+        minutes_old=(datetime.now(timezone.utc)-gathered).total_seconds()/60
         st.caption(
-            "Kontoendring % = (siste verifiserte Saxo TotalValue / første "
-            "verifiserte TotalValue etter 03:00 − 1) × 100. "
-            "Ikke Saxos offisielle dagsavkastning. "
-            "Manglende baseline innen 12 min eller ferske sluttmålinger "
-            "merkes utilstrekkelig. Ingen innskudd, uttak, finansiering, "
-            "manuelle handler eller FX er rekonstruert."
+            f"**Rapport hentet:** {gathered.astimezone(OSLO):%d.%m %H:%M:%S} "
+            f"norsk tid · {minutes_old:.1f} minutter gammel. "
+            "Kontoverdi oppdateres IKKE automatisk mens rapporten er åpen. "
+            "Trykk «Analyser tapsdagen og test strategier» på nytt for nye målinger."
+        )
+        if minutes_old>=5:
+            st.warning("Rapporten er over fem minutter gammel. "
+                       "Tallene kan ikke sammenlignes direkte med Saxo-appen nå.")
+        fund_count=report["funded_source_count"]
+        if not fund_count:
+            st.error("Fant ingen finansierte Saxo-kontoer med ferske, "
+                     "lagrede kontoverdier. Ikke tolk dette som null tap.")
+        elif report["account_results"]:
+            st.caption(
+                f"{fund_count} finansierte kontoer identifisert fra "
+                "historiske Saxo-observasjoner i siste 24 timer. "
+                f"{len(report['zero_balance_accounts'])} nullkonti holdes utenfor."
+            )
+            for row in report["account_results"]:
+                with st.container(border=True):
+                    st.markdown(f"**{row['Konto']} · {row['Valuta']}**")
+                    status=row["Datakvalitet"]
+                    if status=="OBSERVED_NAV_UNADJUSTED":
+                        st.metric("Observert kontoverdiendring (ikke dagsresultat)",
+                                  f"{row['Endring % (uavstemt)']:+.2f} %",
+                                  f"{row['Endring (uavstemt)']:+.2f} {row['Valuta']}",
+                                  delta_color="normal")
+                    else:
+                        status_labels={
+                            "NO_VERIFIED_NAV":"Ingen gyldige kontomålinger i vinduet",
+                            "BASELINE_TOO_LATE":"Startmåling for langt etter 03:00",
+                            "LATEST_TOO_OLD":"Siste kontomåling er for gammel",
+                            "INSUFFICIENT_SAMPLES":"For få kontomålinger",
+                        }
+                        st.warning(status_labels.get(status,status)+
+                                   " – ingen dagsendring kan rapporteres.")
+                    st.caption(
+                        f"Startmåling: {row['Starttid norsk'] or 'mangler'} "
+                        f"(+{row['Forsinkelse etter 03 (min)']:.1f} min)"
+                        if row["Forsinkelse etter 03 (min)"] is not None
+                        else "Startmåling: mangler"
+                    )
+                    st.caption(
+                        f"Sluttmåling: {row['Sluttid norsk'] or 'mangler'} "
+                        f"({row['Siste måling alder (min)']:.1f} min eldre enn analyse)"
+                        if row["Siste måling alder (min)"] is not None
+                        else "Sluttmåling: mangler"
+                    )
+                    st.caption(
+                        f"{row['Målinger']} pålitelige målinger. "
+                        f"Startverdi: {row['Start TotalValue'] if row['Start TotalValue'] is not None else 'ukjent'} "
+                        f"· sluttverdi: {row['Slutt TotalValue'] if row['Slutt TotalValue'] is not None else 'ukjent'} "
+                        f"{row['Valuta']}."
+                    )
+        else:
+            st.error("Ingen lagrede kontomålinger i perioden. "
+                     "Kan ikke rekonstruere dagens Saxo-resultater.")
+        st.subheader("Kontroll av samlet datadekning")
+        for subtotal in report["fleet"]:
+            included=subtotal["accounts"]
+            total=subtotal["expected_funded_accounts"]
+            if subtotal["status"]=="OBSERVED_COHORT_APPROX":
+                st.metric(
+                    f"Observert NAV-endring {subtotal['currency']} "
+                    f"({included}/{total} kontoer, tilnærmet)",
+                    f"{subtotal['unadjusted_nav_pct']:+.2f} %",
+                    f"{subtotal['unadjusted_nav_delta']:+.2f} {subtotal['currency']}"
+                )
+                st.caption("Tidsstempler er samordnet innen fem minutter. "
+                           "Fortsatt ikke Saxos offisielle daglige avkastning.")
+            else:
+                st.error(
+                    f"Ingen gyldig samlet dagsprosent i {subtotal['currency']}: "
+                    f"{included}/{total} finansierte kontoer kvalifiserer. "
+                    f"Årsak: {subtotal['status']}."
+                )
+                if subtotal["excluded_names"]:
+                    st.caption("Utelatte kontoer: "+
+                               ", ".join(subtotal["excluded_names"]))
+                st.caption(
+                    "En beregnet DELSUM er ikke dagens totalresultat. "
+                    f"Kun disse kontoene hadde en endring på "
+                    f"{subtotal['subtotal_change_only']:+.2f} "
+                    f"{subtotal['currency']} i sine observerte vinduer."
+                    if subtotal["subtotal_change_only"] is not None else
+                    "Ingen kvalifisert delsum."
+                )
+        with st.expander("Kontomålinger – komplett råoversikt og tidspunkt"):
+            if report["account_results"]:
+                st.dataframe(pd.DataFrame(report["account_results"]),
+                             hide_index=True,use_container_width=True)
+            if report["fleet"]:
+                st.dataframe(pd.DataFrame(report["fleet"]),
+                             hide_index=True,use_container_width=True)
+        st.caption(
+            "Endring % = (siste verifiserte Saxo TotalValue / første "
+            "verifiserte TotalValue ETTER 03:00 − 1) × 100. "
+            "Vi har ikke nødvendigvis en måling ved nøyaktig 03:00, "
+            "og beregner aldri et kunstig startpunkt eller manglende kontoer. "
+            "Kontoendringene er ikke justert for innskudd, uttak, "
+            "finansiering, valutakurser eller manuelle handler. "
+            "Saxos daglige %-tall må derfor stå som en egen, uavhengig fasit."
         )
         st.subheader("2 · Faktiske V3-ordre og observert strategi")
         # Persist labels with the report: Streamlit reruns the full script
