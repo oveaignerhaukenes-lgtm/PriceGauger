@@ -2,6 +2,14 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-10-28 · 03:00 Saxo trading-day forensic lab (#823)
+
+- User supplied Saxo screenshots 2026-10-28 09:57 Oslo: Tech100-A -0.70%, B -6.30%, C -9.55%, D -5.21%, E -4.42%; portfolio 1636.83 NOK -3.07%. **Screenshots**, not cashflow-adjusted PriceGauger strategy returns. Fleet's green `+0.40 NOK` / `+0.28 NOK` is **open P/L on currently held trades only**, not cumulative 03:00 session net loss.
+- Research-only `pages/0_AutoTrader_Loss_Lab.py` + `autotrader_v3_session_loss_lab_v1.py` added under **Analyse → AutoTrader tapslab · 03:00**. Uses timezone-aware Oslo 03:00 session window, including DST; first Saxo `CalculationReliability=Ok` TotalValue within 12min after reset as explicit baseline, never interpolated. Stale/gapped NAV is marked, not silently treated as today's broker official return; unadjusted NAV may include deposits/withdrawals, manual trades, FX and fees. Group only identical verified account currency.
+- For exact Saxo account + UIC + asset type: observed strategy context at each 5m snapshot, reconciled V3 execution history, and post-confirmation (not fill-price) directional movement 1/3/5m using actual canonical 1m open, censoring missing candles. Retrospective 30min regime descriptors use range, path efficiency and swing reversals only for *finished* periods.
+- PAPER runner reuses strategy_lab_v2_replay, 10h indicator warmup plus same 03→current exact-UIC 1m historical window, next-minute simulated fills, explicit user cost scenarios, comparison of V2.1 (1m/2m), V2.2 Flip, RhythmStoch, MACD-flip/histogram, PriceTrend and SMA baseline. No ranking unless >=80% market data coverage and both endpoints observed. Same-day winner selected in sample **not proof of superiority**. JSON exported for deeper analysis; no Saxo order/config/arm actions.
+- New tests enforce DST, NAV/account isolation, fallback units/coverage, missing execution logs != zero, 1/3/5m follow-through, choppy vs trending periods and lab routing. CI/merge/deploy must be confirmed before claiming the lab available.
+
 ## Source of truth
 
 1. GitHub `main` code/tests + git/PR history: implemented behavior.
