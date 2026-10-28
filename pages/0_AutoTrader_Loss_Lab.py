@@ -110,8 +110,10 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
         account_rows=[]
         events_by_account={}
         contexts={}
+        account_labels={}
         for result in account_results:
             samples=groups[result.account_id]
+            account_labels[result.account_id]=result.account_name
             try:
                 raw=load_account_learning_executions_v1(
                     account_id=result.account_id,since=start)
@@ -206,6 +208,7 @@ if st.button("Analyser tapsdagen og test strategier",type="primary"):
             "session_start":start.isoformat(),"session_end":finish.isoformat(),
             "account_results":account_rows,"fleet":fleet,
             "contexts":contexts,"fills":events_by_account,
+            "account_labels":account_labels,
             "regimes":regimes,"paper":paper,"errors":failures,
             "proposals":proposals,"source":source.market_name if source else None,
             "raw_bars":len(market_rows),
@@ -243,16 +246,9 @@ if report:
             "manuelle handler eller FX er rekonstruert."
         )
         st.subheader("2 · Faktiske V3-ordre og observert strategi")
-        for row in report["account_results"]:
-            account_name=row["Konto"]
-            matching_id=next((
-                aid for aid,samples in report["contexts"].items()
-                if samples and any(p.account_id==aid for p in ()) # No mapping via labels.
-            ),None)
-        # Use original account IDs only as internal lookup; render names from
-        # preloaded account labels, not an inference from identical market names.
-        named={str(item["account_id"]):item["account_name"]
-               for item in snapshots} if "snapshots" in locals() else {}
+        # Persist labels with the report: Streamlit reruns the full script
+        # without repeating heavy Saxo/price queries on button-less refreshes.
+        named=report["account_labels"]
         for aid,periods in report["contexts"].items():
             label=named.get(aid,"Konto …"+aid[-4:])
             with st.expander(f"{label} · avstemte V3-hendelser / strategi"):
