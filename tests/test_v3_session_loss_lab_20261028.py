@@ -71,7 +71,12 @@ def test_no_baseline_fabricated_after_long_data_gap():
         account_id="A",samples=rows,start=START,end=START+timedelta(minutes=40))
     assert result.status=="BASELINE_TOO_LATE"
     assert result.nav_change_pct is None
-    assert summarize_fleet_sessions((result,))==()
+    incomplete=summarize_fleet_sessions((result,))
+    assert len(incomplete)==1
+    assert incomplete[0]["status"]=="MISSING_ACCOUNT_BASELINE_OR_END"
+    assert incomplete[0]["accounts"]==0
+    assert incomplete[0]["expected_funded_accounts"]==1
+    assert incomplete[0]["unadjusted_nav_pct"] is None
 
 
 def test_cross_currency_and_cross_account_never_aggregate():
