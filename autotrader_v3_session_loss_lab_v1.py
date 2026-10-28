@@ -129,6 +129,79 @@ def summarize_fleet_sessions(results:Sequence[AccountSessionResult]):
     } for ccy,sub in sorted(grouped.items()))
 
 
+def load_exact_product_executions(*,account_id:str,uic:int,asset_type:str,
+                                  start:datetime,end:datetime,
+                                  db_path="pricegauger.db",limit=1500):
+    """Verified RECONCILED execution ledger for ONE account/UIC/asset type.
+
+    Return None when unavailable. We never equate missing telemetry with
+    no trading, and never load client-wide positions for account attribution.
+    """
+    from database import connect
+    try:
+        with connect(db_path) as db:
+            rows=db.execute("""SELECT account_id,instance_id,uic,asset_type,
+                   market_name,action,side,direction,amount,
+                   inventory_before,inventory_after,executed_at
+                   FROM autotrader_v3_execution_events
+                   WHERE account_id=? AND uic=? AND asset_type=?
+                     AND executed_at>=? AND executed_at<=?
+                   ORDER BY executed_at ASC LIMIT ?""",(
+                   str(account_id),int(uic),str(asset_type),utc(start).isoformat(),
+                   utc(end).isoformat(),max(1,min(5000,int(limit))))
+            ).fetchall()
+        return tuple(dict(r) for r in rows)
+    except Exception:
+        return None
+
+
+def fill_price_followthrough(*,fills,bars,account_id:str,
+                             horizons=(1,3,5)):
+    """Future market *direction* relative to reconciled position, never P/L.
+
+    Reference is NEXT OBSERVED 1m OPEN after broker confirmation (rather
+    than an invented Saxo fill price). No gap interpolation and no use
+    of this future evidence in original strategy decisions.
+    """
+    from bisect import bisect_left
+    if fills is None:return None
+    ordered=sorted(bars,key=lambda b:utc(b.bar_time))
+    times=[utc(b.bar_time) for b in ordered]
+    results=[]
+    for event in fills:
+        if str(event.get("account_id"))!=str(account_id):
+            raise ValueError("cross-account fill evidence")
+        when=utc(event["executed_at"])
+        side=float(event.get("inventory_after") or 0.)
+        if abs(side)<1e-12:continue
+        # Never anchor to an open recorded before the broker confirmed fill.
+        idx=bisect_left(times,when)
+        if idx>=len(ordered) or times[idx]-when>timedelta(minutes=2):
+            continue
+        base=float(ordered[idx].open)
+        if base<=0 or not isfinite(base):continue
+        outcome={"account_id":str(account_id),
+                 "instance_id":str(event.get("instance_id") or ""),
+                 "executed_at":when,
+                 "action":str(event.get("action") or ""),
+                 "signed_lots_after":side,
+                 "first_post_confirmation_price_at":times[idx]}
+        for mins in horizons:
+            value=None
+            j=idx+int(mins)
+            if j<len(ordered) and times[j]-times[idx]==timedelta(minutes=mins):
+                # Must validate *every* intermediate canonical minute;
+                # endpoint alignment alone could mask gaps and stale data.
+                if all(times[k]-times[k-1]==timedelta(minutes=1)
+                       for k in range(idx+1,j+1)):
+                    point=float(ordered[j].open)
+                    if isfinite(point) and point>0:
+                        value=(1 if side>0 else -1)*10000*(point/base-1)
+            outcome[f"signed_future_{mins}m_bps"]=value
+        results.append(outcome)
+    return tuple(results)
+
+
 def filter_reconciled_account_fills(*,executions,account_id,start,end):
     if executions is None:
         return None
@@ -260,7 +333,8 @@ def replay_session_delta(result,*,start:datetime,end:datetime):
 
 def proposal_from_evidence(*,regimes,account_results,executions_available):
     """Falsifiable A/B experiments, never automated strategy recommendations."""
-    loss=sum(x.nav_change_pct is not None and x.nav_change_pct<0 for x in account_results)
+    loss=sum(x.status=="OBSERVED_NAV_UNADJUSTED" and x.nav_change_pct is not None
+             and x.nav_change_pct<0 for x in account_results)
     labels=[x.regime for x in regimes]
     proposals=[]
     if labels.count("SIDEVEIS_RYTME_WHIPSAW_KANDIDAT")>=1:
