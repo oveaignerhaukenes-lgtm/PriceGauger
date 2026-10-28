@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `afc3eedad9a02692d2535d9512e52c75bcf53206`
+Latest tracked main commit: `76530d4ec863ba0c88c716e7ee2ea00a37cdc371`
 
 ## Recent main commits
 
+- 2026-10-28 [`76530d4ec8`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/76530d4ec863ba0c88c716e7ee2ea00a37cdc371) — fix: mobile-stable fleet P/L with verified currency units (#822)
 - 2026-10-28 [`afc3eedad9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/afc3eedad9a02692d2535d9512e52c75bcf53206) — fix: readable mobile V3 modifier controls and lazy audit dialog (#820)
 - 2026-10-28 [`2b2bd96a6a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2b2bd96a6a17b7dcf9d6694ab170fb9fe1a888a1) — feat: V2.3 Hybrid 1m direction and 15s Saxo BBO execution (#819)
 - 2026-10-28 [`f3dbf878a2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f3dbf878a28f47cbb31576635d871beeffa661b0) — feat: autonomous per-active-V3 60s fleet observer and 5m account learning (#818)
@@ -46,6 +47,5 @@ Latest tracked main commit: `afc3eedad9a02692d2535d9512e52c75bcf53206`
 - 2026-10-21 [`4a9c571737`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a9c571737d0a9619be254c4b17a9251070bbb27) — HyperChase 10s guarded LIVE strategies and project sync (#775)
 - 2026-10-21 [`0bb432379b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0bb432379b25400bf04d3b8d91096ee291ab8795) — HyperVigilant Chase 10s: direct-flip price PAPER research (#774)
 - 2026-10-21 [`196959c97e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/196959c97e5e8b356022ebf62c7e76a5b08e0748) — Strategy Lab v2 AI: safe error diagnostics and incomplete Responses retry (#773)
-- 2026-10-21 [`a24b9f7c54`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a24b9f7c54633887e22bf52b3a8a624d796431ed) — Strategilab v2: fix manual Saxo selection, expand 18 paper replays and click-to-scrub (#772)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
