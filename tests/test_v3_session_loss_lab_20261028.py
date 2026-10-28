@@ -9,7 +9,7 @@ from autotrader_v3_session_loss_lab_v1 import (
     OSLO,oslo_session_start,current_oslo_session,
     account_session_result,summarize_fleet_sessions,
     filter_reconciled_account_fills,classify_completed_regime,
-    split_completed_regimes,replay_session_delta,proposal_from_evidence,
+    split_completed_regimes,market_session_coverage,replay_session_delta,proposal_from_evidence,
     fill_price_followthrough,
 )
 
@@ -202,3 +202,22 @@ def test_fill_outcome_censors_missing_subminute_market_history():
     assert len(result)==1
     assert result[0]["signed_future_1m_bps"] is None
     assert result[0]["signed_future_5m_bps"] is None
+
+
+
+def test_unobserved_03_boundary_prevents_fake_paper_winner():
+    fully=[candle(i,100+i*.1) for i in range(90)]
+    complete=market_session_coverage(
+        bars=fully,start=START,end=START+timedelta(minutes=90))
+    assert complete["comparable"]
+    assert complete["coverage_pct"]==100.
+    short=[candle(i,100+i*.1) for i in range(12,90)]
+    missing_start=market_session_coverage(
+        bars=short,start=START,end=START+timedelta(minutes=90))
+    assert not missing_start["comparable"]
+    assert not missing_start["has_session_start"]
+    absent=[candle(i,100+i*.1) for i in range(0,45)]
+    missing_end=market_session_coverage(
+        bars=absent,start=START,end=START+timedelta(minutes=90))
+    assert not missing_end["comparable"]
+    assert not missing_end["has_session_end"]
