@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `cda827746218802cadcb95b1cfc7f9837afe41ab`
+Latest tracked main commit: `6df8fa4b3867a9821930b30e1313c91ad4ed99a2`
 
 ## Recent main commits
 
+- 2026-10-28 [`6df8fa4b38`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6df8fa4b3867a9821930b30e1313c91ad4ed99a2) — fix: auditable 03:00 Saxo account cohort, nearest snapshot and missing-data warnings (#828)
 - 2026-10-28 [`cda8277462`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cda827746218802cadcb95b1cfc7f9837afe41ab) — feat: empirical trade-vs-flat price-regime PAPER lab (#826)
 - 2026-10-28 [`a3b5301088`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a3b5301088e9491a309b6b159b4e66d695a126a1) — feat: Saxo historical costs and per-instrument BBO spread audit (#824)
 - 2026-10-28 [`4919f62c4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4919f62c4aefb6fb50f3cf34b0f7840377ee43f7) — feat: AutoTrader 03 Oslo loss forensics and strategy counterfactual lab (#823)
@@ -46,6 +47,5 @@ Latest tracked main commit: `cda827746218802cadcb95b1cfc7f9837afe41ab`
 - 2026-10-21 [`de4a47bd93`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/de4a47bd9365c5f88eff1a9f12ce2adfcaaa1548) — Confirm tested docs-only continuity deploy filter (#779)
 - 2026-10-21 [`c7e22742ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c7e22742ff7bddc86f46382f7d3b682efe322765) — Document verified journal automation and Railway deploy filters (#778)
 - 2026-10-21 [`fbef5fc610`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fbef5fc610c17ac731adc91d8211e423cdc64cfe) — Repair project continuity journal and reconcile living state (#777)
-- 2026-10-21 [`a5c80fc0a3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5c80fc0a31bcd7732f97296270cbcb7ca2e0254) — Sync PROJECT_STATE HyperVigilant 10s LIVE production verification (#776)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
