@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 OSLO=ZoneInfo("Europe/Oslo")
 MAX_BASELINE_DELAY=timedelta(minutes=12)
+MAX_PRE_RESET_BASELINE=timedelta(minutes=2)
 MAX_END_AGE=timedelta(minutes=15)
 MAX_BAR_GAP=timedelta(minutes=1)
 
@@ -60,7 +61,11 @@ class AccountSessionResult:
 
 def account_session_result(*,account_id:str,samples:Sequence[Mapping],
                            start:datetime,end:datetime)->AccountSessionResult:
-    """No interpolation to 03:00, no cross-account/currency mixing."""
+    """Choose closest reliable ±03 reset sample (max 2m before/12m after).
+
+    The observed value remains approximate, never a fabricated exact 03:00
+    Saxo official baseline. Zero-balance, foreign accounts stay separate.
+    """
     begin,stop=utc(start),utc(end)
     if stop<=begin:raise ValueError("invalid window")
     if any(str(s.get("account_id"))!=str(account_id) for s in samples):
@@ -74,7 +79,7 @@ def account_session_result(*,account_id:str,samples:Sequence[Mapping],
     good=[]
     for sample in ordered:
         when=utc(sample["observed_at"])
-        if not begin<=when<=stop:continue
+        if not begin-MAX_PRE_RESET_BASELINE<=when<=stop:continue
         if str(sample.get("calculation_reliability") or "").lower()!="ok":
             continue
         try:
@@ -88,45 +93,129 @@ def account_session_result(*,account_id:str,samples:Sequence[Mapping],
                                     0,None,None,None,None,None,"NO_VERIFIED_NAV")
     # All 03:00 baselines are first verified observations AT/AFTER reset.
     # An observation just BEFORE reset is a previous-day NAV value.
-    first,val0=good[0]
-    last,val1=good[-1]
+    baseline_candidates=[
+        item for item in good
+        if (begin-MAX_PRE_RESET_BASELINE<=item[0]<=begin+MAX_BASELINE_DELAY)]
+    if baseline_candidates:
+        # Prefer a 02:59:30 Saxo value over 03:04:30, but never assign
+        # that previous-day value the timestamp 03:00.
+        first,val0=min(
+            baseline_candidates,
+            key=lambda item:(abs((item[0]-begin).total_seconds()),
+                             item[0]<begin))
+    else:
+        first,val0=good[0]
+    after=[item for item in good if item[0]>=begin]
+    last,val1=after[-1] if after else good[-1]
     delay=(first-begin).total_seconds()/60.
     age=(stop-last).total_seconds()/60.
-    status=("BASELINE_TOO_LATE" if first-begin>MAX_BASELINE_DELAY else
+    valid_window=[item for item in good if first<=item[0]<=last]
+    status=("BASELINE_TOO_LATE" if not baseline_candidates else
             "LATEST_TOO_OLD" if stop-last>MAX_END_AGE else
-            "INSUFFICIENT_SAMPLES" if len(good)<2 else "OBSERVED_NAV_UNADJUSTED")
+            "INSUFFICIENT_SAMPLES" if len(valid_window)<2 else
+            "OBSERVED_NAV_UNADJUSTED")
     if status=="BASELINE_TOO_LATE":
         return AccountSessionResult(account_id,name,currency,first,last,delay,age,
-                                    len(good),val0,val1,None,None,None,status)
+                                    len(valid_window),val0,val1,None,None,None,status)
     peak=val0
     dd=0.
-    for _,amount in good:
+    for _,amount in valid_window:
         peak=max(peak,amount)
         dd=max(dd,100.*(peak-amount)/peak)
-    change=val1-val0 if len(good)>1 else None
+    change=val1-val0 if len(valid_window)>1 else None
     pct=100.*change/val0 if change is not None else None
     return AccountSessionResult(
-        account_id,name,currency,first,last,delay,age,len(good),
-        val0,val1,change,pct,dd if len(good)>1 else None,status,
+        account_id,name,currency,first,last,delay,age,len(valid_window),
+        val0,val1,change,pct,dd if len(valid_window)>1 else None,status,
     )
 
 
 def summarize_fleet_sessions(results:Sequence[AccountSessionResult]):
-    """Sums only within verified identical currency and aligned baseline."""
+    """Only a complete, synchronized funded-account cohort gets a total.
+
+    No missing account is silently excluded from a reported 'all accounts'
+    return. Even an eligible snapshot total is *not* Saxo official daily P/L.
+    """
     grouped={}
-    for x in results:
-        if x.nav_change is None or x.status!="OBSERVED_NAV_UNADJUSTED":
+    for item in results:
+        if item.currency:
+            grouped.setdefault(item.currency,[]).append(item)
+    summaries=[]
+    for currency,all_accounts in sorted(grouped.items()):
+        valid=[x for x in all_accounts if
+               x.status=="OBSERVED_NAV_UNADJUSTED"
+               and x.nav_change is not None]
+        omitted=[x for x in all_accounts if x not in valid]
+        first_times=[x.start_observed_at for x in valid]
+        last_times=[x.end_observed_at for x in valid]
+        baseline_skew=(max(first_times)-min(first_times)).total_seconds()/60 if first_times else None
+        end_skew=(max(last_times)-min(last_times)).total_seconds()/60 if last_times else None
+        # Strict 5-minute clock alignment avoids adding a 09:30 account
+        # snapshot to another account's 11:55 end-of-day figure.
+        aligned=bool(valid and
+                     baseline_skew is not None and baseline_skew<=5
+                     and end_skew is not None and end_skew<=5)
+        complete=bool(aligned and len(valid)==len(all_accounts))
+        subtotal_start=sum(x.baseline_value for x in valid)
+        subtotal_end=sum(x.latest_value for x in valid)
+        subtotal_delta=sum(x.nav_change for x in valid)
+        status=("OBSERVED_COHORT_APPROX" if complete else
+                "MISSING_ACCOUNT_BASELINE_OR_END" if omitted else
+                "ACCOUNT_TIMES_NOT_ALIGNED")
+        summaries.append({
+            "currency":currency,
+            "accounts":len(valid),
+            "expected_funded_accounts":len(all_accounts),
+            "excluded_accounts":len(omitted),
+            "excluded_names":tuple(x.account_name for x in omitted),
+            "status":status,
+            "baseline_spread_minutes":baseline_skew,
+            "last_spread_minutes":end_skew,
+            "subtotal_start_only":subtotal_start if valid else None,
+            "subtotal_end_only":subtotal_end if valid else None,
+            "subtotal_change_only":subtotal_delta if valid else None,
+            # Only complete + synchronized data may appear as a total.
+            "start_total":subtotal_start if complete else None,
+            "end_total":subtotal_end if complete else None,
+            "unadjusted_nav_delta":subtotal_delta if complete else None,
+            "unadjusted_nav_pct":(
+                100.*subtotal_delta/subtotal_start if complete and subtotal_start>0
+                else None),
+            "warning":"Approximate as-observed NAV only; not Saxo daily performance, not cashflow-adjusted",
+        })
+    return tuple(summaries)
+
+
+def funded_account_cohort_v1(*,samples:Sequence[Mapping],end:datetime,
+                              lookback_hours:int=24):
+    """Select positive-valued observed Saxo accounts; omit known zero balances.
+
+    Avoid treating empty silver accounts as missing funded accounts, while
+    retaining the named funded accounts even if the 03:00 slice is absent.
+    """
+    end_at=utc(end)
+    low=end_at-timedelta(hours=lookback_hours)
+    latest={}
+    for row in samples:
+        at=utc(row["observed_at"])
+        if not low<=at<=end_at:
             continue
-        grouped.setdefault(x.currency,[]).append(x)
-    return tuple({
-        "currency":ccy,"accounts":len(sub),
-        "start_total":sum(x.baseline_value for x in sub),
-        "end_total":sum(x.latest_value for x in sub),
-        "unadjusted_nav_delta":sum(x.nav_change for x in sub),
-        "unadjusted_nav_pct":100.*sum(x.nav_change for x in sub)/
-                             sum(x.baseline_value for x in sub),
-        "warning":"NOT cash-flow-adjusted Saxo daily trading return",
-    } for ccy,sub in sorted(grouped.items()))
+        # Latest *reported* account TotalValue establishes which accounts
+        # exist and are funded. It does not qualify a snapshot as
+        # trustworthy for return calculation; that is a separate test.
+        try:
+            value=float(row["total_value"])
+        except (KeyError,TypeError,ValueError):
+            continue
+        if not isfinite(value) or value<0:
+            continue
+        aid=str(row["account_id"])
+        previous=latest.get(aid)
+        if previous is None or at>previous[0]:
+            latest[aid]=(at,value,str(row.get("account_name") or aid))
+    funded={aid:record[2] for aid,record in latest.items() if record[1]>0}
+    zeroed=tuple(sorted(record[2] for record in latest.values() if record[1]==0))
+    return funded,zeroed
 
 
 def load_exact_product_executions(*,account_id:str,uic:int,asset_type:str,
