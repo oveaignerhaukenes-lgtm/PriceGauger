@@ -91,7 +91,8 @@ def test_ui_exposes_both_clocks_and_stale_cached_report():
     assert '"report_generated_at"' in s
     assert "minutes_old>=5" in s
     assert "funded_account_cohort_v1(" in s
-    assert "forsinkelse" in s.lower()
+    assert '"Avvik fra 03 (min)"' in s
+    assert 'if row["Avvik fra 03 (min)"] is not None' in s
     assert '"Sluttid norsk"' in s
     assert "ingen gyldig samlet dagsprosent" in s.lower()
     assert "st.container(border=True)" in s

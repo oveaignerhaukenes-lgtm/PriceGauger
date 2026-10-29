@@ -299,7 +299,7 @@ if report:
                     st.caption(
                         f"Baseline nær 03: {row['Starttid norsk'] or 'mangler'} "
                         f"({row['Avvik fra 03 (min)']:+.1f} min fra 03:00)"
-                        if row["Forsinkelse etter 03 (min)"] is not None
+                        if row["Avvik fra 03 (min)"] is not None
                         else "Startmåling: mangler"
                     )
                     st.caption(
