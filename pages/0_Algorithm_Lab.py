@@ -425,9 +425,19 @@ if st.button("Kjør Python i separat sandbox · PAPER",
             variable_fee_bps=fee_bps,
             financing_long_annual_pct=fin_long,
             financing_short_annual_pct=fin_short)
+        fx_factor = None
+        if fx_source is not None:
+            if not fx_confirm:
+                raise ValueError("Bekreft FX-valuta og punktverdi ved teststart.")
+            fx_bars=CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(fx_source.instrument_id),
+                start=start-timedelta(minutes=10),end=end,
+                limit=MAX_BARS+1)
+            fx_factor=HistoricalFXCurve(
+                fx_bars,reference_at=start).factor
         python_result = replay_directions(
             bars=bars,directions=signals,costs=scenario,
-            start_at=start,end_at=end)
+            start_at=start,end_at=end,fx_multiplier_at=fx_factor)
         st.session_state["alg:python_last"] = python_result
     except (ValueError,RuntimeError,TimeoutError,TypeError) as exc:
         st.error(str(exc))
