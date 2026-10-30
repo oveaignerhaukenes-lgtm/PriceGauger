@@ -72,7 +72,7 @@ async def execute(request: Request) -> dict:
         raise HTTPException(422, "invalid dataset or code")
     try:
         results = execute_in_isolated_container(
-            code=code, bars=rows, timeout_per_bar=0.15)
+            code=code, bars=rows, timeout_per_bar=0.04)
     except (ValueError, RuntimeError, TimeoutError, OSError):
         raise HTTPException(422, "isolated execution rejected")
     return {"directions":list(results)}
