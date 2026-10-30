@@ -17,6 +17,9 @@ Svar BARE med ren Python-kode, uten markdown eller forklaring.
 Obligatorisk API:
 def decide(bar, state):
     # bar: dict med 'at','open','high','low','close' fra sist observerte 1m-bar.
+    # bar kan i tillegg ha macro_count og news_post_count fra historiske
+    # registrerte kilder ved slutten av den observerte baren.
+    # -1 betyr at datakilden mangler, ikke at markedet var uten hendelser.
     # state: muterbar dict som lever videre fra forrige observerte bar.
     # Returner int -1 for SHORT, 0 for FLAT, +1 for LONG.
     ...
