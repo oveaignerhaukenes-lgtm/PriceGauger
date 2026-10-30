@@ -21,7 +21,7 @@ MAX_GAP_SECONDS = 4.0
 
 
 def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
-                         start_at, end_at) -> LabResult:
+                         start_at, end_at, fx_multiplier_at=None) -> LabResult:
     p = validate_plan(plan)
     if p["kind"] != "impulse":
         raise ValueError("Sekundbasert replay støtter foreløpig bare impulsstrategier.")
@@ -60,12 +60,18 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
     trades = []
     points = []
 
-    def charge(bid, ask, lots):
+    def point_value(at):
+        factor = float(fx_multiplier_at(at)) if fx_multiplier_at is not None else 1.
+        if not isfinite(factor) or not .001 <= factor <= 1000:
+            raise ValueError("Missing or invalid historical FX conversion.")
+        return costs.point_value_nok * factor
+
+    def charge(bid, ask, lots, at):
         mid = (bid + ask) / 2
         # Exact observed BBO half spread for EACH execution, not input spread_bps.
         return abs(lots) * (
-            (ask - bid) / 2 * costs.point_value_nok
-            + mid * costs.point_value_nok * (
+            (ask - bid) / 2 * point_value(at)
+            + mid * point_value(at) * (
                 costs.slippage_bps / 10000 + costs.variable_fee_bps / 10000
             )) + costs.commission_nok
 
@@ -76,7 +82,7 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
             gaps += 1
             if position:
                 old_t, old_bid, old_ask, old_mid = previous
-                fee = charge(old_bid, old_ask, position)
+                fee = charge(old_bid, old_ask, position, old_t)
                 nav -= fee
                 spent += fee
                 trades.append(LabTrade(old_t, "GAP_FLAT", old_mid,
@@ -90,11 +96,11 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
 
         if t >= start:
             if previous is not None and position:
-                nav += position * (mid - previous[3]) * costs.point_value_nok
+                nav += position * (mid - previous[3]) * point_value(t)
                 elapsed = (t-previous[0]).total_seconds()
                 annual = (costs.financing_long_annual_pct if position > 0 else
                           costs.financing_short_annual_pct)
-                financing = abs(position) * mid * costs.point_value_nok * (
+                financing = abs(position) * mid * point_value(t) * (
                     annual / 100.0 * elapsed / (365 * 24 * 60 * 60))
                 nav -= financing
                 spent += financing
@@ -102,7 +108,7 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
             if pending is not None:
                 target, reason = pending
                 if target != position:
-                    fee = charge(bid, ask, target-position)
+                    fee = charge(bid, ask, target-position, t)
                     nav -= fee
                     spent += fee
                     trades.append(LabTrade(t, "OPEN" if target else "FLAT",
@@ -152,7 +158,7 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
     if position:
         # Last known bid/ask, not fabricated future quote.
         last_t, bid, ask, mid = previous
-        fee = charge(bid, ask, position)
+        fee = charge(bid, ask, position, last_t)
         nav -= fee
         spent += fee
         trades.append(LabTrade(last_t, "END_FLAT", mid, position, 0., fee,
