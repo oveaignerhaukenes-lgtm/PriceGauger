@@ -29,10 +29,10 @@ def bars(n=1400, direction=1, gap_at=None):
     return out
 
 
-def run(name, candles=None, *, start=START, end=None, **cost_kwargs):
+def run(name, candles=None, *, start=START, end=None, plan_override=None, **cost_kwargs):
     candles = candles if candles is not None else bars()
     return replay_algorithm(
-        plan=PRESETS[name], bars=candles,
+        plan=plan_override or PRESETS[name], bars=candles,
         costs=LabCosts(point_value_nok=100., lot_size=.01,
                        starting_nav_nok=10000., spread_bps=0.,
                        slippage_bps=0., **cost_kwargs),
@@ -91,7 +91,8 @@ def test_impulse_entry_not_filled_on_signal_close():
 
 def test_no_fictitious_gap_profit_and_reset():
     r = run("Impulse Up Collector", candles=bars(80, direction=12, gap_at=20),
-            end=START+timedelta(minutes=90))
+            end=START+timedelta(minutes=90),
+            plan_override={**PRESETS["Impulse Up Collector"], "max_hold": 200})
     assert r.gaps == 1
     assert any(t.action == "GAP_FLAT" for t in r.trades)
 
@@ -99,7 +100,7 @@ def test_no_fictitious_gap_profit_and_reset():
 def test_costs_reduce_paper_profit():
     base = run("Impulse Up Collector", candles=bars(120, direction=12),
                end=START+timedelta(minutes=120))
-    costly = run("Impulse Up Collector", candles=bars(120),
+    costly = run("Impulse Up Collector", candles=bars(120, direction=12),
                  end=START+timedelta(minutes=120),
                  commission_nok=4.)
     assert costly.pnl_nok < base.pnl_nok
