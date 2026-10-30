@@ -20,7 +20,7 @@ from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from instrument_registry_v2 import list_subscribed_sources_v2
 from strategy_lab_v2_ai import LabAIError
-from algorithm_lab_catalog_v2 import catalog_manifest, catalog_context
+from algorithm_lab_catalog_v2 import catalog_manifest, catalog_context, enrich_research_bars
 from algorithm_lab_versions_v2 import new_research_key, save_experiment, list_experiments
 from algorithm_lab_sandbox_v2 import standalone_worker_ready, execute_in_isolated_container
 from algorithm_lab_sandbox_client_v2 import remote_ready, run_remote_python
@@ -378,6 +378,11 @@ if st.button("Kjør Python i separat sandbox · PAPER",
             end=end, limit=1501)
         if len(bars) > 1500:
             raise ValueError("Python-sandbox støtter høyst 1500 1m-barer.")
+        macro_data = catalog_context(dataset="macro_schedule",
+                    as_of=end,start=start-timedelta(days=2),limit=200)
+        news_data = catalog_context(dataset="news_context",
+                    as_of=end,start=start-timedelta(days=2),limit=200)
+        bars = enrich_research_bars(bars=bars,macro=macro_data,news=news_data)
         signals = (run_remote_python(code=py_code,bars=bars) if remote_ready()
                    else execute_in_isolated_container(code=py_code,bars=bars))
         scenario = LabCosts(
