@@ -29,7 +29,8 @@ deterministisk algoritmebeskrivelse. Returner KUN JSON uten markdown:
 "test_notes":"spesifikke begrensninger og A/B-test"}
 
 Planfeltene må være nøyaktig de åtte oppgitte. lookback heltall 1–30
-(antall lukkede 1m-barer), max_hold heltall 1–240 (1m-barer);
+(antall lukkede 1m-barer i 1m-modus, antall sekunder i 1s-modus),
+max_hold heltall 1–240 (1m-barer i 1m-modus, sekunder i 1s-modus);
 entry_bps >0 og <=500, exit_bps/fade_bps 0–500.
 Trend krever regime_rule spread, slope eller both; 30m MACD 12/26/9
 beregnes kun på fullt ferdige, sammenhengende 30m-barer.
@@ -41,6 +42,8 @@ Signal ved ferdig 1m-close kan fylles tidligst ved neste reelle 1m-open.
 Ingen framtidige data, fremtidspivoter, historiske 'perfekte' fills,
 syntetiske 1s-data, ordre, kontoendring, filoperasjoner eller SQL.
 Impuls via 1m er BARE en grov baselinemodell, ikke dokumentert 10s-capture.
+1s-modus bruker faktisk registrerte Saxo bid/ask uten syntetisk interpolasjon;
+PAPER-fill kommer først på neste registrerte quote, ikke eksakt 1s garantert.
 Vurder eksplisitt spread, slippage, finansiering og out-of-sample før
 lønnsomhetskonklusjon. Ikke lov garantert profitt.
 Hold foreslått modell nær brukerens hypotese; begrunn endringer.
@@ -73,7 +76,7 @@ def _extract_json(answer: str) -> dict:
             "test_notes": obj["test_notes"][:900]}
 
 
-def propose_algorithm(*, request: str, current_plan: Mapping, market: str,
+def propose_algorithm(*, request: str, current_plan: Mapping, market: str,\n                      sampling_mode: str = "1m",
                       observed_closes: Sequence[Mapping] = (),
                       model: str | None = None, post=requests.post) -> dict:
     """On-demand, read-only remote AI drafting, never strategy execution."""
@@ -86,7 +89,7 @@ def propose_algorithm(*, request: str, current_plan: Mapping, market: str,
         raise LabAIError("API_KEY_MISSING", "OPENAI_API_KEY er ikke konfigurert.")
     # No account IDs, auth tokens, DB schema, raw news/private data, or future bars.
     evidence = {"market": str(market)[:90],
-                "current_plan": plan,
+                "current_plan": plan, "sampling_mode": str(sampling_mode)[:40],
                 "allowed_presets": PRESETS,
                 "observed_closed_1m": tuple(observed_closes)[-24:],
                 "historical_data_limit": "Utvalgte allerede lukkede 1m-priser; ikke full rådatabase",
