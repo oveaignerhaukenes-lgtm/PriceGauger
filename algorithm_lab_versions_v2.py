@@ -121,5 +121,53 @@ def load_experiment(*, token: str, experiment_id: str, db_path="pricegauger.db")
             "results": json.loads(row["results_json"])}
 
 
+def save_python_version(*, token: str, label: str, code: str,
+                        market: str, db_path="pricegauger.db") -> str:
+    """Store model source as inert text, never import or execute it."""
+    from algorithm_lab_sandbox_v2 import validate_script
+    who=owner_hash(token)
+    script=validate_script(code)
+    title=str(label or "").strip()[:120]
+    if not title:
+        raise ValueError("Version requires a short label.")
+    ensure_schema(db_path)
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS algorithm_lab_python_versions_v2(
+            version_id TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,label TEXT NOT NULL,
+            market TEXT NOT NULL,source_hash TEXT NOT NULL,
+            source_code TEXT NOT NULL)""")
+    ident=str(uuid4())
+    with connect(db_path) as db:
+        db.execute("""INSERT INTO algorithm_lab_python_versions_v2
+            (version_id,owner_hash,created_at,label,market,source_hash,source_code)
+            VALUES(?,?,?,?,?,?,?)""",(
+            ident,who,datetime.now(timezone.utc).isoformat(),title,
+            str(market)[:90],sha256(script.encode()).hexdigest(),script))
+    return ident
+
+
+def list_python_versions(*,token: str,limit=40,
+                         db_path="pricegauger.db") -> tuple[dict, ...]:
+    who=owner_hash(token)
+    n=int(limit)
+    if not 1<=n<=80:
+        raise ValueError("Invalid limit.")
+    ensure_schema(db_path)
+    with connect(db_path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS algorithm_lab_python_versions_v2(
+            version_id TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,label TEXT NOT NULL,
+            market TEXT NOT NULL,source_hash TEXT NOT NULL,
+            source_code TEXT NOT NULL)""")
+        rows=db.execute("""SELECT version_id,created_at,label,market,
+                                 source_hash,source_code
+            FROM algorithm_lab_python_versions_v2
+            WHERE owner_hash=? ORDER BY created_at DESC,version_id DESC LIMIT ?""",
+            (who,n)).fetchall()
+    return tuple(dict(x) for x in rows)
+
+
 __all__ = ["new_research_key", "owner_hash", "save_experiment",
-           "load_experiment", "list_experiments", "ensure_schema"]
+           "load_experiment", "list_experiments", "ensure_schema",
+           "save_python_version","list_python_versions"]
