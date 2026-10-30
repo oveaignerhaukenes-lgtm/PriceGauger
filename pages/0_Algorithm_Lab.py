@@ -34,6 +34,11 @@ from strategy_lab_v2_saxo_costs import (
 )
 
 st.set_page_config(page_title="Algoritmelab", layout="wide")
+current_owner_token = st.session_state.get("alg:research_token_entry", "")
+if st.session_state.get("alg:last_owner_token") != current_owner_token:
+    st.session_state.pop("alg:server_experiments", None)
+    st.session_state.pop("alg:py_versions", None)
+    st.session_state["alg:last_owner_token"] = current_owner_token
 st.title("Algoritmelab · Directional Specialists")
 st.caption("Generer algoritmeforslag med AI, rediger en trygg modelloppskrift, "
            "kjør simulering på lagret Saxo 1m-historikk, og sammenlign PAPER-P/L. "
