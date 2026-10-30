@@ -21,7 +21,7 @@ def bars(n=1400, direction=1, gap_at=None):
     previous = 10000.
     for i in range(n):
         t = START + timedelta(minutes=i + (10 if gap_at is not None and i >= gap_at else 0))
-        nxt = previous + direction * 1.0
+        nxt = previous + direction * 2.0
         out.append(SimpleNamespace(
             bar_time=t, open=previous, high=max(previous, nxt),
             low=min(previous, nxt), close=nxt))
@@ -81,7 +81,7 @@ def test_insufficient_30m_history_cannot_open_trend():
 
 
 def test_impulse_entry_not_filled_on_signal_close():
-    r = run("Impulse Up Collector", candles=bars(60),
+    r = run("Impulse Up Collector", candles=bars(60, direction=12),
             end=START+timedelta(minutes=60))
     first_open = next(t for t in r.trades if t.action == "OPEN")
     # A 1m momentum signal cannot fill at its own completed candle.
@@ -90,14 +90,14 @@ def test_impulse_entry_not_filled_on_signal_close():
 
 
 def test_no_fictitious_gap_profit_and_reset():
-    r = run("Impulse Up Collector", candles=bars(80, gap_at=20),
+    r = run("Impulse Up Collector", candles=bars(80, direction=12, gap_at=20),
             end=START+timedelta(minutes=90))
     assert r.gaps == 1
     assert any(t.action == "GAP_FLAT" for t in r.trades)
 
 
 def test_costs_reduce_paper_profit():
-    base = run("Impulse Up Collector", candles=bars(120),
+    base = run("Impulse Up Collector", candles=bars(120, direction=12),
                end=START+timedelta(minutes=120))
     costly = run("Impulse Up Collector", candles=bars(120),
                  end=START+timedelta(minutes=120),
