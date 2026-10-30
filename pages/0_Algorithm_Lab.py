@@ -463,7 +463,10 @@ if saved is not None and st.button("Kjør treningsperiode og urørt testperiode"
         if meta["uic"] != str(source.provider_instrument_id):
             raise ValueError("Velg samme instrument som i siste simuleringskjøring.")
         measured_start, measured_end = utc(meta["start"]), utc(meta["end"])
-        split = measured_start+(measured_end-measured_start)*split_pct/100
+        split = (measured_start + (measured_end-measured_start)*split_pct/100)
+        split = split.replace(second=0,microsecond=0)
+        if split <= measured_start+timedelta(minutes=1) or split >= measured_end-timedelta(minutes=1):
+            raise ValueError("Tidsdelingen gir for lite sammenhengende testdata.")
         costs = LabCosts(**meta["costs"])
         fx_factor = None
         if meta.get("fx_uic"):
