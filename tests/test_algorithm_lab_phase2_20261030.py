@@ -12,6 +12,7 @@ from algorithm_lab_catalog_v2 import (catalog_manifest, catalog_context,
     catalog_asof_macro_flags, enrich_research_bars, CatalogResult)
 from algorithm_lab_versions_v2 import (
     new_research_key,save_experiment,list_experiments,load_experiment,
+    save_python_version,list_python_versions,
 )
 from algorithm_lab_sandbox_v2 import (
     RUNNER, standalone_worker_ready, build_docker_command, validate_script,
@@ -208,3 +209,18 @@ def test_historical_fx_conversion_is_asof_and_changes_net_result():
     assert baseline.trades and converted.trades
     assert converted.pnl_nok != baseline.pnl_nok
     assert converted.financing_nok == baseline.financing_nok == 0
+
+
+def test_python_source_versions_are_inert_and_private(tmp_path):
+    db=str(tmp_path/"py_versions.db")
+    alice,bob=new_research_key(),new_research_key()
+    source="def decide(bar,state):\\n    return 0\\n".replace("\\n","\n")
+    key=save_python_version(token=alice,label="baseline",
+                            code=source,market="Tech100",db_path=db)
+    mine=list_python_versions(token=alice,db_path=db)
+    assert mine[0]["version_id"]==key
+    assert mine[0]["source_code"]==source
+    assert not list_python_versions(token=bob,db_path=db)
+    with pytest.raises(ValueError):
+        save_python_version(token=alice,label="too big",code="a"*13000,
+                            market="Tech100",db_path=db)
