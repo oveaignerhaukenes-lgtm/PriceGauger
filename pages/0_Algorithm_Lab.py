@@ -111,7 +111,8 @@ with right:
                             for b in recent][-24:]
                 suggestion = propose_algorithm(
                     request=user_request, current_plan=plan,
-                    market=source.market_name, observed_closes=observed)
+                    market=source.market_name, observed_closes=observed,
+                    sampling_mode=st.session_state.get("alg:replay_mode", "1m"))
                 st.session_state["alg:pending_plan"] = suggestion["plan"]
                 st.session_state["alg:ai_rationale"] = suggestion["rationale"]
                 st.session_state["alg:ai_notes"] = suggestion["test_notes"]
@@ -166,8 +167,9 @@ commission = k6.number_input("Fast gebyr NOK per utførelse", min_value=0., valu
                              step=1., key="alg:commission")
 fee_bps = k7.number_input("Variabelt gebyr (bp per side)", min_value=0., value=0.,
                           step=.5, key="alg:fee_bps")
-st.caption("Angitt punktverdi, lot, spread og kostnader er **manuelle "
-           "forutsetninger**, ikke verifiserte Saxo-kontovilkår. "
+st.caption("Punktverdi, lot, slippage og gebyr er scenariovalg. "
+           "1m-modus modellerer spread fra feltet; 1s-modus bruker "
+           "observert historisk bid/ask-spread og ignorerer feltet spread (bp). "
            "Resultatet inkluderer ikke finansiering eller valutakursendringer.")
 
 run = st.button("Kjør simulering / beregn netto P/L", type="primary",
