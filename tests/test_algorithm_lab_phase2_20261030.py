@@ -19,6 +19,7 @@ from algorithm_lab_sandbox_v2 import (
 )
 from algorithm_lab_python_replay_v2 import replay_directions
 from algorithm_lab_python_ai_v2 import DEFAULT_CODE
+from algorithm_lab_fx_v2 import HistoricalFXCurve
 from algorithm_lab_sandbox_client_v2 import remote_ready, run_remote_python
 from database import connect
 
@@ -185,3 +186,25 @@ def test_remote_sandbox_url_and_response_contract():
     assert out==(0,1)
     assert seen["url"]=="https://research.example.test/v1/execute"
     assert set(seen["payload"]["bars"][0])=={"at","open","high","low","close"}
+
+
+def test_historical_fx_conversion_is_asof_and_changes_net_result():
+    fx_bars=[
+        SimpleNamespace(bar_time=START+timedelta(minutes=i-1),
+                        close=10. if i<30 else 11.)
+        for i in range(105)]
+    curve=HistoricalFXCurve(fx_bars,reference_at=START)
+    assert curve.factor(START)==1.
+    assert curve.factor(START+timedelta(minutes=31))==1.1
+    with pytest.raises(ValueError,match="stale"):
+        curve.factor(START+timedelta(minutes=200))
+    prices=make_bars(90)
+    costs=LabCosts(point_value_nok=2.,starting_nav_nok=10000.,
+                   spread_bps=0.,slippage_bps=0.)
+    kwargs=dict(plan=PRESETS["Impulse Up Collector"],bars=prices,
+                start_at=START,end_at=START+timedelta(minutes=90),costs=costs)
+    baseline=replay_algorithm(**kwargs)
+    converted=replay_algorithm(**kwargs,fx_multiplier_at=curve.factor)
+    assert baseline.trades and converted.trades
+    assert converted.pnl_nok != baseline.pnl_nok
+    assert converted.financing_nok == baseline.financing_nok == 0
