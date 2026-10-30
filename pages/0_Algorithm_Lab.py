@@ -332,7 +332,74 @@ if saved is not None:
         file_name="algorithm_lab_paper_nav.csv", mime="text/csv",
         key="alg:download")
 
-st.subheader("4 · Kronologisk train / out-of-sample-test")
+st.subheader("4 · AI-generert Python · separat kode-sandbox")
+st.caption("Python-koden kjøres ALDRI i Streamlit/LIVE-worker. "
+           "Kun en separat, hemmelighetsfri Docker-forskningsworker kan "
+           "teste den. Dersom denne ikke er tilkoblet, kan koden genereres, "
+           "redigeres og eksporteres, men ikke utføres i PG.")
+pending_py = st.session_state.pop("alg:pending_python", None)
+if pending_py is not None:
+    st.session_state["alg:python_code"] = pending_py
+if "alg:python_code" not in st.session_state:
+    st.session_state["alg:python_code"] = DEFAULT_CODE
+py_code = st.text_area("Python: def decide(bar, state)", height=265,
+                       key="alg:python_code")
+py_idea = st.text_input("Beskriv en ny Python-algoritme",
+                         value="Lag en 1m long/flat-modell med momentum og demping "
+                               "av inngang ved svakt regime.",
+                         key="alg:python_request")
+if st.button("La AI skrive eller revidere Python", key="alg:python_generate"):
+    try:
+        generated = propose_python_research(request=py_idea,
+                          current_code=py_code, market=market)
+        st.session_state["alg:pending_python"] = generated
+        st.rerun()
+    except (ValueError, LabAIError) as exc:
+        st.error(str(exc))
+    except Exception as exc:
+        st.error("AI-kodegenerator utilgjengelig: " + type(exc).__name__)
+st.download_button("Eksporter Python-forskningskode",
+                   py_code.encode("utf-8"),
+                   file_name="algorithm_lab_research.py",
+                   mime="text/x-python", key="alg:python_download")
+sandbox_ready = standalone_worker_ready()
+if not sandbox_ready:
+    st.warning("Ekstern Docker-sandbox er ikke konfigurert. "
+               "For sikkerhets skyld er Python-kjøring deaktivert her.")
+if st.button("Kjør Python i separat sandbox · PAPER",
+             disabled=not sandbox_ready, key="alg:python_execute"):
+    try:
+        from algorithm_lab_v1 import LabCosts
+        if end <= start or end-start > timedelta(hours=24):
+            raise ValueError("Velg opptil 24 timer med sammenhengende 1m-data.")
+        bars = CanonicalMarketBarStoreV2().load_instrument_range(
+            instrument_id=int(source.instrument_id), start=start,
+            end=end, limit=1501)
+        if len(bars) > 1500:
+            raise ValueError("Python-sandbox støtter høyst 1500 1m-barer.")
+        signals = execute_in_isolated_container(code=py_code,bars=bars)
+        scenario = LabCosts(
+            point_value_nok=point_value,starting_nav_nok=capital,lot_size=lot,
+            spread_bps=spread,slippage_bps=slippage,commission_nok=commission,
+            variable_fee_bps=fee_bps,
+            financing_long_annual_pct=fin_long,
+            financing_short_annual_pct=fin_short)
+        python_result = replay_directions(
+            bars=bars,directions=signals,costs=scenario,
+            start_at=start,end_at=end)
+        st.session_state["alg:python_last"] = python_result
+    except (ValueError,RuntimeError,TimeoutError,TypeError) as exc:
+        st.error(str(exc))
+    except Exception as exc:
+        st.error("Sandbox-kjøring feilet: " + type(exc).__name__)
+if st.session_state.get("alg:python_last"):
+    p_result=st.session_state["alg:python_last"]
+    st.metric("Python PAPER netto P/L",f"{p_result.pnl_nok:+,.2f} NOK")
+    st.line_chart(pd.DataFrame([
+        {"UTC":p.at,"NAV":p.nav_nok} for p in p_result.points
+    ]).set_index("UTC"),height=200)
+
+st.subheader("5 · Kronologisk train / out-of-sample-test")
 st.caption("En automatisk deling av historikken: hold parameterne uendret "
            "mens testperioden kjøres. Hvis du optimaliserer etter å ha sett "
            "testresultatet, er perioden ikke lenger en uavhengig test.")
@@ -390,7 +457,7 @@ if st.session_state.get("alg:oos"):
                " UTC. To separate PAPER-porteføljer med lik startkapital. "
                "Ingen AI-adaptiv parameteroptimalisering er gjort her.")
 
-st.subheader("5 · Eksperimenthistorikk i denne økten")
+st.subheader("6 · Eksperimenthistorikk i denne økten")
 history = st.session_state.get("alg:experiment_history", [])
 if history:
     history_rows = []
@@ -434,7 +501,7 @@ if history:
                    "å sammenligne nettoprestasjon. Historikk er foreløpig "
                    "kun lagret i denne nettleserøkten.")
 
-st.subheader("6 · Vedvarende modellversjoner")
+st.subheader("7 · Vedvarende modellversjoner")
 st.caption("Eksperimenter lagres separat fra LIVE i PG-databasen. "
            "En lang forskningsnøkkel gir tilgang til dine eksperimenter. "
            "Lagre nøkkelen selv; den kan ikke gjenopprettes fra databasen.")
@@ -498,7 +565,7 @@ with st.expander("Forskningsnøkkel og lagrede forsøk", expanded=False):
             st.session_state["alg:pending_plan"] = selected["plan"]
             st.rerun()
 
-st.subheader("7 · Datakatalog med tidsriktig kontekst")
+st.subheader("8 · Datakatalog med tidsriktig kontekst")
 st.caption("Eksplisitt kildevalg, punkt-i-tid-data og ingen vilkårlig SQL. "
            "Private Saxo-kontodata er ikke tilgjengelige for AI-koden.")
 st.dataframe(pd.DataFrame(catalog_manifest()), use_container_width=True,
@@ -521,7 +588,7 @@ if context_data is not None:
     for note in context_data.limitations:
         st.caption(note)
 
-st.subheader("8 · Rådata og siste registrerte BBO")
+st.subheader("9 · Rådata og siste registrerte BBO")
 st.caption("Lesetilgang til lagret prisdata for valgt Saxo-UIC, ikke "
            "ukontrollert tilgang til kontoer, private tabeller eller Saxo-ordre.")
 
