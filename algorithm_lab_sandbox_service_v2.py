@@ -53,11 +53,21 @@ async def execute(request: Request) -> dict:
         from types import SimpleNamespace
         rows = []
         for point in values:
-            if not isinstance(point,dict) or set(point)!={"at","open","high","low","close"}:
+            fields=set(point)
+            if (not isinstance(point,dict) or
+                    not {"at","open","high","low","close"}.issubset(fields) or
+                    fields-{"at","open","high","low","close",
+                            "macro_count","news_post_count"}):
                 raise ValueError("invalid bar schema")
+            for feature in ("macro_count","news_post_count"):
+                if feature in point and (type(point[feature]) is not int
+                       or not -1 <= point[feature] <= 100000):
+                    raise ValueError("invalid context value")
             rows.append(SimpleNamespace(
                 bar_time=point["at"],open=point["open"],high=point["high"],
-                low=point["low"],close=point["close"]))
+                low=point["low"],close=point["close"],
+                **{k:point[k] for k in ("macro_count","news_post_count")
+                   if k in point}))
     except (ValueError, TypeError, KeyError, OverflowError):
         raise HTTPException(422, "invalid dataset or code")
     try:
