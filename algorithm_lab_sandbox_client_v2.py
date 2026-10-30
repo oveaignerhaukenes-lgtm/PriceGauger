@@ -51,6 +51,12 @@ def run_remote_python(*, code: str, bars: Sequence, env=None,
             if not 0 < value < 1e12:
                 raise ValueError("Ugyldige historiske priser.")
             item[field] = value
+        for feature in ("macro_count", "news_post_count"):
+            if hasattr(row, feature):
+                val = getattr(row, feature)
+                if type(val) is not int or not -1 <= val <= 100000:
+                    raise ValueError("Invalid as-of research feature.")
+                item[feature] = val
         observations.append(item)
         previous = t
     url = e["ALGORITHM_LAB_SANDBOX_URL"].strip().rstrip("/") + "/v1/execute"
