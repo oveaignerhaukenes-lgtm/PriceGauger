@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, date, time, timedelta, timezone
 from dataclasses import asdict
 import json
+import re
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,8 +21,24 @@ from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from instrument_registry_v2 import list_subscribed_sources_v2
 from strategy_lab_v2_ai import LabAIError
+from algorithm_lab_catalog_v2 import catalog_manifest, catalog_context, enrich_research_bars
+from algorithm_lab_versions_v2 import (new_research_key, save_experiment,
+    list_experiments, save_python_version, list_python_versions)
+from algorithm_lab_sandbox_v2 import standalone_worker_ready, execute_in_isolated_container
+from algorithm_lab_sandbox_client_v2 import remote_ready, run_remote_python
+from algorithm_lab_python_ai_v2 import propose_python_research, DEFAULT_CODE
+from algorithm_lab_python_replay_v2 import replay_directions
+from algorithm_lab_fx_v2 import HistoricalFXCurve
+from strategy_lab_v2_saxo_costs import (
+    saxobank_accounts_v2, saxo_replay_costs_v2, verified_replay_costs_v2,
+)
 
 st.set_page_config(page_title="Algoritmelab", layout="wide")
+current_owner_token = st.session_state.get("alg:research_token_entry", "")
+if st.session_state.get("alg:last_owner_token") != current_owner_token:
+    st.session_state.pop("alg:server_experiments", None)
+    st.session_state.pop("alg:py_versions", None)
+    st.session_state["alg:last_owner_token"] = current_owner_token
 st.title("Algoritmelab · Directional Specialists")
 st.caption("Generer algoritmeforslag med AI, rediger en trygg modelloppskrift, "
            "kjør simulering på lagret Saxo 1m-historikk, og sammenlign PAPER-P/L. "
@@ -151,7 +168,64 @@ end_time = d4.time_input("Klokkeslett til (UTC)", now.time(), key="alg:end_time"
 start = datetime.combine(start_date, start_time, tzinfo=timezone.utc)
 end = datetime.combine(end_date, end_time, tzinfo=timezone.utc)
 
-k1, k2, k3, k4 = st.columns(4)
+with st.expander("Saxo GET-only · kostnadskalibrering"):
+    st.caption("Konto, pris, spread, valutakonvertering og gebyr er "
+               "indikative NÅ, ikke historiske fills.")
+    if st.button("Hent tilgjengelige kontoer (GET)", key="alg:get_accounts"):
+        try:
+            from saxo_provider import configured_client
+            client = configured_client()
+            if client is None:
+                raise ValueError("Ingen tilkoblet Saxo GET-klient.")
+            st.session_state["alg:saxo_accounts"] = saxobank_accounts_v2(client)
+        except Exception as exc:
+            st.error("GET-kontoer ikke tilgjengelig: " + type(exc).__name__)
+    accounts = st.session_state.get("alg:saxo_accounts", ())
+    if accounts:
+        account = st.selectbox("Konto for modellkostnader", accounts,
+                               format_func=lambda x: "…" + x["account_id"][-4:]
+                               + " · " + x["currency"], key="alg:saxo_account")
+        if st.button("Kalibrer fra Saxo GET", key="alg:calibrate"):
+            try:
+                from saxo_provider import configured_client
+                client = configured_client()
+                if client is None:
+                    raise ValueError("Saxo utilgjengelig.")
+                raw = saxo_replay_costs_v2(client, source=source,
+                                            account=account, quantity=.01)
+                verified = verified_replay_costs_v2(raw)
+                st.session_state["alg:point_value"] = float(verified.point_value_nok)
+                st.session_state["alg:spread"] = float(verified.spread_bps)
+                st.session_state["alg:commission"] = float(verified.fixed_fee_nok)
+                st.session_state["alg:lot"] = float(verified.lot_step)
+                st.session_state["alg:cost_evidence"] = verified.source
+                st.rerun()
+            except Exception as exc:
+                st.error("Saxo kunne ikke verifisere kostnadene: " + str(exc)[:240])
+if st.session_state.get("alg:cost_evidence"):
+    st.caption("Nåtidsscenario: " + st.session_state["alg:cost_evidence"]
+               + " (historisk spread og FX er ikke verifisert).")
+
+with st.expander("Historisk valuta · direkte NOK-kryss"):
+    st.caption("Valgfritt. Velg historisk lagret FxSpot med NOK som "
+               "motvaluta, eksempelvis USDNOK for et USD-priset produkt. "
+               "Punktverdien nedenfor må representere NOK per poeng ved "
+               "starttidspunktet. Uten verifisert match er dette et scenario.")
+    fx_candidates = [s for s in sources if
+                     str(s.asset_type).lower()=="fxspot" and
+                     re.sub(r"[^A-Z]", "",str(s.symbol or "").upper()).endswith("NOK") and
+                     len(re.sub(r"[^A-Z]", "",str(s.symbol or "").upper()))==6]
+    fx_source = st.selectbox(
+        "Historisk FX-instrument / UIC",
+        [None]+fx_candidates,
+        format_func=lambda x: "Ingen · konstant NOK-punktverdi" if x is None
+                    else str(x.symbol)+" · UIC "+str(x.provider_instrument_id),
+        key="alg:fx_source")
+    fx_confirm = st.checkbox(
+        "Jeg bekrefter at dette er NOK per én enhet av produktets "
+        "prissettingsvaluta, og at punktverdien gjelder ved teststart",
+        key="alg:fx_confirm")
+
 capital = k1.number_input("Startkapital NOK", min_value=1., value=10000., step=1000.,
                           key="alg:capital")
 lot = k2.number_input("Antall lot", min_value=.001, value=.01, step=.01, format="%.3f",
@@ -167,10 +241,15 @@ commission = k6.number_input("Fast gebyr NOK per utførelse", min_value=0., valu
                              step=1., key="alg:commission")
 fee_bps = k7.number_input("Variabelt gebyr (bp per side)", min_value=0., value=0.,
                           step=.5, key="alg:fee_bps")
-st.caption("Punktverdi, lot, slippage og gebyr er scenariovalg. "
+k8, k9 = st.columns(2)
+fin_long = k8.number_input("Long finansiering (% p.a.)", min_value=0.,
+                           max_value=100., value=0., step=.5, key="alg:finlong")
+fin_short = k9.number_input("Short finansiering (% p.a.)", min_value=0.,
+                            max_value=100., value=0., step=.5, key="alg:finshort")
+st.caption("Punktverdi, lot, slippage, finansiering og gebyr er scenariovalg. "
            "1m-modus modellerer spread fra feltet; 1s-modus bruker "
            "observert historisk bid/ask-spread og ignorerer feltet spread (bp). "
-           "Resultatet inkluderer ikke finansiering eller valutakursendringer.")
+           "NOK-punktverdien bruker en konstant FX-forutsetning, ikke historisk valutakursserie.")
 
 run = st.button("Kjør simulering / beregn netto P/L", type="primary",
                 disabled=plan is None, key="alg:run")
@@ -181,7 +260,20 @@ if run:
         costs = LabCosts(point_value_nok=point_value,
                          starting_nav_nok=capital, lot_size=lot,
                          spread_bps=spread, slippage_bps=slippage,
-                         commission_nok=commission, variable_fee_bps=fee_bps)
+                         commission_nok=commission, variable_fee_bps=fee_bps,
+                         financing_long_annual_pct=fin_long,
+                         financing_short_annual_pct=fin_short)
+        fx_factor = None
+        if fx_source is not None:
+            if not fx_confirm:
+                raise ValueError("Bekreft korrekt produktvaluta og punktverdi for FX.")
+            fx_bars = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(fx_source.instrument_id),
+                start=start-timedelta(minutes=10), end=end, limit=MAX_BARS+1)
+            if len(fx_bars)>MAX_BARS:
+                raise ValueError("For mange historiske FX-barer.")
+            fx_curve=HistoricalFXCurve(fx_bars,reference_at=start)
+            fx_factor=fx_curve.factor
         if mode.startswith("1s"):
             if end-start > timedelta(hours=4):
                 raise ValueError("1s-replay: velg maksimalt 4 timer.")
@@ -198,7 +290,7 @@ if run:
                 raise ValueError("For mange 1s-observasjoner. Forkort vinduet.")
             result = replay_tick_impulses(
                 plan=plan, quotes=quotes, costs=costs,
-                start_at=start, end_at=end)
+                start_at=start, end_at=end, fx_multiplier_at=fx_factor)
         else:
             if end-start > timedelta(days=6):
                 raise ValueError("1m-replay: velg høyst 6 døgn.")
@@ -210,10 +302,12 @@ if run:
             if len(bars) > MAX_BARS:
                 raise ValueError("For mange råbarer. Forkort tidsvinduet.")
             result = replay_algorithm(plan=plan, bars=bars, costs=costs,
-                                      start_at=start, end_at=end)
+                                      start_at=start, end_at=end,
+                                      fx_multiplier_at=fx_factor)
         run_metadata = {"market": market, "uic": str(source.provider_instrument_id),
                         "start": start.isoformat(), "end": end.isoformat(),
-                        "plan": plan, "costs": asdict(costs), "mode": mode}
+                        "plan": plan, "costs": asdict(costs), "mode": mode,
+                        "fx_uic": str(fx_source.instrument_id) if fx_source else None}
         st.session_state["alg:last_result"] = (run_metadata, result)
         previous_runs = st.session_state.get("alg:experiment_history", [])
         st.session_state["alg:experiment_history"] = (
@@ -237,6 +331,8 @@ if saved is not None:
     cols[2].metric("Maks drawdown", f"{result.drawdown_pct:.2f}%")
     cols[3].metric("PAPER-utførelser", str(len(result.trades)))
     cols[4].metric("Modellerte kostnader", f"{result.total_cost_nok:,.2f} NOK")
+    st.caption(f"Finansieringsscenario: {result.financing_nok:,.2f} NOK. "
+               "Brukerdefinert årlig sats for observert eksponeringstid.")
     if result.warmup_30m_bars < 35 and meta["plan"]["kind"] == "trend":
         st.warning("MACD30 ble ikke varmet opp med minst 35 sammenhengende "
                    "ferdige 30m-barer i siste dataserie. Få eller ingen handler "
@@ -277,7 +373,191 @@ if saved is not None:
         file_name="algorithm_lab_paper_nav.csv", mime="text/csv",
         key="alg:download")
 
-st.subheader("4 · Eksperimenthistorikk i denne økten")
+st.subheader("4 · AI-generert Python · separat kode-sandbox")
+st.caption("Python-koden kjøres ALDRI i Streamlit/LIVE-worker. "
+           "Kun en separat, hemmelighetsfri Docker-forskningsworker kan "
+           "teste den. Dersom denne ikke er tilkoblet, kan koden genereres, "
+           "redigeres og eksporteres, men ikke utføres i PG.")
+pending_py = st.session_state.pop("alg:pending_python", None)
+if pending_py is not None:
+    st.session_state["alg:python_code"] = pending_py
+if "alg:python_code" not in st.session_state:
+    st.session_state["alg:python_code"] = DEFAULT_CODE
+py_code = st.text_area("Python: def decide(bar, state)", height=265,
+                       key="alg:python_code")
+py_idea = st.text_input("Beskriv en ny Python-algoritme",
+                         value="Lag en 1m long/flat-modell med momentum og demping "
+                               "av inngang ved svakt regime.",
+                         key="alg:python_request")
+if st.button("La AI skrive eller revidere Python", key="alg:python_generate"):
+    try:
+        generated = propose_python_research(request=py_idea,
+                          current_code=py_code, market=market)
+        st.session_state["alg:pending_python"] = generated
+        st.rerun()
+    except (ValueError, LabAIError) as exc:
+        st.error(str(exc))
+    except Exception as exc:
+        st.error("AI-kodegenerator utilgjengelig: " + type(exc).__name__)
+st.download_button("Eksporter Python-forskningskode",
+                   py_code.encode("utf-8"),
+                   file_name="algorithm_lab_research.py",
+                   mime="text/x-python", key="alg:python_download")
+with st.expander("Lagre / gjenåpne Python-kodeversjoner"):
+    st.caption("Bruk forskningsnøkkelen fra modellarkivet nedenfor. "
+               "Python-koden lagres kun som tekst, aldri som LIVE-strategi.")
+    code_label=st.text_input("Navn på Python-versjon",
+                             value="Python Research v1",key="alg:py_label")
+    if st.button("Lagre Python-kodeversjon",key="alg:py_save"):
+        try:
+            vid=save_python_version(
+                token=st.session_state.get("alg:research_token_entry",""),
+                label=code_label,code=py_code,market=market)
+            st.success("Kodeversjon lagret: "+vid[:8])
+        except (ValueError,TypeError) as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error("Kunne ikke lagre Python-kode: "+type(exc).__name__)
+    if st.button("Hent Python-versjoner",key="alg:py_list"):
+        try:
+            st.session_state["alg:py_versions"]=list_python_versions(
+                token=st.session_state.get("alg:research_token_entry",""))
+        except (ValueError,TypeError) as exc:
+            st.error(str(exc))
+    versions=st.session_state.get("alg:py_versions",())
+    if versions:
+        selection=st.selectbox(
+            "Tidligere kodeversjoner",versions,
+            format_func=lambda x:x["label"]+" · "+x["version_id"][:8],
+            key="alg:python_version_select")
+        if st.button("Gjenåpne denne Python-versjonen",
+                     key="alg:python_restore"):
+            st.session_state["alg:pending_python"]=selection["source_code"]
+            st.rerun()
+
+sandbox_ready = remote_ready() or standalone_worker_ready()
+if not sandbox_ready:
+    st.warning("Ekstern Docker-sandbox er ikke konfigurert. "
+               "For sikkerhets skyld er Python-kjøring deaktivert her.")
+if st.button("Kjør Python i separat sandbox · PAPER",
+             disabled=not sandbox_ready, key="alg:python_execute"):
+    try:
+        from algorithm_lab_v1 import LabCosts
+        if end <= start or end-start > timedelta(hours=24):
+            raise ValueError("Velg opptil 24 timer med sammenhengende 1m-data.")
+        bars = CanonicalMarketBarStoreV2().load_instrument_range(
+            instrument_id=int(source.instrument_id), start=start,
+            end=end, limit=1501)
+        if len(bars) > 1500:
+            raise ValueError("Python-sandbox støtter høyst 1500 1m-barer.")
+        macro_data = catalog_context(dataset="macro_schedule",
+                    as_of=end,start=start-timedelta(days=2),limit=200)
+        news_data = catalog_context(dataset="news_context",
+                    as_of=end,start=start-timedelta(days=2),limit=200)
+        bars = enrich_research_bars(bars=bars,macro=macro_data,news=news_data)
+        signals = (run_remote_python(code=py_code,bars=bars) if remote_ready()
+                   else execute_in_isolated_container(code=py_code,bars=bars))
+        scenario = LabCosts(
+            point_value_nok=point_value,starting_nav_nok=capital,lot_size=lot,
+            spread_bps=spread,slippage_bps=slippage,commission_nok=commission,
+            variable_fee_bps=fee_bps,
+            financing_long_annual_pct=fin_long,
+            financing_short_annual_pct=fin_short)
+        fx_factor = None
+        if fx_source is not None:
+            if not fx_confirm:
+                raise ValueError("Bekreft FX-valuta og punktverdi ved teststart.")
+            fx_bars=CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(fx_source.instrument_id),
+                start=start-timedelta(minutes=10),end=end,
+                limit=MAX_BARS+1)
+            fx_factor=HistoricalFXCurve(
+                fx_bars,reference_at=start).factor
+        python_result = replay_directions(
+            bars=bars,directions=signals,costs=scenario,
+            start_at=start,end_at=end,fx_multiplier_at=fx_factor)
+        st.session_state["alg:python_last"] = python_result
+    except (ValueError,RuntimeError,TimeoutError,TypeError) as exc:
+        st.error(str(exc))
+    except Exception as exc:
+        st.error("Sandbox-kjøring feilet: " + type(exc).__name__)
+if st.session_state.get("alg:python_last"):
+    p_result=st.session_state["alg:python_last"]
+    st.metric("Python PAPER netto P/L",f"{p_result.pnl_nok:+,.2f} NOK")
+    st.line_chart(pd.DataFrame([
+        {"UTC":p.at,"NAV":p.nav_nok} for p in p_result.points
+    ]).set_index("UTC"),height=200)
+
+st.subheader("5 · Kronologisk train / out-of-sample-test")
+st.caption("En automatisk deling av historikken: hold parameterne uendret "
+           "mens testperioden kjøres. Hvis du optimaliserer etter å ha sett "
+           "testresultatet, er perioden ikke lenger en uavhengig test.")
+split_pct = st.slider("Andel treningsperiode (%)", min_value=50,
+                      max_value=85, value=70, step=5, key="alg:split")
+if saved is not None and st.button("Kjør treningsperiode og urørt testperiode",
+                                   key="alg:run_oos"):
+    try:
+        meta, _ = saved
+        if meta["uic"] != str(source.provider_instrument_id):
+            raise ValueError("Velg samme instrument som i siste simuleringskjøring.")
+        measured_start, measured_end = utc(meta["start"]), utc(meta["end"])
+        split = (measured_start + (measured_end-measured_start)*split_pct/100)
+        split = split.replace(second=0,microsecond=0)
+        if split <= measured_start+timedelta(minutes=1) or split >= measured_end-timedelta(minutes=1):
+            raise ValueError("Tidsdelingen gir for lite sammenhengende testdata.")
+        costs = LabCosts(**meta["costs"])
+        fx_factor = None
+        if meta.get("fx_uic"):
+            fx_history = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(meta["fx_uic"]),
+                start=measured_start-timedelta(minutes=10),
+                end=measured_end,limit=MAX_BARS+1)
+            fx_curve = HistoricalFXCurve(fx_history,reference_at=measured_start)
+            fx_factor = fx_curve.factor
+        if meta["mode"].startswith("1s"):
+            with connect() as db:
+                rec = db.execute(
+                    """SELECT quote_at,bid,ask FROM lsim_hyper_quotes_1s
+                       WHERE provider_uic=? AND quote_at>=? AND quote_at<?
+                       ORDER BY quote_at ASC LIMIT ?""",
+                    (int(source.provider_instrument_id),
+                     (measured_start-timedelta(seconds=45)).isoformat(),
+                     measured_end.isoformat(), MAX_QUOTES+1)).fetchall()
+            samples = tuple(dict(x) for x in rec)
+            if len(samples) > MAX_QUOTES:
+                raise ValueError("For mange 1s-priser for tidsdelt test.")
+            evaluate = lambda a,b: replay_tick_impulses(
+                plan=meta["plan"], quotes=samples, costs=costs,
+                start_at=a,end_at=b,fx_multiplier_at=fx_factor)
+        else:
+            samples = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(source.instrument_id),
+                start=measured_start-timedelta(hours=72),
+                end=measured_end, limit=MAX_BARS+1)
+            if len(samples) > MAX_BARS:
+                raise ValueError("For mange 1m-priser for tidsdelt test.")
+            evaluate = lambda a,b: replay_algorithm(
+                plan=meta["plan"],bars=samples,costs=costs,
+                start_at=a,end_at=b,fx_multiplier_at=fx_factor)
+        train = evaluate(measured_start,split)
+        test = evaluate(split,measured_end)
+        st.session_state["alg:oos"] = (train,test,split,meta)
+    except (ValueError, TypeError) as exc:
+        st.error(str(exc))
+    except Exception as exc:
+        st.error("Out-of-sample-simulering feilet: " + type(exc).__name__)
+if st.session_state.get("alg:oos"):
+    train,test,split,meta = st.session_state["alg:oos"]
+    c1,c2,c3,c4=st.columns(4)
+    c1.metric("Train P/L", f"{train.pnl_nok:+,.2f} NOK")
+    c2.metric("Train ret.", f"{train.return_pct:+.2f}%")
+    c3.metric("Test P/L", f"{test.pnl_nok:+,.2f} NOK")
+    c4.metric("Test ret.", f"{test.return_pct:+.2f}%")
+    st.caption("Skillepunkt " + split.isoformat() +
+               " UTC. To separate PAPER-porteføljer med lik startkapital. "
+               "Ingen AI-adaptiv parameteroptimalisering er gjort her.")
+
+st.subheader("6 · Eksperimenthistorikk i denne økten")
 history = st.session_state.get("alg:experiment_history", [])
 if history:
     history_rows = []
@@ -321,7 +601,94 @@ if history:
                    "å sammenligne nettoprestasjon. Historikk er foreløpig "
                    "kun lagret i denne nettleserøkten.")
 
-st.subheader("5 · Rådata og siste registrerte BBO")
+st.subheader("7 · Vedvarende modellversjoner")
+st.caption("Eksperimenter lagres separat fra LIVE i PG-databasen. "
+           "En lang forskningsnøkkel gir tilgang til dine eksperimenter. "
+           "Lagre nøkkelen selv; den kan ikke gjenopprettes fra databasen.")
+with st.expander("Forskningsnøkkel og lagrede forsøk", expanded=False):
+    if st.button("Opprett ny hemmelig forskningsnøkkel", key="alg:newresearchkey"):
+        token = new_research_key()
+        st.session_state["alg:research_token_entry"] = token
+        st.session_state["alg:last_new_research_key"] = token
+    if st.session_state.get("alg:last_new_research_key"):
+        st.code(st.session_state["alg:last_new_research_key"], language="text")
+        st.warning("Kopier nøkkelen til et trygt sted før du forlater siden.")
+    token = st.text_input(
+        "Forskningsnøkkel (minimum 32 tegn)", type="password",
+        key="alg:research_token_entry")
+    lab_label = st.text_input("Navn på ny eksperimentversjon",
+                              value=preset, key="alg:save_label")
+    if st.button("Lagre siste simuleringsresultat", key="alg:save_experiment"):
+        if saved is None:
+            st.warning("Kjør en simulering først.")
+        else:
+            try:
+                meta, result = saved
+                context = {k: meta[k] for k in
+                           ("market","uic","start","end","mode","costs","fx_uic")}
+                report = {
+                    "pnl_nok": result.pnl_nok,
+                    "return_pct": result.return_pct,
+                    "drawdown_pct": result.drawdown_pct,
+                    "total_cost_nok": result.total_cost_nok,
+                    "financing_nok": result.financing_nok,
+                    "trades": len(result.trades), "gaps": result.gaps}
+                saved_id = save_experiment(
+                    token=token, label=lab_label,
+                    plan=meta["plan"], context=context, results=report)
+                st.success("Lagret PAPER-versjon: " + saved_id[:8])
+            except (ValueError, TypeError) as exc:
+                st.error(str(exc))
+            except Exception as exc:
+                st.error("Lagring er utilgjengelig: " + type(exc).__name__)
+    if st.button("Hent mine tidligere eksperimenter", key="alg:list_experiments"):
+        try:
+            st.session_state["alg:server_experiments"] = list_experiments(
+                token=token, limit=40)
+        except (ValueError, TypeError) as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error("Eksperimentarkiv utilgjengelig: " + type(exc).__name__)
+    saved_list = st.session_state.get("alg:server_experiments", ())
+    if saved_list:
+        st.dataframe(pd.DataFrame([
+            {"Opprettet": x["created_at"], "Navn": x["label"],
+             "P/L NOK": x["results"].get("pnl_nok"),
+             "Avkastning %": x["results"].get("return_pct"),
+             "ID": x["experiment_id"]} for x in saved_list]),
+             use_container_width=True, hide_index=True)
+        selected = st.selectbox("Gjenåpne oppskrift",
+                                saved_list, key="alg:stored_version",
+                                format_func=lambda x: x["label"] + " · " +
+                                x["experiment_id"][:8])
+        if st.button("Åpne tidligere plan", key="alg:restore_version"):
+            st.session_state["alg:pending_plan"] = selected["plan"]
+            st.rerun()
+
+st.subheader("8 · Datakatalog med tidsriktig kontekst")
+st.caption("Eksplisitt kildevalg, punkt-i-tid-data og ingen vilkårlig SQL. "
+           "Private Saxo-kontodata er ikke tilgjengelige for AI-koden.")
+st.dataframe(pd.DataFrame(catalog_manifest()), use_container_width=True,
+             hide_index=True)
+context_kind = st.selectbox("Kontekstkilde", ("macro_schedule", "news_context"),
+                            key="alg:context_source")
+if st.button("Les kjent kontekst ved valgt sluttid", key="alg:context"):
+    try:
+        data = catalog_context(dataset=context_kind, as_of=end,
+                               start=start, limit=100)
+        st.session_state["alg:context_results"] = data
+    except (ValueError, TypeError) as exc:
+        st.error(str(exc))
+context_data = st.session_state.get("alg:context_results")
+if context_data is not None:
+    st.caption("Dekning: " + context_data.coverage +
+               " · tidsgrense " + context_data.as_of)
+    st.dataframe(pd.DataFrame(context_data.rows), use_container_width=True,
+                 hide_index=True)
+    for note in context_data.limitations:
+        st.caption(note)
+
+st.subheader("9 · Rådata og siste registrerte BBO")
 st.caption("Lesetilgang til lagret prisdata for valgt Saxo-UIC, ikke "
            "ukontrollert tilgang til kontoer, private tabeller eller Saxo-ordre.")
 
