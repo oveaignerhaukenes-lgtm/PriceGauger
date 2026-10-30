@@ -73,6 +73,22 @@ with left:
     except (ValueError, TypeError) as exc:
         plan = None
         st.error("Modellfeil: " + str(exc))
+    st.download_button(
+        "Eksporter modelloppskrift (.json)",
+        data=json.dumps(plan, indent=2, ensure_ascii=False) if plan else "{}",
+        file_name="algorithm_lab_model.json", mime="application/json",
+        disabled=plan is None, key="alg:saveplan")
+    uploaded_plan = st.file_uploader(
+        "Importer tidligere modelloppskrift", type=("json",),
+        key="alg:importplan")
+    if uploaded_plan is not None and st.button("Åpne importert modell", key="alg:loadplan"):
+        try:
+            imported = validate_plan(json.loads(
+                uploaded_plan.getvalue().decode("utf-8")))
+            st.session_state["alg:pending_plan"] = imported
+            st.rerun()
+        except (UnicodeError, ValueError, TypeError) as exc:
+            st.error("Kun gyldige, trygge modelloppskrifter kan importeres: " + str(exc))
 with right:
     st.markdown("**AI-assistert modellutvikling**")
     user_request = st.text_area(
@@ -159,10 +175,15 @@ if run:
                          commission_nok=commission, variable_fee_bps=fee_bps)
         result = replay_algorithm(plan=plan, bars=bars, costs=costs,
                                   start_at=start, end_at=end)
-        st.session_state["alg:last_result"] = (
-            {"market": market, "uic": str(source.provider_instrument_id),
-             "start": start.isoformat(), "end": end.isoformat(),
-             "plan": plan, "costs": asdict(costs)}, result)
+        run_metadata = {"market": market, "uic": str(source.provider_instrument_id),
+                        "start": start.isoformat(), "end": end.isoformat(),
+                        "plan": plan, "costs": asdict(costs)}
+        st.session_state["alg:last_result"] = (run_metadata, result)
+        previous_runs = st.session_state.get("alg:experiment_history", [])
+        st.session_state["alg:experiment_history"] = (
+            [{"at": datetime.now(timezone.utc).isoformat(),
+              "label": preset, "metadata": run_metadata, "result": result}]
+            + previous_runs)[:8]
     except (ValueError, TypeError) as exc:
         st.error(str(exc))
     except Exception as exc:
@@ -219,7 +240,51 @@ if saved is not None:
         file_name="algorithm_lab_paper_nav.csv", mime="text/csv",
         key="alg:download")
 
-st.subheader("4 · Rådata og siste registrerte BBO")
+st.subheader("4 · Eksperimenthistorikk i denne økten")
+history = st.session_state.get("alg:experiment_history", [])
+if history:
+    history_rows = []
+    for item in history:
+        r = item["result"]
+        m = item["metadata"]
+        history_rows.append({
+            "Kjørt (UTC)": item["at"], "Mal": item["label"],
+            "UIC": m["uic"], "Periode fra": m["start"], "Periode til": m["end"],
+            "Netto NOK": round(r.pnl_nok, 2),
+            "Retur %": round(r.return_pct, 3),
+            "Drawdown %": round(r.drawdown_pct, 3),
+            "Ordre": len(r.trades), "Kostnader NOK": round(r.total_cost_nok, 2),
+            "Plan": json.dumps(m["plan"], ensure_ascii=False, sort_keys=True),
+        })
+    st.dataframe(pd.DataFrame(history_rows), use_container_width=True, hide_index=True)
+    st.download_button(
+        "Eksporter eksperimentlogg (CSV)",
+        pd.DataFrame(history_rows).to_csv(index=False).encode("utf-8"),
+        file_name="algorithm_lab_experiments.csv", mime="text/csv",
+        key="alg:download_history")
+    current_meta = history[0]["metadata"]
+    fingerprint = lambda m: (
+        m["uic"], m["start"], m["end"],
+        json.dumps(m["costs"], sort_keys=True))
+    comparable = [x for x in history if fingerprint(x["metadata"]) ==
+                  fingerprint(current_meta)]
+    if len(comparable) >= 2:
+        st.caption("Sammenlignbare kjøringer med identisk UIC, periode og "
+                   "kostnadsforutsetninger. Bare algoritmeparametere varierer.")
+        series = []
+        for i, item in enumerate(reversed(comparable)):
+            r = item["result"]
+            start_nav = item["metadata"]["costs"]["starting_nav_nok"]
+            series.append(pd.Series(
+                {pt.at: 100*(pt.nav_nok/start_nav-1) for pt in r.points},
+                name=f"Forsøk {i+1} · {item['label']}"))
+        st.line_chart(pd.concat(series, axis=1).sort_index(), height=260)
+    else:
+        st.caption("Kjør samme UIC/periode/kostnadssett med en endret plan for "
+                   "å sammenligne nettoprestasjon. Historikk er foreløpig "
+                   "kun lagret i denne nettleserøkten.")
+
+st.subheader("5 · Rådata og siste registrerte BBO")
 st.caption("Lesetilgang til lagret prisdata for valgt Saxo-UIC, ikke "
            "ukontrollert tilgang til kontoer, private tabeller eller Saxo-ordre.")
 
