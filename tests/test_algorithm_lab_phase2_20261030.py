@@ -8,16 +8,18 @@ import pytest
 
 from algorithm_lab_v1 import PRESETS, LabCosts, replay_algorithm
 from algorithm_lab_ticks_v1 import replay_tick_impulses
-from algorithm_lab_catalog_v2 import catalog_manifest, catalog_context, catalog_asof_macro_flags
+from algorithm_lab_catalog_v2 import (catalog_manifest, catalog_context,
+    catalog_asof_macro_flags, enrich_research_bars, CatalogResult)
 from algorithm_lab_versions_v2 import (
     new_research_key,save_experiment,list_experiments,load_experiment,
 )
 from algorithm_lab_sandbox_v2 import (
-    standalone_worker_ready, build_docker_command, validate_script,
+    RUNNER, standalone_worker_ready, build_docker_command, validate_script,
     execute_in_isolated_container,
 )
 from algorithm_lab_python_replay_v2 import replay_directions
 from algorithm_lab_python_ai_v2 import DEFAULT_CODE
+from algorithm_lab_sandbox_client_v2 import remote_ready, run_remote_python
 from database import connect
 
 START = datetime(2026,10,1,tzinfo=timezone.utc)
@@ -126,3 +128,60 @@ def test_replayed_python_directions_use_next_bar_not_same_bar():
     with pytest.raises(ValueError):
         replay_directions(bars=bars,directions=dirs[:-1],
             costs=LabCosts(),start_at=START,end_at=START+timedelta(minutes=16))
+
+
+def test_runner_source_compiles_and_never_preloads_future_bars():
+    import ast
+    tree = ast.parse(RUNNER)
+    assert any(isinstance(x,ast.For) for x in tree.body)
+    assert "for raw in sys.stdin" in RUNNER
+    assert "socket" not in RUNNER and "subprocess" not in RUNNER
+
+
+def test_asof_macro_news_features_and_unknown_coverage():
+    future=START+timedelta(minutes=3)
+    macro=CatalogResult("macro_schedule",future.isoformat(),(
+        {"event_id":"now","seen_at":START.isoformat(),
+         "scheduled_at":START.isoformat(),"event_type":"CPI"},
+        {"event_id":"later","seen_at":future.isoformat(),
+         "scheduled_at":future.isoformat(),"event_type":"FOMC"},
+    ),"RECORDED",())
+    news=CatalogResult("news_context",future.isoformat(),(
+        {"as_of":START.isoformat(),"recorded_at":(START+timedelta(minutes=1)).isoformat(),
+         "source_post_count":5},
+        {"as_of":future.isoformat(),"recorded_at":future.isoformat(),
+         "source_post_count":9},
+    ),"RECORDED",())
+    rows=enrich_research_bars(bars=make_bars(4),macro=macro,news=news)
+    assert rows[0].macro_count==1
+    assert rows[0].news_post_count==5
+    assert rows[1].macro_count==1 and rows[1].news_post_count==5
+    assert rows[2].macro_count==2 and rows[2].news_post_count==9
+    unavailable=CatalogResult("macro_schedule",future.isoformat(),(),
+                              "UNAVAILABLE",())
+    assert enrich_research_bars(
+        bars=make_bars(2),macro=unavailable,news=unavailable)[0].macro_count==-1
+
+
+def test_remote_sandbox_url_and_response_contract():
+    import requests
+    env={"ALGORITHM_LAB_SANDBOX_URL":"https://research.example.test",
+         "ALGORITHM_LAB_SANDBOX_TOKEN":"x"*48}
+    assert remote_ready(env)
+    assert not remote_ready({**env,"ALGORITHM_LAB_SANDBOX_URL":"http://external.example.test"})
+    assert not remote_ready({**env,"ALGORITHM_LAB_SANDBOX_URL":"https://evil.example.test/path"})
+    class Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"directions":[0,1]}
+    seen={}
+    def fake_post(url,**kwargs):
+        seen["url"]=url
+        seen["payload"]=kwargs["json"]
+        return Response()
+    out=run_remote_python(code=DEFAULT_CODE,bars=make_bars(2),
+                          env=env,post=fake_post)
+    assert out==(0,1)
+    assert seen["url"]=="https://research.example.test/v1/execute"
+    assert set(seen["payload"]["bars"][0])=={"at","open","high","low","close"}
