@@ -455,6 +455,14 @@ if saved is not None and st.button("Kjør treningsperiode og urørt testperiode"
         measured_start, measured_end = utc(meta["start"]), utc(meta["end"])
         split = measured_start+(measured_end-measured_start)*split_pct/100
         costs = LabCosts(**meta["costs"])
+        fx_factor = None
+        if meta.get("fx_uic"):
+            fx_history = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(meta["fx_uic"]),
+                start=measured_start-timedelta(minutes=10),
+                end=measured_end,limit=MAX_BARS+1)
+            fx_curve = HistoricalFXCurve(fx_history,reference_at=measured_start)
+            fx_factor = fx_curve.factor
         if meta["mode"].startswith("1s"):
             with connect() as db:
                 rec = db.execute(
@@ -469,7 +477,7 @@ if saved is not None and st.button("Kjør treningsperiode og urørt testperiode"
                 raise ValueError("For mange 1s-priser for tidsdelt test.")
             evaluate = lambda a,b: replay_tick_impulses(
                 plan=meta["plan"], quotes=samples, costs=costs,
-                start_at=a,end_at=b)
+                start_at=a,end_at=b,fx_multiplier_at=fx_factor)
         else:
             samples = CanonicalMarketBarStoreV2().load_instrument_range(
                 instrument_id=int(source.instrument_id),
@@ -479,7 +487,7 @@ if saved is not None and st.button("Kjør treningsperiode og urørt testperiode"
                 raise ValueError("For mange 1m-priser for tidsdelt test.")
             evaluate = lambda a,b: replay_algorithm(
                 plan=meta["plan"],bars=samples,costs=costs,
-                start_at=a,end_at=b)
+                start_at=a,end_at=b,fx_multiplier_at=fx_factor)
         train = evaluate(measured_start,split)
         test = evaluate(split,measured_end)
         st.session_state["alg:oos"] = (train,test,split,meta)
