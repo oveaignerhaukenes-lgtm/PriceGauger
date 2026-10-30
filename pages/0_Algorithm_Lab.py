@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, date, time, timedelta, timezone
 from dataclasses import asdict
 import json
+import re
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -26,6 +27,7 @@ from algorithm_lab_sandbox_v2 import standalone_worker_ready, execute_in_isolate
 from algorithm_lab_sandbox_client_v2 import remote_ready, run_remote_python
 from algorithm_lab_python_ai_v2 import propose_python_research, DEFAULT_CODE
 from algorithm_lab_python_replay_v2 import replay_directions
+from algorithm_lab_fx_v2 import HistoricalFXCurve
 from strategy_lab_v2_saxo_costs import (
     saxobank_accounts_v2, saxo_replay_costs_v2, verified_replay_costs_v2,
 )
@@ -198,7 +200,26 @@ if st.session_state.get("alg:cost_evidence"):
     st.caption("Nåtidsscenario: " + st.session_state["alg:cost_evidence"]
                + " (historisk spread og FX er ikke verifisert).")
 
-k1, k2, k3, k4 = st.columns(4)
+with st.expander("Historisk valuta · direkte NOK-kryss"):
+    st.caption("Valgfritt. Velg historisk lagret FxSpot med NOK som "
+               "motvaluta, eksempelvis USDNOK for et USD-priset produkt. "
+               "Punktverdien nedenfor må representere NOK per poeng ved "
+               "starttidspunktet. Uten verifisert match er dette et scenario.")
+    fx_candidates = [s for s in sources if
+                     str(s.asset_type).lower()=="fxspot" and
+                     re.sub(r"[^A-Z]", "",str(s.symbol or "").upper()).endswith("NOK") and
+                     len(re.sub(r"[^A-Z]", "",str(s.symbol or "").upper()))==6]
+    fx_source = st.selectbox(
+        "Historisk FX-instrument / UIC",
+        [None]+fx_candidates,
+        format_func=lambda x: "Ingen · konstant NOK-punktverdi" if x is None
+                    else str(x.symbol)+" · UIC "+str(x.provider_instrument_id),
+        key="alg:fx_source")
+    fx_confirm = st.checkbox(
+        "Jeg bekrefter at dette er NOK per én enhet av produktets "
+        "prissettingsvaluta, og at punktverdien gjelder ved teststart",
+        key="alg:fx_confirm")
+
 capital = k1.number_input("Startkapital NOK", min_value=1., value=10000., step=1000.,
                           key="alg:capital")
 lot = k2.number_input("Antall lot", min_value=.001, value=.01, step=.01, format="%.3f",
@@ -236,6 +257,17 @@ if run:
                          commission_nok=commission, variable_fee_bps=fee_bps,
                          financing_long_annual_pct=fin_long,
                          financing_short_annual_pct=fin_short)
+        fx_factor = None
+        if fx_source is not None:
+            if not fx_confirm:
+                raise ValueError("Bekreft korrekt produktvaluta og punktverdi for FX.")
+            fx_bars = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(fx_source.instrument_id),
+                start=start-timedelta(minutes=10), end=end, limit=MAX_BARS+1)
+            if len(fx_bars)>MAX_BARS:
+                raise ValueError("For mange historiske FX-barer.")
+            fx_curve=HistoricalFXCurve(fx_bars,reference_at=start)
+            fx_factor=fx_curve.factor
         if mode.startswith("1s"):
             if end-start > timedelta(hours=4):
                 raise ValueError("1s-replay: velg maksimalt 4 timer.")
@@ -252,7 +284,7 @@ if run:
                 raise ValueError("For mange 1s-observasjoner. Forkort vinduet.")
             result = replay_tick_impulses(
                 plan=plan, quotes=quotes, costs=costs,
-                start_at=start, end_at=end)
+                start_at=start, end_at=end, fx_multiplier_at=fx_factor)
         else:
             if end-start > timedelta(days=6):
                 raise ValueError("1m-replay: velg høyst 6 døgn.")
@@ -264,10 +296,12 @@ if run:
             if len(bars) > MAX_BARS:
                 raise ValueError("For mange råbarer. Forkort tidsvinduet.")
             result = replay_algorithm(plan=plan, bars=bars, costs=costs,
-                                      start_at=start, end_at=end)
+                                      start_at=start, end_at=end,
+                                      fx_multiplier_at=fx_factor)
         run_metadata = {"market": market, "uic": str(source.provider_instrument_id),
                         "start": start.isoformat(), "end": end.isoformat(),
-                        "plan": plan, "costs": asdict(costs), "mode": mode}
+                        "plan": plan, "costs": asdict(costs), "mode": mode,
+                        "fx_uic": str(fx_source.instrument_id) if fx_source else None}
         st.session_state["alg:last_result"] = (run_metadata, result)
         previous_runs = st.session_state.get("alg:experiment_history", [])
         st.session_state["alg:experiment_history"] = (
