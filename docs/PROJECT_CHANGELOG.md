@@ -3,49 +3,49 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `7292e58c602379b5d31dd62d6c434bf73e118880`
+Latest tracked main commit: `1ee7a63a3db77a14fb0a2bc71e890566977ac335`
 
 ## Recent main commits
 
+- 2026-10-30 [`1ee7a63a3d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1ee7a63a3db77a14fb0a2bc71e890566977ac335) — Merge pull request #831 from oveaignerhaukenes-lgtm/feat/algorithm-lab-phase2-20261030
 - 2026-10-30 [`7292e58c60`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7292e58c602379b5d31dd62d6c434bf73e118880) — Merge pull request #830 from oveaignerhaukenes-lgtm/feat/algorithm-lab-directional-v1-20261030
-- 2026-10-30 [`b9161b6c37`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b9161b6c37570624049cbbd640ca2be13ed937da) — fix: replace escaped newline in AI provider function signature
-- 2026-10-30 [`81242e97f1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/81242e97f1bb46baeba1da070f726d6618272359) — fix: pass sampling mode to AI prompt and clarify spread assumptions
-- 2026-10-30 [`ad7a14a45b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ad7a14a45b40f6409db137416d3bd047c789836f) — feat: make AI model prompt explicit about 1s vs 1m units
-- 2026-10-30 [`e79ff34598`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e79ff3459868d140a101e659feeb1dbf39f8809e) — test: 1s impulse replay causal fills and observed spread
-- 2026-10-30 [`b0d1d1f2ca`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b0d1d1f2ca75b903aa3db3254d47d2eacf0b58ec) — feat: optional true 1s Saxo BBO impulse replay mode
-- 2026-10-30 [`4a264eadb2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a264eadb2fe86ef9b230fcb99cb2f64b4917697) — feat: strict quote-based 1s PAPER impulse collector replay
-- 2026-10-30 [`4b42875d82`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4b42875d82c0bfee6c9f240398ecd93749ab91c7) — test: align costs dataset and hold through synthetic price gap
-- 2026-10-30 [`f35f22e6fa`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f35f22e6facdb202c47b4a266cc0bd6d46f75293) — test: assert absence of broker order calls instead of prose wording
-- 2026-10-30 [`81627ea53e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/81627ea53ee788c87ce973cdf6d54702f40afff9) — feat: export/import models and compare reproducible paper experiments
-- 2026-10-30 [`89d3f65658`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/89d3f65658f77ac4acad74b9536285c938bfdcd4) — test: ensure synthetic trend and impulse exceed configured thresholds
-- 2026-10-30 [`9e33a189be`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9e33a189bee00f5d7c3b0e5261f8c895ec314275) — test: directional algorithm lab causal replay and AI schema protections
-- 2026-10-30 [`ee1cbe7090`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ee1cbe70908a3314314d0639eaa4cf83846615f1) — feat: add Algorithm Lab under Analyse navigation
-- 2026-10-30 [`4527addde3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4527addde316ddc865f49a68cf15e3986fc8ce1c) — feat: Streamlit Algorithm Lab with AI draft, data charts and paper P/L
-- 2026-10-30 [`2539fb2a85`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2539fb2a85961f26769f57d7f877600f887d1532) — feat: constrained AI strategy drafting prompt and validator
-- 2026-10-30 [`ac84e3da7b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ac84e3da7b321dac2ed049f1a6fb8bf768f4fc94) — feat: causal sandboxed directional algorithm replay engine
-- 2026-10-29 [`9cffe48c60`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9cffe48c6047e38d98b781a22b4625c809248d81) — fix: 03:00 loss lab account report baseline key and coverage test (#829)
-- 2026-10-28 [`6df8fa4b38`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6df8fa4b3867a9821930b30e1313c91ad4ed99a2) — fix: auditable 03:00 Saxo account cohort, nearest snapshot and missing-data warnings (#828)
-- 2026-10-28 [`cda8277462`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cda827746218802cadcb95b1cfc7f9837afe41ab) — feat: empirical trade-vs-flat price-regime PAPER lab (#826)
-- 2026-10-28 [`a3b5301088`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a3b5301088e9491a309b6b159b4e66d695a126a1) — feat: Saxo historical costs and per-instrument BBO spread audit (#824)
-- 2026-10-28 [`4919f62c4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4919f62c4aefb6fb50f3cf34b0f7840377ee43f7) — feat: AutoTrader 03 Oslo loss forensics and strategy counterfactual lab (#823)
-- 2026-10-28 [`76530d4ec8`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/76530d4ec863ba0c88c716e7ee2ea00a37cdc371) — fix: mobile-stable fleet P/L with verified currency units (#822)
-- 2026-10-28 [`afc3eedad9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/afc3eedad9a02692d2535d9512e52c75bcf53206) — fix: readable mobile V3 modifier controls and lazy audit dialog (#820)
-- 2026-10-28 [`2b2bd96a6a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2b2bd96a6a17b7dcf9d6694ab170fb9fe1a888a1) — feat: V2.3 Hybrid 1m direction and 15s Saxo BBO execution (#819)
-- 2026-10-28 [`f3dbf878a2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f3dbf878a28f47cbb31576635d871beeffa661b0) — feat: autonomous per-active-V3 60s fleet observer and 5m account learning (#818)
-- 2026-10-28 [`d91e0384d2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d91e0384d2261231ce0775060559873db1429c11) — feat: V3 observer dashboard and honest modifier readiness (#816)
-- 2026-10-27 [`e09ebb2474`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e09ebb2474eecff19fa47fb8bb6800a704d30bdc) — feat: MACD+Stoch V2.2 Flip and real 1s Tech100 impulse study (#814)
-- 2026-10-27 [`611fd468b1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/611fd468b1f14ec44da47825c51ae00fab045965) — fix: keep V3 modifier logbook icon inline on mobile (#813)
-- 2026-10-27 [`315cad58bf`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/315cad58bfefaa3b9b2a2a93567d3333c24cdfa4) — fix: V3 impulse guard on 1s fast wake and auditable modifier controls (#811)
-- 2026-10-27 [`4a10ebf0cf`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a10ebf0cf68b3ce1b931f239b0740eb3359510f) — feat: opt-in V3 protective LIVE risk buttons and per-modifier event logs (#809)
-- 2026-10-27 [`3caa82325d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/3caa82325d8406147cc6a4668b7a3216b6286010) — feat: PAPER mechanical capital manager with 15m shadow recovery (#808)
-- 2026-10-27 [`35ebc45683`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/35ebc45683cf42e7867b8514005311a380b48f31) — feat: V2.1 Tempo Lab 15s 30s 1m and PAPER direct net flip (#807)
-- 2026-10-26 [`d15ff05a04`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d15ff05a0462a73bc06f818aea5445b7e9d1985e) — docs: record merged and deployed Probability Lab tournament, pending real historical evaluation
-- 2026-10-26 [`ef5f22c7db`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ef5f22c7db5f03cfdfa127db9d5a2926750d9f4f) — feat: stochastic model tournament and interpreted Probability Lab report (#806)
-- 2026-10-26 [`a34b96181d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a34b96181d1ca5fd3436ce54ad05f0464dece09f) — feat: Probability Lab 1m Markov and Poisson/Skellam research (#805)
-- 2026-10-23 [`74d8463200`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74d84632000fdcd38867ad1b9295e99ca7745320) — Add safe Saxo LIVE OAuth runtime diagnostics (#803)
-- 2026-10-23 [`62e32dba4e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/62e32dba4e60282ac50a3f3c108f4f57a0bc5cc9) — Fix Saxo OAuth 401 classification and callback diagnostics (#802)
-- 2026-10-23 [`e87d43457c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e87d43457cea635e71fd159681986f3b3f35398c) — Update PriceGauger living handoff for Oct 23 V3 fixes (#801)
-- 2026-10-23 [`21f8566b19`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/21f8566b1952b9bd9cbf6d510b5293e64c611ade) — V3 charts: exact reconciled trades as triangle-only markers (#799)
-- 2026-10-23 [`829d274931`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/829d274931287087a5630178d8fc8aca32c5d417) — Fix idempotent MACD+Stoch HOLD_DUPLICATE LIVE crash (#798)
+- 2026-10-30 [`65aec9e83f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/65aec9e83f0b6b8578028b5a62936a78546c7edc) — security: invalidate cached research histories when owner key changes
+- 2026-10-30 [`9689f7e4ed`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9689f7e4edc164100156ef839598d082b3bfb17a) — test: immutable private Python source version archive
+- 2026-10-30 [`c05137f393`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c05137f393402db8fa371f4b35d4d7086c3f0924) — feat: save and restore immutable AI Python code versions
+- 2026-10-30 [`278cf57dfb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/278cf57dfbe700f3083b2ae9199910acdc1462a2) — feat: immutable owner-scoped Python research source versions
+- 2026-10-30 [`eb9b26d510`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/eb9b26d510906f1eadafb01ce11ade742e154c6c) — fix: align chronological train/test boundary to completed 1m candle
+- 2026-10-30 [`fe2f40a278`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fe2f40a2785257b8a4364812486a1057bd096425) — docs: isolated sandbox host setup and historical FX assumptions
+- 2026-10-30 [`8434359684`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8434359684cb7eec11fc654261e94732e1a3d5ab) — security: no Docker image pull at request time; reliable killed-container cleanup
+- 2026-10-30 [`a867c3bf6a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a867c3bf6a604d021dde01e23b230ef4a4a54b91) — perf: bound isolated per-bar execution to fit API timeout
+- 2026-10-30 [`c96087407d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c96087407da969f7ec4cf4f5f4c7298f11465edc) — test: real timestamp-aware FX conversion and stale rate veto
+- 2026-10-30 [`2f580f65b3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2f580f65b33a128094753dfd1c0a359e009a6bff) — feat: apply as-of FX history to sandbox Python paper returns
+- 2026-10-30 [`b9d612378c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b9d612378ce090733f92bfe70511d6a0b76f446c) — fix: avoid local fee variable shadowing FX cost helper
+- 2026-10-30 [`37649b0ece`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/37649b0ece207ef60e32c439afa16a5e609c8e2e) — feat: FX-converted custom Python paper replay
+- 2026-10-30 [`bb436baa2b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/bb436baa2b377d0f721c15c8a0ee87683c51a89c) — feat: archive FX provenance with each immutable experiment
+- 2026-10-30 [`c8041bb956`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c8041bb9564e55837f2f0301a0ca91bf62ae97c8) — feat: persist selected historical FX UIC provenance
+- 2026-10-30 [`6494462db2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6494462db21c5b8317295fb1de8cf8b9c0b2563b) — feat: time-split validation preserves historical FX reference
+- 2026-10-30 [`f8d24502e9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f8d24502e9548d897fecc6e44118af19e110dc10) — feat: opt-in recorded direct NOK FX series for paper valuation
+- 2026-10-30 [`c9eb66254d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c9eb66254da46ec8354fb2d8097d642ef8e80da3) — feat: as-of historical FX conversion in bid-ask paper replay
+- 2026-10-30 [`e137806e61`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e137806e610bff89166e6a62735d4af9f79b6001) — feat: optional as-of FX conversion of 1m paper point value and fees
+- 2026-10-30 [`15a36209e9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/15a36209e92a59faadda6d52fa22420d9f12b9d8) — feat: bounded as-of direct NOK FX history with stale-data veto
+- 2026-10-30 [`c56bba2f8b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c56bba2f8bb69188652bbef071c039dd5d1bbe52) — test: isolated runner syntax, causal context and authenticated remote client
+- 2026-10-30 [`4010ec976b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4010ec976bebe66ce6e90c15a0ea69c6c119c474) — docs: causal macro/news fields and unknown-data semantics for AI code
+- 2026-10-30 [`ebc5a9eced`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ebc5a9ecede675b46b4880524169d13139d2875b) — feat: feed only as-of catalog context to isolated Python replay
+- 2026-10-30 [`298550bf83`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/298550bf8319fac8564a0b47b5ea6c3cea2871fd) — feat: pass only as-of numeric context into isolated research model
+- 2026-10-30 [`85f9501566`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/85f95015665f06acf0cb7310f2e2e3955457f975) — feat: pass only as-of numeric context into isolated research model
+- 2026-10-30 [`6eda932a71`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6eda932a71b48330f93a619b3ef4230c0e89fa00) — feat: pass only as-of numeric context into isolated research model
+- 2026-10-30 [`53b41d4f1b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/53b41d4f1b260ef2f5470de7c9746f2676afd1af) — feat: causal macro/news research features with explicit unknown coverage
+- 2026-10-30 [`f5e674fe0a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f5e674fe0a8aeb6cf4d71ded2bc4d2aaa59f9371) — feat: remote authenticated Docker sandbox execution client in UI
+- 2026-10-30 [`a5b8ed875d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5b8ed875d0c1478998f1cf387286574b65d84ba) — feat: separately deployable authenticated sandbox service
+- 2026-10-30 [`ed68e3ec70`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ed68e3ec70694251bba74e70442599146b244d8e) — feat: authenticated remote sandbox client for paper Python replay
+- 2026-10-30 [`aed60d6b47`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/aed60d6b47e3c701a1c93c37383bba7a91ad84d6) — docs: phase 2 data, versioning and execution boundaries
+- 2026-10-30 [`54224affc7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/54224affc70218b3492d9ed16e8f840f69f3fded) — test: catalog as-of ACL, financing, sandbox denial and causal Python replay
+- 2026-10-30 [`6b3dee459a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6b3dee459ae565b846d5155501c7a3eaac62157e) — feat: AI Python research editor and fail-closed isolated execution UI
+- 2026-10-30 [`cff2d71aff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cff2d71affb920d95b6ecf93a677b9b440d88e69) — feat: chronological out-of-sample split for both market replay clocks
+- 2026-10-30 [`93c52a88e4`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/93c52a88e436e09c266586bd5a5b0e41ee1477f3) — feat: persistent experiment versions scoped by research access key
+- 2026-10-30 [`9288934e8d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9288934e8da17c34e29e302276fd7470f988fa02) — feat: show permissioned as-of market/context data catalog
+- 2026-10-30 [`864d869bbc`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/864d869bbc97cb37f300dcf5a9fee19c46b404dc) — feat: Saxo GET-only calibration for paper costs and NOK point value
+- 2026-10-30 [`5bb457a1b4`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5bb457a1b439097c8adac2a370fd28e98880d43a) — feat: research UI imports and explicit long-short financing inputs
+- 2026-10-30 [`7c50e709a1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7c50e709a18ba14a61a41ff98fd2be2d61a452c9) — feat: AI-written Python research functions for isolated sandbox
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
