@@ -23,7 +23,7 @@ def replay_directions(*, bars: Sequence, directions: Sequence[int],
             raise ValueError("Missing or invalid historical FX rate.")
         return costs.point_value_nok*factor
 
-    def fee(price, qty, at):
+    def execution_fee(price, qty, at):
         return replace(costs,point_value_nok=point_value(at)).execution_cost(price,qty)
     if len(bars) != len(directions) or not bars:
         raise ValueError("One direction per exact historical 1m bar is required.")
@@ -53,7 +53,7 @@ def replay_directions(*, bars: Sequence, directions: Sequence[int],
                 if target*position < 0:
                     target = 0.  # Explicit flat-first execution
                 if target != position:
-                    fee=fee(op,target-position,stamp)
+                    fee=execution_fee(op,target-position,stamp)
                     nav-=fee
                     total_cost+=fee
                     trades.append(LabTrade(stamp,
@@ -84,7 +84,7 @@ def replay_directions(*, bars: Sequence, directions: Sequence[int],
     if not points:
         raise ValueError("No measured replay bars.")
     if position:
-        fee=fee(points[-1].close,position,points[-1].at)
+        fee=execution_fee(points[-1].close,position,points[-1].at)
         nav-=fee
         total_cost+=fee
         trades.append(LabTrade(points[-1].at,"END_FLAT",
