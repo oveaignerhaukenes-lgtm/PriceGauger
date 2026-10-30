@@ -23,6 +23,7 @@ from strategy_lab_v2_ai import LabAIError
 from algorithm_lab_catalog_v2 import catalog_manifest, catalog_context
 from algorithm_lab_versions_v2 import new_research_key, save_experiment, list_experiments
 from algorithm_lab_sandbox_v2 import standalone_worker_ready, execute_in_isolated_container
+from algorithm_lab_sandbox_client_v2 import remote_ready, run_remote_python
 from algorithm_lab_python_ai_v2 import propose_python_research, DEFAULT_CODE
 from algorithm_lab_python_replay_v2 import replay_directions
 from strategy_lab_v2_saxo_costs import (
@@ -362,7 +363,7 @@ st.download_button("Eksporter Python-forskningskode",
                    py_code.encode("utf-8"),
                    file_name="algorithm_lab_research.py",
                    mime="text/x-python", key="alg:python_download")
-sandbox_ready = standalone_worker_ready()
+sandbox_ready = remote_ready() or standalone_worker_ready()
 if not sandbox_ready:
     st.warning("Ekstern Docker-sandbox er ikke konfigurert. "
                "For sikkerhets skyld er Python-kjøring deaktivert her.")
@@ -377,7 +378,8 @@ if st.button("Kjør Python i separat sandbox · PAPER",
             end=end, limit=1501)
         if len(bars) > 1500:
             raise ValueError("Python-sandbox støtter høyst 1500 1m-barer.")
-        signals = execute_in_isolated_container(code=py_code,bars=bars)
+        signals = (run_remote_python(code=py_code,bars=bars) if remote_ready()
+                   else execute_in_isolated_container(code=py_code,bars=bars))
         scenario = LabCosts(
             point_value_nok=point_value,starting_nav_nok=capital,lot_size=lot,
             spread_bps=spread,slippage_bps=slippage,commission_nok=commission,
