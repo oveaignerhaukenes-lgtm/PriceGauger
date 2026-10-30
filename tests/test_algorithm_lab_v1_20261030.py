@@ -123,5 +123,5 @@ def test_ai_schema_validation_and_no_live_access():
         _extract_json(json.dumps(payload))
     page = Path("pages/0_Algorithm_Lab.py").read_text(encoding="utf8")
     assert "eval(" not in page and "exec(" not in page
-    assert "ORDER" not in page.upper() or "ingen LIVE-ordre" in page
+    assert "place_order(" not in page and "submit_order(" not in page
     assert 'Algoritmelab' in Path("navigation_config.py").read_text(encoding="utf8")
