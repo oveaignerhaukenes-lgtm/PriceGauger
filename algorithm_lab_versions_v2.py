@@ -54,7 +54,7 @@ def save_experiment(*, token: str, label: str, plan: dict,
         raise ValueError("Eksperimentet må ha et navn.")
     ctx = dict(context)
     allowed_ctx = frozenset(("market", "uic", "start", "end", "mode", "costs",
-                             "research_notes", "dataset_hash", "split"))
+                             "research_notes", "dataset_hash", "split", "fx_uic"))
     if set(ctx) - allowed_ctx:
         raise ValueError("Eksperimentkonteksten har uventede felt.")
     report = dict(results)
