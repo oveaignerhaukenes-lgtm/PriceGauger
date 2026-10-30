@@ -332,7 +332,65 @@ if saved is not None:
         file_name="algorithm_lab_paper_nav.csv", mime="text/csv",
         key="alg:download")
 
-st.subheader("4 · Eksperimenthistorikk i denne økten")
+st.subheader("4 · Kronologisk train / out-of-sample-test")
+st.caption("En automatisk deling av historikken: hold parameterne uendret "
+           "mens testperioden kjøres. Hvis du optimaliserer etter å ha sett "
+           "testresultatet, er perioden ikke lenger en uavhengig test.")
+split_pct = st.slider("Andel treningsperiode (%)", min_value=50,
+                      max_value=85, value=70, step=5, key="alg:split")
+if saved is not None and st.button("Kjør treningsperiode og urørt testperiode",
+                                   key="alg:run_oos"):
+    try:
+        meta, _ = saved
+        if meta["uic"] != str(source.provider_instrument_id):
+            raise ValueError("Velg samme instrument som i siste simuleringskjøring.")
+        measured_start, measured_end = utc(meta["start"]), utc(meta["end"])
+        split = measured_start+(measured_end-measured_start)*split_pct/100
+        costs = LabCosts(**meta["costs"])
+        if meta["mode"].startswith("1s"):
+            with connect() as db:
+                rec = db.execute(
+                    """SELECT quote_at,bid,ask FROM lsim_hyper_quotes_1s
+                       WHERE provider_uic=? AND quote_at>=? AND quote_at<?
+                       ORDER BY quote_at ASC LIMIT ?""",
+                    (int(source.provider_instrument_id),
+                     (measured_start-timedelta(seconds=45)).isoformat(),
+                     measured_end.isoformat(), MAX_QUOTES+1)).fetchall()
+            samples = tuple(dict(x) for x in rec)
+            if len(samples) > MAX_QUOTES:
+                raise ValueError("For mange 1s-priser for tidsdelt test.")
+            evaluate = lambda a,b: replay_tick_impulses(
+                plan=meta["plan"], quotes=samples, costs=costs,
+                start_at=a,end_at=b)
+        else:
+            samples = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(source.instrument_id),
+                start=measured_start-timedelta(hours=72),
+                end=measured_end, limit=MAX_BARS+1)
+            if len(samples) > MAX_BARS:
+                raise ValueError("For mange 1m-priser for tidsdelt test.")
+            evaluate = lambda a,b: replay_algorithm(
+                plan=meta["plan"],bars=samples,costs=costs,
+                start_at=a,end_at=b)
+        train = evaluate(measured_start,split)
+        test = evaluate(split,measured_end)
+        st.session_state["alg:oos"] = (train,test,split,meta)
+    except (ValueError, TypeError) as exc:
+        st.error(str(exc))
+    except Exception as exc:
+        st.error("Out-of-sample-simulering feilet: " + type(exc).__name__)
+if st.session_state.get("alg:oos"):
+    train,test,split,meta = st.session_state["alg:oos"]
+    c1,c2,c3,c4=st.columns(4)
+    c1.metric("Train P/L", f"{train.pnl_nok:+,.2f} NOK")
+    c2.metric("Train ret.", f"{train.return_pct:+.2f}%")
+    c3.metric("Test P/L", f"{test.pnl_nok:+,.2f} NOK")
+    c4.metric("Test ret.", f"{test.return_pct:+.2f}%")
+    st.caption("Skillepunkt " + split.isoformat() +
+               " UTC. To separate PAPER-porteføljer med lik startkapital. "
+               "Ingen AI-adaptiv parameteroptimalisering er gjort her.")
+
+st.subheader("5 · Eksperimenthistorikk i denne økten")
 history = st.session_state.get("alg:experiment_history", [])
 if history:
     history_rows = []
@@ -376,7 +434,7 @@ if history:
                    "å sammenligne nettoprestasjon. Historikk er foreløpig "
                    "kun lagret i denne nettleserøkten.")
 
-st.subheader("5 · Vedvarende modellversjoner")
+st.subheader("6 · Vedvarende modellversjoner")
 st.caption("Eksperimenter lagres separat fra LIVE i PG-databasen. "
            "En lang forskningsnøkkel gir tilgang til dine eksperimenter. "
            "Lagre nøkkelen selv; den kan ikke gjenopprettes fra databasen.")
@@ -440,7 +498,7 @@ with st.expander("Forskningsnøkkel og lagrede forsøk", expanded=False):
             st.session_state["alg:pending_plan"] = selected["plan"]
             st.rerun()
 
-st.subheader("6 · Datakatalog med tidsriktig kontekst")
+st.subheader("7 · Datakatalog med tidsriktig kontekst")
 st.caption("Eksplisitt kildevalg, punkt-i-tid-data og ingen vilkårlig SQL. "
            "Private Saxo-kontodata er ikke tilgjengelige for AI-koden.")
 st.dataframe(pd.DataFrame(catalog_manifest()), use_container_width=True,
@@ -463,7 +521,7 @@ if context_data is not None:
     for note in context_data.limitations:
         st.caption(note)
 
-st.subheader("7 · Rådata og siste registrerte BBO")
+st.subheader("8 · Rådata og siste registrerte BBO")
 st.caption("Lesetilgang til lagret prisdata for valgt Saxo-UIC, ikke "
            "ukontrollert tilgang til kontoer, private tabeller eller Saxo-ordre.")
 
