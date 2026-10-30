@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from algorithm_lab_v1 import PRESETS, MAX_BARS, LabCosts, replay_algorithm, validate_plan, utc
+from algorithm_lab_ticks_v1 import MAX_QUOTES, replay_tick_impulses
 from algorithm_lab_ai_v1 import propose_algorithm, ALGORITHM_DESIGN_PROMPT
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
@@ -25,11 +26,11 @@ st.title("Algoritmelab · Directional Specialists")
 st.caption("Generer algoritmeforslag med AI, rediger en trygg modelloppskrift, "
            "kjør simulering på lagret Saxo 1m-historikk, og sammenlign PAPER-P/L. "
            "Ingen LIVE-ordre, ingen kjøring av AI-generert Python.")
-st.info("Gjeldende v1 bruker ferdige **1m-prisbarer** til beslutninger og "
-        "neste faktiske 1m-open til PAPER-fills. 1s Saxo BBO kan inspiseres nedenfor, "
-        "men brukes ennå ikke i tilbakeberegningen. Impulse Collector er derfor "
-        "foreløpig en 1m-baseline, ikke en validert 10s-strategi. "
-        "Kostnadene er scenarioestimater, ikke reelle Saxo-fills.")
+st.info("To separate PAPER-klokker: 1m-replay fra ekte ferdige OHLC-candles "
+        "(fill tidligst neste 1m-open), og impuls-replay fra ekte lagret Saxo "
+        "1s bid/ask (fill tidligst neste registrerte quote). Ingenting interpoleres. "
+        "For historiske 1m-fills er spread modellert; 1s bruker observert bid/ask. "
+        "P/L er scenario, ikke Saxo-verifiserte fills eller finansieringskostnad.")
 
 try:
     sources = list_subscribed_sources_v2(provider="saxo")
@@ -127,6 +128,19 @@ with right:
         st.code(ALGORITHM_DESIGN_PROMPT, language="text")
 
 st.subheader("2 · Periode og kostnader")
+mode = st.selectbox(
+    "Simuleringsklokke",
+    ("1m OHLC · strategi-baseline", "1s Saxo BBO · impuls-replay")
+    if plan and plan["kind"] == "impulse" else
+    ("1m OHLC · strategi-baseline",),
+    key="alg:replay_mode")
+if mode.startswith("1s"):
+    st.caption("I 1s-modus betyr lookback og max_hold **sekunder**, ikke minutter. "
+               "Prøv lookback=10 og max_hold=60 for en 10s-impulsmodell. "
+               "Krever faktisk lagrede BBO-priser gjennom valgt periode.")
+else:
+    st.caption("I 1m-modus betyr lookback og max_hold ettminuttsbarer. "
+               "Impulse Collector i denne modusen er en 1m-baseline.")
 now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
 d1, d2, d3, d4 = st.columns(4)
 start_date = d1.date_input("Fra (UTC)", now.date()-timedelta(days=2), key="alg:start_date")
@@ -160,24 +174,44 @@ run = st.button("Kjør simulering / beregn netto P/L", type="primary",
                 disabled=plan is None, key="alg:run")
 if run:
     try:
-        if end <= start or end-start > timedelta(days=6):
-            raise ValueError("Velg et sammenhengende vindu over 0 og høyst 6 døgn.")
-        # 72h warmup before the START is separate from the measured P/L interval.
-        bars = CanonicalMarketBarStoreV2().load_instrument_range(
-            instrument_id=int(source.instrument_id),
-            start=start-timedelta(hours=72), end=end,
-            limit=MAX_BARS+1)
-        if len(bars) > MAX_BARS:
-            raise ValueError("For mange råbarer. Forkort tidsvinduet.")
+        if end <= start:
+            raise ValueError("Slutt må være etter start.")
         costs = LabCosts(point_value_nok=point_value,
                          starting_nav_nok=capital, lot_size=lot,
                          spread_bps=spread, slippage_bps=slippage,
                          commission_nok=commission, variable_fee_bps=fee_bps)
-        result = replay_algorithm(plan=plan, bars=bars, costs=costs,
-                                  start_at=start, end_at=end)
+        if mode.startswith("1s"):
+            if end-start > timedelta(hours=4):
+                raise ValueError("1s-replay: velg maksimalt 4 timer.")
+            with connect() as db:
+                quote_rows = db.execute(
+                    """SELECT quote_at, bid, ask FROM lsim_hyper_quotes_1s
+                       WHERE provider_uic=? AND quote_at>=? AND quote_at<?
+                       ORDER BY quote_at ASC LIMIT ?""",
+                    (int(source.provider_instrument_id),
+                     (start-timedelta(seconds=45)).isoformat(),
+                     end.isoformat(), MAX_QUOTES+1)).fetchall()
+            quotes = tuple(dict(x) for x in quote_rows)
+            if len(quotes) > MAX_QUOTES:
+                raise ValueError("For mange 1s-observasjoner. Forkort vinduet.")
+            result = replay_tick_impulses(
+                plan=plan, quotes=quotes, costs=costs,
+                start_at=start, end_at=end)
+        else:
+            if end-start > timedelta(days=6):
+                raise ValueError("1m-replay: velg høyst 6 døgn.")
+            # 72h pre-window indicator warmup, never part of reported P/L.
+            bars = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(source.instrument_id),
+                start=start-timedelta(hours=72), end=end,
+                limit=MAX_BARS+1)
+            if len(bars) > MAX_BARS:
+                raise ValueError("For mange råbarer. Forkort tidsvinduet.")
+            result = replay_algorithm(plan=plan, bars=bars, costs=costs,
+                                      start_at=start, end_at=end)
         run_metadata = {"market": market, "uic": str(source.provider_instrument_id),
                         "start": start.isoformat(), "end": end.isoformat(),
-                        "plan": plan, "costs": asdict(costs)}
+                        "plan": plan, "costs": asdict(costs), "mode": mode}
         st.session_state["alg:last_result"] = (run_metadata, result)
         previous_runs = st.session_state.get("alg:experiment_history", [])
         st.session_state["alg:experiment_history"] = (
@@ -211,7 +245,8 @@ if saved is not None:
     plot = go.Figure()
     plot.add_trace(go.Scatter(
         x=[x.at for x in result.points], y=[x.close for x in result.points],
-        mode="lines", name="Saxo lagret 1m CLOSE"))
+        mode="lines", name=("Saxo lagret BBO mid" if meta.get("mode", "").startswith("1s")
+                              else "Saxo lagret 1m CLOSE")))
     for kind, symbol, color in (("OPEN", "triangle-up", "#1ca176"),
                                 ("FLAT", "triangle-down", "#e09b32"),
                                 ("GAP_FLAT", "x", "#cc4455"),
@@ -264,7 +299,7 @@ if history:
         key="alg:download_history")
     current_meta = history[0]["metadata"]
     fingerprint = lambda m: (
-        m["uic"], m["start"], m["end"],
+        m["uic"], m["start"], m["end"], m.get("mode"),
         json.dumps(m["costs"], sort_keys=True))
     comparable = [x for x in history if fingerprint(x["metadata"]) ==
                   fingerprint(current_meta)]
@@ -320,7 +355,7 @@ except Exception as exc:
 if saved is not None:
     with st.expander("Siste kjøringsmodell / eksakte testforutsetninger"):
         st.json(saved[0])
-st.caption("Neste utviklingssteg: isolert kode-sandbox uten Saxo-/DB-hemmeligheter, "
-           "sekundbasert event-replay med ordrebokspredning og lagring av "
-           "versjonerte eksperimenter. Denne versjonen kjører bare den "
-           "strengt validerte algoritmeoppskriften.")
+st.caption("Neste steg: isolert kode-sandbox uten Saxo-/DB-hemmeligheter, "
+           "vedvarende modellversjoner og risiko-/finansieringsmodell. "
+           "Sekund-replay bruker ekte historiske quotes og observerte spreads, "
+           "men er ikke Saxo-ordrefyllinger.")
