@@ -376,7 +376,71 @@ if history:
                    "å sammenligne nettoprestasjon. Historikk er foreløpig "
                    "kun lagret i denne nettleserøkten.")
 
-st.subheader("5 · Datakatalog med tidsriktig kontekst")
+st.subheader("5 · Vedvarende modellversjoner")
+st.caption("Eksperimenter lagres separat fra LIVE i PG-databasen. "
+           "En lang forskningsnøkkel gir tilgang til dine eksperimenter. "
+           "Lagre nøkkelen selv; den kan ikke gjenopprettes fra databasen.")
+with st.expander("Forskningsnøkkel og lagrede forsøk", expanded=False):
+    if st.button("Opprett ny hemmelig forskningsnøkkel", key="alg:newresearchkey"):
+        token = new_research_key()
+        st.session_state["alg:research_token_entry"] = token
+        st.session_state["alg:last_new_research_key"] = token
+    if st.session_state.get("alg:last_new_research_key"):
+        st.code(st.session_state["alg:last_new_research_key"], language="text")
+        st.warning("Kopier nøkkelen til et trygt sted før du forlater siden.")
+    token = st.text_input(
+        "Forskningsnøkkel (minimum 32 tegn)", type="password",
+        key="alg:research_token_entry")
+    lab_label = st.text_input("Navn på ny eksperimentversjon",
+                              value=preset, key="alg:save_label")
+    if st.button("Lagre siste simuleringsresultat", key="alg:save_experiment"):
+        if saved is None:
+            st.warning("Kjør en simulering først.")
+        else:
+            try:
+                meta, result = saved
+                context = {k: meta[k] for k in
+                           ("market","uic","start","end","mode","costs")}
+                report = {
+                    "pnl_nok": result.pnl_nok,
+                    "return_pct": result.return_pct,
+                    "drawdown_pct": result.drawdown_pct,
+                    "total_cost_nok": result.total_cost_nok,
+                    "financing_nok": result.financing_nok,
+                    "trades": len(result.trades), "gaps": result.gaps}
+                saved_id = save_experiment(
+                    token=token, label=lab_label,
+                    plan=meta["plan"], context=context, results=report)
+                st.success("Lagret PAPER-versjon: " + saved_id[:8])
+            except (ValueError, TypeError) as exc:
+                st.error(str(exc))
+            except Exception as exc:
+                st.error("Lagring er utilgjengelig: " + type(exc).__name__)
+    if st.button("Hent mine tidligere eksperimenter", key="alg:list_experiments"):
+        try:
+            st.session_state["alg:server_experiments"] = list_experiments(
+                token=token, limit=40)
+        except (ValueError, TypeError) as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error("Eksperimentarkiv utilgjengelig: " + type(exc).__name__)
+    saved_list = st.session_state.get("alg:server_experiments", ())
+    if saved_list:
+        st.dataframe(pd.DataFrame([
+            {"Opprettet": x["created_at"], "Navn": x["label"],
+             "P/L NOK": x["results"].get("pnl_nok"),
+             "Avkastning %": x["results"].get("return_pct"),
+             "ID": x["experiment_id"]} for x in saved_list]),
+             use_container_width=True, hide_index=True)
+        selected = st.selectbox("Gjenåpne oppskrift",
+                                saved_list, key="alg:stored_version",
+                                format_func=lambda x: x["label"] + " · " +
+                                x["experiment_id"][:8])
+        if st.button("Åpne tidligere plan", key="alg:restore_version"):
+            st.session_state["alg:pending_plan"] = selected["plan"]
+            st.rerun()
+
+st.subheader("6 · Datakatalog med tidsriktig kontekst")
 st.caption("Eksplisitt kildevalg, punkt-i-tid-data og ingen vilkårlig SQL. "
            "Private Saxo-kontodata er ikke tilgjengelige for AI-koden.")
 st.dataframe(pd.DataFrame(catalog_manifest()), use_container_width=True,
@@ -399,7 +463,7 @@ if context_data is not None:
     for note in context_data.limitations:
         st.caption(note)
 
-st.subheader("6 · Rådata og siste registrerte BBO")
+st.subheader("7 · Rådata og siste registrerte BBO")
 st.caption("Lesetilgang til lagret prisdata for valgt Saxo-UIC, ikke "
            "ukontrollert tilgang til kontoer, private tabeller eller Saxo-ordre.")
 
