@@ -101,6 +101,12 @@ def execute_in_isolated_container(*, code: str, bars: Sequence,
             if not (0 < value < 1e12):
                 raise ValueError("Invalid OHLC in script data.")
             fields[key] = value
+        for feature in ("macro_count", "news_post_count"):
+            if hasattr(bar, feature):
+                val = getattr(bar, feature)
+                if type(val) is not int or not -1 <= val <= 100000:
+                    raise ValueError("Invalid as-of context feature.")
+                fields[feature] = val
         payload.append(fields)
         previous = t
     proc = subprocess.Popen(
