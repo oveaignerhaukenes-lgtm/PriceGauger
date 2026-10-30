@@ -376,7 +376,30 @@ if history:
                    "å sammenligne nettoprestasjon. Historikk er foreløpig "
                    "kun lagret i denne nettleserøkten.")
 
-st.subheader("5 · Rådata og siste registrerte BBO")
+st.subheader("5 · Datakatalog med tidsriktig kontekst")
+st.caption("Eksplisitt kildevalg, punkt-i-tid-data og ingen vilkårlig SQL. "
+           "Private Saxo-kontodata er ikke tilgjengelige for AI-koden.")
+st.dataframe(pd.DataFrame(catalog_manifest()), use_container_width=True,
+             hide_index=True)
+context_kind = st.selectbox("Kontekstkilde", ("macro_schedule", "news_context"),
+                            key="alg:context_source")
+if st.button("Les kjent kontekst ved valgt sluttid", key="alg:context"):
+    try:
+        data = catalog_context(dataset=context_kind, as_of=end,
+                               start=start, limit=100)
+        st.session_state["alg:context_results"] = data
+    except (ValueError, TypeError) as exc:
+        st.error(str(exc))
+context_data = st.session_state.get("alg:context_results")
+if context_data is not None:
+    st.caption("Dekning: " + context_data.coverage +
+               " · tidsgrense " + context_data.as_of)
+    st.dataframe(pd.DataFrame(context_data.rows), use_container_width=True,
+                 hide_index=True)
+    for note in context_data.limitations:
+        st.caption(note)
+
+st.subheader("6 · Rådata og siste registrerte BBO")
 st.caption("Lesetilgang til lagret prisdata for valgt Saxo-UIC, ikke "
            "ukontrollert tilgang til kontoer, private tabeller eller Saxo-ordre.")
 
