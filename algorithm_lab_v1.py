@@ -65,6 +65,8 @@ class LabCosts:
     slippage_bps: float = 1.0
     commission_nok: float = 0.0
     variable_fee_bps: float = 0.0
+    financing_long_annual_pct: float = 0.0
+    financing_short_annual_pct: float = 0.0
 
     def __post_init__(self):
         for k, v in asdict(self).items():
@@ -112,6 +114,7 @@ class LabResult:
     gaps: int
     warmup_30m_bars: int
     source_bars: int
+    financing_nok: float = 0.0
 
 
 def utc(stamp) -> datetime:
@@ -194,6 +197,7 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
     pending = None
     entry_index = None
     total_cost = 0.
+    financing_total = 0.
     max_drawdown = 0.
     gaps = 0
     trades = []
@@ -243,6 +247,13 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
                 pending = None
             if position:
                 nav += position * (close - op) * costs.point_value_nok
+                annual = (costs.financing_long_annual_pct if position > 0 else
+                          costs.financing_short_annual_pct)
+                financing = abs(position) * close * costs.point_value_nok * (
+                    annual / 100.0 / (365 * 24 * 60))
+                nav -= financing
+                total_cost += financing
+                financing_total += financing
             if nav <= 0:
                 raise ValueError("PAPER-kapitalen er oppbrukt med valgte eksponeringsantakelser.")
         elif position:
@@ -304,4 +315,4 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
         max_drawdown = max(max_drawdown, 100 * (peak - nav) / peak)
     return LabResult(tuple(points), tuple(trades), nav - costs.starting_nav_nok,
                      100 * (nav / costs.starting_nav_nok - 1.), max_drawdown,
-                     total_cost, gaps, macd.n, len(rows))
+                     total_cost, gaps, macd.n, len(rows), financing_total)
