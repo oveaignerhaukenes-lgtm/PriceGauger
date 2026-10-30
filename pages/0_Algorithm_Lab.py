@@ -20,6 +20,14 @@ from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from instrument_registry_v2 import list_subscribed_sources_v2
 from strategy_lab_v2_ai import LabAIError
+from algorithm_lab_catalog_v2 import catalog_manifest, catalog_context
+from algorithm_lab_versions_v2 import new_research_key, save_experiment, list_experiments
+from algorithm_lab_sandbox_v2 import standalone_worker_ready, execute_in_isolated_container
+from algorithm_lab_python_ai_v2 import propose_python_research, DEFAULT_CODE
+from algorithm_lab_python_replay_v2 import replay_directions
+from strategy_lab_v2_saxo_costs import (
+    saxobank_accounts_v2, saxo_replay_costs_v2, verified_replay_costs_v2,
+)
 
 st.set_page_config(page_title="Algoritmelab", layout="wide")
 st.title("Algoritmelab · Directional Specialists")
@@ -167,10 +175,15 @@ commission = k6.number_input("Fast gebyr NOK per utførelse", min_value=0., valu
                              step=1., key="alg:commission")
 fee_bps = k7.number_input("Variabelt gebyr (bp per side)", min_value=0., value=0.,
                           step=.5, key="alg:fee_bps")
-st.caption("Punktverdi, lot, slippage og gebyr er scenariovalg. "
+k8, k9 = st.columns(2)
+fin_long = k8.number_input("Long finansiering (% p.a.)", min_value=0.,
+                           max_value=100., value=0., step=.5, key="alg:finlong")
+fin_short = k9.number_input("Short finansiering (% p.a.)", min_value=0.,
+                            max_value=100., value=0., step=.5, key="alg:finshort")
+st.caption("Punktverdi, lot, slippage, finansiering og gebyr er scenariovalg. "
            "1m-modus modellerer spread fra feltet; 1s-modus bruker "
            "observert historisk bid/ask-spread og ignorerer feltet spread (bp). "
-           "Resultatet inkluderer ikke finansiering eller valutakursendringer.")
+           "NOK-punktverdien bruker en konstant FX-forutsetning, ikke historisk valutakursserie.")
 
 run = st.button("Kjør simulering / beregn netto P/L", type="primary",
                 disabled=plan is None, key="alg:run")
@@ -181,7 +194,9 @@ if run:
         costs = LabCosts(point_value_nok=point_value,
                          starting_nav_nok=capital, lot_size=lot,
                          spread_bps=spread, slippage_bps=slippage,
-                         commission_nok=commission, variable_fee_bps=fee_bps)
+                         commission_nok=commission, variable_fee_bps=fee_bps,
+                         financing_long_annual_pct=fin_long,
+                         financing_short_annual_pct=fin_short)
         if mode.startswith("1s"):
             if end-start > timedelta(hours=4):
                 raise ValueError("1s-replay: velg maksimalt 4 timer.")
@@ -237,6 +252,8 @@ if saved is not None:
     cols[2].metric("Maks drawdown", f"{result.drawdown_pct:.2f}%")
     cols[3].metric("PAPER-utførelser", str(len(result.trades)))
     cols[4].metric("Modellerte kostnader", f"{result.total_cost_nok:,.2f} NOK")
+    st.caption(f"Finansieringsscenario: {result.financing_nok:,.2f} NOK. "
+               "Brukerdefinert årlig sats for observert eksponeringstid.")
     if result.warmup_30m_bars < 35 and meta["plan"]["kind"] == "trend":
         st.warning("MACD30 ble ikke varmet opp med minst 35 sammenhengende "
                    "ferdige 30m-barer i siste dataserie. Få eller ingen handler "
