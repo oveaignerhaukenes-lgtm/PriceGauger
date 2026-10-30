@@ -102,5 +102,33 @@ def catalog_asof_macro_flags(*, bar_times: Sequence, events: Sequence[dict]) -> 
     return tuple(results)
 
 
+def enrich_research_bars(*, bars: Sequence, macro: CatalogResult,
+                         news: CatalogResult) -> tuple:
+    """Project only as-of permitted context to the completed 1m bar.
+
+    Unknown dataset availability is -1, never silently 'no events'.
+    No account, content, channel, token or arbitrary DB fields are sent.
+    """
+    from types import SimpleNamespace
+    events = sorted(macro.rows, key=lambda x: utc(x["seen_at"])) if macro.coverage == "RECORDED" else ()
+    reports = sorted(news.rows, key=lambda x: utc(x["recorded_at"])) if news.coverage == "RECORDED" else ()
+    result=[]
+    for bar in bars:
+        closed = utc(bar.bar_time)+timedelta(minutes=1)
+        macro_seen = sum(utc(x["seen_at"]) <= closed and
+                         utc(x["scheduled_at"]) <= closed for x in events)
+        eligible_news = [
+            x for x in reports if utc(x["recorded_at"]) <= closed and
+            utc(x["as_of"]) <= closed]
+        news_count = (int(eligible_news[-1]["source_post_count"])
+                      if eligible_news else -1)
+        result.append(SimpleNamespace(
+            bar_time=bar.bar_time,open=bar.open,high=bar.high,low=bar.low,
+            close=bar.close,
+            macro_count=macro_seen if macro.coverage == "RECORDED" else -1,
+            news_post_count=news_count))
+    return tuple(result)
+
+
 __all__ = ["DATASETS", "CatalogResult", "catalog_manifest",
-           "catalog_context", "catalog_asof_macro_flags"]
+           "catalog_context", "catalog_asof_macro_flags", "enrich_research_bars"]
