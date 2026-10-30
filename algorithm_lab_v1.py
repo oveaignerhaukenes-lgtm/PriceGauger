@@ -167,7 +167,7 @@ class _Macd30:
 
 
 def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
-                     start_at, end_at) -> LabResult:
+                     start_at, end_at, fx_multiplier_at=None) -> LabResult:
     """Deterministic PAPER; one legal positive-sized position or FLAT only.
 
     A gap ends the current segment. No invented gap returns, missing-bar fills,
@@ -175,6 +175,15 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
     """
     p = validate_plan(plan)
     start, end = utc(start_at), utc(end_at)
+
+    def point_value(at):
+        factor = float(fx_multiplier_at(at)) if fx_multiplier_at is not None else 1.
+        if not isfinite(factor) or not .001 <= factor <= 1000:
+            raise ValueError("Historical FX conversion is invalid or stale.")
+        return costs.point_value_nok * factor
+
+    def execution_cost(price, qty, at):
+        return replace(costs, point_value_nok=point_value(at)).execution_cost(price, qty)
     if end <= start:
         raise ValueError("Slutt må være etter start.")
     if len(bars) > MAX_BARS:
@@ -216,7 +225,7 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
         if last_time is not None and at - last_time != timedelta(minutes=1):
             gaps += 1
             if position:
-                charge = costs.execution_cost(last_close, position)
+                charge = execution_cost(last_close, position, last_time+timedelta(minutes=1))
                 nav -= charge
                 total_cost += charge
                 trades.append(LabTrade(last_time + timedelta(minutes=1),
@@ -233,11 +242,11 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
             break
         if at >= start:
             if last_close is not None and position:
-                nav += position * (op - last_close) * costs.point_value_nok
+                nav += position * (op - last_close) * point_value(at)
             if pending is not None:
                 target, why = pending
                 if target != position:
-                    charge = costs.execution_cost(op, target - position)
+                    charge = execution_cost(op, target - position, at)
                     nav -= charge
                     total_cost += charge
                     trades.append(LabTrade(at, "OPEN" if target else "FLAT",
@@ -246,10 +255,10 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
                     entry_index = latest_index if target else None
                 pending = None
             if position:
-                nav += position * (close - op) * costs.point_value_nok
+                nav += position * (close - op) * point_value(closed)
                 annual = (costs.financing_long_annual_pct if position > 0 else
                           costs.financing_short_annual_pct)
-                financing = abs(position) * close * costs.point_value_nok * (
+                financing = abs(position) * close * point_value(closed) * (
                     annual / 100.0 / (365 * 24 * 60))
                 nav -= financing
                 total_cost += financing
@@ -305,7 +314,7 @@ def replay_algorithm(*, plan: dict, bars: Sequence, costs: LabCosts,
         raise ValueError("Ingen fullførte 1m-barer i valgt målevindu.")
     if position:
         price = points[-1].close
-        charge = costs.execution_cost(price, position)
+        charge = execution_cost(price, position, points[-1].at)
         nav -= charge
         total_cost += charge
         trades.append(LabTrade(points[-1].at, "END_FLAT", price, position, 0., charge,
