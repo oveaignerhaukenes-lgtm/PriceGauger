@@ -76,7 +76,8 @@ def _extract_json(answer: str) -> dict:
             "test_notes": obj["test_notes"][:900]}
 
 
-def propose_algorithm(*, request: str, current_plan: Mapping, market: str,\n                      sampling_mode: str = "1m",
+def propose_algorithm(*, request: str, current_plan: Mapping, market: str,
+                      sampling_mode: str = "1m",
                       observed_closes: Sequence[Mapping] = (),
                       model: str | None = None, post=requests.post) -> dict:
     """On-demand, read-only remote AI drafting, never strategy execution."""
