@@ -3,10 +3,26 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `9cffe48c6047e38d98b781a22b4625c809248d81`
+Latest tracked main commit: `7292e58c602379b5d31dd62d6c434bf73e118880`
 
 ## Recent main commits
 
+- 2026-10-30 [`7292e58c60`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7292e58c602379b5d31dd62d6c434bf73e118880) — Merge pull request #830 from oveaignerhaukenes-lgtm/feat/algorithm-lab-directional-v1-20261030
+- 2026-10-30 [`b9161b6c37`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b9161b6c37570624049cbbd640ca2be13ed937da) — fix: replace escaped newline in AI provider function signature
+- 2026-10-30 [`81242e97f1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/81242e97f1bb46baeba1da070f726d6618272359) — fix: pass sampling mode to AI prompt and clarify spread assumptions
+- 2026-10-30 [`ad7a14a45b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ad7a14a45b40f6409db137416d3bd047c789836f) — feat: make AI model prompt explicit about 1s vs 1m units
+- 2026-10-30 [`e79ff34598`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e79ff3459868d140a101e659feeb1dbf39f8809e) — test: 1s impulse replay causal fills and observed spread
+- 2026-10-30 [`b0d1d1f2ca`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b0d1d1f2ca75b903aa3db3254d47d2eacf0b58ec) — feat: optional true 1s Saxo BBO impulse replay mode
+- 2026-10-30 [`4a264eadb2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4a264eadb2fe86ef9b230fcb99cb2f64b4917697) — feat: strict quote-based 1s PAPER impulse collector replay
+- 2026-10-30 [`4b42875d82`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4b42875d82c0bfee6c9f240398ecd93749ab91c7) — test: align costs dataset and hold through synthetic price gap
+- 2026-10-30 [`f35f22e6fa`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f35f22e6facdb202c47b4a266cc0bd6d46f75293) — test: assert absence of broker order calls instead of prose wording
+- 2026-10-30 [`81627ea53e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/81627ea53ee788c87ce973cdf6d54702f40afff9) — feat: export/import models and compare reproducible paper experiments
+- 2026-10-30 [`89d3f65658`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/89d3f65658f77ac4acad74b9536285c938bfdcd4) — test: ensure synthetic trend and impulse exceed configured thresholds
+- 2026-10-30 [`9e33a189be`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9e33a189bee00f5d7c3b0e5261f8c895ec314275) — test: directional algorithm lab causal replay and AI schema protections
+- 2026-10-30 [`ee1cbe7090`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ee1cbe70908a3314314d0639eaa4cf83846615f1) — feat: add Algorithm Lab under Analyse navigation
+- 2026-10-30 [`4527addde3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4527addde316ddc865f49a68cf15e3986fc8ce1c) — feat: Streamlit Algorithm Lab with AI draft, data charts and paper P/L
+- 2026-10-30 [`2539fb2a85`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2539fb2a85961f26769f57d7f877600f887d1532) — feat: constrained AI strategy drafting prompt and validator
+- 2026-10-30 [`ac84e3da7b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ac84e3da7b321dac2ed049f1a6fb8bf768f4fc94) — feat: causal sandboxed directional algorithm replay engine
 - 2026-10-29 [`9cffe48c60`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9cffe48c6047e38d98b781a22b4625c809248d81) — fix: 03:00 loss lab account report baseline key and coverage test (#829)
 - 2026-10-28 [`6df8fa4b38`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6df8fa4b3867a9821930b30e1313c91ad4ed99a2) — fix: auditable 03:00 Saxo account cohort, nearest snapshot and missing-data warnings (#828)
 - 2026-10-28 [`cda8277462`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cda827746218802cadcb95b1cfc7f9837afe41ab) — feat: empirical trade-vs-flat price-regime PAPER lab (#826)
@@ -31,21 +47,5 @@ Latest tracked main commit: `9cffe48c6047e38d98b781a22b4625c809248d81`
 - 2026-10-23 [`e87d43457c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e87d43457cea635e71fd159681986f3b3f35398c) — Update PriceGauger living handoff for Oct 23 V3 fixes (#801)
 - 2026-10-23 [`21f8566b19`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/21f8566b1952b9bd9cbf6d510b5293e64c611ade) — V3 charts: exact reconciled trades as triangle-only markers (#799)
 - 2026-10-23 [`829d274931`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/829d274931287087a5630178d8fc8aca32c5d417) — Fix idempotent MACD+Stoch HOLD_DUPLICATE LIVE crash (#798)
-- 2026-10-22 [`4f3386a12b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4f3386a12b75927b775763cfc3f3efa4ab9771a8) — Add Tech100 PriceTrend #1 and SMA9/21 research baseline (#796)
-- 2026-10-21 [`5abcab49f2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5abcab49f2e8afb6b255d8623228950c62aa2271) — Fix TradingDesk false-free V3 Saxo account status (#794)
-- 2026-10-21 [`74e11430ce`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74e11430ce5693e1d331c637990aee189b486553) — Record tested Hunter/Rabid live routes and Railway build pause (#793)
-- 2026-10-21 [`055ed54a73`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/055ed54a73e909e70d1369a4847fe76cb1297fdb) — Add guarded Hunter and Rabid Dog V3 LIVE tick strategies (#792)
-- 2026-10-21 [`192fa78112`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/192fa78112e19c8dc01b2039772d61296a45ec1f) — Log bounded HyperChase LIVE rejection reason counts (#791)
-- 2026-10-21 [`3224a7b593`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/3224a7b593d40fcf7d2174cca620a6fb3122430c) — Add safe V3 signal decision timing trace (#789)
-- 2026-10-21 [`424c2d89c2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/424c2d89c2b7af48b56be7c6f197925d4d369ff0) — Record green cost PRs and blocked Railway deployment (#790)
-- 2026-10-21 [`97556a4ede`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/97556a4ede20ef05843373aa1db514f651f24685) — Add safe PostgreSQL table footprint diagnostics (#788)
-- 2026-10-21 [`9c7c605fde`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9c7c605fdecf965d2dc581408cfaccab90b86169) — Throttle auxiliary Saxo discovery while preserving fast subscriptions (#786)
-- 2026-10-21 [`96675e3d4e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/96675e3d4ebbbe762eb8f8a8d4cbfbd6aeef3237) — Reduce legacy research and PAPER AI background load (#784)
-- 2026-10-21 [`8a6293b1f9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8a6293b1f9e73378a73e8b6bc1a8685d9f867da9) — Sync tested HyperChase safety fixes and Railway deploy blocker (#783)
-- 2026-10-21 [`5c4ba31732`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5c4ba317323b9f303daf4c394d1ae1d13706ba3f) — Fix HyperChase LIVE volatility safety input (#780)
-- 2026-10-21 [`a5b41a9c51`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5b41a9c51177967fa956a14efec7401c9806e0a) — HyperChase read-only 1s Saxo quote density diagnostics (#782)
-- 2026-10-21 [`f89ad2d0cd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f89ad2d0cd2469ad84661d1423c044ec652d5794) — Record read-only HyperChase LIVE audit and operator shutdown (#781)
-- 2026-10-21 [`de4a47bd93`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/de4a47bd9365c5f88eff1a9f12ce2adfcaaa1548) — Confirm tested docs-only continuity deploy filter (#779)
-- 2026-10-21 [`c7e22742ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c7e22742ff7bddc86f46382f7d3b682efe322765) — Document verified journal automation and Railway deploy filters (#778)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
