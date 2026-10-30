@@ -22,7 +22,8 @@ from database import connect
 from instrument_registry_v2 import list_subscribed_sources_v2
 from strategy_lab_v2_ai import LabAIError
 from algorithm_lab_catalog_v2 import catalog_manifest, catalog_context, enrich_research_bars
-from algorithm_lab_versions_v2 import new_research_key, save_experiment, list_experiments
+from algorithm_lab_versions_v2 import (new_research_key, save_experiment,
+    list_experiments, save_python_version, list_python_versions)
 from algorithm_lab_sandbox_v2 import standalone_worker_ready, execute_in_isolated_container
 from algorithm_lab_sandbox_client_v2 import remote_ready, run_remote_python
 from algorithm_lab_python_ai_v2 import propose_python_research, DEFAULT_CODE
@@ -397,6 +398,38 @@ st.download_button("Eksporter Python-forskningskode",
                    py_code.encode("utf-8"),
                    file_name="algorithm_lab_research.py",
                    mime="text/x-python", key="alg:python_download")
+with st.expander("Lagre / gjenåpne Python-kodeversjoner"):
+    st.caption("Bruk forskningsnøkkelen fra modellarkivet nedenfor. "
+               "Python-koden lagres kun som tekst, aldri som LIVE-strategi.")
+    code_label=st.text_input("Navn på Python-versjon",
+                             value="Python Research v1",key="alg:py_label")
+    if st.button("Lagre Python-kodeversjon",key="alg:py_save"):
+        try:
+            vid=save_python_version(
+                token=st.session_state.get("alg:research_token_entry",""),
+                label=code_label,code=py_code,market=market)
+            st.success("Kodeversjon lagret: "+vid[:8])
+        except (ValueError,TypeError) as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error("Kunne ikke lagre Python-kode: "+type(exc).__name__)
+    if st.button("Hent Python-versjoner",key="alg:py_list"):
+        try:
+            st.session_state["alg:py_versions"]=list_python_versions(
+                token=st.session_state.get("alg:research_token_entry",""))
+        except (ValueError,TypeError) as exc:
+            st.error(str(exc))
+    versions=st.session_state.get("alg:py_versions",())
+    if versions:
+        selection=st.selectbox(
+            "Tidligere kodeversjoner",versions,
+            format_func=lambda x:x["label"]+" · "+x["version_id"][:8],
+            key="alg:python_version_select")
+        if st.button("Gjenåpne denne Python-versjonen",
+                     key="alg:python_restore"):
+            st.session_state["alg:pending_python"]=selection["source_code"]
+            st.rerun()
+
 sandbox_ready = remote_ready() or standalone_worker_ready()
 if not sandbox_ready:
     st.warning("Ekstern Docker-sandbox er ikke konfigurert. "
