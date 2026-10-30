@@ -159,6 +159,44 @@ end_time = d4.time_input("Klokkeslett til (UTC)", now.time(), key="alg:end_time"
 start = datetime.combine(start_date, start_time, tzinfo=timezone.utc)
 end = datetime.combine(end_date, end_time, tzinfo=timezone.utc)
 
+with st.expander("Saxo GET-only · kostnadskalibrering"):
+    st.caption("Konto, pris, spread, valutakonvertering og gebyr er "
+               "indikative NÅ, ikke historiske fills.")
+    if st.button("Hent tilgjengelige kontoer (GET)", key="alg:get_accounts"):
+        try:
+            from saxo_provider import configured_client
+            client = configured_client()
+            if client is None:
+                raise ValueError("Ingen tilkoblet Saxo GET-klient.")
+            st.session_state["alg:saxo_accounts"] = saxobank_accounts_v2(client)
+        except Exception as exc:
+            st.error("GET-kontoer ikke tilgjengelig: " + type(exc).__name__)
+    accounts = st.session_state.get("alg:saxo_accounts", ())
+    if accounts:
+        account = st.selectbox("Konto for modellkostnader", accounts,
+                               format_func=lambda x: "…" + x["account_id"][-4:]
+                               + " · " + x["currency"], key="alg:saxo_account")
+        if st.button("Kalibrer fra Saxo GET", key="alg:calibrate"):
+            try:
+                from saxo_provider import configured_client
+                client = configured_client()
+                if client is None:
+                    raise ValueError("Saxo utilgjengelig.")
+                raw = saxo_replay_costs_v2(client, source=source,
+                                            account=account, quantity=.01)
+                verified = verified_replay_costs_v2(raw)
+                st.session_state["alg:point_value"] = float(verified.point_value_nok)
+                st.session_state["alg:spread"] = float(verified.spread_bps)
+                st.session_state["alg:commission"] = float(verified.fixed_fee_nok)
+                st.session_state["alg:lot"] = float(verified.lot_step)
+                st.session_state["alg:cost_evidence"] = verified.source
+                st.rerun()
+            except Exception as exc:
+                st.error("Saxo kunne ikke verifisere kostnadene: " + str(exc)[:240])
+if st.session_state.get("alg:cost_evidence"):
+    st.caption("Nåtidsscenario: " + st.session_state["alg:cost_evidence"]
+               + " (historisk spread og FX er ikke verifisert).")
+
 k1, k2, k3, k4 = st.columns(4)
 capital = k1.number_input("Startkapital NOK", min_value=1., value=10000., step=1000.,
                           key="alg:capital")
