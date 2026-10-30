@@ -51,6 +51,7 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
     position = 0.
     nav = peak = costs.starting_nav_nok
     spent = max_dd = 0.
+    financing_total = 0.
     gaps = 0
     pending = None
     entered_at = None
@@ -90,6 +91,14 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
         if t >= start:
             if previous is not None and position:
                 nav += position * (mid - previous[3]) * costs.point_value_nok
+                elapsed = (t-previous[0]).total_seconds()
+                annual = (costs.financing_long_annual_pct if position > 0 else
+                          costs.financing_short_annual_pct)
+                financing = abs(position) * mid * costs.point_value_nok * (
+                    annual / 100.0 * elapsed / (365 * 24 * 60 * 60))
+                nav -= financing
+                spent += financing
+                financing_total += financing
             if pending is not None:
                 target, reason = pending
                 if target != position:
@@ -152,7 +161,7 @@ def replay_tick_impulses(*, plan: dict, quotes: Sequence, costs: LabCosts,
         max_dd = max(max_dd, 100 * (peak-nav) / peak)
     return LabResult(tuple(points), tuple(trades), nav-costs.starting_nav_nok,
                      100 * (nav/costs.starting_nav_nok-1), max_dd, spent,
-                     gaps, 0, len(rows))
+                     gaps, 0, len(rows), financing_total)
 
 
 __all__ = ["MAX_QUOTES", "replay_tick_impulses"]
