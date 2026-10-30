@@ -56,7 +56,7 @@ def standalone_worker_ready(env=None, *, docker_binary=None) -> bool:
 
 def build_docker_command(*, docker_binary="docker") -> tuple[str, ...]:
     return (
-        docker_binary, "run", "--rm", "-i",
+        docker_binary, "run", "--rm", "-i", "--pull", "never",
         "--network", "none", "--read-only",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", "32", "--memory", "128m", "--cpus", "0.5",
@@ -141,7 +141,7 @@ def execute_in_isolated_container(*, code: str, bars: Sequence,
     finally:
         if proc.poll() is None:
             proc.kill()
-            proc.communicate(timeout=2)
+            proc.wait(timeout=2)
     return tuple(result)
 
 
