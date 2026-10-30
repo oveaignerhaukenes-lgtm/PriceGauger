@@ -574,7 +574,7 @@ with st.expander("Forskningsnøkkel og lagrede forsøk", expanded=False):
             try:
                 meta, result = saved
                 context = {k: meta[k] for k in
-                           ("market","uic","start","end","mode","costs")}
+                           ("market","uic","start","end","mode","costs","fx_uic")}
                 report = {
                     "pnl_nok": result.pnl_nok,
                     "return_pct": result.return_pct,
