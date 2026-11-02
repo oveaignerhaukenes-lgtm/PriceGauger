@@ -7,6 +7,7 @@ import json
 
 import pandas as pd
 import streamlit as st
+from analysis_digest_v1 import render_summary
 
 from autotrader_v3_trade_gate_research_v1 import (
     build_causal_gate_windows,evaluate_trade_gate_train_holdout,
@@ -19,6 +20,7 @@ from strategy_lab_v2_replay import (
 
 st.set_page_config(page_title="AutoTrader · Trade eller FLAT",layout="wide")
 st.title("AutoTrader · Trade eller stå FLAT?")
+summary_anchor = st.empty()
 st.caption(
     "Første PAPER-baserte mønstermodell: ferdige 30m prisformer som "
     "inngangssignal for en prognose om neste 30m strategiresultat. "
@@ -116,6 +118,28 @@ if report:
     if report["key"]!=key:
         st.warning("Innstillingene er endret. Kjør på nytt.")
     else:
+        with summary_anchor.container():
+            render_summary(
+                scope="tradegate",title="TRADE/FLAT · kausal historisk evaluering",
+                metrics=[
+                    {"id":"windows","label":"Fullstendige markedsvinduer",
+                     "value":len(report["data"]),"unit":"stk",
+                     "reference":max(19,len(report["data"])),
+                     "reference_label":"minst 14 train og 5 holdout"},
+                    {"id":"baseline_trades","label":"PAPER-handler i basisstrategi",
+                     "value":report["replay_trades"],"unit":"stk",
+                     "reference":max(1,len(report["data"])),
+                     "reference_label":"markedsvinduer"},
+                    {"id":"baseline_costs","label":"Scenario-handelskostnader",
+                     "value":report["replay_costs"],"unit":"NOK",
+                     "reference":max(1.,float(capital)),
+                     "reference_label":"scenario-startkapital"},
+                    {"id":"drawdown","label":"Basisstrategiens drawdown",
+                     "value":report["replay_dd"],"unit":"%",
+                     "reference":100,"reference_label":"100 % av startkapital"},
+                ],
+                caveat="PAPER med manuelle kostnader. Gate-vinduer trenes historisk; baseline-resultat gjelder et større replay-vindu og er ikke LIVE-fasit.",
+                context={"timeframe":timeframe,"complete_30m_windows":len(report["data"])})
         rows=report["data"]
         st.metric("Fullstendige fremoverskuende 30m-observasjoner",len(rows))
         st.caption(f"Baseline: {report['replay_trades']} PAPER-handler "
