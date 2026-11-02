@@ -7,6 +7,7 @@ import json
 
 import pandas as pd
 import streamlit as st
+from analysis_digest_v1 import render_summary
 
 from database import connect
 from instrument_registry_v2 import list_subscribed_sources_v2
@@ -18,6 +19,7 @@ from tech100_second_impulse_research_v1 import (
 
 st.set_page_config(page_title="Tech100 sekundimpulser · PriceGauger",layout="wide")
 st.title("Tech100 · Sekundimpulser")
+summary_anchor = st.empty()
 st.caption("Hendelsesanalyse på faktiske lagrede Saxo bid/ask-observasjoner.")
 st.warning(
     "RESEARCH, ikke LIVE. Dette er frekvenser fra faktisk kursdata, "
@@ -102,6 +104,33 @@ if r:
     if r["key"]!=(int(source.provider_instrument_id),hours,tuple(lookbacks)):
         st.info("Valgene er endret. Kjør analysen på nytt.")
     else:
+        summary_metrics = [
+            {"id":"coverage","label":"Gyldige BBO-målinger",
+             "value":r["usable_quotes"],"unit":"rader",
+             "reference":max(1,r["raw"]),
+             "reference_label":"lagrede BBO-rader"},
+            {"id":"events","label":"Separate terskelhendelser",
+             "value":len(r["events"])//len(HORIZONS_SECONDS),"unit":"stk",
+             "reference":max(1,r["usable_quotes"]),
+             "reference_label":"gyldige BBO-målinger"},
+        ]
+        valid_holdout = [g for g in r["groups"] if
+                         g.sample=="SISTE_30PCT" and g.horizon_seconds==120
+                         and g.events>=minimum and g.median_net_bps is not None]
+        if valid_holdout:
+            candidate=max(valid_holdout,key=lambda g:g.median_net_bps)
+            summary_metrics.append({
+                "id":"holdout_median","label":"Høyeste observerte holdout-median ved 120s",
+                "value":candidate.median_net_bps,"unit":"bp",
+                "reference":max(1.,max(abs(g.median_net_bps) for g in valid_holdout)),
+                "reference_label":"største absolutte holdout-median i utvalget"})
+        with summary_anchor.container():
+            render_summary(
+                scope="tech100_second_impulse",title="Sekundimpulser · holdout og datakvalitet",
+                metrics=summary_metrics,
+                caveat="Retrospektiv terskelutvelgelse på holdout, ikke uavhengig fremtidstest. Netto er BBO-proxy, ikke reelle fills.",
+                context={"lookbacks":list(lookbacks),"horizon_seconds":120,
+                         "minimum_events":minimum})
         st.subheader("Datadekning og kvalitet")
         c1,c2,c3,c4=st.columns(4)
         c1.metric("Lagrede BBO-rader",f"{r['raw']:,}")
