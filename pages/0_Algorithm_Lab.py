@@ -30,16 +30,16 @@ from algorithm_lab_python_ai_v2 import propose_python_research, DEFAULT_CODE
 from algorithm_lab_python_replay_v2 import replay_directions
 from algorithm_lab_fx_v2 import HistoricalFXCurve
 from strategy_lab_v2_saxo_costs import (
-    saxobank_accounts_v2, saxo_replay_costs_v2, verified_replay_costs_v2,
+    saxobank_accounts_v2, saxo_replay_costs_v2, account_label_v2,
 )
 
-st.set_page_config(page_title="Algoritmelab", layout="wide")
+st.set_page_config(page_title="Algolabb", layout="wide")
 current_owner_token = st.session_state.get("alg:research_token_entry", "")
 if st.session_state.get("alg:last_owner_token") != current_owner_token:
     st.session_state.pop("alg:server_experiments", None)
     st.session_state.pop("alg:py_versions", None)
     st.session_state["alg:last_owner_token"] = current_owner_token
-st.title("Algoritmelab · Directional Specialists")
+st.title("Algolabb · Directional Specialists")
 st.caption("Generer algoritmeforslag med AI, rediger en trygg modelloppskrift, "
            "kjør simulering på lagret Saxo 1m-historikk, og sammenlign PAPER-P/L. "
            "Ingen LIVE-ordre, ingen kjøring av AI-generert Python.")
@@ -183,8 +183,7 @@ with st.expander("Saxo GET-only · kostnadskalibrering"):
     accounts = st.session_state.get("alg:saxo_accounts", ())
     if accounts:
         account = st.selectbox("Konto for modellkostnader", accounts,
-                               format_func=lambda x: "…" + x["account_id"][-4:]
-                               + " · " + x["currency"], key="alg:saxo_account")
+                               format_func=account_label_v2, key="alg:saxo_account")
         if st.button("Kalibrer fra Saxo GET", key="alg:calibrate"):
             try:
                 from saxo_provider import configured_client
@@ -193,12 +192,21 @@ with st.expander("Saxo GET-only · kostnadskalibrering"):
                     raise ValueError("Saxo utilgjengelig.")
                 raw = saxo_replay_costs_v2(client, source=source,
                                             account=account, quantity=.01)
-                verified = verified_replay_costs_v2(raw)
-                st.session_state["alg:point_value"] = float(verified.point_value_nok)
-                st.session_state["alg:spread"] = float(verified.spread_bps)
-                st.session_state["alg:commission"] = float(verified.fixed_fee_nok)
-                st.session_state["alg:lot"] = float(verified.lot_step)
-                st.session_state["alg:cost_evidence"] = verified.source
+                if raw.status != "SAXO_COST_SCENARIO":
+                    raise ValueError("Saxo mangler verifiserte pris-/kostnadsfelt. Bruk manuelle scenarioverdier.")
+                # Algolabb åpner én posisjon per signal og pyramiderer ikke.
+                # Bruk derfor lovlig minste startordre, ikke V2s max_lots=.03.
+                if not all(x is not None for x in (
+                    raw.point_value_nok, raw.spread_bps,
+                    raw.fixed_commission_nok, raw.minimum_trade_size)):
+                    raise ValueError("Saxo returnerte ufullstendige kostnads-/lotdata.")
+                st.session_state["alg:point_value"] = float(raw.point_value_nok)
+                st.session_state["alg:spread"] = float(raw.spread_bps)
+                st.session_state["alg:commission"] = float(raw.fixed_commission_nok)
+                st.session_state["alg:lot"] = float(raw.minimum_trade_size)
+                st.session_state["alg:cost_evidence"] = (
+                    "SAXO_GET_INDICATIVE account=" + account_label_v2(account)
+                    + " · minimum startordre " + str(raw.minimum_trade_size))
                 st.rerun()
             except Exception as exc:
                 st.error("Saxo kunne ikke verifisere kostnadene: " + str(exc)[:240])
@@ -226,6 +234,7 @@ with st.expander("Historisk valuta · direkte NOK-kryss"):
         "prissettingsvaluta, og at punktverdien gjelder ved teststart",
         key="alg:fx_confirm")
 
+k1, k2, k3, k4 = st.columns(4)
 capital = k1.number_input("Startkapital NOK", min_value=1., value=10000., step=1000.,
                           key="alg:capital")
 lot = k2.number_input("Antall lot", min_value=.001, value=.01, step=.01, format="%.3f",
