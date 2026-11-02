@@ -7,6 +7,7 @@ import json
 
 import pandas as pd
 import streamlit as st
+from analysis_digest_v1 import render_summary
 
 from database import connect
 from instrument_registry_v2 import list_subscribed_sources_v2
@@ -16,6 +17,7 @@ from macd_stoch_v21_30s_research_v1 import (
 
 st.set_page_config(page_title="V2.1 Tempo-lab · PriceGauger", layout="wide")
 st.title("V2.1 Tempo-lab · 15s / 30s / 1m")
+summary_anchor = st.empty()
 st.caption("V2.1 FLAT-først, V2.1 direkte PAPER NET-flip og V2.2 Flip, på 15s/30s/1m.")
 st.warning(
     "PAPER-forskning, ikke LIVE. Direkte flip innebærer aldri tillatelse til "
@@ -118,6 +120,36 @@ if result and result["key"] != (
 ):
     st.info("Innstillingene er endret. Kjør analysen på nytt.")
 elif result:
+    tested=result["results"]
+    candidates=[x.hypothetical_pnl_points_lots for x in tested
+                if x.hypothetical_pnl_points_lots is not None
+                and x.incomplete_segments==0]
+    summary_metrics=[
+        {"id":"coverage","label":"Observerte bid/ask-sitater",
+         "value":result["quotes"],"unit":"stk",
+         "reference":max(1,int(hours)*3600),
+         "reference_label":"sekunder i valgt intervall"},
+        {"id":"modeled_bars","label":"Fullførte evaluerte barer",
+         "value":sum(x.modeled_bars for x in tested),"unit":"barer",
+         "reference":max(1,sum(x.bars for x in tested)),
+         "reference_label":"gyldige barer over ni modellkjøringer"},
+        {"id":"open_segments","label":"Uavsluttede posisjonssegmenter",
+         "value":sum(x.incomplete_segments for x in tested),"unit":"stk",
+         "reference":max(1,sum(x.bars for x in tested)),
+         "reference_label":"gyldige barer over ni modellkjøringer"},
+    ]
+    if candidates:
+        summary_metrics.append({
+            "id":"best_pnl","label":"Høyeste observerte avsluttede PAPER-resultat",
+            "value":max(candidates),"unit":"punkt × lot",
+            "reference":max(1.,max(abs(v) for v in candidates)),
+            "reference_label":"største absolutte avsluttede resultat i utvalget"})
+    with summary_anchor.container():
+        render_summary(
+            scope="tempo_lab",title="Tempo-lab · tidsoppløste PAPER-varianter",
+            metrics=summary_metrics,
+            caveat="P/L i punkt × lot er IKKE NOK, og finansiering, kurtasje, FX, slippage og reelle Saxo-fills mangler. Observasjoner kan ikke brukes direkte som live-signal.",
+            context={"intervals":[15,30,60],"hypothetical_latency_s":delay})
     st.subheader("Sekunddata – sammenligning")
     st.caption(
         f"{result['market']} / UIC {result['uic']} · "
