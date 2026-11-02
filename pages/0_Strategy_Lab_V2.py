@@ -18,17 +18,19 @@ from strategy_lab_v2_replay import (
     strategy_catalog_v2,replay_v3_strategy_v2,
 )
 from strategy_lab_v2_saxo_costs import (
-    saxo_replay_costs_v2,saxobank_accounts_v2,verified_replay_costs_v2,
+    saxo_replay_costs_v2,saxobank_accounts_v2,verified_replay_costs_v2,account_label_v2,
 )
 from strategy_lab_v2_ai import (
     LabAIError,build_lab_asof_evidence_v2,lab_ai_evidence_fingerprint_v2,
     ask_lab_ai_v2,
 )
 from strategy_lab_v2_accounts import render_account_performance_v2
+from analysis_digest_v1 import render_summary
 from autotrader_v3_ai_live_presets_v1 import AI_LIVE_PRESETS_V3
 
 st.set_page_config(page_title="Strategilab v2",layout="wide")
 st.title("Strategilab v2")
+summary_anchor = st.empty()
 st.caption(
     "Historisk replay fra samme V3-strategifunksjoner · SAXO GET-only "
     "kostnadsscenarier · isolert PAPER, aldri LIVE-ordrer."
@@ -140,7 +142,7 @@ with tabs[0]:
                 st.warning("Saxo GET-kontoer utilgjengelige: "+type(exc).__name__)
             account=(st.selectbox(
                 "Saxo-konto for kalkyle",accounts,
-                format_func=lambda x:f"…{x['account_id'][-4:]} · {x['currency']}",
+                format_func=account_label_v2,
                 key="slab2:costaccount",
             ) if accounts else None)
             if st.button("Hent indikativ pris, spread, FX og kurtasje fra Saxo",
@@ -286,6 +288,29 @@ with tabs[0]:
                    "Beregnede kostnader NOK":round(r.total_cost_nok,2),
                    "1m-datagap":r.skipped_gaps,"Kostnadskilde":r.cost_source}
                   for key,r in outcomes.items()]
+            with summary_anchor.container():
+                render_summary(
+                    scope="strategy_lab_v2",title="Strategilab · PAPER-modeller",
+                    metrics=[
+                        {"id":"best_return","label":"Høyeste PAPER-avkastning i utvalget",
+                         "value":max(r.net_return_pct for r in outcomes.values()),
+                         "unit":"%", "reference":100,
+                         "reference_label":"100 % av startkapital"},
+                        {"id":"max_drawdown","label":"Største drawdown i utvalget",
+                         "value":max(r.drawdown_pct for r in outcomes.values()),
+                         "unit":"%", "reference":100,
+                         "reference_label":"100 % av startkapital"},
+                        {"id":"modeled_cost","label":"Høyeste modellerte handelskostnad",
+                         "value":max(r.total_cost_nok for r in outcomes.values()),
+                         "unit":"NOK","reference":max(1.,float(info["costs"]["starting_nav_nok"])),
+                         "reference_label":"startkapital"},
+                        {"id":"models_run","label":"Strategier gjennomført",
+                         "value":len(outcomes),"unit":"stk",
+                         "reference":max(1,len(info["selected_strategies"])),
+                         "reference_label":"valgte strategier"},
+                    ],
+                    caveat="Beste resultat er valgt fra samme historikk og er ikke fremtidig forventning. PAPER, ikke Saxo-avstemte handler.",
+                    context={"signal_timeframe":info["signal_tf"],"models":len(outcomes)})
             st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
             curves={}
             for name,result in outcomes.items():

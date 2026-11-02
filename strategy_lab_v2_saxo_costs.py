@@ -34,11 +34,18 @@ class SaxoReplayCostEvidenceV2:
     notes:tuple[str,...]
 
 
+def account_label_v2(account:dict)->str:
+    """Only the broker human name; otherwise the full, untruncated account number."""
+    name=str(account.get("display_name") or account.get("account_name") or "").strip()
+    return name or str(account.get("account_id") or "").strip()
+
+
 def saxobank_accounts_v2(client)->tuple[dict,...]:
     result=client._get("port/v1/accounts/me").get("Data") or []
     return tuple(
         {"account_key":str(x["AccountKey"]),"account_id":str(x.get("AccountId") or ""),
-         "currency":str(x.get("Currency") or "")}
+         "currency":str(x.get("Currency") or ""),
+         "display_name":str(x.get("AccountName") or x.get("DisplayName") or "").strip()}
         for x in result if isinstance(x,dict) and x.get("AccountKey")
     )
 
@@ -159,5 +166,5 @@ def verified_replay_costs_v2(evidence:SaxoReplayCostEvidenceV2,*,
     )
 
 
-__all__=["SaxoReplayCostEvidenceV2","saxobank_accounts_v2",
+__all__=["SaxoReplayCostEvidenceV2","account_label_v2","saxobank_accounts_v2",
          "saxo_replay_costs_v2","verified_replay_costs_v2"]

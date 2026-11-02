@@ -7,6 +7,7 @@ import json
 
 import pandas as pd
 import streamlit as st
+from analysis_digest_v1 import render_summary
 
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from instrument_registry_v2 import list_subscribed_sources_v2
@@ -20,6 +21,7 @@ from probability_lab_tournament_v1 import (
 
 st.set_page_config(page_title="Probability Lab · PriceGauger", layout="wide")
 st.title("Probability Lab · 1m")
+summary_anchor = st.empty()
 st.caption(
     "Stokastisk prisforskning: Markov versus rullerende frekvens og "
     "Poisson/Skellam-proxy. Ingen LIVE-autoritet, ingen Saxo-ordrer."
@@ -109,6 +111,30 @@ result = st.session_state.get("plab:result")
 if result and result["key"] != run_key:
     st.warning("Parameterne er endret. Kjør testen på nytt for å unngå gamle resultater.")
 elif result:
+    summary_metrics = [
+        {"id":"observations","label":"Kausalt evaluerte observasjoner",
+         "value":len(result["data"]),"unit":"stk",
+         "reference":max(1,result["bars"]),
+         "reference_label":"lagrede 1m-barer"},
+        {"id":"gaps","label":"Registrerte databrudd",
+         "value":result["gaps"],"unit":"stk",
+         "reference":max(1,result["bars"]),
+         "reference_label":"lagrede 1m-barer"},
+    ]
+    ranking=result.get("tournament")
+    if ranking:
+        baseline=ranking.holdout_scores.get("baseline",{}).get("brier")
+        if baseline is not None:
+            summary_metrics.append({
+                "id":"baseline_brier","label":"Brier-feil i holdout for baseline",
+                "value":baseline,"unit":"score",
+                "reference":1,"reference_label":"teoretisk maksimum for Brier"})
+    with summary_anchor.container():
+        render_summary(
+            scope="probability_lab",title="Sannsynlighetslab · kausal walk-forward",
+            metrics=summary_metrics,
+            caveat="Sannsynlighetskvalitet fra historisk holdout, ikke dokumentert avkastning eller Saxo-fill. Lav Brier er bedre; modellvalg kan overtilpasses.",
+            context={"horizon_minutes":horizon,"lag":lag,"window":window})
     forecast = result["data"]
     tournament = result.get("tournament")
     if tournament:

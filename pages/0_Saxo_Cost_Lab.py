@@ -7,6 +7,7 @@ import json
 
 import pandas as pd
 import streamlit as st
+from analysis_digest_v1 import render_summary
 
 from autotrader_saxo_cost_evidence_v1 import (
     archived_bbo_spread,fetch_saxo_historical_costs,
@@ -16,6 +17,7 @@ from instrument_registry_v2 import list_subscribed_sources_v2
 
 st.set_page_config(page_title="Saxo · Kostnadslab",layout="wide")
 st.title("Saxo · Kostnadslab")
+summary_anchor = st.empty()
 st.caption(
     "Eksakt Saxo-konto og produkt · historiske bokførte transaksjonskostnader "
     "(GET), indikativ konto-/størrelsesspesifikk handelspris (GET), "
@@ -66,6 +68,27 @@ if st.button("1 · Analyser faktisk historisk spread",type="primary"):
 saved=st.session_state.get("saxo_cost:spread")
 if saved and saved[:2]==(int(source.provider_instrument_id),hours):
     bbo=saved[2]
+    summary_metrics = [
+        {"id":"density","label":"Datadekning i valgt periode",
+         "value":bbo.data_density_fraction*100,"unit":"%",
+         "reference":100,"reference_label":"alle sekunder i valgt tidsvindu"},
+        {"id":"observations","label":"Gyldige observerte bid/ask-kurser",
+         "value":bbo.observations,"unit":"stk",
+         "reference":max(1,int(hours)*3600),
+         "reference_label":"sekunder i valgt tidsvindu"},
+    ]
+    if bbo.mean_bps is not None and bbo.p90_points is not None:
+        summary_metrics.append({
+            "id":"average_spread","label":"Gjennomsnittlig spread",
+            "value":bbo.mean_bps,"unit":"bp",
+            "reference":max(1.,float(bbo.mean_bps)),
+            "reference_label":"gjennomsnittsspreadens absolutte størrelse"})
+    with summary_anchor.container():
+        render_summary(
+            scope="saxo_cost_lab",title="Saxo · observerte markedskostnader",
+            metrics=summary_metrics,
+            caveat="Observerte bid/ask-kurser, ikke Saxo-avstemte ordreutførelser. Ujevn dekning og manglende historiske kostnadskomponenter.",
+            context={"hours":hours,"complete_request":bbo.complete_request})
     st.subheader("Observerte markedsfriksjoner")
     a,b,c,d=st.columns(4)
     a.metric("Gjennomsnitt spread",f"{bbo.average_points:.3f} punkter"
