@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from analysis_digest_v1 import render_summary
 
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from instrument_registry_v2 import list_subscribed_sources_v2
@@ -19,6 +20,7 @@ from market_rhythm_wavelet_research_v1 import (
 
 st.set_page_config(page_title="Sykluslaboratorium · PriceGauger", page_icon="〰️", layout="wide")
 st.title("Sykluslaboratorium")
+summary_anchor = st.empty()
 st.caption(
     "Forskningspanel – ikke en handelsstrategi. Vi undersøker om markedet "
     "gjentar svingninger med bestemte tidsintervaller. Ingen ordre, ingen "
@@ -157,6 +159,37 @@ def _render_research() -> None:
         st.info("Ingen ferdiglukket markedsdata i valgt vindu.")
         return
 
+    summary_metrics = [
+        {"id":"continuity","label":"Sammenhengende markedsbarer",
+         "value":research.contiguous_bars,"unit":"barer",
+         "reference":max(1,research.total_input_bars),
+         "reference_label":"totalt antall mottatte barer"},
+        {"id":"turns","label":"Bekreftede historiske vendinger",
+         "value":len(research.confirmed_turns),"unit":"stk",
+         "reference":max(1,research.contiguous_bars),
+         "reference_label":"sammenhengende barer"},
+    ]
+    if research.wavelet_contrast is not None:
+        summary_metrics.append({
+            "id":"wavelet_contrast","label":"Relativ styrke i dominerende rytme",
+            "value":research.wavelet_contrast,"unit":"×",
+            "reference":max(3.,float(research.wavelet_contrast)),
+            "reference_label":"visningsskala fra 3× eller høyere"})
+    if (research.dominant_wavelet_minutes is not None
+        and research.lag_correlation_minutes is not None):
+        summary_metrics.append({
+            "id":"period_agreement","label":"Enighet mellom to periodetester",
+            "value":int(research.dominant_wavelet_minutes == research.lag_correlation_minutes),
+            "unit":"av 1", "reference":1,
+            "reference_label":"eksakt lik periode"})
+    with summary_anchor.container():
+        render_summary(
+            scope="cycle_research",title="Syklusforskning · deskriptiv tidsserie",
+            metrics=summary_metrics,
+            caveat="Historisk mønstergjenkjenning, ikke prediksjon. Periodetester kan vise tilfeldige mønstre og tidsserien kan være trunkert.",
+            context={"data_window_hours":hours,
+                     "dominant_period_minutes":research.dominant_wavelet_minutes,
+                     "lag_period_minutes":research.lag_correlation_minutes})
     last=research.prices.index[-1]
     age_minutes=max(0,(datetime.now(timezone.utc)-last.to_pydatetime()).total_seconds()/60)
     st.caption(
