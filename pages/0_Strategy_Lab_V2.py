@@ -18,7 +18,7 @@ from strategy_lab_v2_replay import (
     strategy_catalog_v2,replay_v3_strategy_v2,
 )
 from strategy_lab_v2_saxo_costs import (
-    saxo_replay_costs_v2,saxobank_accounts_v2,verified_replay_costs_v2,
+    saxo_replay_costs_v2,saxobank_accounts_v2,verified_replay_costs_v2,account_label_v2,
 )
 from strategy_lab_v2_ai import (
     LabAIError,build_lab_asof_evidence_v2,lab_ai_evidence_fingerprint_v2,
@@ -140,7 +140,7 @@ with tabs[0]:
                 st.warning("Saxo GET-kontoer utilgjengelige: "+type(exc).__name__)
             account=(st.selectbox(
                 "Saxo-konto for kalkyle",accounts,
-                format_func=lambda x:f"…{x['account_id'][-4:]} · {x['currency']}",
+                format_func=account_label_v2,
                 key="slab2:costaccount",
             ) if accounts else None)
             if st.button("Hent indikativ pris, spread, FX og kurtasje fra Saxo",
