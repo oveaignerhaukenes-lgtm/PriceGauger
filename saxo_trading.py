@@ -27,6 +27,9 @@ class SaxoOrderRequest:
     amount: float
     buy_sell: str
     external_reference: str | None = None
+    # Saxo: True only for individual user-confirmed orders; False for autonomous execution.
+    # Keep the default for legacy/manual callers. V3 LIVE opts into automation explicitly.
+    manual_order: bool = True
 
     def payload(self) -> dict[str, Any]:
         side = self.buy_sell.strip().title()
@@ -37,12 +40,14 @@ class SaxoOrderRequest:
             raise ValueError("amount må være større enn 0")
         if not self.account_key.strip():
             raise ValueError("account_key mangler")
+        if type(self.manual_order) is not bool:
+            raise ValueError("manual_order must be a boolean")
         payload: dict[str, Any] = {
             "AccountKey": self.account_key,
             "Amount": amount,
             "AssetType": self.instrument.asset_type,
             "BuySell": side,
-            "ManualOrder": True,
+            "ManualOrder": self.manual_order,
             "OrderDuration": {"DurationType": "DayOrder"},
             "OrderType": "Market",
             "Uic": self.instrument.uic,

@@ -928,7 +928,8 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 )
             continue
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
-            external_reference=('pgv3-'+request_key)[-50:])
+            external_reference=('pgv3-'+request_key)[-50:],
+            manual_order=False)  # Saxo automatic order-entry classification (precheck AND submit).
         pre=broker.precheck(order)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
             raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
