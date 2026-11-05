@@ -5,6 +5,7 @@ The Saxo stream writes quotes even when this page is closed. No orders.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import json
 
 import pandas as pd
@@ -36,7 +37,7 @@ st.caption(
 choices = releases()
 selected = st.selectbox(
     "Rapport", choices, index=0,
-    format_func=lambda p: f"{p[0]} · {p[1].astimezone().strftime('%d.%m.%Y %H:%M %Z')} "
+    format_func=lambda p: f"{p[0]} · {p[1].astimezone(ZoneInfo("Europe/Oslo")).strftime('%d.%m.%Y %H:%M %Z')} "
                            f"({p[1].strftime('%H:%M')} UTC)"
 )
 kind, event_at = selected
