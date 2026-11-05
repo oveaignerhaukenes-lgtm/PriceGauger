@@ -125,6 +125,8 @@ def test_late_received_quote_is_not_retroactive_signal():
 def test_no_execution_imports_or_unsafe_authority():
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
+    nav = (root / "navigation_config.py").read_text()
+    assert '"page": "pages/0_Macro_Release_Lag.py"' in nav
     for file in ("macro_release_lag_observer_v1.py", "pages/0_Macro_Release_Lag.py"):
         source = (root / file).read_text()
         for forbidden in ("place_order(", "run_v3_live_cycle_v1",
