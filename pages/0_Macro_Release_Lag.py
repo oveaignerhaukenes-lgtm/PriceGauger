@@ -66,6 +66,33 @@ try:
 except Exception as exc:
     st.caption(f"Kunne ikke bekrefte abonnementslisten ({type(exc).__name__}).")
 
+# Chart-feed status is read from existing runtime diagnostics. It is separate
+# from tradeability and does not poll Saxo or grant any LIVE authority.
+try:
+    with connect() as db:
+        raw_statuses = db.execute(
+            "SELECT market, payload_json FROM realtime_chart_stream_status"
+        ).fetchall()
+    delayed = []
+    for item in raw_statuses:
+        label = market_group(item["market"])
+        if label not in ("Gull", "Sølv", "Tech100"):
+            continue
+        status = json.loads(item["payload_json"])
+        delay = status.get("delayed_by_minutes")
+        if delay is not None and float(delay) > 0:
+            delayed.append(f"{label}: {float(delay):g} minutter")
+    if delayed:
+        st.warning(
+            "Saxo rapporterer forsinkelse på disse chart-feedene: "
+            + ", ".join(sorted(set(delayed)))
+            + ". Forsinkede priser blir IKKE brukt som ledende sanntidssignaler. "
+            "Ekte gull/sølv-etterslep krever en udelt, tradable BBO-feed."
+        )
+except Exception:
+    st.caption("Kunne ikke lese Saxos lagrede chart-delay-status. "
+               "Analysen krever uansett fersk tradable BBO på begge sider.")
+
 try:
     start = event_at - timedelta(seconds=PRE_SECONDS)
     end = event_at + timedelta(seconds=POST_SECONDS)
