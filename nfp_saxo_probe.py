@@ -1,6 +1,6 @@
 """Read-only NFP reaction probe. No trading endpoints or broker-side persistence.
 
-Run inside the PriceGauger environment:
+Run inside the PriceGauger environment (requires verified instrument UICs):
   python -m nfp_saxo_probe --events events.json --instruments instruments.json
 
 events.json: [{"date":"2026-10-02","release_utc":"2026-10-02T12:30:00Z"}, ...]
@@ -70,18 +70,24 @@ def collect(client, events: list, instruments: dict) -> list[dict]:
                 row["assets"][asset] = {"status": "FETCH_ERROR", "error_type": type(exc).__name__}
         gold = row["assets"]["Gold"]
         tech = row["assets"]["Tech100"]
-        row["gold_signal_5m"] = None if gold.get("m5") is None else (
-            1 if gold["m5"] > 0 else -1 if gold["m5"] < 0 else 0
+        row["gold_signal_1m"] = None if gold.get("m1") is None else (
+            1 if gold["m1"] > 0 else -1 if gold["m1"] < 0 else 0
         )
         row["tech_follow_gold"] = {}
         for h in HORIZONS:
             change = tech.get(f"m{h}")
             signal = row["gold_signal_1m"]
-            row["tech_follow_gold"][f"m{h}"] = (
-                None if change is None or signal in (None, 0)
-                else {"direction_correct": change * signal > 0,
-                      "gross_directional_return_pct": change * signal}
-            )
+            entry = tech.get("entry_open")
+            baseline = tech.get("baseline")
+            if change is None or signal in (None, 0) or entry is None or entry <= 0 or baseline is None:
+                row["tech_follow_gold"][f"m{h}"] = None
+            else:
+                exit_price = baseline * (1 + change / 100)
+                gross = signal * (exit_price / entry - 1) * 100
+                row["tech_follow_gold"][f"m{h}"] = {
+                    "direction_correct": gross > 0,
+                    "gross_directional_return_pct": gross,
+                }
         output.append(row)
     return output
 
