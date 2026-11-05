@@ -1,7 +1,8 @@
 """Research-only, capped 1 Hz Saxo BBO capture. Never makes broker requests.
 
 Quotes are written only when the Saxo streaming adapter reports *tradable*
-undelayed bid AND ask for the exact Tech100 UIC. No interpolated prices.
+undelayed bid AND ask for exact Saxo UICs. Tech100 capture is unchanged;
+gold/silver/US500 capture is restricted to scheduled macro-release windows.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from database import connect
+from macro_release_lag_observer_v1 import market_group, release_in_capture_window
 
 
 def _utc(value):
@@ -49,8 +51,17 @@ class HyperQuoteRecorder:
         if not tradable or quote.uic is None:
             return False
         name=str(quote.market or "")
-        if not any(word in name.upper() for word in ("TECH","NAS")):
-            return False
+        is_tech = any(word in name.upper() for word in ("TECH", "NAS"))
+        if not is_tech:
+            # No additional Saxo requests. Capture other already-subscribed
+            # macro markets only near scheduled releases.
+            if market_group(name) not in ("Gull", "Sølv", "US500"):
+                return False
+            try:
+                if not release_in_capture_window(now or datetime.now(timezone.utc)):
+                    return False
+            except (TypeError, ValueError, OverflowError):
+                return False
         if quote.bid is None or quote.ask is None:
             return False
         try:
