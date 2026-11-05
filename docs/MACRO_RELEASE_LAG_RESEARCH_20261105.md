@@ -23,6 +23,10 @@
 - 1/2/5/10/20/30/60/120/300/600s avkastning fra pre-release mid, bare hvis quote ble mottatt 0–2,5s etter det aktuelle tidspunktet. Ingen fylling av mellomliggende sekunder.
 - Utforskende PAPER: første gullsignal ved terskelpassering; retning kopieres til Tech100 etter antatt 1/3/5/10s ekstra latency, kjøp på ask/selg på bid, exit etter 10/30/60/120/300s. Bare cross-spread proxy, ikke Saxo fills, gebyrer, ekstra slippage eller garantert fill.
 
+## LIVE-feed verifikasjon 5. november 2026
+- Railway `PriceGauger-stream` bekreftet ekte prisstrøm på Tech100 UIC 4912 (`DelayedByMinutes=0`, `Tradable`).
+- Saxo InfoPrice-diagnostikk for nåværende Gold UIC 50511697 og Silver UIC 46652614 viser `DelayedByMinutes=10`, `OldIndicative`. Disse kan IKKE brukes som tidlige realtime-signaler. Oppsettet vil derfor rapportere manglende gull/sølv-dekning med mindre tilgang til ekte udelt, tradable BBO etableres før slippet. Observasjonsmodulen skal aldri bruke eldre priser for å fylle et slikt hull.
+
 ## Begrensninger før LIVE
 1. Vi fanger maks 1Hz, ikke millisekundrekkefølge; 1s datapunkt er ikke hele ordreboken.
 2. Kilden mottar pris på Saxo CFD-ene, ikke nødvendigvis futures. Forskjeller kan skyldes leverandørfeed, instrument eller spread.
