@@ -140,6 +140,8 @@ def study_release(rows: list[Mapping[str, Any]], *, event: str | datetime,
                     if candidate else None
                 )
             for q in post:
+                if q["quote"] < center:
+                    continue  # Pre-release source quote cannot establish first post-release impact.
                 spread_bps = (q["ask"] - q["bid"]) / q["mid"] * 10000
                 minimum = max(float(threshold_bps), 2.0 * spread_bps)
                 move = _bps(q["mid"], baseline)
