@@ -1,4 +1,4 @@
-"""Read-only NFP reaction probe. No trading endpoints or persistence.
+"""Read-only NFP reaction probe. No trading endpoints or broker-side persistence.
 
 Run inside the PriceGauger environment:
   python -m nfp_saxo_probe --events events.json --instruments instruments.json
@@ -18,11 +18,12 @@ import pandas as pd
 from saxo_provider import SaxoInstrument, configured_client
 
 HORIZONS = (5, 10, 15, 30)
+SIGNAL_MINUTE = 1
 ASSETS = ("Gold", "Tech100", "US2Y", "US10Y", "DXY", "SP500")
 
 
 def reaction(frame: pd.DataFrame, release: pd.Timestamp) -> dict:
-    """Close of pre-release minute vs close at end of each complete post-release minute."""
+    """Pre-release baseline and completed-minute closes. Signal after 1m; enter next bar open."""
     if frame.empty:
         return {"status": "NO_DATA"}
     frame = frame.copy()
@@ -36,7 +37,9 @@ def reaction(frame: pd.DataFrame, release: pd.Timestamp) -> dict:
     if baseline <= 0:
         return {"status": "INVALID_BASELINE"}
     result = {"status": "OK", "baseline": baseline}
-    for minute in HORIZONS:
+    entry_time = release + pd.Timedelta(minutes=SIGNAL_MINUTE)
+    result["entry_open"] = float(frame.loc[entry_time, "open"]) if entry_time in frame.index and "open" in frame.columns else None
+    for minute in (SIGNAL_MINUTE, *HORIZONS):
         target = release + pd.Timedelta(minutes=minute - 1)
         if target not in frame.index:
             result[f"m{minute}"] = None
@@ -73,7 +76,7 @@ def collect(client, events: list, instruments: dict) -> list[dict]:
         row["tech_follow_gold"] = {}
         for h in HORIZONS:
             change = tech.get(f"m{h}")
-            signal = row["gold_signal_5m"]
+            signal = row["gold_signal_1m"]
             row["tech_follow_gold"][f"m{h}"] = (
                 None if change is None or signal in (None, 0)
                 else {"direction_correct": change * signal > 0,
