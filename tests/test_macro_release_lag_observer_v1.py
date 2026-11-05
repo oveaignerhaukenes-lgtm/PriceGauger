@@ -14,7 +14,7 @@ from macro_release_lag_observer_v1 import (
 EVENT = releases()[0][1]
 
 
-def row(market, uic, sec, mid, spread=2.0, receive_delay=0):
+def row(market, uic, sec, mid, spread=0.1, receive_delay=0):
     moment = EVENT + timedelta(seconds=sec)
     received = moment + timedelta(seconds=receive_delay)
     return {
