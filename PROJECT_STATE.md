@@ -80,6 +80,12 @@ The separate V2/Lager account must not accidentally acquire V3 authority. Preser
 - **Saxo positions, arming, margin, trades and balances:** NOT broker-reconciled by this handoff. A portfolio screenshot shown 2026-10-21 displays several profitable Tech100 accounts, but is not proof of HyperChase fills or net strategy attribution; do not commit private balance figures.
 - **Latest tested capabilities:** derive from current code/tests and PRs, not old handoffs.
 
+## 2026-11-05 · Makroslipp lead/lag observer V1 (research only)
+
+- Branch `research/macro-release-lag-observer-20261105`. Add isolated `macro_release_lag_observer_v1.py` and `pages/0_Macro_Release_Lag.py`. Existing Tech100 1Hz BBO capture remains active; the same no-extra-Saxo-requests recorder may also retain existing subscribed gold/silver/US500 quotes within ±3/15 minute windows around the *verified* NFP (Nov 6), CPI (Nov 10), PPI (Nov 13) releases at 13:30 UTC.
+- Read-only dashboard compares first received-price threshold crossing and 1–600s follow-through, with explicit poor-coverage withholding. PAPER counterfactual buys/sells Tech100 on next received bid/ask after Gold signal + assumed latency; reports spread-proxy, not broker fills or LIVE profitability. Exact UIC isolation, no quote interpolation, no order/arm/risk authority.
+- **Not yet merged or deployed at authorship.** CI and exact Railway stream + web deployed SHA must be verified. Gold/Silver subscriptions and observed quote quality must be verified before Nov 6; if absent, only Tech100 event response is measurable. Documentation: `docs/MACRO_RELEASE_LAG_RESEARCH_20261105.md`.
+
 ## Active work ledger (maintained by the acting developer)
 
 Update this small section in the same PR whenever a change affects architecture, strategy semantics, data contracts, execution, or user-visible behavior.

@@ -13,7 +13,11 @@ from autotrader_account_learning_v1 import (
     run_account_learning_cycle_v1,
 )
 
-BASE=datetime(2026,10,20,12,0,tzinfo=timezone.utc)
+# The persisted watcher reads only the last 14 days relative to wall clock.
+# Keep the synthetic trace recent while every assertion remains relative to BASE.
+BASE=(datetime.now(timezone.utc)-timedelta(days=1)).replace(
+    hour=12,minute=0,second=0,microsecond=0
+)
 
 
 def sample(n,amount,*,account="account-a",strategy="macd-flip",
