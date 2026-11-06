@@ -75,13 +75,22 @@ st.subheader("1 · Strategi og algoritme")
 left, right = st.columns((1.5, 1))
 with left:
     preset = st.selectbox("Start med mal", tuple(PRESETS), key="alg:preset")
-    if st.session_state.get("alg:last_preset") != preset:
-        st.session_state["alg:editable_plan"] = json.dumps(PRESETS[preset], indent=2,
-                                                             ensure_ascii=False)
-        st.session_state["alg:last_preset"] = preset
+    # The widget can persist an empty string across reruns even when the
+    # selected preset has not changed. Restore only missing/blank state;
+    # preserve any nonempty user-authored plan (including invalid JSON).
+    preset_changed = st.session_state.get("alg:last_preset") != preset
+    blank_plan = not str(st.session_state.get("alg:editable_plan") or "").strip()
     proposed = st.session_state.pop("alg:pending_plan", None)
     if proposed is not None:
         st.session_state["alg:editable_plan"] = json.dumps(proposed, indent=2,
+                                                             ensure_ascii=False)
+    elif preset_changed or blank_plan:
+        st.session_state["alg:editable_plan"] = json.dumps(PRESETS[preset], indent=2,
+                                                             ensure_ascii=False)
+    st.session_state["alg:last_preset"] = preset
+    if st.button("Gjenopprett valgt mal", key="alg:reset_preset",
+                 help="Erstatter modellkoden med valgt standardmal."):
+        st.session_state["alg:editable_plan"] = json.dumps(PRESETS[preset], indent=2,
                                                              ensure_ascii=False)
     plan_text = st.text_area(
         "Modellkode (validert JSON-oppskrift, ikke kjørbar Python)",
