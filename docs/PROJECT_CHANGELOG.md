@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `b4a6ef92bdf506e608d46e6da940f09f2de06ddf`
+Latest tracked main commit: `e60f4cba4298014fb1461c2b032e6007d42ad07c`
 
 ## Recent main commits
 
+- 2026-11-06 [`e60f4cba42`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e60f4cba4298014fb1461c2b032e6007d42ad07c) — Fix Algolabb AI suggestion disabled on invalid editor
 - 2026-11-06 [`b4a6ef92bd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b4a6ef92bdf506e608d46e6da940f09f2de06ddf) — Fix Algolabb blank preset JSON field
 - 2026-11-05 [`5a7b3fa872`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5a7b3fa872bd9f91798ca2017647a4e5fecdc320) — Research: macro release lead/lag observer (NFP, CPI, PPI)
 - 2026-11-02 [`fd7d4e895b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fd7d4e895b9c1253d4f15afaa1922048853055cc) — Merge pull request #832 from oveaignerhaukenes-lgtm/fix/algolabb-summary-account-labels-20261102
@@ -46,6 +47,5 @@ Latest tracked main commit: `b4a6ef92bdf506e608d46e6da940f09f2de06ddf`
 - 2026-10-30 [`c9eb66254d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c9eb66254da46ec8354fb2d8097d642ef8e80da3) — feat: as-of historical FX conversion in bid-ask paper replay
 - 2026-10-30 [`e137806e61`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e137806e610bff89166e6a62735d4af9f79b6001) — feat: optional as-of FX conversion of 1m paper point value and fees
 - 2026-10-30 [`15a36209e9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/15a36209e92a59faadda6d52fa22420d9f12b9d8) — feat: bounded as-of direct NOK FX history with stale-data veto
-- 2026-10-30 [`c56bba2f8b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c56bba2f8bb69188652bbef071c039dd5d1bbe52) — test: isolated runner syntax, causal context and authenticated remote client
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
