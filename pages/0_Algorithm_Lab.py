@@ -125,8 +125,15 @@ with right:
         value=("Lag en énveis regimefølgende strategi der ferdig 30m MACD "
                "bestemmer retning, men 1m momentum avgjør entry og flat."),
         height=145, key="alg:ai_request")
+    # Draft generation always has a valid starting point: use the user's
+    # validated plan, otherwise the explicitly selected standard preset.
+    # Invalid JSON must block PAPER execution, not the AI drafting button.
+    ai_base_plan = plan if plan is not None else validate_plan(PRESETS[preset])
+    if plan is None:
+        st.caption("AI-forslag starter fra valgt standardmal fordi modellkodefeltet ikke er gyldig. "
+                   "Eksisterende tekst overskrives ikke før et forslag er klart.")
     if st.button("Foreslå ny modell med AI", type="secondary",
-                 disabled=plan is None, key="alg:generate"):
+                 disabled=not user_request.strip(), key="alg:generate"):
         with st.spinner("Ber AI om en validert modelloppskrift"):
             try:
                 # Only the current selected instrument's historic closed prices.
@@ -138,7 +145,7 @@ with right:
                 observed = [{"at": utc(b.bar_time).isoformat(), "close": b.close}
                             for b in recent][-24:]
                 suggestion = propose_algorithm(
-                    request=user_request, current_plan=plan,
+                    request=user_request, current_plan=ai_base_plan,
                     market=source.market_name, observed_closes=observed,
                     sampling_mode=st.session_state.get("alg:replay_mode", "1m"))
                 st.session_state["alg:pending_plan"] = suggestion["plan"]
