@@ -27,6 +27,7 @@ from strategy_lab_v2_ai import (
 from strategy_lab_v2_accounts import render_account_performance_v2
 from analysis_digest_v1 import render_summary
 from autotrader_v3_ai_live_presets_v1 import AI_LIVE_PRESETS_V3
+from autotrader_v3_macd_stoch_v21_split_v1 import SPLIT_KEYS_V3, LONG_KEY_V3, SHORT_KEY_V3
 
 st.set_page_config(page_title="Strategilab v2",layout="wide")
 st.title("Strategilab v2")
@@ -121,6 +122,9 @@ with tabs[0]:
                            key="slab2:hours")
         end_at=c3.date_input("Sluttdato (UTC)",value=datetime.now(timezone.utc).date(),
                              key="slab2:date")
+        split_selected=bool(set(chosen) & SPLIT_KEYS_V3)
+        split_exit_tf=st.selectbox("MACD-utgangsperiode (E)",("1m","2m","5m","10m","15m","30m","1h"),index=1,key="slab2:split_exit") if split_selected else "2m"
+        split_regime_tf=st.selectbox("MACD-regimeperiode (R)",("1m","2m","5m","10m","15m","30m","1h"),index=5,key="slab2:split_regime") if split_selected else "30m"
         st.caption("Kanoniske 1m-prisbarer for akkurat den valgte Saxo-UIC. "
                    "For lange perioder, velg smalere vindu for å holde "
                    "beregning og prisdatakvalitet håndterbar.")
@@ -239,6 +243,7 @@ with tabs[0]:
                 if not bars:
                     raise ValueError("Ingen kanonisk Saxo 1m OHLC for valgt instrument/tid")
                 st.session_state["slab2:lastbars"]=tuple(bars)
+                st.session_state["slab2:lastcosts"]=costs
                 successful={};issues={}
                 for key in chosen[:12]:
                     try:
@@ -252,6 +257,8 @@ with tabs[0]:
                                 "rhythm-build-fractal",
                                 "rhythm-trend-fractal",
                             ) else timeframe,
+                            exit_timeframe=split_exit_tf,
+                            regime_timeframe=split_regime_tf,
                         )
                     except Exception as exc:
                         issues[key]=str(exc)[:170]
@@ -264,10 +271,62 @@ with tabs[0]:
                     "market":source.market_name,
                     "from":start.isoformat(),"to":end.isoformat(),
                     "signal_tf":timeframe,"costs":asdict(costs),
+                    "exit_tf":split_exit_tf,"regime_tf":split_regime_tf,
                     "selected_strategies":chosen[:12],
                 }
             except Exception as exc:
                 st.error("SIM ble ikke kjørt: "+str(exc)[:250])
+        with st.expander("MACD–Stoch 2.1 · test flere inngangs-, utgangs- og regimeperioder", expanded=False):
+            st.caption("Bruker nøyaktig samme lagrede Saxo 1m-historikk og PAPER-kostnadsgrunnlag "
+                       "fra siste simulering. Original V2.1 forblir uendret; historisk optimalt "
+                       "resultat er ikke et fremtidig signal.")
+            sweep_entry=st.multiselect("Inngang (MACD–Stoch V2.1)", ("1m","2m","5m","10m","15m"), default=("1m","2m"), key="slab2:sweep_entry")
+            sweep_exit=st.multiselect("Utgang (MACD)", ("1m","2m","5m","10m","15m"), default=("2m","5m"), key="slab2:sweep_exit")
+            sweep_regime=st.multiselect("Regime (MACD)", ("15m","30m","1h"), default=("30m",), key="slab2:sweep_regime")
+            sweep_count=2*len(sweep_entry)*len(sweep_exit)*len(sweep_regime)
+            st.caption(f"{sweep_count} strategikombinasjoner · LONG/FLAT og SHORT/FLAT.")
+            matched=(source is not None and
+                st.session_state.get("slab2:provenance",{}).get("source_instrument_id")==source.instrument_id and
+                bool(st.session_state.get("slab2:lastbars")) and
+                st.session_state.get("slab2:lastcosts") is not None)
+            if st.button("Kjør parameter-sweep på sist lastede historikk",
+                         disabled=not matched or not (0<sweep_count<=24),
+                         key="slab2:sweep_run"):
+                with st.spinner("Kjører samme kostnadsjusterte historiske vindu for hver kombinasjon"):
+                    sweep_rows=[]
+                    source_bars=st.session_state["slab2:lastbars"]
+                    costs=st.session_state["slab2:lastcosts"]
+                    for strategy_key in (LONG_KEY_V3,SHORT_KEY_V3):
+                        for entry_tf in sweep_entry:
+                            for exit_tf in sweep_exit:
+                                for regime_tf in sweep_regime:
+                                    record={"Retning":"LONG/FLAT" if strategy_key==LONG_KEY_V3 else "SHORT/FLAT",
+                                            "Inngang":entry_tf,"Utgang":exit_tf,"Regime":regime_tf}
+                                    try:
+                                        result=replay_v3_strategy_v2(
+                                            strategy_key=strategy_key,bars=source_bars,costs=costs,
+                                            timeframe=entry_tf,exit_timeframe=exit_tf,
+                                            regime_timeframe=regime_tf)
+                                        record.update({"Netto PAPER %":round(result.net_return_pct,3),
+                                                       "Maks trekk %":round(result.drawdown_pct,3),
+                                                       "Handler":result.trades,
+                                                       "Kostnader NOK":round(result.total_cost_nok,2),
+                                                       "Feil":""})
+                                    except (ValueError,TypeError) as exc:
+                                        record["Feil"]=str(exc)[:160]
+                                    sweep_rows.append(record)
+                    st.session_state["slab2:sweep_results"]=pd.DataFrame(sweep_rows)
+            sweep_df=st.session_state.get("slab2:sweep_results")
+            if sweep_df is not None and not sweep_df.empty:
+                valid=sweep_df[sweep_df["Feil"]==""]
+                if len(valid):
+                    st.dataframe(valid.sort_values(["Netto PAPER %","Maks trekk %"],ascending=[False,True]),
+                                 use_container_width=True,hide_index=True)
+                if len(valid)!=len(sweep_df):
+                    st.warning(f"{len(sweep_df)-len(valid)} kombinasjoner kunne ikke replayes.")
+                    st.dataframe(sweep_df[sweep_df["Feil"]!=""],hide_index=True)
+                st.download_button("Eksporter sweep (CSV)", data=sweep_df.to_csv(index=False).encode("utf-8"),
+                                   file_name="macd_stoch_v21_split_sweep.csv",mime="text/csv",key="slab2:sweep_export")
         outcomes=st.session_state.get("slab2:results",{})
         problems=st.session_state.get("slab2:issues",{})
         if problems:
