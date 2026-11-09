@@ -29,6 +29,10 @@ from autotrader_v3_macd_stoch_v2 import (
     STRATEGY_KEY_V3 as STOCH_V2_KEY,
     MacdStochV2DecisionV3, macd_stoch_v2_target_v3,
 )
+from autotrader_v3_macd_stoch_v21_split_v1 import (
+    LONG_KEY_V3, SHORT_KEY_V3, SPLIT_KEYS_V3,
+    long_flat_target_v3, short_flat_target_v3,
+)
 from autotrader_v3_macd_stoch_v21 import (
     STRATEGY_KEY_V3 as STOCH_V21_KEY, macd_stoch_v21_target_v3,
 )
@@ -168,17 +172,17 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
                                 strategy_key: str = HISTOGRAM_KEY,
                                 config: MacdTrailingConfigV3 | MacdHistogramConfigV3 | None = None,
                                 bars: Sequence = (), source_bars: Sequence = (),
-                                regime_timeframe_minutes: int = 15, market_name: str = "",
+                                regime_timeframe_minutes: int = 15, exit_timeframe_minutes: int = 2, market_name: str = "",
                                 db_path: str = "pricegauger.db") -> ClosedBarDecisionV3:
     """Persistently reduce one *new* closed MACD bar into one target transition.
 
     Same/older bars are HOLD and cannot accumulate another tranche after refresh or restart.
     """
-    if strategy_key not in {PRICETREND_KEY,SMA_BASELINE_KEY,PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3}:
+    if strategy_key not in {PRICETREND_KEY,SMA_BASELINE_KEY,PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, RHYTHM_BUILD_KEY, RHYTHM_TREND_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3, RHYTHM_TREND_FRACTAL_KEY_V3} | SPLIT_KEYS_V3:
         raise ValueError(f"unsupported closed-bar V3 strategy: {strategy_key}")
     if config is None:
-        config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3} else MacdHistogramConfigV3()
-    if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3} and not isinstance(config, MacdTrailingConfigV3):
+        config = MacdTrailingConfigV3() if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3} | SPLIT_KEYS_V3 else MacdHistogramConfigV3()
+    if strategy_key in {TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3} | SPLIT_KEYS_V3 and not isinstance(config, MacdTrailingConfigV3):
         raise TypeError("trailing/MACD-Stoch requires MacdTrailingConfigV3")
     if strategy_key in {PRICETREND_KEY,SMA_BASELINE_KEY,PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3} and not isinstance(config, MacdHistogramConfigV3):
         raise TypeError("histogram strategies require MacdHistogramConfigV3")
@@ -200,6 +204,10 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         decide = rhythm_trend_fractal_target_v3
     elif strategy_key == STOCH_V21_KEY:
         decide = macd_stoch_v21_target_v3
+    elif strategy_key == LONG_KEY_V3:
+        decide = long_flat_target_v3
+    elif strategy_key == SHORT_KEY_V3:
+        decide = short_flat_target_v3
     elif strategy_key == STOCH_V22_KEY:
         decide = macd_stoch_v22_flip_target_v3
     elif strategy_key == STOCH_V2_KEY:
@@ -257,6 +265,11 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
             extra["bars"] = bars
             extra["source_bars"] = source_bars
             extra["market_name"] = str(market_name)
+        elif strategy_key in SPLIT_KEYS_V3:
+            extra.update(bars=bars, source_bars=source_bars,
+                         regime_timeframe_minutes=int(regime_timeframe_minutes),
+                         exit_timeframe_minutes=int(exit_timeframe_minutes),
+                         market_name=str(market_name))
         elif strategy_key in {STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, RHYTHM_BUILD_KEY, RHYTHM_BUILD_FRACTAL_KEY_V3}:
             extra["bars"] = bars
             if strategy_key == RHYTHM_BUILD_FRACTAL_KEY_V3:
