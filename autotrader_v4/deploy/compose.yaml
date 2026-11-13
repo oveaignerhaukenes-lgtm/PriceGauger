@@ -1,0 +1,42 @@
+# Staging ONLY: start without any Saxo order credentials or LIVE arming.
+# Publish the API to host loopback, NOT to the internet.
+name: autotrader-v4-stage
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${AT4_DB_USER:?set-in-env-file}
+      POSTGRES_PASSWORD: ${AT4_DB_PASSWORD:?set-in-env-file}
+      POSTGRES_DB: ${AT4_DB_NAME:-autotrader_v4}
+    volumes:
+      - v4_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AT4_DB_USER} -d ${AT4_DB_NAME:-autotrader_v4}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: autotrader_v4/deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      AT4_MODE: READ_ONLY
+      AT4_SAXO_ENABLED: "false"
+      AT4_EXECUTION_ENABLED: "false"
+    ports:
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  v4_pgdata:
