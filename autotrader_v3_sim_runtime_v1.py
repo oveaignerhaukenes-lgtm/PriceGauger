@@ -177,7 +177,8 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             bars=closed,
             source_bars=tuple(bars),
             regime_timeframe_minutes=regime_timeframe_minutes,
-            exit_timeframe_minutes=fixed_timeframe_minutes_v3(config.exit_timeframe),
+            exit_timeframe_minutes=(fixed_timeframe_minutes_v3(config.exit_timeframe)
+                if instance.strategy_key in SPLIT_KEYS_V3 else 2),
             market_name=instance.market_name,
             db_path=db_path,
             **({"signal_timeframe_minutes":timeframe_minutes,
