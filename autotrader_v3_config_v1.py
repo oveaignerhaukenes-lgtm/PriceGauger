@@ -17,6 +17,7 @@ class AutoTraderConfigV3:
     control_mode: str = "Manuell"
     modifiers: tuple[str, ...] = ()
     regime_timeframe: str = "15m"
+    exit_timeframe: str = "2m"  # Only split V2.1 uses this field.
 
     def __post_init__(self) -> None:
         if self.strategy_key not in {x.key for x in STRATEGIES_V3}:
@@ -27,6 +28,8 @@ class AutoTraderConfigV3:
             raise ValueError("unknown V3 control mode")
         if self.regime_timeframe not in REGIME_TIMEFRAMES_V3:
             raise ValueError("unknown V3 regime timeframe")
+        if self.exit_timeframe not in REGIME_TIMEFRAMES_V3:
+            raise ValueError("unknown V3 exit timeframe")
         unknown = set(self.modifiers) - {x.key for x in MODIFIERS_V3}
         if unknown:
             raise ValueError(f"unknown V3 modifiers: {sorted(unknown)}")
@@ -41,21 +44,25 @@ def ensure_autotrader_config_schema_v3(db_path: str = "pricegauger.db") -> None:
           control_mode TEXT NOT NULL,
           modifiers_json TEXT NOT NULL,
           regime_timeframe TEXT NOT NULL DEFAULT '15m',
+          exit_timeframe TEXT NOT NULL DEFAULT '2m',
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
         if using_postgres():
             db.execute("ALTER TABLE autotrader_v3_config ADD COLUMN IF NOT EXISTS regime_timeframe TEXT NOT NULL DEFAULT '15m'")
+            db.execute("ALTER TABLE autotrader_v3_config ADD COLUMN IF NOT EXISTS exit_timeframe TEXT NOT NULL DEFAULT '2m'")
         else:
             existing={row[1] for row in db.execute("PRAGMA table_info(autotrader_v3_config)").fetchall()}
             if "regime_timeframe" not in existing:
                 db.execute("ALTER TABLE autotrader_v3_config ADD COLUMN regime_timeframe TEXT NOT NULL DEFAULT '15m'")
+            if "exit_timeframe" not in existing:
+                db.execute("ALTER TABLE autotrader_v3_config ADD COLUMN exit_timeframe TEXT NOT NULL DEFAULT '2m'")
 
 
 def load_autotrader_config_v3(trader_id: str, db_path: str = "pricegauger.db") -> AutoTraderConfigV3:
     ensure_autotrader_config_schema_v3(db_path)
     with connect(db_path) as db:
         row = db.execute(
-            "SELECT strategy_key,timeframe,control_mode,modifiers_json,regime_timeframe FROM autotrader_v3_config WHERE trader_id=?",
+            "SELECT strategy_key,timeframe,control_mode,modifiers_json,regime_timeframe,exit_timeframe FROM autotrader_v3_config WHERE trader_id=?",
             (trader_id,),
         ).fetchone()
     if row is None:
@@ -68,6 +75,7 @@ def load_autotrader_config_v3(trader_id: str, db_path: str = "pricegauger.db") -
         control_mode=str(get("control_mode", 2)),
         modifiers=tuple(json.loads(str(get("modifiers_json", 3)) or "[]")),
         regime_timeframe=str(get("regime_timeframe", 4) or "15m"),
+        exit_timeframe=str(get("exit_timeframe", 5) or "2m"),
     )
 
 
@@ -76,14 +84,15 @@ def save_autotrader_config_v3(config: AutoTraderConfigV3, db_path: str = "priceg
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO autotrader_v3_config(
-                 trader_id,strategy_key,timeframe,control_mode,modifiers_json,regime_timeframe,updated_at)
-               VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                 trader_id,strategy_key,timeframe,control_mode,modifiers_json,regime_timeframe,exit_timeframe,updated_at)
+               VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                ON CONFLICT(trader_id) DO UPDATE SET
                  strategy_key=excluded.strategy_key,timeframe=excluded.timeframe,
                  control_mode=excluded.control_mode,modifiers_json=excluded.modifiers_json,
                  regime_timeframe=excluded.regime_timeframe,
+                 exit_timeframe=excluded.exit_timeframe,
                  updated_at=excluded.updated_at""",
             (config.trader_id, config.strategy_key, config.timeframe, config.control_mode,
-             json.dumps(config.modifiers), config.regime_timeframe),
+             json.dumps(config.modifiers), config.regime_timeframe, config.exit_timeframe),
         )
     return config

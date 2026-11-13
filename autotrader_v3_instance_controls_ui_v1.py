@@ -24,7 +24,7 @@ from autotrader_v3_modifier_audit_v1 import (
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_live_truth_v1 import inventory_label_v1,load_v3_live_truth_v1
 from autotrader_v3_registry_v1 import (
-    CONTROL_MODES_V3, MODIFIERS_V3, REGIME_STRATEGIES_V3, REGIME_TIMEFRAMES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
+    CONTROL_MODES_V3, MODIFIERS_V3, REGIME_STRATEGIES_V3, REGIME_TIMEFRAMES_V3, SPLIT_CLOCK_STRATEGIES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
     LIVE_CONTROL_MODES_V3, LIVE_MODIFIERS_V3, LIVE_TIMEFRAMES_V3,
     live_config_issues_v3, sim_config_issues_v3, strategy_display_label_v3,
 )
@@ -42,7 +42,11 @@ RHYTHM_R15_CATALOG_KEYS_V3 = frozenset((
 
 def _rhythm_selection_defaults_v3(previous_strategy: str, selected_strategy: str) -> dict[str, str]:
     """On an explicit strategy switch, propose valid periods without mutating saved config."""
-    if previous_strategy == selected_strategy or selected_strategy not in RHYTHM_1M_CATALOG_KEYS_V3:
+    if previous_strategy == selected_strategy:
+        return {}
+    if selected_strategy in SPLIT_CLOCK_STRATEGIES_V3:
+        return {'timeframe': '1m', 'regime_timeframe': '30m', 'exit_timeframe': '2m'}
+    if selected_strategy not in RHYTHM_1M_CATALOG_KEYS_V3:
         return {}
     selected = {'timeframe': '1m'}
     if selected_strategy in RHYTHM_R15_CATALOG_KEYS_V3:
@@ -155,7 +159,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     trader_id=str(instance.instance_id); config=load_autotrader_config_v3(trader_id); policy=load_execution_policy_v3(trader_id); authority=authority_state_v3(trader_id)
     account_name=_account_name_cached_v3(str(instance.account_id))
     account_title=account_name or str(instance.account_id)
-    active_label=strategy_display_label_v3(config.strategy_key,config.timeframe,config.regime_timeframe)
+    active_label=strategy_display_label_v3(config.strategy_key,config.timeframe,config.regime_timeframe,config.exit_timeframe)
     st.markdown(f'### {account_title} · {instance.market_name}')
     st.caption(
         f'Aktiv nå: {active_label} · konto {instance.account_id} · UIC {instance.uic} · '
@@ -259,6 +263,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.session_state[f'{key_prefix}:timeframe:{trader_id}']=suggested['timeframe']
     if 'regime_timeframe' in suggested:
         st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']=suggested['regime_timeframe']
+    if 'exit_timeframe' in suggested:
+        st.session_state[f'{key_prefix}:exit-timeframe:{trader_id}']=suggested['exit_timeframe']
     st.session_state[viewed_key]=selected
     if strategy in ("hunter-tick-v1","rabid-dog-tick-v1"):
         st.info(
@@ -301,6 +307,14 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         format_func=lambda value: value if value in LIVE_TIMEFRAMES_V3 else f'{value} · ikke LIVE',
         key=f'{key_prefix}:timeframe:{trader_id}',disabled=is_ai_preset,
     )
+    exit_timeframe=config.exit_timeframe
+    if strategy in SPLIT_CLOCK_STRATEGIES_V3:
+        exit_timeframe=st.selectbox(
+            'Utgangsperiode (E) · MACD', REGIME_TIMEFRAMES_V3,
+            index=REGIME_TIMEFRAMES_V3.index(config.exit_timeframe),
+            key=f'{key_prefix}:exit-timeframe:{trader_id}',
+            help='Eget ferdiglukket MACD-signal styrer FLAT; raskere inngang kan ha tregere utgang.',
+        )
     regime_timeframe=config.regime_timeframe
     if strategy in REGIME_STRATEGIES_V3:
         regime_timeframe=st.selectbox(
@@ -310,7 +324,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             key=f'{key_prefix}:regime-timeframe:{trader_id}',
             help='MACD på R-perioden bestemmer tillatt side. Histogram på S-perioden bygger/reduserer eksponeringen.',
         )
-        selected_label=strategy_display_label_v3(strategy,timeframe,regime_timeframe)
+        selected_label=strategy_display_label_v3(strategy,timeframe,regime_timeframe,exit_timeframe)
         if selected_label != active_label:
             st.caption(f'Valgt, ikke lagret: {selected_label} · aktiv nå: {active_label}')
         else:
@@ -373,20 +387,22 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         selector_key=selected,timeframe=timeframe,modifiers=tuple(enabled))
     desired=AutoTraderConfigV3(
         trader_id,selected_strategy,selected_timeframe,mode,
-        selected_modifiers,regime_timeframe
+        selected_modifiers,regime_timeframe,exit_timeframe
     ); desired_policy=ExecutionPolicyV3(trader_id,float(budget),float(exposure)); changed=desired!=config or desired_policy!=policy
-    desired_label=strategy_display_label_v3(desired.strategy_key,desired.timeframe,desired.regime_timeframe)
+    desired_label=strategy_display_label_v3(desired.strategy_key,desired.timeframe,desired.regime_timeframe,desired.exit_timeframe)
     if desired.strategy_key not in REGIME_STRATEGIES_V3 and desired_label!=active_label:
         st.caption(f'Valgt, ikke lagret: {desired_label} · aktiv nå: {active_label}')
     live_issues=live_config_issues_v3(
         strategy_key=desired.strategy_key,timeframe=desired.timeframe,
         control_mode=desired.control_mode,modifiers=desired.modifiers,
         regime_timeframe=desired.regime_timeframe,
+        exit_timeframe=desired.exit_timeframe,
     )
     sim_issues=sim_config_issues_v3(
         strategy_key=desired.strategy_key,timeframe=desired.timeframe,
         control_mode=desired.control_mode,modifiers=desired.modifiers,
         regime_timeframe=desired.regime_timeframe,
+        exit_timeframe=desired.exit_timeframe,
     )
     if live_issues:
         st.warning('LIVE sperret av config: ' + ' · '.join(live_issues))

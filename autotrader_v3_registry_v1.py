@@ -64,6 +64,24 @@ STRATEGIES_V3 = (
         "macd-stoch-v2-1", True,
     ),
     StrategySpecV3(
+        "macd-stoch-v21-r-long-flat-v1", "MACD–Stoch 2.1 · Long/Flat R/E",
+        "Uendret V2.1 MACD+Stoch på valgt inngangsperiode (S), "
+        "MACD på separat utgangsperiode (E) lukker ved bearish histogram, "
+        "MACD på regimeperiode (R) tillater bare LONG; FULL FLAT ved bearish "
+        "eller manglende regime. Tre uavhengige, ferdiglukket-perioder. "
+        "LIVE-kompatibel; krever eksplisitt tilknytning til konto.",
+        "macd-stoch-v21-r-long-flat-v1", True,
+    ),
+    StrategySpecV3(
+        "macd-stoch-v21-r-short-flat-v1", "MACD–Stoch 2.1 · Short/Flat R/E",
+        "Uendret V2.1 MACD+Stoch på valgt inngangsperiode (S), "
+        "MACD på separat utgangsperiode (E) lukker ved bullish histogram, "
+        "MACD på regimeperiode (R) tillater bare SHORT; FULL FLAT ved bullish "
+        "eller manglende regime. Tre uavhengige, ferdiglukket-perioder. "
+        "LIVE-kompatibel; krever eksplisitt tilknytning til konto.",
+        "macd-stoch-v21-r-short-flat-v1", True,
+    ),
+    StrategySpecV3(
         "macd-stoch-v2-2-flip", "MACD+Stoch V2.2 · Flip",
         "V2.1 beholdt for OPEN og BUILD, men sterk motsatt 70/30-score "
         "på én lukket candle sender straks motsatt minste-tranche-mål. "
@@ -208,7 +226,8 @@ AEN_CORE_CATALOG_KEYS_V3 = frozenset({
 })
 AEN_CORE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m")
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
-REGIME_STRATEGIES_V3 = ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1", "rhythm-trend-fractal")
+SPLIT_CLOCK_STRATEGIES_V3 = ("macd-stoch-v21-r-long-flat-v1", "macd-stoch-v21-r-short-flat-v1")
+REGIME_STRATEGIES_V3 = SPLIT_CLOCK_STRATEGIES_V3 + ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1", "rhythm-trend-fractal")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss", "whipsaw", "volatility-pause", "ai-loss-manager", "impulse-exit", "account-loss-lock")
 SIM_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
@@ -231,6 +250,7 @@ def live_config_issues_v3(
     control_mode: str,
     modifiers: tuple[str, ...] | list[str],
     regime_timeframe: str = "15m",
+    exit_timeframe: str = "2m",
 ) -> tuple[str, ...]:
     issues: list[str] = []
     try:
@@ -259,6 +279,11 @@ def live_config_issues_v3(
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
     if strategy_key in FRAKTAL1_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Fraktal#1 krever 1m ferdiglukkede signaler")
+    if strategy_key in SPLIT_CLOCK_STRATEGIES_V3:
+        if timeframe not in LIVE_TIMEFRAMES_V3:
+            issues.append("Split V2.1 krever en ferdiglukket inngangsperiode")
+        if exit_timeframe not in LIVE_TIMEFRAMES_V3:
+            issues.append("Split V2.1 krever en ferdiglukket utgangsperiode")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
     if strategy_key in ("rhythm-build-fractal","rhythm-trend-fractal") and timeframe != "1m":
@@ -287,6 +312,7 @@ def sim_config_issues_v3(
     control_mode: str,
     modifiers: tuple[str, ...] | list[str],
     regime_timeframe: str = "15m",
+    exit_timeframe: str = "2m",
 ) -> tuple[str, ...]:
     issues: list[str] = []
     try:
@@ -307,6 +333,9 @@ def sim_config_issues_v3(
         issues.append("HyperChase 10s V3 SIM uses the separate prospective 1s PAPER lab, not a 1m bar replay")
     if strategy_key in PRICE_MACD_1M_KEYS_V3 and timeframe != "1m":
         issues.append("PreCross/Histogram+Price krever 1m prissignal og ferdiglukkede 2m MACD")
+    if strategy_key in SPLIT_CLOCK_STRATEGIES_V3:
+        if timeframe not in SIM_TIMEFRAMES_V3 or exit_timeframe not in SIM_TIMEFRAMES_V3:
+            issues.append("Split V2.1 krever gyldige inngangs- og utgangsperioder")
     if strategy_key == "macd-stoch-rhythm-build" and timeframe != "1m":
         issues.append("Rytmebygg v1 krever ferdiglukkede 1m-signaler")
     if strategy_key in ("rhythm-build-fractal","rhythm-trend-fractal") and timeframe != "1m":
@@ -336,9 +365,12 @@ def strategy_display_label_v3(
     strategy_key: str,
     timeframe: str,
     regime_timeframe: str = "15m",
+    exit_timeframe: str = "2m",
 ) -> str:
     """Human-facing label for the *persisted* V3 strategy configuration."""
     spec = strategy_v3(str(strategy_key))
+    if spec.key in SPLIT_CLOCK_STRATEGIES_V3:
+        return f"{spec.label} · IN {timeframe} / UT {exit_timeframe} / R {regime_timeframe}"
     if spec.key == "macd-regime-histogram":
         return f"Histogram MACD-R{regime_timeframe}S{timeframe}"
     if spec.key == "aen2-sticky-regime":
