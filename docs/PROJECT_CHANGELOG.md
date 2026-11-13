@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `e60f4cba4298014fb1461c2b032e6007d42ad07c`
+Latest tracked main commit: `b8f56fca8f9e20fe34e080917e59e767daaecba5`
 
 ## Recent main commits
 
+- 2026-11-14 [`b8f56fca8f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b8f56fca8f9e20fe34e080917e59e767daaecba5) — Add separate MACD+Stoch V2.1 long-flat and short-flat R/S/E strategies
 - 2026-11-06 [`e60f4cba42`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e60f4cba4298014fb1461c2b032e6007d42ad07c) — Fix Algolabb AI suggestion disabled on invalid editor
 - 2026-11-06 [`b4a6ef92bd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b4a6ef92bdf506e608d46e6da940f09f2de06ddf) — Fix Algolabb blank preset JSON field
 - 2026-11-05 [`5a7b3fa872`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5a7b3fa872bd9f91798ca2017647a4e5fecdc320) — Research: macro release lead/lag observer (NFP, CPI, PPI)
@@ -46,6 +47,5 @@ Latest tracked main commit: `e60f4cba4298014fb1461c2b032e6007d42ad07c`
 - 2026-10-30 [`f8d24502e9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f8d24502e9548d897fecc6e44118af19e110dc10) — feat: opt-in recorded direct NOK FX series for paper valuation
 - 2026-10-30 [`c9eb66254d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c9eb66254da46ec8354fb2d8097d642ef8e80da3) — feat: as-of historical FX conversion in bid-ask paper replay
 - 2026-10-30 [`e137806e61`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e137806e610bff89166e6a62735d4af9f79b6001) — feat: optional as-of FX conversion of 1m paper point value and fees
-- 2026-10-30 [`15a36209e9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/15a36209e92a59faadda6d52fa22420d9f12b9d8) — feat: bounded as-of direct NOK FX history with stale-data veto
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
