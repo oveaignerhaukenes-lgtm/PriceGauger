@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `7c00fec2ffc1bb78741e0360f166de9323bdc4dc`
+Latest tracked main commit: `e364cd2d9ab26a8aa4cf1c8b7db69be43f52fd00`
 
 ## Recent main commits
 
+- 2026-11-15 [`e364cd2d9a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e364cd2d9ab26a8aa4cf1c8b7db69be43f52fd00) — fix: expose Tech100 Impulse Catcher Lab in navigation
 - 2026-11-15 [`7c00fec2ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7c00fec2ffc1bb78741e0360f166de9323bdc4dc) — feat: price-confirmed MACD-Stoch V2.1 regime long/flat and short/flat V2
 - 2026-11-15 [`1d63002bb1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d63002bb16908bcbed3461aa0bd1e74888a2acd) — feat: paired Tech100 impulse catchers with BBO PAPER and LIVE observability
 - 2026-11-15 [`00525fefa6`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/00525fefa6ec656798dabb93f7cbefacb88e62fc) — Disable unsolicited AI calls while preserving manual opt-ins and raw ingest (#839)
@@ -46,6 +47,5 @@ Latest tracked main commit: `7c00fec2ffc1bb78741e0360f166de9323bdc4dc`
 - 2026-10-30 [`b9d612378c`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b9d612378ce090733f92bfe70511d6a0b76f446c) — fix: avoid local fee variable shadowing FX cost helper
 - 2026-10-30 [`37649b0ece`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/37649b0ece207ef60e32c439afa16a5e609c8e2e) — feat: FX-converted custom Python paper replay
 - 2026-10-30 [`bb436baa2b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/bb436baa2b377d0f721c15c8a0ee87683c51a89c) — feat: archive FX provenance with each immutable experiment
-- 2026-10-30 [`c8041bb956`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c8041bb9564e55837f2f0301a0ca91bf62ae97c8) — feat: persist selected historical FX UIC provenance
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
