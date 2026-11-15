@@ -2,6 +2,13 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-15 · Tech100 C/D impulse-catcher paired pilot (in progress)
+
+- **Operator mapping:** Tech100-C = new one-sided `impulse-catcher-long-v1`, Tech100-D = `impulse-catcher-short-v1`; Tech100-E remains unchanged `macd-stoch-v2-1` control. Test both *prospective LIVE and identical 1s-BBO PAPER* on separate accounts, after exact-account ownership/position/pending-order/SMS/arming verification. Do **not** automatically reassign or arm any account on deploy.
+- **Model:** rapid abnormal 3s/10s price velocity with causal historical baseline, directional efficiency and spread gate; price-retrace/2s exhaustion closes, urgent reversal closes immediately; one legal tranche, LONG/FLAT or SHORT/FLAT only. No strategy-level monetary daily loss cap. `account-loss-lock` remains strictly optional; extraneous strategy modifiers disallowed for paired baseline. Actual LIVE orders still use V3 margin/ownership/reconciliation/rate safeguards.
+- **Current branch:** `feature/tech100-impulse-paired-20261115`; new pure model, BBO next-quote PAPER replay, durable per-instance signal event ledger, V3 catalog/runtime/quote wake, read-only `pages/0_Impulse_Catcher_Lab.py` with paired outcome and day-level research/threshold proposals. Proposed threshold changes do not auto-rewrite LIVE, to preserve valid out-of-sample testing and version attribution.
+- **Evidence:** seven standalone `unittest` cases passing locally (both directions, sharp reversals, BBO/lag, restart state/ledger, wrong-side account inventory, LIVE selector), Python compile checks passing; full pytest/GitHub CI not yet completed. Real quote sample density, Saxo fills, costs, account C/D current owner/position/locks and release SHA not yet verified; no account altered and no live fills claimed.
+
 ## 2026-11-15 · Background AI OFF by default (operator request; pending release)
 
 - **Policy:** no unsolicited OpenAI requests from the 60s worker Telegram scoring/news regime, state-overview summary, Live-Sim evening AI report, or on-page-load analysis digests. New `PRICEGAUGER_BACKGROUND_AI_ENABLED` is **OFF by default**, with `1` as the future explicit reactivation. Keep `OPENAI_API_KEY` intact for user-initiated actions (chat, Strategy Lab, buttons) and existing opt-in AI strategy settings. No broker authority/order changes.

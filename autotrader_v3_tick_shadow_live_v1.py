@@ -1,4 +1,4 @@
-"""Durable, broker-free Hunter/Rabid Dog V3 tick LIVE signal adapters.
+"""Durable, broker-free Hunter/Rabid/Impulse V3 tick LIVE adapters.
 
 The existing SHADOW signal semantics remain the decision model; ONLY genuine,
 recent, tradable exact-UIC bid/ask from the canonical 1s capture are inputs.
@@ -14,6 +14,7 @@ import json
 from math import isfinite
 
 from autotrader_hunter_v1 import Hunter
+from autotrader_impulse_catcher_v1 import ImpulseCatcher, ImpulseCatcherConfig
 from autotrader_rabid_dog_v1 import RabidDog, RabidDogConfig
 from autotrader_v3_closed_bar_driver_v1 import ClosedBarDecisionV3
 from autotrader_v3_domain import TargetInventoryV3
@@ -25,8 +26,14 @@ HUNTER_CATALOG_KEY = "hunter-tick-v1"
 DOG_CATALOG_KEY = "rabid-dog-tick-v1"
 HUNTER_RUNTIME_KEY = "hunter-tick-live-v1"
 DOG_RUNTIME_KEY = "rabid-dog-tick-live-v1"
-TICK_CATALOG_KEYS = frozenset({HUNTER_CATALOG_KEY, DOG_CATALOG_KEY})
-TICK_RUNTIME_KEYS = frozenset({HUNTER_RUNTIME_KEY, DOG_RUNTIME_KEY})
+IMPULSE_LONG_CATALOG_KEY = "impulse-catcher-long-v1"
+IMPULSE_SHORT_CATALOG_KEY = "impulse-catcher-short-v1"
+IMPULSE_LONG_RUNTIME_KEY = "impulse-catcher-long-tick-v1"
+IMPULSE_SHORT_RUNTIME_KEY = "impulse-catcher-short-tick-v1"
+IMPULSE_CATALOG_KEYS = frozenset({IMPULSE_LONG_CATALOG_KEY,IMPULSE_SHORT_CATALOG_KEY})
+TICK_CATALOG_KEYS = frozenset({HUNTER_CATALOG_KEY, DOG_CATALOG_KEY} | IMPULSE_CATALOG_KEYS)
+TICK_RUNTIME_KEYS = frozenset({HUNTER_RUNTIME_KEY,DOG_RUNTIME_KEY,
+                               IMPULSE_LONG_RUNTIME_KEY,IMPULSE_SHORT_RUNTIME_KEY})
 TICK_LIVE_UIC = 4912
 MAX_QUOTE_AGE_S = 5
 MAX_TRANSIT_S = 5
@@ -36,10 +43,14 @@ SHADOW_DOG_EVENTS_PER_HOUR = 16  # shadow transitions may be 2 real orders
 _DT_FIELDS = {
     HUNTER_CATALOG_KEY: {"last_extreme_at", "last_exit_at"},
     DOG_CATALOG_KEY: {"last_at"},
+    IMPULSE_LONG_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
+    IMPULSE_SHORT_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
 }
 _DEQUE_FIELDS = {
     HUNTER_CATALOG_KEY: {"samples"},
     DOG_CATALOG_KEY: {"recent_moves", "order_times"},
+    IMPULSE_LONG_CATALOG_KEY: {"samples"},
+    IMPULSE_SHORT_CATALOG_KEY: {"samples"},
 }
 
 
@@ -103,6 +114,8 @@ def _decode_model(key, raw):
         setattr(model,name,val)
     if model.target not in {"LONG","SHORT","FLAT"}:
         raise ValueError("invalid persisted target")
+    if isinstance(model,ImpulseCatcher) and model.target not in {"FLAT",model.config.side}:
+        raise ValueError("one-sided impulse target violation")
     return model
 
 
@@ -112,6 +125,9 @@ def _new_model(key):
     if key==DOG_CATALOG_KEY:
         return RabidDog(RabidDogConfig(
             units=.01,orders_per_hour=SHADOW_DOG_EVENTS_PER_HOUR))
+    if key in IMPULSE_CATALOG_KEYS:
+        return ImpulseCatcher(ImpulseCatcherConfig(
+            side="LONG" if key==IMPULSE_LONG_CATALOG_KEY else "SHORT"))
     raise ValueError("unsupported tick strategy")
 
 
@@ -125,6 +141,19 @@ def _ensure_schema(db):
         state_json TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS pg_v3_impulse_signal_events(
+        trader_id TEXT NOT NULL,
+        strategy_key TEXT NOT NULL,
+        quote_at TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        action TEXT NOT NULL,
+        source_mid REAL NOT NULL,
+        trigger_points REAL NOT NULL,
+        baseline_points REAL NOT NULL,
+        window_seconds INTEGER NOT NULL,
+        recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(trader_id,quote_at,action)
+    )""")
 
 
 def _bootstrap(model, amount, when, bid, ask):
@@ -136,6 +165,11 @@ def _bootstrap(model, amount, when, bid, ask):
         if side!="FLAT":
             model.impulse_origin=mid
             model.extreme=mid
+            model.last_extreme_at=when
+    elif isinstance(model,ImpulseCatcher):
+        model.samples=deque(((when,mid),))
+        if side != "FLAT":
+            model.entry_mid=model.extreme=mid
             model.last_extreme_at=when
     else:
         model.last_at=when
@@ -172,9 +206,13 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
         return _decision(strategy_key,current,action,why,stamp)
 
     if int(account_uic)!=TICK_LIVE_UIC or str(asset_type)!="CfdOnIndex":
-        return hold("BLOCK_PRODUCT","Hunter/Rabid require exact Tech100 CfdOnIndex UIC 4912")
+        return hold("BLOCK_PRODUCT","Tick strategy requires exact Tech100 CfdOnIndex UIC 4912")
     if abs(current)>float(tranche)+1e-9:
         return hold("BLOCK_SIZE","Tick strategies cannot manage oversized inventory automatically")
+    if (strategy_key==IMPULSE_LONG_CATALOG_KEY and current<-1e-9 or
+        strategy_key==IMPULSE_SHORT_CATALOG_KEY and current>1e-9):
+        return hold("BLOCK_OPPOSITE_INVENTORY",
+                    "Wrong-side broker inventory; operator must reconcile before using one-sided strategy")
     try:
         with connect(db_path) as db:
             _ensure_schema(db)
@@ -220,13 +258,21 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                         # Reset to broker-confirmed inventory, never replay an
                         # old desired direction across a network/feed outage.
                         model=_new_model(strategy_key)
-                        # Preserve original Rabid Dog's explicit quote-gap FLAT
-                        # policy. Hunter's shadow policy instead HOLDS on a gap.
-                        gap_exit = gap_exit or (strategy_key==DOG_CATALOG_KEY and abs(current)>1e-12)
-                        _bootstrap(model,0. if strategy_key==DOG_CATALOG_KEY else current,
+                        # Rabid and Impulse exit on quote gaps; Hunter retains
+                        # its existing HOLD policy. No opening on reconnect.
+                        gap_sensitive=(strategy_key==DOG_CATALOG_KEY or strategy_key in IMPULSE_CATALOG_KEYS)
+                        gap_exit = gap_exit or (gap_sensitive and abs(current)>1e-12)
+                        _bootstrap(model,0. if gap_sensitive else current,
                                    at,bid,ask)
+                        if isinstance(model,ImpulseCatcher):
+                            model.last_exit_at=at
                         signal_at=None
                         newest_decision=None
+                        last_at=at
+                        continue
+                    if gap_exit:
+                        # Never replace the pending gap-triggered CLOSE with a
+                        # fresh OPEN from later rows in the same quote batch.
                         last_at=at
                         continue
                     new=model.on_quote(at,bid,ask)
@@ -234,6 +280,16 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                     if new is not None:
                         newest_decision=new
                         signal_at=at
+                        if strategy_key in IMPULSE_CATALOG_KEYS:
+                            db.execute("""INSERT INTO pg_v3_impulse_signal_events(
+                                trader_id,strategy_key,quote_at,direction,action,source_mid,
+                                trigger_points,baseline_points,window_seconds)
+                                VALUES(?,?,?,?,?,?,?,?,?)
+                                ON CONFLICT(trader_id,quote_at,action) DO NOTHING""",
+                                (str(trader_id),strategy_key,at.isoformat(),
+                                 model.config.side,new.reason,float(new.price),
+                                 float(new.trigger_points),float(new.baseline_points),
+                                 int(new.window_seconds)))
             db.execute("""INSERT INTO pg_v3_tick_live_state(
                 trader_id,strategy_key,provider_uic,last_quote_at,last_signal_at,state_json,updated_at)
                 VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)
@@ -248,7 +304,7 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                 return hold("BOOTSTRAP","State reset on account/strategy switch; wait for new quotes",latest.isoformat())
             if gap_exit:
                 return _decision(strategy_key,0.,"QUOTE_GAP_FLAT",
-                    "Rabid Dog BBO gap >5s; close only, never open",latest.isoformat())
+                    "Impulse/Rabid BBO gap >5s; close only, never open",latest.isoformat())
             side={"LONG":float(tranche),"SHORT":-float(tranche),"FLAT":0.0}[model.target]
             # A signal can justify closing exposure after a direction change,
             # but NOT re-opening on a stale decision after Saxo reconciliation.

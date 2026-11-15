@@ -35,6 +35,20 @@ STRATEGIES_V3 = (
     StrategySpecV3("hunter-tick-v1","Hunter · LIVE tick","Ekte Saxo Tech100 BBO: 8p/8s impuls; FLAT ved utmattelse, én minste tranche. V3 sikker eksekvering; separat kontoarming.","hunter-tick-live-v1",True),
     StrategySpecV3("rabid-dog-tick-v1","Rabid Dog · LIVE tick (begrenset)","Saxo BBO hysterese, V3 CLOSE→FLAT→OPEN, én tranche, ordrekvote og separat arming.","rabid-dog-tick-live-v1",True),
     StrategySpecV3(
+        "impulse-catcher-long-v1","Impulse Catcher · LONG/FLAT · 1s BBO",
+        "Tech100 UIC 4912: ensidig LONG ved unormal 3s/10s kurshastighet, "
+        "dynamisk retrace-/utmattelsesexit. En minste tranche; ingen "
+        "strategisk tapsgrense. Account Loss Lock er valgfri og separat. "
+        "PAPER-mot-LIVE må verifiseres med ekte fills. Separat kontoarming.",
+        "impulse-catcher-long-tick-v1",True),
+    StrategySpecV3(
+        "impulse-catcher-short-v1","Impulse Catcher · SHORT/FLAT · 1s BBO",
+        "Tech100 UIC 4912: ensidig SHORT ved unormal 3s/10s kurshastighet, "
+        "dynamisk retrace-/utmattelsesexit. En minste tranche; ingen "
+        "strategisk tapsgrense. Account Loss Lock er valgfri og separat. "
+        "PAPER-mot-LIVE må verifiseres med ekte fills. Separat kontoarming.",
+        "impulse-catcher-short-tick-v1",True),
+    StrategySpecV3(
         "hyper-chase-10s-fast","HyperVigilant Chase 10s · FAST",
         "LIVE: ekte Saxo Tech100 bid/ask 1s, 10s impuls >=4,5bp + støy/spread-filter. Umiddelbart LONG/SHORT-mål; V3 lukker og bekrefter FLAT før motsatt OPEN, ingen strategisk cooldown. Ingen 10s utførelsesgaranti.",
         "hyper-chase-10s-fast-v1",True,
@@ -209,7 +223,11 @@ FIXED_TIMEFRAME_MINUTES_V3 = {
 LIVE_TIMEFRAMES_V3 = tuple(FIXED_TIMEFRAME_MINUTES_V3)
 PRICETREND_RESEARCH_CATALOG_KEYS_V3=frozenset({"pricetrend-1","sma-9-21-baseline"})
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
-TICK_SHADOW_LIVE_CATALOG_KEYS_V3=frozenset({"hunter-tick-v1","rabid-dog-tick-v1"})
+TICK_SHADOW_LIVE_CATALOG_KEYS_V3=frozenset({
+    "hunter-tick-v1","rabid-dog-tick-v1",
+    "impulse-catcher-long-v1","impulse-catcher-short-v1"})
+IMPULSE_CATCHER_CATALOG_KEYS_V3=frozenset({
+    "impulse-catcher-long-v1","impulse-catcher-short-v1"})
 HYBRID_15S_CATALOG_KEYS_V3=frozenset({"macd-stoch-v2-3-hybrid"})
 HYPER_CHASE_10S_CATALOG_KEYS_V3=frozenset({
     "hyper-chase-10s-fast","hyper-chase-10s-filtered",
@@ -268,7 +286,12 @@ def live_config_issues_v3(
     if strategy_key in PRICETREND_RESEARCH_CATALOG_KEYS_V3 and timeframe != "2m":
         issues.append("PriceTrend og SMA-benchmark krever ferdiglukket 2m signal")
     if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3 and timeframe != "1m":
-        issues.append("Hunter/Rabid require 1m UI and genuine Saxo 1s BBO")
+        issues.append("Tick strategies require 1m UI and genuine Saxo 1s BBO")
+    if strategy_key in IMPULSE_CATCHER_CATALOG_KEYS_V3:
+        extra=set(modifiers)-{"account-loss-lock"}
+        if extra:
+            issues.append("Impulse Catcher is an isolated baseline; remove unrelated modifiers: "
+                          +", ".join(sorted(extra)))
     if strategy_key in HYBRID_15S_CATALOG_KEYS_V3 and timeframe != "1m":
         issues.append("Hybrid V2.3 requires 1m macro plus genuine Saxo 15s BBO decision clock")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3 and timeframe != "1m":
@@ -326,7 +349,7 @@ def sim_config_issues_v3(
     if strategy_key in PRICETREND_RESEARCH_CATALOG_KEYS_V3 and timeframe != "2m":
         issues.append("PriceTrend og SMA-benchmark krever ferdiglukket 2m signal")
     if strategy_key in TICK_SHADOW_LIVE_CATALOG_KEYS_V3:
-        issues.append("Hunter/Rabid tick-only PAPER required; cannot replay minute OHLC")
+        issues.append("Tick-only PAPER required; cannot replay minute OHLC")
     if strategy_key in HYBRID_15S_CATALOG_KEYS_V3:
         issues.append("V2.3 Hybrid 15s SIM needs the separate real-quote BBO lab")
     if strategy_key in HYPER_CHASE_10S_CATALOG_KEYS_V3:
