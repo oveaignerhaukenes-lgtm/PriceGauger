@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from database import connect
+from background_ai_policy_v1 import background_ai_enabled_v1
 from live_sim_lab_analyst_v1 import run_daily_analyst
 from live_sim_lab_store_v1 import process_lab_cycle, produce_daily_summary
 from live_sim_lab_context_ablation_v1 import refresh_macro_schedule
@@ -147,9 +148,10 @@ def run_once(*, db_path="pricegauger.db", now=None):
             ).fetchone()
         if existing is None:
             produce_daily_summary(date, db_path=db_path)
-        result = run_daily_analyst(date, db_path=db_path)
-        if result == "READY":
-            LOGGER.info("Live-Sim Lab daily four-task AI report ready date=%s", date)
+        if background_ai_enabled_v1():
+            result = run_daily_analyst(date, db_path=db_path)
+            if result == "READY":
+                LOGGER.info("Live-Sim Lab daily four-task AI report ready date=%s", date)
     return evaluated
 
 

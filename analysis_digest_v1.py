@@ -6,6 +6,8 @@ import json
 import re
 from typing import Mapping, Sequence
 
+from background_ai_policy_v1 import background_ai_enabled_v1
+
 
 def prepare_metrics(metrics: Sequence[Mapping]) -> tuple[dict, ...]:
     result, seen = [], set()
@@ -103,7 +105,8 @@ def render_summary(*, scope: str, title: str, metrics: Sequence[Mapping],
     if not cached or cached.get("fingerprint") != fingerprint:
         with st.spinner("AI vurderer analyseresultatet"):
             report = summarize_metrics(title=title, metrics=clean, caveat=caveat,
-                                       context=context)
+                                       context=context,
+                                       key=None if background_ai_enabled_v1() else "")
         cached = {"fingerprint": fingerprint, "report": report}
         st.session_state[cache_key] = cached
     report = cached["report"]

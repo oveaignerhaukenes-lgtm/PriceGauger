@@ -51,6 +51,7 @@ def _context() -> NewsContextAssessment:
 
 def test_worker_persists_successful_news_context(tmp_path, monkeypatch):
     db_path = tmp_path / "worker.sqlite3"
+    monkeypatch.setenv("PRICEGAUGER_BACKGROUND_AI_ENABLED", "1")
     monkeypatch.setattr(worker, "openai_api_key", lambda: "test-key")
 
     class Engine:
@@ -74,6 +75,7 @@ def test_worker_persists_successful_news_context(tmp_path, monkeypatch):
 
 def test_worker_keeps_last_valid_context_when_refresh_fails(tmp_path, monkeypatch):
     db_path = tmp_path / "worker.sqlite3"
+    monkeypatch.setenv("PRICEGAUGER_BACKGROUND_AI_ENABLED", "1")
     store = NewsContextStore(db_path)
     store.save(_context())
     monkeypatch.setattr(worker, "openai_api_key", lambda: "test-key")

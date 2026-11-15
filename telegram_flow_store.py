@@ -37,6 +37,13 @@ class TelegramFlowStore:
                     payload_json TEXT NOT NULL,
                     scored_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS telegram_raw_posts (
+                    message_id TEXT PRIMARY KEY,
+                    channel TEXT NOT NULL,
+                    published_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS telegram_flow_snapshots (
                     as_of TEXT PRIMARY KEY,
                     engine_version TEXT NOT NULL,
@@ -51,6 +58,21 @@ class TelegramFlowStore:
 
     def _status(self) -> AnalysisStatusStore:
         return AnalysisStatusStore(self.path)
+
+    def save_raw_plans(self, plans: Iterable, *, channel: str) -> int:
+        """Archive fetched Telegram records without OpenAI or scored-flow writes."""
+        saved = 0
+        with self._connect() as db:
+            for plan in plans:
+                source = str(plan.message_id).split(":", 1)[0] if ":" in str(plan.message_id) else channel
+                cursor = db.execute(
+                    """INSERT INTO telegram_raw_posts(message_id, channel, published_at, payload_json)
+                    VALUES (?, ?, ?, ?) ON CONFLICT(message_id) DO NOTHING""",
+                    (str(plan.message_id), source, str(plan.published_at),
+                     json.dumps(plan.to_record(), ensure_ascii=False, sort_keys=True)),
+                )
+                saved += max(0, cursor.rowcount)
+        return saved
 
     def save_posts(self, posts: Iterable[ScoredTelegramPost]) -> int:
         rows = list(posts)

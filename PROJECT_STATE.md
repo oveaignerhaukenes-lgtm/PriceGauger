@@ -2,6 +2,14 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-15 · Background AI OFF by default (operator request; pending release)
+
+- **Policy:** no unsolicited OpenAI requests from the 60s worker Telegram scoring/news regime, state-overview summary, Live-Sim evening AI report, or on-page-load analysis digests. New `PRICEGAUGER_BACKGROUND_AI_ENABLED` is **OFF by default**, with `1` as the future explicit reactivation. Keep `OPENAI_API_KEY` intact for user-initiated actions (chat, Strategy Lab, buttons) and existing opt-in AI strategy settings. No broker authority/order changes.
+- **Collection retained:** unfiltered Telegram fetched source posts archived idempotently in new `telegram_raw_posts` table without scoring. Existing old semantic scores and context remain readable, while new AI-derived snapshots are not generated. Canonical market/Saxo/account/data and deterministic strategy loops continue.
+- **Manual controls retained:** persisted TradingDesk indicator-AI preference and explicitly enabled AI baseline/Lab AI research flags still control their own work. V3 AI SHADOW now defaults OFF for unconfigured, unmodified instances; instances with saved explicit AI SHADOW settings or selected `ai-loss-manager` modifier retain their chosen behavior. Selectable OpenAI in Market State remains available but no longer auto-selected merely because a key exists.
+- **Deployment caution:** Railway web/worker/Spring/Live-Sim latest builds previously failed fetching builders; running web/worker/Lab may be Nov 6 code even when GitHub main moves. Do not claim production requests are stopped until matching deployment SHA is SUCCESS and Railway logs confirm absence of background OpenAI calls. No environment keys removed and no accounts switched or armed.
+- **Database capacity:** production Postgres 20 GB volume, `DISK_USAGE_GB` most recent 15.795 GB (79%), approx. 4.20 GB free; 7-day increase 14.725→15.795 GB. PostgreSQL ONLINE; investigate largest tables and plan capacity expansion without deleting canonical data.
+
 ## 2026-11-13/14 · MACD+Stoch V2.1 independent LONG/FLAT + SHORT/FLAT (#838)
 
 - **Delivered in GitHub:** [PR #838](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/838) merged to `main` as `b8f56fca8f9e20fe34e080917e59e767daaecba5` (2026-11-13 UTC). Original MACD+Stoch V2.1 is unchanged. Two new *separately named* catalog/runtime keys: `macd-stoch-v21-r-long-flat-v1` and `macd-stoch-v21-r-short-flat-v1`; no opposite-side entry. No LIVE accounts were switched/armed or orders placed as part of the PR.

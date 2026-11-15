@@ -41,7 +41,7 @@ def test_persisted_loss_timer_cooldown_and_reset(tmp_path):
 def test_shadow_settings_individual_and_bounded(tmp_path):
     db=str(tmp_path/"settings.db")
     assert ai.shadow_settings_v1("a",db_path=db)=={
-        "enabled":True,"trigger_seconds":60}
+        "enabled":False,"trigger_seconds":60}
     ai.save_shadow_settings_v1(instance_id="a",enabled=False,
                                trigger_seconds=45,db_path=db)
     assert ai.shadow_settings_v1("a",db_path=db)=={
@@ -73,7 +73,8 @@ def test_ai_shadow_genuine_saxo_pnl_and_persistent_model_rationale(
                         lambda *_args,**_kwargs:True)
     monkeypatch.setattr(ai,"load_autotrader_config_v3",
                         lambda *_args,**_kwargs:SimpleNamespace(
-                            strategy_key="macd-flip",timeframe="2m"))
+                            strategy_key="macd-flip",timeframe="2m",
+                            modifiers=("ai-loss-manager",)))
     seen=[]
     def evidence(**kw):
         assert kw["broker_pnl"]==-8.
@@ -117,7 +118,8 @@ def test_already_flat_broker_position_is_not_an_ai_review(tmp_path,monkeypatch):
                         lambda *_args,**_kwargs:True)
     monkeypatch.setattr(ai,"load_autotrader_config_v3",
                         lambda *_args,**_kwargs:SimpleNamespace(
-                            strategy_key="macd",timeframe="2m"))
+                            strategy_key="macd",timeframe="2m",
+                            modifiers=("ai-loss-manager",)))
     class Broker:
         def net_positions_exact(self,**kw):
             return ()
@@ -137,7 +139,8 @@ def test_unreliable_saxo_pnl_never_enters_ai_path(tmp_path,monkeypatch):
                         lambda *_args,**_kwargs:True)
     monkeypatch.setattr(ai,"load_autotrader_config_v3",
                         lambda *_args,**_kwargs:SimpleNamespace(
-                            strategy_key="macd",timeframe="2m"))
+                            strategy_key="macd",timeframe="2m",
+                            modifiers=("ai-loss-manager",)))
     class Broker:
         def net_positions_exact(self,**kw):
             return ({"NetPositionBase":{"AmountLong":.01},
