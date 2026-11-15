@@ -96,6 +96,22 @@ STRATEGIES_V3 = (
         "macd-stoch-v21-r-short-flat-v1", True,
     ),
     StrategySpecV3(
+        "macd-stoch-v21-r-long-flat-v2", "MACD–Stoch 2.1 · Long/Flat V2 · Prisexit",
+        "Uendret V2.1 inngang/bygging, ferdig R-MACD-regime (anbefalt 15m), "
+        "E-MACD motposisjon varsler exit, men krever faktisk ugunstig ferdiglukket "
+        "1m prisbevegelse; stor prisstrukturbrudd kan lukke uten MACD-kryss. "
+        "Valgfri separat 10s Impulse Exit; ingen AI eller automatisk kontoaktivering.",
+        "macd-stoch-v21-r-long-flat-v2",True,
+    ),
+    StrategySpecV3(
+        "macd-stoch-v21-r-short-flat-v2", "MACD–Stoch 2.1 · Short/Flat V2 · Prisexit",
+        "Speilet V2-prisexit på SHORT/FLAT. R-MACD (anbefalt 15m) tillater SHORT, "
+        "E-MACD motposisjon gir varsel; ugunstig ferdiglukket 1m-pris "
+        "bekrefter FLAT. Selvstendig stort prisbrudd kan lukke tidligere. "
+        "Valgfri separat 10s Impulse Exit; ingen automatisk kontoaktivering.",
+        "macd-stoch-v21-r-short-flat-v2",True,
+    ),
+    StrategySpecV3(
         "macd-stoch-v2-2-flip", "MACD+Stoch V2.2 · Flip",
         "V2.1 beholdt for OPEN og BUILD, men sterk motsatt 70/30-score "
         "på én lukket candle sender straks motsatt minste-tranche-mål. "
@@ -244,7 +260,10 @@ AEN_CORE_CATALOG_KEYS_V3 = frozenset({
 })
 AEN_CORE_TIMEFRAMES_V3 = ("1m", "2m", "5m", "10m", "15m", "30m")
 REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
-SPLIT_CLOCK_STRATEGIES_V3 = ("macd-stoch-v21-r-long-flat-v1", "macd-stoch-v21-r-short-flat-v1")
+SPLIT_CLOCK_STRATEGIES_V3 = (
+    "macd-stoch-v21-r-long-flat-v1", "macd-stoch-v21-r-short-flat-v1",
+    "macd-stoch-v21-r-long-flat-v2", "macd-stoch-v21-r-short-flat-v2",
+)
 REGIME_STRATEGIES_V3 = SPLIT_CLOCK_STRATEGIES_V3 + ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1", "rhythm-trend-fractal")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)
 LIVE_MODIFIERS_V3 = ("reset-on-loss", "whipsaw", "volatility-pause", "ai-loss-manager", "impulse-exit", "account-loss-lock")

@@ -2,12 +2,19 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-15 · Price-confirmed R/E one-sided V2 (separate pilot)
+
+- **Proposed branch:** `feature/tech100-regime-price-exit-v2-20261115`. Adds separately selectable `macd-stoch-v21-r-long-flat-v2` and `macd-stoch-v21-r-short-flat-v2`; **original V2.1 plus R/E V1 variants remain untouched**. Same complete-bar V2.1 entry/build, recommended **R15m (adjustable)**, E2m MACD adverse signal no longer closes an existing position unless complete recent 1m prices show a measurable adverse move/break. A severe prior-ATR-adjusted price breakdown closes independently; no direct flip. E2m against-held-side vetoes additional builds/new entries. Optional separate 10s Impulse Exit remains possible, no hidden monetary stop or AI.
+- **Routes:** V3 catalog/decision/sizing, LIVE+SIM workers, Strategy Lab v2 pure historical replay, R/E UI selection, independent regression tests. All prices and ATR are based on fully closed, contiguous bars with causal previous-14m ATR; missing source fails FLAT. Experimental 0.5/1.5 ATR and 3-bar confirmations are hypotheses, not empirically calibrated. 20m is not currently an allowed timeframe.
+- **Evidence:** eight new `unittest` cases run locally (seven pass, one Saxo-sizing case skipped because `requests` is absent in the minimal executor); compile and diff checks pass. Full GitHub CI and broker-exact data replay pending. No accounts switched. Empirical PAPER gains in older V1 tests are not proofs of LIVE net performance.
+
 ## 2026-11-15 · Tech100 C/D impulse-catcher paired pilot (in progress)
 
 - **Operator mapping:** Tech100-C = new one-sided `impulse-catcher-long-v1`, Tech100-D = `impulse-catcher-short-v1`; Tech100-E remains unchanged `macd-stoch-v2-1` control. Test both *prospective LIVE and identical 1s-BBO PAPER* on separate accounts, after exact-account ownership/position/pending-order/SMS/arming verification. Do **not** automatically reassign or arm any account on deploy.
 - **Model:** rapid abnormal 3s/10s price velocity with causal historical baseline, directional efficiency and spread gate; price-retrace/2s exhaustion closes, urgent reversal closes immediately; one legal tranche, LONG/FLAT or SHORT/FLAT only. No strategy-level monetary daily loss cap. `account-loss-lock` remains strictly optional; extraneous strategy modifiers disallowed for paired baseline. Actual LIVE orders still use V3 margin/ownership/reconciliation/rate safeguards.
 - **Current branch:** `feature/tech100-impulse-paired-20261115`; new pure model, BBO next-quote PAPER replay, durable per-instance signal event ledger, V3 catalog/runtime/quote wake, read-only `pages/0_Impulse_Catcher_Lab.py` with paired outcome and day-level research/threshold proposals. Proposed threshold changes do not auto-rewrite LIVE, to preserve valid out-of-sample testing and version attribution.
 - **Evidence:** seven standalone `unittest` cases passing locally (both directions, sharp reversals, BBO/lag, restart state/ledger, wrong-side account inventory, LIVE selector), Python compile checks passing; full pytest/GitHub CI not yet completed. Real quote sample density, Saxo fills, costs, account C/D current owner/position/locks and release SHA not yet verified; no account altered and no live fills claimed.
+- **Release update:** [PR #840](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/pull/840) MERGED on `main` as `1d63002`, GitHub `Tests/pytest` workflow run 43763105967 SUCCESS, all five Railway app service deployments `SUCCESS` on successor GitHub journal SHA `fbb19c1` (contains merged feature). Worker runtime startup and Saxo truth probe healthy. Account C/D identity/positions/locks/arming remain unverified and unchanged; E not touched.
 
 ## 2026-11-15 · Background AI OFF by default (operator request; pending release)
 

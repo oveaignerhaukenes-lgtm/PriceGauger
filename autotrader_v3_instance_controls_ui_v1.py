@@ -44,6 +44,9 @@ def _rhythm_selection_defaults_v3(previous_strategy: str, selected_strategy: str
     """On an explicit strategy switch, propose valid periods without mutating saved config."""
     if previous_strategy == selected_strategy:
         return {}
+    if selected_strategy in ('macd-stoch-v21-r-long-flat-v2',
+                             'macd-stoch-v21-r-short-flat-v2'):
+        return {'timeframe': '1m', 'regime_timeframe': '15m', 'exit_timeframe': '2m'}
     if selected_strategy in SPLIT_CLOCK_STRATEGIES_V3:
         return {'timeframe': '1m', 'regime_timeframe': '30m', 'exit_timeframe': '2m'}
     if selected_strategy not in RHYTHM_1M_CATALOG_KEYS_V3:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from autotrader_v3_macd_stoch_v21_split_v1 import SPLIT_KEYS_V3
+from autotrader_v3_macd_stoch_v21_split_v2 import ALL_SPLIT_KEYS_V3
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -23,7 +24,7 @@ from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 
 LOGGER = logging.getLogger("pricegauger.autotrader.v3.sim")
-REGIME_RUNTIME_KEYS_V3 = {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3} | SPLIT_KEYS_V3
+REGIME_RUNTIME_KEYS_V3 = {MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, RHYTHM_TREND_KEY, RHYTHM_TREND_FRACTAL_KEY_V3} | ALL_SPLIT_KEYS_V3
 
 
 def _sim_state_id_v3(instance_id: str) -> str:
@@ -129,7 +130,7 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
         regime_timeframe_minutes = fixed_timeframe_minutes_v3(config.regime_timeframe)
         context_strategy_key = (
             (f"{instance.strategy_key}:R{config.regime_timeframe}:E{config.exit_timeframe}"
-             if instance.strategy_key in SPLIT_KEYS_V3 else
+             if instance.strategy_key in ALL_SPLIT_KEYS_V3 else
              f"{instance.strategy_key}:R{config.regime_timeframe}")
             if instance.strategy_key in REGIME_RUNTIME_KEYS_V3 else instance.strategy_key
         )
@@ -178,7 +179,7 @@ def run_v3_sim_cycle_v1(*, db_path: str = "pricegauger.db", now=None) -> int:
             source_bars=tuple(bars),
             regime_timeframe_minutes=regime_timeframe_minutes,
             exit_timeframe_minutes=(fixed_timeframe_minutes_v3(config.exit_timeframe)
-                if instance.strategy_key in SPLIT_KEYS_V3 else 2),
+                if instance.strategy_key in ALL_SPLIT_KEYS_V3 else 2),
             market_name=instance.market_name,
             db_path=db_path,
             **({"signal_timeframe_minutes":timeframe_minutes,

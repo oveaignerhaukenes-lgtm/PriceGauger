@@ -28,6 +28,9 @@ from autotrader_v3_macd_stoch_v1 import STRATEGY_KEY_V3 as STOCH_KEY
 from autotrader_v3_macd_stoch_v2 import STRATEGY_KEY_V3 as STOCH_V2_KEY
 from autotrader_v3_macd_stoch_v21 import STRATEGY_KEY_V3 as STOCH_V21_KEY
 from autotrader_v3_macd_stoch_v21_split_v1 import LONG_KEY_V3, SHORT_KEY_V3, SPLIT_KEYS_V3
+from autotrader_v3_macd_stoch_v21_split_v2 import (
+    LONG_KEY_V2,SHORT_KEY_V2,ALL_SPLIT_KEYS_V3,
+)
 from autotrader_v3_macd_stoch_v22_flip import STRATEGY_KEY_V3 as STOCH_V22_KEY
 from autotrader_v3_macd_stoch_v23_hybrid import RUNTIME_KEY as HYBRID_KEY, evaluate_hybrid_compat_v3
 from autotrader_v3_macd_stoch_rhythm_build_v1 import STRATEGY_KEY_V3 as RHYTHM_BUILD_KEY
@@ -54,7 +57,7 @@ class StrategyAdapterV3:
 STRATEGIES_V3: dict[str, StrategyAdapterV3] = {
     key: StrategyAdapterV3(key=key, evaluate_closed_bar=evaluate_closed_bar_once_v3,
                            live_route_enabled=True)
-    for key in (PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, LONG_KEY_V3, SHORT_KEY_V3)
+    for key in (PRECROSS_KEY_V3,HIST_PRICE_KEY_V3,HISTOGRAM_KEY, HISTOGRAM_FLIP_BUILD_KEY, PEAK_FLIP_KEY, VWAP_REGIME_KEY, MACD_REGIME_HIST_KEY, AEN2_STICKY_KEY, AEN21_FAST_EXIT_KEY, TRAILING_KEY, FLIP_KEY, STOCH_KEY, STOCH_V2_KEY, STOCH_V21_KEY, STOCH_V22_KEY, LONG_KEY_V3, SHORT_KEY_V3, LONG_KEY_V2, SHORT_KEY_V2)
 }
 
 
@@ -129,7 +132,7 @@ def evaluate_strategy_bar_v3(*, strategy_key: str, trader_id: str, observation, 
         trader_id=trader_id, observation=observation,
         strategy_key=adapter.key, bars=bars, source_bars=source_bars,
         regime_timeframe_minutes=regime_timeframe_minutes, market_name=market_name,
-        **({"exit_timeframe_minutes": exit_timeframe_minutes} if strategy_key in SPLIT_KEYS_V3 else {}),
+        **({"exit_timeframe_minutes": exit_timeframe_minutes} if strategy_key in ALL_SPLIT_KEYS_V3 else {}),
         config=config, db_path=db_path,
         **({"actual_inventory":actual_inventory,
             "signal_timeframe_minutes":signal_timeframe_minutes,
