@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from autotrader_v3_macd_stoch_v21_split_v1 import SPLIT_KEYS_V3
+from autotrader_v3_macd_stoch_v21_split_v2 import ALL_SPLIT_KEYS_V3
 import logging
 import re
 from functools import lru_cache
@@ -74,7 +75,7 @@ from saxo_trading import SaxoOrderRequest
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 # Read-only audit: one entry per unresolved instance per worker lifetime.
 _PENDING_AUDIT_LOGGED_V3=set()
-REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY,RHYTHM_TREND_KEY,RHYTHM_TREND_FRACTAL_KEY_V3} | SPLIT_KEYS_V3
+REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY,RHYTHM_TREND_KEY,RHYTHM_TREND_FRACTAL_KEY_V3} | ALL_SPLIT_KEYS_V3
 
 @lru_cache(maxsize=96)
 def _hyper_safety_1m_points_v3(db_path:str,instrument_id:int,minute:datetime):
@@ -450,7 +451,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             continue
         context_strategy_key=(
             (f"{e.strategy_key}:R{config.regime_timeframe}:E{config.exit_timeframe}"
-             if e.strategy_key in SPLIT_KEYS_V3 else
+             if e.strategy_key in ALL_SPLIT_KEYS_V3 else
              f"{e.strategy_key}:R{config.regime_timeframe}")
             if e.strategy_key in REGIME_RUNTIME_KEYS_V3 else e.strategy_key
         )

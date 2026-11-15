@@ -28,6 +28,7 @@ from strategy_lab_v2_accounts import render_account_performance_v2
 from analysis_digest_v1 import render_summary
 from autotrader_v3_ai_live_presets_v1 import AI_LIVE_PRESETS_V3
 from autotrader_v3_macd_stoch_v21_split_v1 import SPLIT_KEYS_V3, LONG_KEY_V3, SHORT_KEY_V3
+from autotrader_v3_macd_stoch_v21_split_v2 import ALL_SPLIT_KEYS_V3,SPLIT_V2_KEYS_V3
 
 st.set_page_config(page_title="Strategilab v2",layout="wide")
 st.title("Strategilab v2")
@@ -122,9 +123,9 @@ with tabs[0]:
                            key="slab2:hours")
         end_at=c3.date_input("Sluttdato (UTC)",value=datetime.now(timezone.utc).date(),
                              key="slab2:date")
-        split_selected=bool(set(chosen) & SPLIT_KEYS_V3)
+        split_selected=bool(set(chosen) & ALL_SPLIT_KEYS_V3)
         split_exit_tf=st.selectbox("MACD-utgangsperiode (E)",("1m","2m","5m","10m","15m","30m","1h"),index=1,key="slab2:split_exit") if split_selected else "2m"
-        split_regime_tf=st.selectbox("MACD-regimeperiode (R)",("1m","2m","5m","10m","15m","30m","1h"),index=5,key="slab2:split_regime") if split_selected else "30m"
+        split_regime_tf=st.selectbox("MACD-regimeperiode (R)",("1m","2m","5m","10m","15m","30m","1h"),index=(4 if set(chosen)&SPLIT_V2_KEYS_V3 else 5),key="slab2:split_regime") if split_selected else "30m"
         st.caption("Kanoniske 1m-prisbarer for akkurat den valgte Saxo-UIC. "
                    "For lange perioder, velg smalere vindu for å holde "
                    "beregning og prisdatakvalitet håndterbar.")
