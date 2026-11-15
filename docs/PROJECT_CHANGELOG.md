@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `79169208a92a74ef7fb20d79b3685bfebe930369`
+Latest tracked main commit: `00525fefa6ec656798dabb93f7cbefacb88e62fc`
 
 ## Recent main commits
 
+- 2026-11-15 [`00525fefa6`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/00525fefa6ec656798dabb93f7cbefacb88e62fc) — Disable unsolicited AI calls while preserving manual opt-ins and raw ingest (#839)
 - 2026-11-14 [`79169208a9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/79169208a92a74ef7fb20d79b3685bfebe930369) — docs: synchronize V3 split MACD-Stoch strategies CI and Railway deploy blocker
 - 2026-11-14 [`b8f56fca8f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b8f56fca8f9e20fe34e080917e59e767daaecba5) — Add separate MACD+Stoch V2.1 long-flat and short-flat R/S/E strategies
 - 2026-11-06 [`e60f4cba42`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e60f4cba4298014fb1461c2b032e6007d42ad07c) — Fix Algolabb AI suggestion disabled on invalid editor
@@ -46,6 +47,5 @@ Latest tracked main commit: `79169208a92a74ef7fb20d79b3685bfebe930369`
 - 2026-10-30 [`c8041bb956`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c8041bb9564e55837f2f0301a0ca91bf62ae97c8) — feat: persist selected historical FX UIC provenance
 - 2026-10-30 [`6494462db2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6494462db21c5b8317295fb1de8cf8b9c0b2563b) — feat: time-split validation preserves historical FX reference
 - 2026-10-30 [`f8d24502e9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f8d24502e9548d897fecc6e44118af19e110dc10) — feat: opt-in recorded direct NOK FX series for paper valuation
-- 2026-10-30 [`c9eb66254d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c9eb66254da46ec8354fb2d8097d642ef8e80da3) — feat: as-of historical FX conversion in bid-ask paper replay
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
