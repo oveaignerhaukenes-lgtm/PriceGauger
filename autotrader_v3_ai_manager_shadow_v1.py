@@ -38,7 +38,7 @@ def ensure_ai_shadow_schema_v1(db_path="pricegauger.db"):
     with connect(db_path) as db:
         db.execute("""CREATE TABLE IF NOT EXISTS pg_v3_ai_shadow_settings_v1 (
             instance_id TEXT PRIMARY KEY,
-            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            enabled BOOLEAN NOT NULL DEFAULT FALSE,
             trigger_seconds INTEGER NOT NULL DEFAULT 60,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
@@ -60,7 +60,15 @@ def shadow_settings_v1(instance_id: str, *, db_path="pricegauger.db") -> dict:
             FROM pg_v3_ai_shadow_settings_v1 WHERE instance_id=?""",
             (str(instance_id),)).fetchone()
     if row is None:
-        return {"enabled":True,"trigger_seconds":DEFAULT_TRIGGER_SECONDS}
+        # The LIVE AI modifier is a deliberate opt-in. For other instances,
+        # SHADOW reviews require the operator to save the separate AI switch.
+        try:
+            config = load_autotrader_config_v3(instance_id, db_path=db_path)
+            opted_in = "ai-loss-manager" in config.modifiers
+        except Exception:
+            # Newly created instances may not have a saved V3 config yet.
+            opted_in = False
+        return {"enabled":opted_in,"trigger_seconds":DEFAULT_TRIGGER_SECONDS}
     value=dict(row)
     return {"enabled":bool(value["enabled"]),
             "trigger_seconds":int(value["trigger_seconds"])}

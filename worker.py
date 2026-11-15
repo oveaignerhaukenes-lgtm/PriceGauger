@@ -12,6 +12,7 @@ from typing import Callable
 import pandas as pd
 
 from analysis_status import AnalysisStatusStore
+from background_ai_policy_v1 import background_ai_enabled_v1
 from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
 from autotrader_v3_sim_runtime_v1 import run_v3_sim_cycle_v1
@@ -96,6 +97,9 @@ def _refresh_news_context(
     store = NewsContextStore(db_path)
     status = AnalysisStatusStore(db_path)
     latest = store.load_latest()
+    if not background_ai_enabled_v1():
+        status.skipped("context_state", "Automatisk nyhets-AI er deaktivert; siste lagrede kontekst beholdes.")
+        return latest
     selected = [plan for plan in plans if plan.signal_score >= 1 and plan.published_at]
     key = openai_api_key()
 
@@ -149,7 +153,7 @@ def _refresh_telegram_flow(
     new_plans = [plan for plan in plans if not store.has_post(plan.message_id)]
     scored_count = 0
 
-    if key and new_plans:
+    if background_ai_enabled_v1() and key and new_plans:
         status.running("telegram_scoring", f"AI-vurderer {min(8, len(new_plans))} nye poster.")
         selected = new_plans[-8:]
         try:
@@ -162,6 +166,8 @@ def _refresh_telegram_flow(
             detail = f"{type(exc).__name__}: {exc}; fortsetter med tidligere lagrede poster"
             status.failed("telegram_scoring", detail)
             LOGGER.exception("telegram scoring failed; continuing with stored posts")
+    elif new_plans and not background_ai_enabled_v1():
+        status.skipped("telegram_scoring", "Automatisk Telegram-AI er deaktivert; råposter lagres separat.")
     elif new_plans:
         status.skipped("telegram_scoring", "OPENAI_API_KEY mangler; nye poster ble ikke AI-vurdert.")
         LOGGER.warning("telegram flow skipped new_posts=%s because OPENAI_API_KEY is missing", len(new_plans))
@@ -232,6 +238,15 @@ def run_once(
         status.failed("telegram_fetch", f"{type(exc).__name__}: {exc}")
         LOGGER.warning("telegram fetch failed; continuing with stored data: %s", exc)
         all_plans = []
+
+    # Preserve raw source data independently of paid semantic scoring.  This
+    # path remains active with all unsolicited OpenAI requests switched off.
+    try:
+        saved_raw = TelegramFlowStore(db_path).save_raw_plans(all_plans, channel=channel)
+        if saved_raw:
+            LOGGER.info("telegram raw posts persisted=%d", saved_raw)
+    except Exception as exc:
+        LOGGER.warning("telegram raw archive failed; other collection continues: %s", exc)
 
     try:
         _refresh_telegram_flow(db_path=db_path, channel=channel, plans=all_plans)

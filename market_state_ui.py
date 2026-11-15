@@ -14,7 +14,9 @@ from signal_outcomes import register_recommendations, refresh_signal_outcomes
 def _interpreter_choice():
     key = openai_api_key()
     options = ["Mock"] + (["OpenAI"] if key else [])
-    default_index = 1 if key else 0
+    # Choosing OpenAI remains an explicit operator action, not the default
+    # when merely opening this page with an API key configured.
+    default_index = 0
     selected = st.selectbox(
         "Tolkingsmotor",
         options,

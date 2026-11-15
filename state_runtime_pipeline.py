@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from analysis_status import AnalysisStatusStore
+from background_ai_policy_v1 import background_ai_enabled_v1
 from config import twelve_data_api_key
 from cross_market_runtime import produce_cross_market_state
 from decision_engine_components import DecisionEngineComponentStore, apply_historical_confirmation
@@ -75,7 +76,12 @@ def _refresh_overview_summary(*, db_path: str | Path, information_snapshot_id: s
         from overview_summary_store import OverviewSummaryStore
 
         data = load_overview(db_path)
-        summary = build_overview_summary(data, prefer_persisted=False)
+        # Keep the overview populated with a deterministic fallback when
+        # unsolicited AI calls are disabled. Explicit UI calls are unaffected.
+        summary = build_overview_summary(
+            data, prefer_persisted=False,
+            api_key=None if background_ai_enabled_v1() else "",
+        )
         OverviewSummaryStore(db_path).save(
             information_snapshot_id=information_snapshot_id,
             as_of=as_of,

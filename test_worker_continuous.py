@@ -56,6 +56,7 @@ def test_cycle_only_runs_aggregate_flow_after_fetch(tmp_path, monkeypatch):
 
 def test_scoring_failure_is_marked_and_pipeline_continues(tmp_path, monkeypatch):
     db_path = tmp_path / "scoring.db"
+    monkeypatch.setenv("PRICEGAUGER_BACKGROUND_AI_ENABLED", "1")
     plan = _plan("201")
 
     class FakeFlowStore:
