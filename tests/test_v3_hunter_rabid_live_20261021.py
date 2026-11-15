@@ -166,7 +166,8 @@ def test_rabid_quote_gap_forces_actual_position_flat(tmp_path):
 
 
 def test_catalog_controls_and_quote_only_worker_gating():
-    assert len(TICK_RUNTIME_KEYS)==2
+    # New one-sided impulse tick strategies may coexist with Hunter/Rabid.
+    assert {"hunter-tick-live-v1","rabid-dog-tick-live-v1"} <= TICK_RUNTIME_KEYS
     for key in (HUNTER_CATALOG_KEY,DOG_CATALOG_KEY):
         spec=strategy_v3(key)
         assert spec.runtime_ready

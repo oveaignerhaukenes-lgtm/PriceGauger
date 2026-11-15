@@ -256,7 +256,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     previously_viewed=st.session_state.get(viewed_key,initial_choice)
     suggested=_rhythm_selection_defaults_v3(previously_viewed,strategy)
     if (strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered",
-                     "hunter-tick-v1","rabid-dog-tick-v1")
+                     "hunter-tick-v1","rabid-dog-tick-v1",
+                     "impulse-catcher-long-v1","impulse-catcher-short-v1")
         and previously_viewed!=strategy):
         suggested["timeframe"]="1m"
     if 'timeframe' in suggested:
@@ -272,6 +273,15 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             "Maks én Saxo-minstetranche. V3 CLOSE → FLAT-bekreftelse → OPEN, "
             "ingen direktesnuordre. Rabid Dog har konservativ faktisk ordrekvote. "
             "Lagring aktiverer ikke LIVE automatisk."
+        )
+    if strategy in ("impulse-catcher-long-v1","impulse-catcher-short-v1"):
+        st.info(
+            "Impulse Catcher: 3/10 sekunders prisimpulser fra ekte Saxo BBO; "
+            "kun LONG/FLAT eller SHORT/FLAT (minste tranche). "
+            "Egen strategisk tapsgrense er AV; Account Loss Lock kan velges "
+            "separat. Fjern andre modifikatorer for ren PAPER/LIVE-sammenligning. "
+            "Sett signalperioden til 1m i skjemaet (selve motoren bruker 1s). "
+            "Lagring aktiverer ikke LIVE; eksisterende konto må først sjekkes."
         )
     if strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered"):
         st.info(
