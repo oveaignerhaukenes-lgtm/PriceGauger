@@ -61,7 +61,10 @@ def price_exit_evidence_v2(*,source_bars,cutoff,market_name,side:int)->PriceExit
     now,previous,two_back=recent[-1],recent[-2],recent[-3]
     signed2=side*(now.close-two_back.close)
     signed1=side*(now.close-previous.close)
-    adverse=sum(side*(b.close-b.open)<0 for b in recent[-3:])
+    # Close-to-close direction is more trustworthy than candle body color:
+    # a green candle may still close BELOW the previous green candle.
+    adverse=sum(side*(b.close-a.close)<0
+                for a,b in zip(recent[-4:-1],recent[-3:]))
     if side>0:
         broken=now.close < min(x.low for x in recent[-4:-1]) - .10*atr
     else:

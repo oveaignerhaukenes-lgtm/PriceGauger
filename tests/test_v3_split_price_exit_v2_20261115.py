@@ -64,6 +64,12 @@ class SplitV2Test(unittest.TestCase):
 
     def test_price_confirms_adverse_macd_exit_both_sides(self):
         for side in (1,-1):
+            e=v2.price_exit_evidence_v2(source_bars=source(side,adverse=True),
+                                      cutoff=observation().closed_at,
+                                      market_name="Tech100",side=side)
+            # Synthetic minute bodies are green in the chosen direction,
+            # but closes fall across minutes: price, not candle color, matters.
+            self.assertGreaterEqual(e.adverse_candles_3m,2)
             result=eval_v2(side,adverse=True)
             self.assertEqual(result.action,"PRICE_CONFIRMED_EXIT_FLAT")
             self.assertEqual(result.target.amount,0.)
