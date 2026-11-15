@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `00525fefa6ec656798dabb93f7cbefacb88e62fc`
+Latest tracked main commit: `1d63002bb16908bcbed3461aa0bd1e74888a2acd`
 
 ## Recent main commits
 
+- 2026-11-15 [`1d63002bb1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d63002bb16908bcbed3461aa0bd1e74888a2acd) — feat: paired Tech100 impulse catchers with BBO PAPER and LIVE observability
 - 2026-11-15 [`00525fefa6`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/00525fefa6ec656798dabb93f7cbefacb88e62fc) — Disable unsolicited AI calls while preserving manual opt-ins and raw ingest (#839)
 - 2026-11-14 [`79169208a9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/79169208a92a74ef7fb20d79b3685bfebe930369) — docs: synchronize V3 split MACD-Stoch strategies CI and Railway deploy blocker
 - 2026-11-14 [`b8f56fca8f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b8f56fca8f9e20fe34e080917e59e767daaecba5) — Add separate MACD+Stoch V2.1 long-flat and short-flat R/S/E strategies
@@ -46,6 +47,5 @@ Latest tracked main commit: `00525fefa6ec656798dabb93f7cbefacb88e62fc`
 - 2026-10-30 [`bb436baa2b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/bb436baa2b377d0f721c15c8a0ee87683c51a89c) — feat: archive FX provenance with each immutable experiment
 - 2026-10-30 [`c8041bb956`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c8041bb9564e55837f2f0301a0ca91bf62ae97c8) — feat: persist selected historical FX UIC provenance
 - 2026-10-30 [`6494462db2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6494462db21c5b8317295fb1de8cf8b9c0b2563b) — feat: time-split validation preserves historical FX reference
-- 2026-10-30 [`f8d24502e9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f8d24502e9548d897fecc6e44118af19e110dc10) — feat: opt-in recorded direct NOK FX series for paper valuation
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
