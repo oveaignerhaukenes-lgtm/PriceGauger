@@ -2,6 +2,11 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-16 · V3 chart FLAT square (presentation-only)
+
+- **Scope:** Show a neutral gray square at the execution price only for a reconciled `CLOSE` leaving net inventory `FLAT`; retain account-colored BUY/SELL triangles for OPEN, ADD and partial REDUCE. Use the existing shared SVG marker overlay across TradingDesk, LIVE update and per-instance chart. All strategy/account/ownership/Saxo execution paths unchanged.
+- **Status:** Local branch `fix/v3-full-flat-gray-square-20261116`; regression/UI contract verification, PR, CI and Railway web deploy require separate evidence before marking complete.
+
 ## 2026-11-16 · R10 MACD histogram + price-confirmed regime V3 (separate experimental pair)
 
 - **Branch:** `feature/tech100-regime-price-hist-confirm-v3-20261116`. New independently selectable `macd-stoch-v21-r-long-flat-v3` and `macd-stoch-v21-r-short-flat-v3` ([pure model](autotrader_v3_macd_stoch_v21_split_v3.py)). Previous R/E V1, V2 and unmodified MACD–Stoch V2.1 remain available. UI proposal R10/S1/E2 (all selectable clocks remain user-configurable); no accounts switched or armed.

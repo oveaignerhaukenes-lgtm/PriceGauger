@@ -66,6 +66,8 @@ export default function(component) {
                     size: Number(marker.marker_size || 0.42),
                     id: `${marker.id || raw}:${index}:execution`,
                     source: 'AUTOTRADER_V3', side, action: String(marker.action || ''),
+                    position_direction: String(marker.position_direction || marker.direction || ''),
+                    inventory_after: marker.inventory_after,
                 }];
             }
 

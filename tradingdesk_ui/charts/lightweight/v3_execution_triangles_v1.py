@@ -1,7 +1,8 @@
-"""One visual contract for reconciled V3 BUY/SELL markers on all V3 charts.
+"""One visual contract for reconciled V3 executions on all V3 charts.
 
 Native Lightweight Charts v5 supports arrowUp/arrowDown but no *triangle-only*
-shape. We draw small, price/time-anchored SVG polygons over the price pane;
+shape. We draw small price/time-anchored SVG triangles for entries/partial
+reductions, and neutral gray squares only for confirmed full FLAT closes;
 no DOM hit targets, no change to broker orders, candle data, or AI markers.
 Use the same helper from the inspector, TradingDesk full chart and 1s updater.
 """
@@ -10,7 +11,7 @@ V3_EXECUTION_TRIANGLE_JS = r"""
 function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
     const ns = 'http://www.w3.org/2000/svg';
     const layer = document.createElementNS(ns, 'svg');
-    layer.setAttribute('aria-label', 'V3-kjøp og salg som trekanter');
+    layer.setAttribute('aria-label', 'V3-posisjoner: kjøp/salg som trekanter og flat som grå firkant');
     layer.classList.add('pg-v3-execution-triangles');
     Object.assign(layer.style, {
         position: 'absolute', top: '0', left: '0',
@@ -45,24 +46,41 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
             if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
             if (x < -10 || x > width + 10 || y < -15 || y > height + 15) continue;
             const up = side === 'BUY';
+            const action = String(marker.action || '').toUpperCase();
+            const after = marker.inventory_after;
+            const afterIsZero = after != null && Number.isFinite(Number(after))
+                && Math.abs(Number(after)) <= 1e-9;
+            const ending = String(marker.position_direction || marker.direction || '').toUpperCase();
+            const isFlatClose = action === 'CLOSE' && (ending === 'FLAT' || afterIsZero);
             const sizeValue = Number(marker.size);
             const radius = Math.max(3, Math.min(7.5,
                 3.5 + (Number.isFinite(sizeValue) ? sizeValue : .45) * 3));
-            // Keep the only mark near the actual broker execution price.
-            const anchor = y + (up ? radius + 2 : -radius - 2);
-            const shape = document.createElementNS(ns, 'polygon');
-            const points = up
-                ? [x,anchor-radius, x-radius,anchor+radius, x+radius,anchor+radius]
-                : [x-radius,anchor-radius, x+radius,anchor-radius, x,anchor+radius];
-            shape.setAttribute('points',
-                points.reduce((a,v,i)=>a+(i%2?',':' ')+v.toFixed(2),'').trim());
-            const color = String(marker.color || (up ? '#16a34a' : '#dc2626'));
-            // Only a filled triangle, no shaft, text, square or extra symbol.
+            // Only confirmed full closes are neutral. Partial reductions keep
+            // the broker BUY/SELL triangle, regardless of the action label.
+            const shape = document.createElementNS(ns, isFlatClose ? 'rect' : 'polygon');
+            const color = isFlatClose ? '#94a3b8'
+                : String(marker.color || (up ? '#16a34a' : '#dc2626'));
+            if (isFlatClose) {
+                const edge = Math.max(6, radius * 1.55);
+                shape.setAttribute('x', (x - edge / 2).toFixed(2));
+                shape.setAttribute('y', (y - edge / 2).toFixed(2));
+                shape.setAttribute('width', edge.toFixed(2));
+                shape.setAttribute('height', edge.toFixed(2));
+            } else {
+                // Keep the triangle near the actual broker execution price.
+                const anchor = y + (up ? radius + 2 : -radius - 2);
+                const points = up
+                    ? [x,anchor-radius, x-radius,anchor+radius, x+radius,anchor+radius]
+                    : [x-radius,anchor-radius, x+radius,anchor-radius, x,anchor+radius];
+                shape.setAttribute('points',
+                    points.reduce((a,v,i)=>a+(i%2?',':' ')+v.toFixed(2),'').trim());
+            }
             shape.setAttribute('fill',color);
             shape.setAttribute('stroke',color);
             shape.setAttribute('stroke-width','0.5');
             const title = document.createElementNS(ns,'title');
-            title.textContent = (up ? 'V3 kjøp' : 'V3 salg')
+            title.textContent = (isFlatClose ? 'V3 flat · posisjon lukket'
+                : (up ? 'V3 kjøp' : 'V3 salg'))
                 + (marker.action ? ' · ' + String(marker.action) : '');
             shape.appendChild(title);
             fragment.appendChild(shape);

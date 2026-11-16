@@ -135,16 +135,20 @@ def build_instance_inspection_payload_v1(
         if bar is None:
             continue
         side=str(item.get("side") or "").upper()
-        is_flat=abs(float(item.get("inventory_after") or 0))<1e-12
+        inventory_after=item.get("inventory_after")
+        is_flat=(inventory_after is not None and abs(float(inventory_after))<1e-12
+                 and str(item.get("action") or "").upper()=="CLOSE")
         up=side=="BUY"
         markers.append({"time":unix(bar.bar_time),
                         "price":float(bar.low if up else bar.high),
                         "position":"belowBar" if up else "aboveBar",
-                        # Native fallback only; shared renderer draws triangles.
-                        "shape":"arrowUp" if up else "arrowDown",
-                        "color":"#16986D" if up else "#D45858",
+                        # Native fallback only; shared renderer draws SVG markers.
+                        "shape":"square" if is_flat else ("arrowUp" if up else "arrowDown"),
+                        "color":"#94a3b8" if is_flat else ("#16986D" if up else "#D45858"),
                         "text":"","side":side,"action":str(item.get("action") or ""),
-                        "size":0.45,"source":"AUTOTRADER_V3"})
+                        "size":0.45,"source":"AUTOTRADER_V3",
+                        "position_direction":"FLAT" if is_flat else ("LONG" if up else "SHORT"),
+                        "inventory_after":inventory_after})
     for item in ai_decisions:
         bar=chart_bar_at(utc(item["evaluated_at"]))
         if bar is None:
