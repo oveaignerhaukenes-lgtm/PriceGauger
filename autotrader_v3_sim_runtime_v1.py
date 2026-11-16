@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from autotrader_v3_macd_stoch_v21_split_v1 import SPLIT_KEYS_V3
-from autotrader_v3_macd_stoch_v21_split_v2 import ALL_SPLIT_KEYS_V3
+from autotrader_v3_macd_stoch_v21_split_v3 import ALL_SPLIT_KEYS_V3
 
 import logging
 from datetime import datetime, timedelta, timezone

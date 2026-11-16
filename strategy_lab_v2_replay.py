@@ -32,8 +32,12 @@ from autotrader_v3_macd_stoch_v21_split_v1 import (
     long_flat_target_v3, short_flat_target_v3,
 )
 from autotrader_v3_macd_stoch_v21_split_v2 import (
-    LONG_KEY_V2,SHORT_KEY_V2,ALL_SPLIT_KEYS_V3,
+    LONG_KEY_V2,SHORT_KEY_V2,
     long_flat_target_v2,short_flat_target_v2,
+)
+from autotrader_v3_macd_stoch_v21_split_v3 import (
+    LONG_KEY_V3_PRICE_HIST, SHORT_KEY_V3_PRICE_HIST, ALL_SPLIT_KEYS_V3,
+    long_flat_target_v3_price_hist, short_flat_target_v3_price_hist,
 )
 from autotrader_v3_macd_stoch_v22_flip import macd_stoch_v22_flip_target_v3
 from autotrader_v3_macd_stoch_rhythm_build_v1 import macd_stoch_rhythm_build_target_v3
@@ -65,6 +69,8 @@ PURE_V3={
     SHORT_KEY_V3:short_flat_target_v3,
     LONG_KEY_V2:long_flat_target_v2,
     SHORT_KEY_V2:short_flat_target_v2,
+    LONG_KEY_V3_PRICE_HIST:long_flat_target_v3_price_hist,
+    SHORT_KEY_V3_PRICE_HIST:short_flat_target_v3_price_hist,
     "macd-stoch-v2-2-flip":macd_stoch_v22_flip_target_v3,
     "macd-stoch-rhythm-build":macd_stoch_rhythm_build_target_v3,
     "precross-price-1m-macd2m":precross_price_target_v3,
