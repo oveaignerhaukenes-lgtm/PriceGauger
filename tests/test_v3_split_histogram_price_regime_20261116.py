@@ -32,11 +32,12 @@ def decision(side, target=None):
 
 
 def run_target(*, side=1, current=0., native=True, recovery=False,
-               weakening=False, price_aligned=True, breakout=False,
+               weakening=False, rollover=False, adverse_retrace=False,
+               price_aligned=True, breakout=False,
                opposite_breakout=False, e2_agrees=True, base_target=None,
                source_available=True):
     regime = v3.RegimeHistogramV3(.4 if native else -.4,
-                                   recovery, weakening) if source_available else None
+                                   recovery, weakening, rollover) if source_available else None
     price = v3.PriceConfirmationV3(
         atr_points=3, signed_5m=5 if price_aligned else 0,
         signed_2m=2 if price_aligned else 0,
@@ -44,7 +45,9 @@ def run_target(*, side=1, current=0., native=True, recovery=False,
         opposite_breakout=opposite_breakout,
     ) if source_available else None
     adverse = SimpleNamespace(severe_adverse_bar=False, structure_broken=False,
-                              sustained_adverse=False) if source_available else None
+                              sustained_adverse=adverse_retrace,
+                              signed_2m_change=-3 if adverse_retrace else 0,
+                              atr_points=3) if source_available else None
     with (patch.object(v3, "regime_histogram_v3", return_value=regime),
           patch.object(v3, "price_confirmation_v3", return_value=price),
           patch.object(v3, "price_exit_evidence_v2", return_value=adverse),
@@ -94,6 +97,24 @@ class HistogramPriceSplitTest(unittest.TestCase):
         self.assertEqual(result.action, "HOLD_PRICE_UNCONFIRMED")
         self.assertEqual(result.target.amount, .01)
 
+    def test_first_histogram_rollover_plus_adverse_prices_protects_exposure(self):
+        for side in (1, -1):
+            result = run_target(side=side, current=.01, rollover=True,
+                                adverse_retrace=True)
+            self.assertEqual(result.action, "HISTOGRAM_EXHAUSTION_FLAT")
+            self.assertEqual(result.target.amount, 0.)
+
+    def test_histogram_rollover_without_actual_price_retrace_does_not_exit(self):
+        result = run_target(current=.01, rollover=True, adverse_retrace=False,
+                            base_target=0.)
+        self.assertEqual(result.action, "HOLD_PRICE_UNCONFIRMED")
+        self.assertEqual(result.target.amount, .01)
+
+    def test_histogram_rollover_can_never_create_an_open(self):
+        result = run_target(current=0., rollover=True, adverse_retrace=True)
+        self.assertNotEqual(result.action, "HISTOGRAM_EXHAUSTION_FLAT")
+        self.assertEqual(result.target.amount, .01)
+
     def test_price_can_override_E2_only_on_initial_open(self):
         allowed = run_target(e2_agrees=False, breakout=True)
         self.assertEqual(allowed.action, "OPEN_PRICE_OVERRIDE")
@@ -132,6 +153,18 @@ class HistogramPriceSplitTest(unittest.TestCase):
         self.assertTrue(outcome.recovering_before_cross)
         self.assertFalse(outcome.weakening_before_cross)
         self.assertEqual(outcome.signed_spread, -5)
+
+    def test_first_rollover_detected_while_macd_still_positive(self):
+        candles = source_bars(400)
+        cutoff = ZERO + timedelta(minutes=400)
+        with patch.object(v3, "macd_observations_v2", return_value=tuple(
+                SimpleNamespace(spread=spread,closed_at=ZERO+timedelta(minutes=t))
+                for spread,t in ((4,380),(10,390),(6,400)))):
+            result = v3.regime_histogram_v3(
+                source_bars=candles,cutoff=cutoff,minutes=10,
+                market_name="Tech100",side=1)
+        self.assertTrue(result.rolling_over_from_peak)
+        self.assertGreater(result.signed_spread, 0)
 
     def test_last_unclosed_regime_bar_cannot_change_signal(self):
         rows = source_bars(400)

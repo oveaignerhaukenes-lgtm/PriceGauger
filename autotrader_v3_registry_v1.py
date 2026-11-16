@@ -115,7 +115,8 @@ STRATEGIES_V3 = (
         "macd-stoch-v21-r-long-flat-v3", "MACD–Stoch 2.1 · Long/Flat V3 · Hist+pris",
         "Eksperimentell R10 (kan endres): MACD-histogramets konvergens kan åpne "
         "LONG før R-kryss kun ved et sterkt bekreftet 1m-prisbrudd. "
-        "E2 mot inngang kan overstyres av sterkt prisbrudd; V2-prisexit beholdes. "
+        "E2 mot inngang kan overstyres av sterkt prisbrudd; histogram-topp "
+        "pluss faktisk 1m-prisretrace kan gi tidlig FLAT. V2-prisexit beholdes. "
         "Ingen automatisk kontoaktivering eller strategisk tapsgrense.",
         "macd-stoch-v21-r-long-flat-v3",True,
     ),

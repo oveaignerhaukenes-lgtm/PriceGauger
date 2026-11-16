@@ -35,6 +35,7 @@ class RegimeHistogramV3:
     signed_spread: float
     recovering_before_cross: bool
     weakening_before_cross: bool
+    rolling_over_from_peak: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,9 +75,13 @@ def regime_histogram_v3(*, source_bars, cutoff, minutes: int, market_name: str,
     # independent gate; convergence alone never triggers OPEN or FLAT.
     recovering = (a < b < c < 0 and abs(c) <= .65 * abs(a))
     weakening = (a > b > c > 0 and c <= .65 * a)
+    # The first material decrease after a rising positive histogram may
+    # arrive a full R bar before the slower three-bar convergence check.
+    rolling_over = (0 < a < b and 0 < c <= .70 * b)
     return RegimeHistogramV3(
         signed_spread=c, recovering_before_cross=recovering,
         weakening_before_cross=weakening,
+        rolling_over_from_peak=rolling_over,
     )
 
 
@@ -170,6 +175,15 @@ def split_price_hist_regime_v3(*, side: int, current_target: TargetInventoryV3,
     if early_adverse and current:
         return _decision(amount=0, action="EARLY_REGIME_REVERSAL_FLAT",
                          reason="R histogram weakens before cross AND prices break opposite",
+                         observation=observation)
+    # First histogram rollover (one completed R bar, not two) is relevant to
+    # *protecting existing exposure* only. It never grants a new entry: two
+    # adverse 1m closes and a 0.75-prior-ATR price loss are still required.
+    if (current and native_regime and regime.rolling_over_from_peak and
+            adverse.sustained_adverse and
+            adverse.signed_2m_change <= -.75 * adverse.atr_points):
+        return _decision(amount=0, action="HISTOGRAM_EXHAUSTION_FLAT",
+                         reason="R histogram first rollover AND two adverse price closes",
                          observation=observation)
     if not native_regime and not early_regime and not early_hold:
         return _decision(amount=0, action="REGIME_FLAT",
