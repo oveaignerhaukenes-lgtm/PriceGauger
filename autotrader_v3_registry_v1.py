@@ -112,6 +112,22 @@ STRATEGIES_V3 = (
         "macd-stoch-v21-r-short-flat-v2",True,
     ),
     StrategySpecV3(
+        "macd-stoch-v21-r-long-flat-v3", "MACD–Stoch 2.1 · Long/Flat V3 · Hist+pris",
+        "Eksperimentell R10 (kan endres): MACD-histogramets konvergens kan åpne "
+        "LONG før R-kryss kun ved et sterkt bekreftet 1m-prisbrudd. "
+        "E2 mot inngang kan overstyres av sterkt prisbrudd; histogram-topp "
+        "pluss faktisk 1m-prisretrace kan gi tidlig FLAT. V2-prisexit beholdes. "
+        "Ingen automatisk kontoaktivering eller strategisk tapsgrense.",
+        "macd-stoch-v21-r-long-flat-v3",True,
+    ),
+    StrategySpecV3(
+        "macd-stoch-v21-r-short-flat-v3", "MACD–Stoch 2.1 · Short/Flat V3 · Hist+pris",
+        "Speilet V3 SHORT/FLAT: tidlig regime via avtagende motgående MACD-histogram "
+        "pluss bekreftet 1m-prisbrudd. Prisbekreftet E2-utgang; tidlig FLAT ved "
+        "svekkende regimehistogram og tydelig prisbrudd motsatt vei. Ingen auto-arming.",
+        "macd-stoch-v21-r-short-flat-v3",True,
+    ),
+    StrategySpecV3(
         "macd-stoch-v2-2-flip", "MACD+Stoch V2.2 · Flip",
         "V2.1 beholdt for OPEN og BUILD, men sterk motsatt 70/30-score "
         "på én lukket candle sender straks motsatt minste-tranche-mål. "
@@ -263,6 +279,7 @@ REGIME_TIMEFRAMES_V3 = LIVE_TIMEFRAMES_V3
 SPLIT_CLOCK_STRATEGIES_V3 = (
     "macd-stoch-v21-r-long-flat-v1", "macd-stoch-v21-r-short-flat-v1",
     "macd-stoch-v21-r-long-flat-v2", "macd-stoch-v21-r-short-flat-v2",
+    "macd-stoch-v21-r-long-flat-v3", "macd-stoch-v21-r-short-flat-v3",
 )
 REGIME_STRATEGIES_V3 = SPLIT_CLOCK_STRATEGIES_V3 + ("macd-regime-histogram", "aen2-sticky-regime", "aen21-sticky-fast-exit", "rhythm-trend-1", "rhythm-trend-fractal")
 LIVE_CONTROL_MODES_V3 = ("Manuell",)

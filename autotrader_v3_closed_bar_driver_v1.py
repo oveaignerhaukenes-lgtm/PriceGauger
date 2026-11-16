@@ -34,8 +34,12 @@ from autotrader_v3_macd_stoch_v21_split_v1 import (
     long_flat_target_v3, short_flat_target_v3,
 )
 from autotrader_v3_macd_stoch_v21_split_v2 import (
-    LONG_KEY_V2,SHORT_KEY_V2,ALL_SPLIT_KEYS_V3,
+    LONG_KEY_V2,SHORT_KEY_V2,
     long_flat_target_v2,short_flat_target_v2,
+)
+from autotrader_v3_macd_stoch_v21_split_v3 import (
+    LONG_KEY_V3_PRICE_HIST, SHORT_KEY_V3_PRICE_HIST, ALL_SPLIT_KEYS_V3,
+    long_flat_target_v3_price_hist, short_flat_target_v3_price_hist,
 )
 from autotrader_v3_macd_stoch_v21 import (
     STRATEGY_KEY_V3 as STOCH_V21_KEY, macd_stoch_v21_target_v3,
@@ -216,6 +220,10 @@ def evaluate_closed_bar_once_v3(*, trader_id: str, observation: MacdObservationV
         decide = long_flat_target_v2
     elif strategy_key == SHORT_KEY_V2:
         decide = short_flat_target_v2
+    elif strategy_key == LONG_KEY_V3_PRICE_HIST:
+        decide = long_flat_target_v3_price_hist
+    elif strategy_key == SHORT_KEY_V3_PRICE_HIST:
+        decide = short_flat_target_v3_price_hist
     elif strategy_key == STOCH_V22_KEY:
         decide = macd_stoch_v22_flip_target_v3
     elif strategy_key == STOCH_V2_KEY:
