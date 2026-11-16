@@ -55,7 +55,7 @@ def test_full_close_execution_marker_can_remain_neutral():
     ) == "FLAT"
 
 
-def test_chart_uses_one_compact_execution_triangle_per_v3_event():
+def test_chart_uses_one_compact_execution_marker_per_v3_event():
     overlay=Path("tradingdesk_ui/charts/lightweight/trade_marker_overlay_v2.py").read_text(encoding="utf-8")
     contract=Path("tradingdesk_ui/charts/lightweight/contract.py").read_text(encoding="utf-8")
     live=Path("tradingdesk_ui/charts/lightweight/live_update.py").read_text(encoding="utf-8")
@@ -66,6 +66,8 @@ def test_chart_uses_one_compact_execution_triangle_per_v3_event():
     assert '"marker_role": "EXECUTION_EVENT"' in contract
     assert "_v3_execution_marker_size" in contract
     assert "account_light" in live and "account_dark" in live
+    assert "inventory_after: marker.inventory_after" in live
+    assert "inventory_after: marker.inventory_after" in overlay
 
 
 def test_execution_marker_size_distinguishes_build_from_reduce():

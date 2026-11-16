@@ -209,13 +209,14 @@ def _marker_payload(
             )
             visual_direction = "LONG" if side == "BUY" else "SHORT"
             action = str(marker.action or "").upper()
+            flat_close = action == "CLOSE" and is_flat
             result.append(
                 {
                     "time": time_value,
                     "price": float(marker.execution_price),
-                    "position": "belowBar" if side == "BUY" else "aboveBar",
-                    "shape": "arrowUp" if side == "BUY" else "arrowDown",
-                    "color": light if side == "BUY" else dark,
+                    "position": "atPriceMiddle" if flat_close else ("belowBar" if side == "BUY" else "aboveBar"),
+                    "shape": "square" if flat_close else ("arrowUp" if side == "BUY" else "arrowDown"),
+                    "color": "#94a3b8" if flat_close else (light if side == "BUY" else dark),
                     "text": "",
                     "size": _v3_execution_marker_size(action),
                     "id": f"{source}:{marker.net_position_id}:{raw_time}:execution",

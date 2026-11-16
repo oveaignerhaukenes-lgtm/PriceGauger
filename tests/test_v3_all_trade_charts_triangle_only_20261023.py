@@ -1,4 +1,4 @@
-"""All V3 execution chart routes display BUY/SELL as only triangles.
+"""V3 BUY/SELL entries are triangles; reconciled full FLAT closes squares.
 
 Presentation-only change: reconciled events remain account-scoped, AI
 annotations remain separate, and broker/live decision code is untouched.
@@ -20,7 +20,10 @@ def test_triangle_layer_is_time_price_anchored_and_only_for_v3_executions():
     assert "createPgV3TradeTriangleLayer" in js
     assert "chart.timeScale().timeToCoordinate(time)" in js
     assert "priceSeries.priceToCoordinate(price)" in js
-    assert "document.createElementNS(ns, 'polygon')" in js
+    assert "document.createElementNS(ns, isFlatClose ? 'rect' : 'polygon')" in js
+    assert "action === 'CLOSE' && (ending === 'FLAT' || afterIsZero)" in js
+    assert "isFlatClose ? '#94a3b8'" in js
+    assert "marker.inventory_after" in js
     assert "String(marker.source || '') !== 'AUTOTRADER_V3'" in js
     assert "side !== 'BUY' && side !== 'SELL'" in js
     assert "pgV3NativeMarkers" in js
@@ -50,7 +53,7 @@ def test_shared_triangle_presentation_wired_to_all_v3_graph_paths():
     assert "SAXO_MANUAL_FILL" in overlay  # legacy manual markers preserved
 
 
-def test_exact_inspection_execution_side_without_label_or_flat_square():
+def test_exact_inspection_closes_flat_as_square_and_new_opens_as_triangle():
     bars=tuple(ChartBar(
         market="US Tech100",
         bar_time=(BASE+timedelta(minutes=i)).isoformat(),
@@ -66,10 +69,10 @@ def test_exact_inspection_execution_side_without_label_or_flat_square():
         bars,executions=records,timeframe_minutes=1)
     fills=[x for x in payload["markers"] if x["source"]=="AUTOTRADER_V3"]
     assert len(fills)==2
-    assert fills[0]["side"]=="SELL" and fills[0]["shape"]=="arrowDown"
+    assert fills[0]["side"]=="SELL" and fills[0]["shape"]=="square"
+    assert fills[0]["color"]=="#94a3b8" and fills[0]["position_direction"]=="FLAT"
     assert fills[1]["side"]=="BUY" and fills[1]["shape"]=="arrowUp"
     assert all(x["text"]=="" and x["price"]>0 for x in fills)
-    assert all(x["shape"]!="square" for x in fills)
     assert all(x["time"] in [b["time"] for b in payload["candles"]] for x in fills)
 
 

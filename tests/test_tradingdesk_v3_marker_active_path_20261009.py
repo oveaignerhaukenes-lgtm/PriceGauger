@@ -30,7 +30,7 @@ def _event(*, request: str, side: str, direction: str, account: str) -> AutoTrad
 
 
 def test_same_candle_multi_account_execution_markers_are_distinct_and_broker_sided():
-    # A SELL reduction of LONG and a BUY close to FLAT must retain broker side.
+    # A SELL reduction stays a sell triangle; a BUY close to FLAT becomes neutral.
     markers = (
         _event(request="r1", side="Buy", direction="LONG", account="a"),
         _event(request="r2", side="Sell", direction="LONG", account="b"),
@@ -50,8 +50,11 @@ def test_same_candle_multi_account_execution_markers_are_distinct_and_broker_sid
     assert [(item["side"], item["shape"], item["position"]) for item in projected] == [
         ("BUY", "arrowUp", "belowBar"),
         ("SELL", "arrowDown", "aboveBar"),
-        ("BUY", "arrowUp", "belowBar"),
+        ("BUY", "square", "atPriceMiddle"),
     ]
+    assert projected[2]["color"] == "#94a3b8"
+    assert projected[2]["position_direction"] == "FLAT"
+    assert projected[1]["position_direction"] == "LONG"
     assert all(item["marker_role"] == "EXECUTION_EVENT" for item in projected)
 
 
