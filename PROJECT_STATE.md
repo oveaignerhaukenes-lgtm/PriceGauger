@@ -2,6 +2,14 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-16 · Historical HH/HL + mirror-symmetric rhythm research (proposed)
+
+- **Scope:** Extend existing read-only `pages/0_Markedsrytme.py` with a manually triggered 7/14/30-calendar-day research panel, rather than a new navigation route. Source is the **exact subscribed instrument** in PostgreSQL `pg_v2_market_bars_1m`, with fully complete UTC-aligned 1/2/5/10/15m OHLC buckets; no data interpolation, broker calls or database writes.
+- **Model:** `market_rhythm_research_v1.py` identifies *higher high, lower high, higher low, lower low* by completed OHLC wick extrema and causal later close-based reversal confirmation, reports most frequent 2–4-turn sequences and 5/10/20/30m later gross outcomes only after confirmation. Intrabar order is unknown, so new extremes cannot also confirm in the same candle. Turns and forward returns never cross missing-minute/closed-market gaps.
+- **Control:** 1–3-minute sign/absolute-return pattern predicts whether the next 1m close **reverses direction** versus continues; compares training-base frequency, mirrored (direction-neutral) conditional patterns, and signed (direction-specific) patterns over five expanding-train chronological test folds. Reports accuracy and Brier; no fitted trading costs, expected P/L, significance claim, parameter optimization, or LIVE strategy changes.
+- **Safety:** user-triggered calculation only, bounded 30d canonical read/cache, existing LIVE/Risk/Ownership/Saxo execution surfaces untouched. No table migrations, subscription changes, periodic AI or background jobs. This is a first hypothesis screen, not calibrated proof of an actionable entry or exit.
+- **Evidence:** six local pure `unittest` regressions and Python compile checks pass; broader pytest/GitHub CI, merged SHA, deployed Railway SHA and actual production dataset outcome remain to be verified before claiming delivered or empirical results. Tests of existing rhythm dashboard need `pytest` installed (not in minimal local executor).
+
 ## 2026-11-15 · Price-confirmed R/E one-sided V2 (separate pilot)
 
 - **Proposed branch:** `feature/tech100-regime-price-exit-v2-20261115`. Adds separately selectable `macd-stoch-v21-r-long-flat-v2` and `macd-stoch-v21-r-short-flat-v2`; **original V2.1 plus R/E V1 variants remain untouched**. Same complete-bar V2.1 entry/build, recommended **R15m (adjustable)**, E2m MACD adverse signal no longer closes an existing position unless complete recent 1m prices show a measurable adverse move/break. A severe prior-ATR-adjusted price breakdown closes independently; no direct flip. E2m against-held-side vetoes additional builds/new entries. Optional separate 10s Impulse Exit remains possible, no hidden monetary stop or AI.
