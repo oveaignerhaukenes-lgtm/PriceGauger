@@ -81,15 +81,19 @@ def regime_histogram_v3(*, source_bars, cutoff, minutes: int, market_name: str,
 
 
 def price_confirmation_v3(*, source_bars, cutoff, market_name: str,
-                          side: int) -> PriceConfirmationV3 | None:
+                          side: int, adverse_evidence=None) -> PriceConfirmationV3 | None:
     """Causal 1m ATR and recent price structure; never use a forming bar."""
-    evidence = price_exit_evidence_v2(
-        source_bars=source_bars, cutoff=cutoff,
-        market_name=market_name, side=side,
-    )
+    evidence = adverse_evidence
+    if evidence is None:
+        evidence = price_exit_evidence_v2(
+            source_bars=source_bars, cutoff=cutoff,
+            market_name=market_name, side=side,
+        )
+    if evidence is None:
+        return None
     bars = _completed_bars(source_bars, timeframe=1,
                            cutoff=cutoff, market=market_name)
-    if evidence is None or len(bars) < 18:
+    if len(bars) < 18:
         return None
     recent = bars[-18:]
     if any(_utc(b.bar_time) - _utc(a.bar_time) != timedelta(minutes=1)
@@ -142,13 +146,13 @@ def split_price_hist_regime_v3(*, side: int, current_target: TargetInventoryV3,
         source_bars, minutes=int(exit_timeframe_minutes),
         cutoff=cutoff, market=market_name,
     )
-    price = price_confirmation_v3(
-        source_bars=source_bars, cutoff=cutoff,
-        market_name=market_name, side=side,
-    )
     adverse = price_exit_evidence_v2(
         source_bars=source_bars, cutoff=cutoff,
         market_name=market_name, side=side,
+    )
+    price = price_confirmation_v3(
+        source_bars=source_bars, cutoff=cutoff,
+        market_name=market_name, side=side, adverse_evidence=adverse,
     )
     if regime is None or exit_macd is None or price is None or adverse is None:
         return _decision(amount=0, action="CLOCK_OR_PRICE_UNAVAILABLE_FLAT",
