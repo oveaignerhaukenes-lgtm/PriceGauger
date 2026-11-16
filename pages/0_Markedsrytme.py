@@ -25,6 +25,11 @@ from market_rhythm_dashboard_v1 import (
     empirical_fractal_motif_v1,
     recursively_generated_fractal_v1,
 )
+from market_rhythm_research_v1 import (
+    clean_bars,
+    rhythm_prediction_report,
+    structure_report,
+)
 
 st.set_page_config(page_title="Markedsrytme · PriceGauger", page_icon="〰️", layout="wide")
 st.title("Markedsrytme")
@@ -372,6 +377,100 @@ def _render_live() -> None:
         )
 
 _render_live()
+
+st.divider()
+st.subheader("Historisk forskningslab · HH/HL og rytmeprediksjon")
+st.caption(
+    "Kjør manuelt på eksisterende, fullførte 1m-priser. Fem tidsoppløsninger, "
+    "hyppigste bekreftede HH/HL/LH/LL-sekvenser og en tidskausal test av "
+    "om forrige 1–3 minutter forutsier neste minutts retningsskifte. "
+    "Dette er forskning, ikke strategiordrer."
+)
+
+
+@st.cache_data(ttl=600, max_entries=8, show_spinner=False)
+def _research_bars(instrument_id: int, days: int):
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+    # The cap exceeds the maximum number of whole minutes in this wall-time span;
+    # it must not silently truncate a busy instrument's data.
+    raw = CanonicalMarketBarStoreV2().load_instrument_range(
+        instrument_id=int(instrument_id), start=start, end=end,
+        limit=days * 24 * 60 + 10,
+    )
+    return clean_bars(raw)
+
+
+with st.form("rhythm-history-research"):
+    d1, d2 = st.columns(2)
+    with d1:
+        research_days = st.selectbox("Historisk utvalg", (7, 14, 30), index=2)
+    with d2:
+        research_threshold = st.selectbox(
+            "Vendepunkt bekreftet ved bevegelse", (0.05, 0.10, 0.25, 0.50),
+            format_func=lambda value: f"{value:g} %", index=0,
+        )
+    run_research = st.form_submit_button("Analyser historikken", type="primary")
+
+if run_research:
+    try:
+        with st.spinner("Leser kanoniske priser og beregner historiske mønstre …"):
+            sample = _research_bars(int(selected.instrument_id), research_days)
+            structure = [structure_report(sample, minutes=m, reversal_pct=research_threshold)
+                         for m in (1, 2, 5, 10, 15)]
+            prediction = rhythm_prediction_report(sample)
+        st.session_state["rhythm-research-result"] = {
+            "source": _source_label(selected), "days": research_days,
+            "threshold": research_threshold, "sample_size": len(sample),
+            "first": sample[0].at if sample else None,
+            "last": sample[-1].at if sample else None,
+            "structures": structure, "predictions": prediction,
+        }
+    except Exception as exc:
+        st.error(f"Analysen kunne ikke gjennomføres ({type(exc).__name__}). Ingen data ble endret.")
+
+report = st.session_state.get("rhythm-research-result")
+if report:
+    st.caption(
+        f"Siste kjøring: {report['source']} · {report['days']} kalenderdager "
+        f"· terskel {report['threshold']} % · {report['sample_size']:,} faktiske 1m-barer "
+        f"· {report['first']} til {report['last']}."
+    )
+    if report["sample_size"] < 120:
+        st.warning("For lite faktisk prishistorikk for en stabil rytmekontrolltest.")
+    st.markdown("**1–3 minutters rytmikk: out-of-sample kontroll**")
+    if report["predictions"]:
+        st.dataframe(report["predictions"], hide_index=True, use_container_width=True)
+        st.caption(
+            "Målet er bare om neste lukkede 1m-retning *skifter* fra forrige. "
+            "Nullmodell = historisk gjennomsnitt; speilsymmetrisk = samme mønster "
+            "for opp og ned; retningsspesifikk = separate modeller. "
+            "Fem kronologiske testblokker med kun tidligere data som trening. "
+            "Høyere treff % og lavere Brier er bedre. Verken timing av pivoter "
+            "eller handelsgevinst er dokumentert av denne kontrolltesten."
+        )
+    else:
+        st.info("Mangler minst 120 sammenhengende 1m-observasjoner med gyldig neste bar.")
+    st.markdown("**HH/HL/LH/LL – de vanligste bekreftede sekvensene**")
+    research_tabs = st.tabs(("1 min", "2 min", "5 min", "10 min", "15 min"))
+    for tab, table in zip(research_tabs, report["structures"]):
+        with tab:
+            st.caption(
+                f"{table['bars']} fullstendige {table['timeframe']}m-barer "
+                f"· {table['turns']} bekreftede vendepunkter "
+                f"· {table['labeled']} klassifiserte HH/HL/LH/LL."
+            )
+            if table["patterns"]:
+                st.dataframe(table["patterns"], hide_index=True, use_container_width=True)
+            else:
+                st.info("Ingen sekvenser med minst åtte forekomster; prøv et kortere intervall eller lengre historikk.")
+    st.caption(
+        "HH/LH sammenligner bekreftede topper, HL/LL bekreftede bunner; "
+        "samme markedssesjon og faste terskler. 'Neste' betyr neste *senere bekreftede* "
+        "vendepunkt. Oppgang og snittavkastning måles fra bekreftelsestidspunktet, "
+        "uten å krysse hull i dataserien. Tallene er brutto prisendringer, ikke "
+        "etter Saxo-spread, ordreutførelse eller finansiering. Små utvalg gir stor usikkerhet."
+    )
 
 with st.expander("Metode, usikkerhet og videre fraktal forskning", expanded=False):
     st.markdown(
