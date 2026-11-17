@@ -52,9 +52,13 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
                 && Math.abs(Number(after)) <= 1e-9;
             const ending = String(marker.position_direction || marker.direction || '').toUpperCase();
             const isFlatClose = action === 'CLOSE' && (ending === 'FLAT' || afterIsZero);
+            // Unknown-price executions remain outlined, but never dotted:
+            // 2px dashed paths fragment into stray pixels on narrow phones.
+            const estimated = marker.price_verified === false;
             const sizeValue = Number(marker.size);
             const radius = Math.max(3, Math.min(7.5,
-                3.5 + (Number.isFinite(sizeValue) ? sizeValue : .45) * 3));
+                3.5 + (Number.isFinite(sizeValue) ? sizeValue : .45) * 3
+                    + (estimated ? .8 : 0)));
             // Only confirmed full closes are neutral. Partial reductions keep
             // the broker BUY/SELL triangle, regardless of the action label.
             const shape = document.createElementNS(ns, isFlatClose ? 'rect' : 'polygon');
@@ -62,7 +66,6 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
                 : String(marker.color || (up ? '#16a34a' : '#dc2626'));
             // Only the account inspector marks estimates explicitly false.
             // Preserve existing visual appearance for other V3 chart paths.
-            const estimated = marker.price_verified === false;
             if (isFlatClose) {
                 const edge = Math.max(6, radius * 1.55);
                 shape.setAttribute('x', (x - edge / 2).toFixed(2));
@@ -80,8 +83,7 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
             }
             shape.setAttribute('fill',estimated ? 'none' : color);
             shape.setAttribute('stroke',color);
-            shape.setAttribute('stroke-width',estimated ? '1.7' : '0.5');
-            if (estimated) shape.setAttribute('stroke-dasharray','2 2');
+            shape.setAttribute('stroke-width',estimated ? '2.2' : '0.5');
             const title = document.createElementNS(ns,'title');
             title.textContent = (isFlatClose ? 'V3 flat · posisjon lukket'
                 : (up ? 'V3 kjøp' : 'V3 salg'))

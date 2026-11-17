@@ -30,6 +30,8 @@ def test_triangle_layer_is_time_price_anchored_and_only_for_v3_executions():
     assert "String(m.source || '') !== 'AUTOTRADER_V3'" in js
     assert "shape.setAttribute('fill',estimated ? 'none' : color)" in js
     assert "marker.price_verified === false" in js
+    assert "stroke-dasharray" not in js
+    assert "shape.setAttribute('stroke-width',estimated ? '2.2' : '0.5')" in js
     assert "pointerEvents: 'none'" in js
     assert "subscribeVisibleLogicalRangeChange(schedule)" in js
     assert "unsubscribeVisibleLogicalRangeChange(schedule)" in js
