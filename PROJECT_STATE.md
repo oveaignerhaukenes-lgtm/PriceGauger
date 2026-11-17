@@ -2,6 +2,10 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-17 · AutoTrader anslagsmarkører: mobil lesbarhet
+
+- **Oppfølging av #846:** Brukeren bekreftet at korrigert prisplassering ikke lenger fremstår som retrospektivt ideell; samtidig ble hule 2px-stiplede trekanter/firkanter visuelt fragmentert på mobil. Fjerner kun SVG-stiplingen, gir anslag en litt større heltrukket omrisskontur. Konto-, pris-, tidspunkt-, FLAT-, signal- og Saxo-logikk forblir uendret. Lokale kontroller, CI og Railway-verifikasjon kreves før ferdigstatus.
+
 ## 2026-11-17 · AutoTrader «Vis handelskart» per konto: faktisk fillpris og ærlige anslag
 
 - **Årsak:** Konto-/instansfilteret i AutoTrader V3-inspektøren var allerede eksakt. Den villedende timingen kom fra at SELL ble tegnet på hele minuttets *high* og BUY på *low*, selv uten Saxo-fillpris. Dette var retrospektivt bestefall, ikke faktisk oppnådd handel.
