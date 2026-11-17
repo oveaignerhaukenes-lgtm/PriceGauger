@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `0adc54287d2a5b979c6c571790a34ea93126c7b7`
+Latest tracked main commit: `67c733c951d43cca4990a284b03aa4463513de06`
 
 ## Recent main commits
 
+- 2026-11-17 [`67c733c951`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/67c733c951d43cca4990a284b03aa4463513de06) — Impulse Catcher v1.1: eliminate false BBO gaps from slow V3 cycles (#848)
 - 2026-11-17 [`0adc54287d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0adc54287d2a5b979c6c571790a34ea93126c7b7) — Make unverified AutoTrader chart markers readable on mobile (#847)
 - 2026-11-17 [`319934ca0a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/319934ca0a34067216688b2b5f24a22180058214) — Fix AutoTrader account chart markers using verified Saxo fills (#846)
 - 2026-11-16 [`23e6a2c4c2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/23e6a2c4c228ca4272676b2c51c8acca04d34947) — V3 charts: mark confirmed flat with neutral gray square (#845)
@@ -46,6 +47,5 @@ Latest tracked main commit: `0adc54287d2a5b979c6c571790a34ea93126c7b7`
 - 2026-10-30 [`eb9b26d510`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/eb9b26d510906f1eadafb01ce11ade742e154c6c) — fix: align chronological train/test boundary to completed 1m candle
 - 2026-10-30 [`fe2f40a278`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fe2f40a2785257b8a4364812486a1057bd096425) — docs: isolated sandbox host setup and historical FX assumptions
 - 2026-10-30 [`8434359684`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8434359684cb7eec11fc654261e94732e1a3d5ab) — security: no Docker image pull at request time; reliable killed-container cleanup
-- 2026-10-30 [`a867c3bf6a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a867c3bf6a604d021dde01e23b230ef4a4a54b91) — perf: bound isolated per-bar execution to fit API timeout
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
