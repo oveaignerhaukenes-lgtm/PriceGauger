@@ -30,6 +30,7 @@ from market_rhythm_research_v1 import (
     rhythm_prediction_report,
     structure_report,
 )
+from market_instrument_ensemble_v1 import ensemble_report
 
 st.set_page_config(page_title="Markedsrytme · PriceGauger", page_icon="〰️", layout="wide")
 st.title("Markedsrytme")
@@ -470,6 +471,117 @@ if report:
         "vendepunkt. Oppgang og snittavkastning måles fra bekreftelsestidspunktet, "
         "uten å krysse hull i dataserien. Tallene er brutto prisendringer, ikke "
         "etter Saxo-spread, ordreutførelse eller finansiering. Små utvalg gir stor usikkerhet."
+    )
+
+st.divider()
+st.subheader("Markedsinstrumentet · samspill mellom strenger")
+st.caption(
+    "Tech100 og andre *eksakt identifiserte* Saxo-instrumenter som samtidige signaler. "
+    "Tester felles bevegelse, aktivitet, rytmisk koherens, et mulig felles markedssignal "
+    "og om en annen prisserie faktisk varsler neste Tech100-bevegelse på holdout-data. "
+    "Kun manuell, skrivebeskyttet historisk forskning."
+)
+
+
+def _preferred_strings():
+    # Pick one subscribed UIC per market, never merge similarly named products.
+    preferred = ("tech 100", "s&p", "us 500", "gold", "silver", "dxy", "brent", "oil")
+    chosen = [selected]
+    seen_markets = {selected.market_name.lower()}
+    for term in preferred:
+        for source in candidates:
+            market = source.market_name.lower()
+            if (term in market and market not in seen_markets
+                    and source not in chosen and len(chosen) < 6):
+                chosen.append(source)
+                seen_markets.add(market)
+                break
+    return chosen
+
+
+with st.form("rhythm-cross-market-instrument"):
+    selected_strings = st.multiselect(
+        "Strenger / konkrete instrumenter (2–8, inklusive valgt hovedmarked)",
+        options=candidates, default=_preferred_strings(),
+        format_func=_source_label, max_selections=8,
+        help="Velg bare instrumenter som faktisk samles inn. Sammenligning krever identiske UTC-minutter.",
+    )
+    ensemble_days = st.selectbox("Sammenlign siste kalenderdager", (7, 14, 30), index=1)
+    run_ensemble = st.form_submit_button("Analyser samspillet", type="primary")
+
+if run_ensemble:
+    if not 2 <= len(selected_strings) <= 8 or selected not in selected_strings:
+        st.warning("Velg minst to strenger, og ta med hovedmarkedet i listen over.")
+    else:
+        try:
+            with st.spinner("Henter eksakte UTC-minutter og tester koblinger / frekvenser …"):
+                instrument_closes = {}
+                for source in selected_strings:
+                    history = _research_bars(int(source.instrument_id), ensemble_days)
+                    instrument_closes[_source_label(source)] = pd.Series(
+                        [candle.close for candle in history],
+                        index=pd.to_datetime([candle.at for candle in history], utc=True),
+                        dtype=float,
+                    )
+                result = ensemble_report(instrument_closes, target=_source_label(selected))
+                st.session_state["market-strings-ensemble-result"] = {
+                    "report": result, "days": ensemble_days,
+                }
+        except Exception as exc:
+            st.error(f"Markedsinstrument-analysen stoppet ({type(exc).__name__}). Ingen data ble endret.")
+
+ensemble_data = st.session_state.get("market-strings-ensemble-result")
+if ensemble_data:
+    strings = ensemble_data["report"]
+    st.caption(
+        f"Siste kjøring: {ensemble_data['days']} kalenderdager · "
+        f"{len(strings['coverage'])} konkrete UIC-er · {strings['time_from']} – "
+        f"{strings['time_to']} UTC. Uten interpolering eller fiktive weekend-priser."
+    )
+    st.markdown("**1. Kan strengene høres samtidig?**")
+    st.dataframe(strings["coverage"], hide_index=True, use_container_width=True)
+    st.dataframe(strings["couplings"], hide_index=True, use_container_width=True)
+    st.caption(
+        "Retningskorrelasjon = samtidige log-avkastninger; aktivitetskorrelasjon = "
+        "samtidig størrelse på bevegelsene, uansett opp/ned. −1 til +1; 0 betyr "
+        "ingen lineær samvariasjon. Bare felles, gyldige 1-minutter."
+    )
+    st.markdown("**2. Finnes det en felles grunntone?**")
+    factor = strings["factor"]
+    if factor:
+        st.metric("Første felles faktor · forklart varians", f"{factor['explained_pct']:.1f} %")
+        st.caption(f"Basert på {factor['common_minutes']:,} samtidige 1-minutt-returer.")
+        st.dataframe(
+            [{"Instrument": name, "Faktorvekting": value}
+             for name, value in factor["loadings"].items()],
+            hide_index=True, use_container_width=True,
+        )
+        st.caption("PCA beskriver den sterkeste felles statistiske variasjonen. "
+                   "Den er ingen beviselig fysisk grunntone eller årsak.")
+    else:
+        st.info("Felles faktor trenger minst tre instrumenter og 400 *samtidige* gyldige 1m-returer.")
+    st.markdown("**3. Deler de periodiske overtoner?**")
+    st.dataframe(strings["coherence"], hide_index=True, use_container_width=True)
+    st.caption(
+        "Fourier-koherens fra minst åtte sammenhengende 128-minutters vinduer: "
+        "0 = ustabilt faseforhold, 1 = konsistent faseforhold. 4/8/16/32/64 min; "
+        "frekvenssamspill betyr ikke automatisk ledelse eller handelsfordel."
+    )
+    st.markdown("**4. Endrer samspillet seg med tilstand?**")
+    st.dataframe(strings["regimes"], hide_index=True, use_container_width=True)
+    st.caption(
+        "Tidlig/sen sammenligner to deler av faktisk felles utvalg. Høy/lav gjelder "
+        "60-minutters rullerende Tech100-volatilitet mot 75-prosentilen. "
+        "Skifte i korrelasjon er en *tilstand*, ikke dokumentasjon på hva som utløste det."
+    )
+    st.markdown("**5. Hvem spiller først? Fremoverskuende kontroll**")
+    st.dataframe(strings["leads"], hide_index=True, use_container_width=True)
+    st.caption(
+        "Enkel lineær modell: den andre strengens minuttbevegelse t → Tech100 "
+        "akkumulert neste 1/2/5/10 minutter. Kronologisk 60 % trening, 40 % ukjent test. "
+        "Positiv test-R² bedrer en låst treningsgjennomsnitt-baseline; negativ forverrer. "
+        "Ingen kostnader eller live-signaler. Vis alle forhåndsvalgte horisonter, "
+        "ikke bare beste resultat. Overlappende fremtidshorisonter gir usikkerhet."
     )
 
 with st.expander("Metode, usikkerhet og videre fraktal forskning", expanded=False):
