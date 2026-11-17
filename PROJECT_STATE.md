@@ -2,6 +2,11 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-17 · Markedsinstrumentet: koblede prisstrenger (forskning)
+
+- Ny isolert **read-only** `market_instrument_ensemble_v1.py` og panel i `pages/0_Markedsrytme.py`, 2–8 eksakte abonnerte Saxo-UIC-er, 7/14/30d kanoniske ferdiglukkede 1m-priser. Måler samtidige retning/aktivitet, Fourier-koherens 4–64m på sammenhengende vinduer, regimeavhengig samvariasjon, komplett-overlapp PCA-faktor samt forhåndsdefinerte 1/2/5/10m kronologiske 60/40 holdout-leadkontroller mot valgt målmarked. Ingen hullfylling, broker/ordre eller strategiendringer. Tester med syntetiske ledere, uavhengige signaler, hull og sammenfall; faktisk markedsresultat krever manuell analyse med eksisterende produksjons-DB.
+- **Status:** lokal utvikling; vent på GitHub CI, PR-merge og dokumentert Railway-web-deploy. Ingen forutsigelsesevne eller fysisk «resonans» påstås før uavhengig utprøving.
+
 ## 2026-11-17 · AutoTrader anslagsmarkører: mobil lesbarhet
 
 - **Oppfølging av #846:** Brukeren bekreftet at korrigert prisplassering ikke lenger fremstår som retrospektivt ideell; samtidig ble hule 2px-stiplede trekanter/firkanter visuelt fragmentert på mobil. Fjerner kun SVG-stiplingen, gir anslag en litt større heltrukket omrisskontur. Konto-, pris-, tidspunkt-, FLAT-, signal- og Saxo-logikk forblir uendret. Lokale kontroller, CI og Railway-verifikasjon kreves før ferdigstatus.
