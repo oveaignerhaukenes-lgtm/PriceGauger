@@ -65,6 +65,11 @@ def test_chart_contains_price_macd_stoch_and_exact_execution_marker():
     assert any(x["shape"]=="circle" and x["text"]=="AI FLAT"
                for x in payload["markers"])
     assert any(x["shape"]=="arrowUp" for x in payload["markers"])
+    estimate=next(x for x in payload["markers"] if x["source"]=="AUTOTRADER_V3")
+    assert estimate["price_verified"] is False
+    assert estimate["price_source"]=="PREVIOUS_CLOSED_BAR_REFERENCE"
+    assert estimate["price"]==minute(74).close
+    assert estimate["price"]!=minute(75).low
     assert all(x["time"] in {c["time"] for c in payload["candles"]}
                for x in payload["markers"])
     baseline=build_instance_inspection_payload_v1(
@@ -79,6 +84,7 @@ def test_trade_audit_filters_exact_instance_and_account(tmp_path):
         db.execute("""CREATE TABLE autotrader_v3_execution_events (
             executed_at TIMESTAMPTZ, action TEXT, side TEXT, amount REAL,
             inventory_before REAL, inventory_after REAL, request_key TEXT,
+            broker_order_id TEXT,
             instance_id TEXT,account_id TEXT
         )""")
         for inst,account,req in (
@@ -87,13 +93,16 @@ def test_trade_audit_filters_exact_instance_and_account(tmp_path):
             ("chosen","account-2","three"),
         ):
             db.execute("""INSERT INTO autotrader_v3_execution_events
-                VALUES (?,?,?,?,?,?,?,?,?)""",(
-                BASE.isoformat(),"OPEN","Buy",.01,0.,.01,req,inst,account))
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",(
+                BASE.isoformat(),"OPEN","Buy",.01,0.,.01,req,
+                f"broker-{req}",inst,account))
     events=load_instance_executions_v1(
         instance_id="chosen",account_id="account-1",
         after=BASE-timedelta(minutes=1),db_path=path)
     assert [x["request_key"] for x in events]==["one"]
-    assert all("account_id" not in x for x in events)
+    assert events[0]["broker_order_id"]=="broker-one"
+    assert all(x["account_id"]=="account-1" and x["instance_id"]=="chosen"
+               for x in events)
 
 
 def test_ai_memory_is_immutable_causal_and_account_scoped(tmp_path):
@@ -144,7 +153,8 @@ def test_control_surfaces_share_lazy_per_instance_panel_without_saxo_mutation():
     for forbidden in ("place_order(", "set_live_enabled_v3(", "_post(",
                       "send_order(", "cancel_order("):
         assert forbidden not in panel
-    assert "IKKE bekreftet Saxo-fillpris" in panel
+    assert "Saxo-verifisert pris:" in panel
+    assert "Hule markører er ANSLAG" in panel
     assert "render_lightweight_live_chart_v1(" in panel
     assert "st.plotly_chart(" not in panel
     assert "plotly.graph_objects" not in panel
