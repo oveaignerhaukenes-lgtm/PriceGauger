@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-17 · AutoTrader «Vis handelskart» per konto: faktisk fillpris og ærlige anslag
+
+- **Årsak:** Konto-/instansfilteret i AutoTrader V3-inspektøren var allerede eksakt. Den villedende timingen kom fra at SELL ble tegnet på hele minuttets *high* og BUY på *low*, selv uten Saxo-fillpris. Dette var retrospektivt bestefall, ikke faktisk oppnådd handel.
+- **Endring under levering:** Kun read-only `autotrader_v3_instance_inspection_v1.py` og delt SVG-markørpresentasjon: hent `FinalFill` for eksakt konto/ordre/instrument/side/volum fra Saxo audit; bruk faktisk pris og tid når verifisert, ellers forrige **ferdige** bars sluttkurs som tydelig *hult anslag*, aldri barens high/low. Stengt/FLAT beholdes som grå firkant. Ny test dekker kontoisolasjon og manglede/ufullstendige Saxo-fills. Ingen ordre-, margin-, strategi-, rearming- eller reconciliation-endring.
+- **Verifikasjon:** Lokale compile/diff-kontroller passert; GitHub CI/merge og Railway web-deploy må dokumenteres før status «levert». Historiske tap/gevinst krever Saxo-kontoutskrift og kan ikke leses ut av dette chartet alene.
+
 ## 2026-11-16 · V3 chart FLAT square (presentation-only)
 
 - **Scope:** Show a neutral gray square at the execution price only for a reconciled `CLOSE` leaving net inventory `FLAT`; retain account-colored BUY/SELL triangles for OPEN, ADD and partial REDUCE. Use the existing shared SVG marker overlay across TradingDesk, LIVE update and per-instance chart. All strategy/account/ownership/Saxo execution paths unchanged.

@@ -1,7 +1,8 @@
 """Read-only V3 per-instance trading/indicator chart and AI decision ledger.
 
-The chart is lazy: expensive historical market reads happen only after user
-opens the control. It never calls Saxo and cannot place or cancel an order.
+The chart is lazy: expensive market reads and one account-scoped, read-only
+Saxo execution-price audit happen only after user opens the control. It cannot
+place or cancel an order.
 """
 from __future__ import annotations
 
@@ -14,6 +15,9 @@ import streamlit as st
 from autotrader_v3_ai_decision_memory_v1 import load_ai_decisions_v1
 from autotrader_v3_ai_manager_shadow_v1 import shadow_settings_v1,save_shadow_settings_v1
 from autotrader_v3_config_v1 import load_autotrader_config_v3
+from autotrader_v3_instance_fill_prices_v1 import (
+    attach_verified_fill_prices_v1, fetch_exact_final_fills_v1,
+)
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from trading_desk import ChartBar, utc
@@ -73,7 +77,8 @@ def load_instance_executions_v1(
     try:
         with connect(db_path) as db:
             rows=db.execute("""SELECT executed_at,action,side,amount,
-                inventory_before,inventory_after,request_key
+                inventory_before,inventory_after,request_key,broker_order_id,
+                instance_id,account_id
                 FROM autotrader_v3_execution_events
                 WHERE instance_id=? AND account_id=? AND executed_at>=?
                 ORDER BY executed_at DESC,request_key DESC LIMIT ?""",
@@ -84,6 +89,18 @@ def load_instance_executions_v1(
         LOGGER.warning("V3 read-only execution projection unavailable type=%s",
                        type(exc).__name__)
         return ()
+
+
+@st.cache_data(ttl=60,show_spinner=False)
+def _verified_instance_fill_prices_cached_v1(
+    account_id: str, uic: int, asset_type: str, event_specs: tuple,
+) -> dict:
+    """A single, cached, account-scoped Saxo audit read for an opened chart."""
+    events=tuple(dict(broker_order_id=order_id,side=side,amount=amount,
+                      executed_at=executed_at)
+                 for order_id,side,amount,executed_at in event_specs)
+    return fetch_exact_final_fills_v1(
+        events,account_id=account_id,uic=int(uic),asset_type=asset_type)
 
 
 def _nearest_bar_anchor(bars: tuple[ChartBar,...], timestamp: datetime):
@@ -101,7 +118,8 @@ def _nearest_bar_anchor(bars: tuple[ChartBar,...], timestamp: datetime):
 def build_instance_inspection_payload_v1(
     bars: tuple[ChartBar, ...], executions=(), ai_decisions=(), *,
     timeframe_minutes: int, show_after: datetime | None = None,
-    chart_id: str = "v3-inspection",
+    chart_id: str = "v3-inspection", instance_id: str | None = None,
+    account_id: str | None = None,
 ) -> dict:
     """TV Lightweight Charts payload for three coordinated native panes.
 
@@ -115,6 +133,7 @@ def build_instance_inspection_payload_v1(
     kept=tuple(b for b in bars if utc(b.bar_time)>=cutoff)
     if not kept:
         raise ValueError("no candles in requested chart window")
+    all_completed_by_time={utc(b.bar_time):b for b in bars}
     def unix(at):
         return int(utc(at).timestamp())
     def series(points):
@@ -130,7 +149,12 @@ def build_instance_inspection_payload_v1(
             return None
         return bar
     for item in executions:
-        when=utc(item["executed_at"])
+        if (instance_id is not None and str(item.get("instance_id") or "")!=str(instance_id)
+            or account_id is not None and str(item.get("account_id") or "")!=str(account_id)):
+            continue
+        exact_price=item.get("execution_price") if item.get("price_source")=="SAXO_FINAL_FILL" else None
+        verified=exact_price is not None and float(exact_price)>0
+        when=utc(item.get("filled_at") if verified else item["executed_at"])
         bar=chart_bar_at(when)
         if bar is None:
             continue
@@ -139,8 +163,22 @@ def build_instance_inspection_payload_v1(
         is_flat=(inventory_after is not None and abs(float(inventory_after))<1e-12
                  and str(item.get("action") or "").upper()=="CLOSE")
         up=side=="BUY"
+        if side not in {"BUY","SELL"}:
+            continue
+        # With no exact broker FinalFill, use only a *previously completed*
+        # candle close as an explicitly unverified reference. Never the high
+        # on a SELL or the low on a BUY (retrospective best-case execution).
+        # Exact prior finished timeframe bucket; never bridge a price gap,
+        # and include the warmup bar preceding the visible chart window.
+        prior=when-timedelta(minutes=timeframe_minutes)
+        prior_bucket=prior.replace(
+            minute=prior.minute-(prior.minute % timeframe_minutes),
+            second=0,microsecond=0)
+        reference=all_completed_by_time.get(prior_bucket)
+        if not verified and reference is None:
+            continue
         markers.append({"time":unix(bar.bar_time),
-                        "price":float(bar.low if up else bar.high),
+                        "price":float(exact_price if verified else reference.close),
                         "position":"belowBar" if up else "aboveBar",
                         # Native fallback only; shared renderer draws SVG markers.
                         "shape":"square" if is_flat else ("arrowUp" if up else "arrowDown"),
@@ -148,7 +186,11 @@ def build_instance_inspection_payload_v1(
                         "text":"","side":side,"action":str(item.get("action") or ""),
                         "size":0.45,"source":"AUTOTRADER_V3",
                         "position_direction":"FLAT" if is_flat else ("LONG" if up else "SHORT"),
-                        "inventory_after":inventory_after})
+                        "inventory_after":inventory_after,
+                        "price_source":"SAXO_FINAL_FILL" if verified else "PREVIOUS_CLOSED_BAR_REFERENCE",
+                        "price_verified":verified,
+                        "account_id":str(item.get("account_id") or ""),
+                        "instance_id":str(item.get("instance_id") or "")})
     for item in ai_decisions:
         bar=chart_bar_at(utc(item["evaluated_at"]))
         if bar is None:
@@ -241,6 +283,19 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
         executions=load_instance_executions_v1(
             instance_id=instance_id,account_id=str(instance.account_id),
             after=now-timedelta(hours=hours))
+        verified_prices={}
+        if executions:
+            try:
+                specs=tuple((str(x.get("broker_order_id") or ""),
+                             str(x["side"]),float(x["amount"]),
+                             utc(x["executed_at"]).isoformat()) for x in executions)
+                verified_prices=_verified_instance_fill_prices_cached_v1(
+                    str(instance.account_id),int(instance.uic),
+                    str(instance.asset_type),specs)
+            except Exception as exc:
+                LOGGER.warning("V3 inspector broker fill audit unavailable type=%s",
+                               type(exc).__name__)
+        executions=attach_verified_fill_prices_v1(executions,verified_prices)
         ai_decisions=load_ai_decisions_v1(
             instance_id=instance_id,account_id=str(instance.account_id),
             instrument_id=int(instance.instrument_id),limit=50)
@@ -254,7 +309,8 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
             bars,executions=executions,ai_decisions=ai_decisions,
             timeframe_minutes=tf_minutes,
             show_after=now-timedelta(hours=hours),
-            chart_id=f"v3-inspection:{instance_id}:{key_prefix}")
+            chart_id=f"v3-inspection:{instance_id}:{key_prefix}",
+            instance_id=instance_id,account_id=str(instance.account_id))
         render_lightweight_live_chart_v1(
             payload,key=f"{key_prefix}:inspect-chart:{instance_id}")
     except Exception as exc:
@@ -265,16 +321,21 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
     st.caption(
         f"Aktiv strategi: {config.strategy_key} · {timeframe}. "
         "Pris/MACD/Stoch bruker fullstendige kanoniske 1m-barer og felles TA-kode. "
-        "Markørene er V3-utførelseshendelser for eksakt instans/konto; "
-        "markørhøyden er siste markedsbar, IKKE bekreftet Saxo-fillpris. "
+        f"Viser bare handler fra konto {str(instance.account_id)} og denne instansen. "
+        f"Saxo-verifisert pris: {sum(bool(x.get('execution_price')) for x in executions)} "
+        f"av {len(executions)} handler. "
+        "Hule markører er ANSLAG fra forrige ferdige bar, ikke utførelsespris. "
         "Historikken kan omfatte tidligere strategier på samme instans."
     )
     if executions:
         with st.expander(f"Ordrehistorikk · {len(executions)} registrerte utførelser"):
             st.dataframe(pd.DataFrame([{
-                "Tid UTC":utc(x["executed_at"]),
+                "Avstemming UTC":utc(x["executed_at"]),
+                "Saxo fill UTC":(utc(x["filled_at"]) if x.get("filled_at") else None),
                 "Handling":x["action"],"Side":x["side"],
                 "Antall":x["amount"],"Posisjon etter":x["inventory_after"],
+                "Saxo-fillpris":x.get("execution_price"),
+                "Prisstatus":"Saxo FinalFill" if x.get("execution_price") else "Kun referanse",
                 "Request":str(x["request_key"])[:14]
             } for x in reversed(executions)]),
             use_container_width=True,hide_index=True)

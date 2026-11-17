@@ -60,6 +60,9 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
             const shape = document.createElementNS(ns, isFlatClose ? 'rect' : 'polygon');
             const color = isFlatClose ? '#94a3b8'
                 : String(marker.color || (up ? '#16a34a' : '#dc2626'));
+            // Only the account inspector marks estimates explicitly false.
+            // Preserve existing visual appearance for other V3 chart paths.
+            const estimated = marker.price_verified === false;
             if (isFlatClose) {
                 const edge = Math.max(6, radius * 1.55);
                 shape.setAttribute('x', (x - edge / 2).toFixed(2));
@@ -75,13 +78,17 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
                 shape.setAttribute('points',
                     points.reduce((a,v,i)=>a+(i%2?',':' ')+v.toFixed(2),'').trim());
             }
-            shape.setAttribute('fill',color);
+            shape.setAttribute('fill',estimated ? 'none' : color);
             shape.setAttribute('stroke',color);
-            shape.setAttribute('stroke-width','0.5');
+            shape.setAttribute('stroke-width',estimated ? '1.7' : '0.5');
+            if (estimated) shape.setAttribute('stroke-dasharray','2 2');
             const title = document.createElementNS(ns,'title');
             title.textContent = (isFlatClose ? 'V3 flat · posisjon lukket'
                 : (up ? 'V3 kjøp' : 'V3 salg'))
-                + (marker.action ? ' · ' + String(marker.action) : '');
+                + (marker.action ? ' · ' + String(marker.action) : '')
+                + (estimated ? ' · Referansepris (IKKE Saxo-fill)' :
+                    (marker.price_verified === true ? ' · Saxo-verifisert fill' : ''))
+                + ' · ' + price.toFixed(2);
             shape.appendChild(title);
             fragment.appendChild(shape);
         }
