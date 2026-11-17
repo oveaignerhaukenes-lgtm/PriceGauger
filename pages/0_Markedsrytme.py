@@ -610,6 +610,10 @@ with st.form("rhythm-phase-paper-v1"):
     with left:
         phase_days = st.selectbox("Kildehistorikk", (7, 14, 30), index=0,
                                   key="rhythm-phase-days")
+        phase_bar_limit = st.selectbox(
+            "Antall siste 1m-barer (lengre test tar mer tid)",
+            (900, 1500, 3000), index=0, key="rhythm-phase-bar-limit",
+        )
         phase_point = st.number_input("NOK per punkt per lot (scenario)",
                                       min_value=.001, value=10., step=1.,
                                       key="rhythm-phase-point")
@@ -635,7 +639,7 @@ if run_phase:
             source_bars = _research_bars(int(selected.instrument_id), phase_days)
             # Existing V3 replay has a strict 3000-bar safety/compute cap.
             # Explicitly disclose the clipped window; never describe this as 30d.
-            clipped = source_bars[-MAX_BARS:]
+            clipped = source_bars[-min(MAX_BARS, int(phase_bar_limit)):]
             chart_bars = tuple(ResearchBarV1(
                 market_name=selected.market_name, bar_time=b.at.isoformat(),
                 open=b.open, high=b.high, low=b.low, close=b.close,
