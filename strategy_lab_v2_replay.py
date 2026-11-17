@@ -95,7 +95,8 @@ STOCH=frozenset(("macd-stoch-v1","macd-stoch-v2",
                  "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build")) | ALL_SPLIT_KEYS_V3
 TRAILING=frozenset(("macd-flip","macd","macd-stoch-v1","macd-stoch-v2",
                     "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build","rhythm-build-fractal")) | ALL_SPLIT_KEYS_V3
-PERIODS={"1m":1,"2m":2,"5m":5,"10m":10,"15m":15,"30m":30,"1h":60}
+# 3m is PAPER-research-only: V3 LIVE timeframes remain registry-controlled.
+PERIODS={"1m":1,"2m":2,"3m":3,"5m":5,"10m":10,"15m":15,"30m":30,"1h":60}
 MIN_HISTORY=45
 MAX_BARS=3000
 
