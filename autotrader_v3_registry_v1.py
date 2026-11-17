@@ -49,6 +49,20 @@ STRATEGIES_V3 = (
         "PAPER-mot-LIVE må verifiseres med ekte fills. Separat kontoarming.",
         "impulse-catcher-short-tick-v1",True),
     StrategySpecV3(
+        "impulse-catcher-long-v1-1","Impulse Catcher v1.1 · LONG/FLAT · dataflyt",
+        "Samme impuls- og retrace-regler som v1. Henter opptil 120s faktisk "
+        "Saxo 1s BBO ved forsinket V3-evaluering, uten falske datagap fra "
+        "12s avkutting. Tåler opptil 8s mellom ferske kurser og starter ikke "
+        "en ny impuls på et ufullstendig intervall. Opt-in; ingen automatisk LIVE-arming.",
+        "impulse-catcher-long-tick-v1-1",True),
+    StrategySpecV3(
+        "impulse-catcher-short-v1-1","Impulse Catcher v1.1 · SHORT/FLAT · dataflyt",
+        "Samme impuls- og retrace-regler som v1. Henter opptil 120s faktisk "
+        "Saxo 1s BBO ved forsinket V3-evaluering, uten falske datagap fra "
+        "12s avkutting. Tåler opptil 8s mellom ferske kurser og starter ikke "
+        "en ny impuls på et ufullstendig intervall. Opt-in; ingen automatisk LIVE-arming.",
+        "impulse-catcher-short-tick-v1-1",True),
+    StrategySpecV3(
         "hyper-chase-10s-fast","HyperVigilant Chase 10s · FAST",
         "LIVE: ekte Saxo Tech100 bid/ask 1s, 10s impuls >=4,5bp + støy/spread-filter. Umiddelbart LONG/SHORT-mål; V3 lukker og bekrefter FLAT før motsatt OPEN, ingen strategisk cooldown. Ingen 10s utførelsesgaranti.",
         "hyper-chase-10s-fast-v1",True,
@@ -257,9 +271,11 @@ PRICETREND_RESEARCH_CATALOG_KEYS_V3=frozenset({"pricetrend-1","sma-9-21-baseline
 FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
 TICK_SHADOW_LIVE_CATALOG_KEYS_V3=frozenset({
     "hunter-tick-v1","rabid-dog-tick-v1",
-    "impulse-catcher-long-v1","impulse-catcher-short-v1"})
+    "impulse-catcher-long-v1","impulse-catcher-short-v1",
+    "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1"})
 IMPULSE_CATCHER_CATALOG_KEYS_V3=frozenset({
-    "impulse-catcher-long-v1","impulse-catcher-short-v1"})
+    "impulse-catcher-long-v1","impulse-catcher-short-v1",
+    "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1"})
 HYBRID_15S_CATALOG_KEYS_V3=frozenset({"macd-stoch-v2-3-hybrid"})
 HYPER_CHASE_10S_CATALOG_KEYS_V3=frozenset({
     "hyper-chase-10s-fast","hyper-chase-10s-filtered",

@@ -141,8 +141,9 @@ try:
         instances=db.execute("""SELECT i.instance_id,i.account_id,i.uic,i.asset_type,
             c.strategy_key,c.modifiers_json FROM autotrader_v3_engine_instances i
             JOIN autotrader_v3_config c ON c.trader_id=i.instance_id
-            WHERE i.enabled=TRUE AND c.strategy_key IN (?,?)""",
-            ("impulse-catcher-long-v1","impulse-catcher-short-v1")).fetchall()
+            WHERE i.enabled=TRUE AND c.strategy_key IN (?,?,?,?)""",
+            ("impulse-catcher-long-v1","impulse-catcher-short-v1",
+             "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1")).fetchall()
         try:
             since=(datetime.now(timezone.utc)-timedelta(days=7)).isoformat()
             logs=db.execute("""SELECT trader_id,strategy_key,quote_at,direction,

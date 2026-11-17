@@ -30,14 +30,23 @@ IMPULSE_LONG_CATALOG_KEY = "impulse-catcher-long-v1"
 IMPULSE_SHORT_CATALOG_KEY = "impulse-catcher-short-v1"
 IMPULSE_LONG_RUNTIME_KEY = "impulse-catcher-long-tick-v1"
 IMPULSE_SHORT_RUNTIME_KEY = "impulse-catcher-short-tick-v1"
-IMPULSE_CATALOG_KEYS = frozenset({IMPULSE_LONG_CATALOG_KEY,IMPULSE_SHORT_CATALOG_KEY})
+IMPULSE_LONG_V11_CATALOG_KEY = "impulse-catcher-long-v1-1"
+IMPULSE_SHORT_V11_CATALOG_KEY = "impulse-catcher-short-v1-1"
+IMPULSE_LONG_V11_RUNTIME_KEY = "impulse-catcher-long-tick-v1-1"
+IMPULSE_SHORT_V11_RUNTIME_KEY = "impulse-catcher-short-tick-v1-1"
+IMPULSE_V11_CATALOG_KEYS = frozenset({IMPULSE_LONG_V11_CATALOG_KEY,IMPULSE_SHORT_V11_CATALOG_KEY})
+IMPULSE_CATALOG_KEYS = frozenset({IMPULSE_LONG_CATALOG_KEY,IMPULSE_SHORT_CATALOG_KEY} | IMPULSE_V11_CATALOG_KEYS)
 TICK_CATALOG_KEYS = frozenset({HUNTER_CATALOG_KEY, DOG_CATALOG_KEY} | IMPULSE_CATALOG_KEYS)
 TICK_RUNTIME_KEYS = frozenset({HUNTER_RUNTIME_KEY,DOG_RUNTIME_KEY,
-                               IMPULSE_LONG_RUNTIME_KEY,IMPULSE_SHORT_RUNTIME_KEY})
+                               IMPULSE_LONG_RUNTIME_KEY,IMPULSE_SHORT_RUNTIME_KEY,
+                               IMPULSE_LONG_V11_RUNTIME_KEY,IMPULSE_SHORT_V11_RUNTIME_KEY})
 TICK_LIVE_UIC = 4912
 MAX_QUOTE_AGE_S = 5
 MAX_TRANSIT_S = 5
 MAX_TICKS_PER_CYCLE = 30
+V11_MAX_CATCHUP_SECONDS = 120
+V11_MAX_TICKS_PER_CYCLE = 180  # 1Hz recorder: enough for the entire bounded catch-up window
+V11_MAX_QUOTE_GAP_SECONDS = 8  # tolerate a brief silence, never a stale provider timestamp
 BROKER_ORDERS_PER_HOUR = 24  # <= 12 full CLOSE/OPEN reversals per hour
 SHADOW_DOG_EVENTS_PER_HOUR = 16  # shadow transitions may be 2 real orders
 _DT_FIELDS = {
@@ -45,12 +54,16 @@ _DT_FIELDS = {
     DOG_CATALOG_KEY: {"last_at"},
     IMPULSE_LONG_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
     IMPULSE_SHORT_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
+    IMPULSE_LONG_V11_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
+    IMPULSE_SHORT_V11_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
 }
 _DEQUE_FIELDS = {
     HUNTER_CATALOG_KEY: {"samples"},
     DOG_CATALOG_KEY: {"recent_moves", "order_times"},
     IMPULSE_LONG_CATALOG_KEY: {"samples"},
     IMPULSE_SHORT_CATALOG_KEY: {"samples"},
+    IMPULSE_LONG_V11_CATALOG_KEY: {"samples"},
+    IMPULSE_SHORT_V11_CATALOG_KEY: {"samples"},
 }
 
 
@@ -127,7 +140,8 @@ def _new_model(key):
             units=.01,orders_per_hour=SHADOW_DOG_EVENTS_PER_HOUR))
     if key in IMPULSE_CATALOG_KEYS:
         return ImpulseCatcher(ImpulseCatcherConfig(
-            side="LONG" if key==IMPULSE_LONG_CATALOG_KEY else "SHORT"))
+            side="LONG" if key in {IMPULSE_LONG_CATALOG_KEY,IMPULSE_LONG_V11_CATALOG_KEY} else "SHORT",
+            quote_gap_seconds=(V11_MAX_QUOTE_GAP_SECONDS if key in IMPULSE_V11_CATALOG_KEYS else 4.0)))
     raise ValueError("unsupported tick strategy")
 
 
@@ -209,8 +223,8 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
         return hold("BLOCK_PRODUCT","Tick strategy requires exact Tech100 CfdOnIndex UIC 4912")
     if abs(current)>float(tranche)+1e-9:
         return hold("BLOCK_SIZE","Tick strategies cannot manage oversized inventory automatically")
-    if (strategy_key==IMPULSE_LONG_CATALOG_KEY and current<-1e-9 or
-        strategy_key==IMPULSE_SHORT_CATALOG_KEY and current>1e-9):
+    if (strategy_key in {IMPULSE_LONG_CATALOG_KEY,IMPULSE_LONG_V11_CATALOG_KEY} and current<-1e-9 or
+        strategy_key in {IMPULSE_SHORT_CATALOG_KEY,IMPULSE_SHORT_V11_CATALOG_KEY} and current>1e-9):
         return hold("BLOCK_OPPOSITE_INVENTORY",
                     "Wrong-side broker inventory; operator must reconcile before using one-sided strategy")
     try:
@@ -221,14 +235,23 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
             reset=(row is None or context_changed or
                 row["strategy_key"]!=strategy_key or int(row["provider_uic"])!=int(account_uic))
             last_at=None if reset else _utc(row["last_quote_at"])
-            lower=(clock-timedelta(seconds=12)) if last_at is None else max(
-                clock-timedelta(seconds=12),last_at)
+            v11=strategy_key in IMPULSE_V11_CATALOG_KEYS
+            # v1.1 replays all real recorded quotes since the last evaluation.
+            # The old 12s clipping produced a false >5s 'feed gap' whenever
+            # the broker-reconciliation cycle itself took more than 12s.
+            engine_backlog=(v11 and last_at is not None and
+                (clock-last_at).total_seconds()>V11_MAX_CATCHUP_SECONDS)
+            if v11:
+                lower=(clock-timedelta(seconds=12)) if last_at is None or engine_backlog else last_at
+            else:
+                lower=(clock-timedelta(seconds=12)) if last_at is None else max(
+                    clock-timedelta(seconds=12),last_at)
             quotes=db.execute("""SELECT quote_at,received_at,bid,ask
                 FROM lsim_hyper_quotes_1s
                 WHERE provider_uic=? AND quote_at>? AND quote_at<=?
                 ORDER BY quote_at LIMIT ?""",(
                 int(account_uic),lower.isoformat(),clock.isoformat(),
-                MAX_TICKS_PER_CYCLE)).fetchall()
+                V11_MAX_TICKS_PER_CYCLE if v11 else MAX_TICKS_PER_CYCLE)).fetchall()
             if not quotes:
                 return hold("WAIT_QUOTES","No new genuine 1s Saxo quote")
             latest=_utc(quotes[-1]["quote_at"])
@@ -242,19 +265,23 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                     -2<=(received-at).total_seconds()<=MAX_TRANSIT_S):
                     return hold("WAIT_BAD_BBO","Untrusted BBO sample")
                 clean.append((at,bid,ask))
-            if reset:
+            if reset or engine_backlog:
                 model=_new_model(strategy_key)
-                _bootstrap(model,current,latest,clean[-1][1],clean[-1][2])
+                # A >120s engine stall is a separate protective recovery, not
+                # evidence of a Saxo quote gap. Do not replay a clipped history.
+                _bootstrap(model,0. if engine_backlog else current,
+                           latest,clean[-1][1],clean[-1][2])
                 signal_at=None
             else:
                 model=_decode_model(strategy_key,row["state_json"])
                 signal_at=_utc(row["last_signal_at"]) if row["last_signal_at"] else None
             newest_decision=None
             gap_exit=False
-            if not reset:
+            if not (reset or engine_backlog):
                 for at,bid,ask in clean:
                     # Never bridge a stale/unobserved interval with invented ticks.
-                    if last_at is not None and (at-last_at).total_seconds()>5:
+                    elapsed=(at-last_at).total_seconds() if last_at is not None else 0.
+                    if elapsed>(V11_MAX_QUOTE_GAP_SECONDS if v11 else 5):
                         # Reset to broker-confirmed inventory, never replay an
                         # old desired direction across a network/feed outage.
                         model=_new_model(strategy_key)
@@ -270,6 +297,11 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                         newest_decision=None
                         last_at=at
                         continue
+                    if v11 and elapsed>4 and isinstance(model,ImpulseCatcher) and model.target=="FLAT":
+                        # A tolerated gap must not become a new 3s/10s entry
+                        # impulse made of discontinuous observations.
+                        model.samples=deque(((at,(bid+ask)/2),))
+                        model.last_exit_at=at
                     if gap_exit:
                         # Never replace the pending gap-triggered CLOSE with a
                         # fresh OPEN from later rows in the same quote batch.
@@ -302,6 +334,13 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                  signal_at.isoformat() if signal_at else None,_encode_model(strategy_key,model)))
             if reset:
                 return hold("BOOTSTRAP","State reset on account/strategy switch; wait for new quotes",latest.isoformat())
+            if engine_backlog:
+                if abs(current)>1e-12:
+                    return _decision(strategy_key,0.,"ENGINE_BACKLOG_FLAT",
+                        "V3 evaluation stalled >120s; protective CLOSE, not a Saxo BBO outage",
+                        latest.isoformat())
+                return hold("ENGINE_BACKLOG_BOOTSTRAP",
+                    "V3 evaluation stalled >120s; reset without opening",latest.isoformat())
             if gap_exit:
                 return _decision(strategy_key,0.,"QUOTE_GAP_FLAT",
                     "Impulse/Rabid BBO gap >5s; close only, never open",latest.isoformat())
