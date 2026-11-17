@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `23e6a2c4c228ca4272676b2c51c8acca04d34947`
+Latest tracked main commit: `319934ca0a34067216688b2b5f24a22180058214`
 
 ## Recent main commits
 
+- 2026-11-17 [`319934ca0a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/319934ca0a34067216688b2b5f24a22180058214) — Fix AutoTrader account chart markers using verified Saxo fills (#846)
 - 2026-11-16 [`23e6a2c4c2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/23e6a2c4c228ca4272676b2c51c8acca04d34947) — V3 charts: mark confirmed flat with neutral gray square (#845)
 - 2026-11-16 [`a5e4688ca8`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5e4688ca8e6d072082b5a7a2cb9618398251e33) — Tech100 Regime V3: price-confirmed histogram convergence and early exit (#844)
 - 2026-11-16 [`cada668211`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cada668211d44e8319849a21be67f5172749a978) — Research: historical HH/HL sequences and mirrored 1–3m control
@@ -46,6 +47,5 @@ Latest tracked main commit: `23e6a2c4c228ca4272676b2c51c8acca04d34947`
 - 2026-10-30 [`8434359684`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8434359684cb7eec11fc654261e94732e1a3d5ab) — security: no Docker image pull at request time; reliable killed-container cleanup
 - 2026-10-30 [`a867c3bf6a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a867c3bf6a604d021dde01e23b230ef4a4a54b91) — perf: bound isolated per-bar execution to fit API timeout
 - 2026-10-30 [`c96087407d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c96087407da969f7ec4cf4f5f4c7298f11465edc) — test: real timestamp-aware FX conversion and stale rate veto
-- 2026-10-30 [`2f580f65b3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2f580f65b33a128094753dfd1c0a359e009a6bff) — feat: apply as-of FX history to sandbox Python paper returns
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
