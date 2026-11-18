@@ -104,6 +104,10 @@ class SaxoClient:
             self._set_authorization(force_refresh=attempt == 1)
             try:
                 response = self.session.get(url, params=params, timeout=self.timeout)
+                if self.base_url.lower() == LIVE_BASE_URL.lower():
+                    from saxo_rest_telemetry_v1 import record_saxo_http_v1
+                    record_saxo_http_v1("GET", path, response.status_code,
+                                        headers=getattr(response, "headers", None))
             except requests.Timeout as exc:
                 raise SaxoError(f"tidsavbrudd etter {self.timeout:g} sekunder", status="TIMEOUT") from exc
             except requests.ConnectionError as exc:
