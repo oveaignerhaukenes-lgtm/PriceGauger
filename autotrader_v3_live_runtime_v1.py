@@ -4,6 +4,7 @@ from autotrader_v3_macd_stoch_v21_split_v1 import SPLIT_KEYS_V3
 from autotrader_v3_macd_stoch_v21_split_v3 import ALL_SPLIT_KEYS_V3
 import logging
 import re
+import time
 from functools import lru_cache
 from uuid import uuid5, NAMESPACE_URL
 from datetime import datetime,timedelta,timezone
@@ -71,6 +72,7 @@ from autotrader_v3_fractal_rhythm_variants_v1 import RHYTHM_TREND_FRACTAL_KEY_V3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
+from v3_runtime_timing_v1 import record_v3_phase_v1
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 # Read-only audit: one entry per unresolved instance per worker lifetime.
@@ -364,7 +366,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
     account_currencies={}
     account_contexts={}
     account_labels={}
-    for row in broker.accounts():
+    _accounts_started=time.perf_counter()
+    account_rows=broker.accounts()
+    record_v3_phase_v1('accounts',time.perf_counter()-_accounts_started)
+    for row in account_rows:
         if not isinstance(row,dict):
             continue
         account_id=str(row.get("AccountId") or "").strip()
@@ -491,7 +496,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=inventory-adopted; next cycle may manage actual',
                     db_path=db_path)
             continue
+        _inventory_started=time.perf_counter()
         actual=_actual(e,broker)
+        record_v3_phase_v1('inventory',time.perf_counter()-_inventory_started)
         config=load_autotrader_config_v3(e.pilot_key,db_path=db_path)
         try:
             timeframe_minutes=_live_timeframe_minutes_v3(config.timeframe)
@@ -504,6 +511,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             _record_runtime(e.pilot_key,'BLOCKED',f'V3 LIVE account unavailable: {e.account_id}',db_path=db_path)
             continue
         instrument=SaxoInstrument(asset=e.market_name,uic=int(e.uic),asset_type=e.asset_type)
+        _rules_started=time.perf_counter()
         try:
             instrument_rules=load_entry_instrument_rules_v2(
                 broker.client,account_key=account,instrument=instrument)
@@ -515,6 +523,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 f'V3 instrument strategy sizing unavailable: {type(exc).__name__}: {exc}',
                 db_path=db_path)
             continue
+        record_v3_phase_v1('instrument_rules',time.perf_counter()-_rules_started)
         context_strategy_key=(
             (f"{e.strategy_key}:R{config.regime_timeframe}:E{config.exit_timeframe}"
              if e.strategy_key in ALL_SPLIT_KEYS_V3 else
@@ -533,6 +542,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             + (f' regime={config.regime_timeframe}' if e.strategy_key in REGIME_RUNTIME_KEYS_V3 else ''),
             db_path=db_path)
         bars=()
+        _decision_started=time.perf_counter()
         if e.strategy_key in HYPER_RUNTIME_KEYS:
             decision=evaluate_hyper_chase_live_v3(
                 trader_id=e.pilot_key,
@@ -581,6 +591,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 **({"actual_inventory":actual.amount,
                     "signal_timeframe_minutes":timeframe_minutes,
                     "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
+        record_v3_phase_v1('decision',time.perf_counter()-_decision_started)
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
@@ -588,6 +599,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             mode=ControlModeV3.DETERMINISTIC,  # canonical mapping for UI control_mode="Manuell"
         )
         modifiers=[]
+        _modifiers_started=time.perf_counter()
         if 'reset-on-loss' in config.modifiers:
             if abs(actual.amount) <= 1e-12:
                 modifiers.append(ResetOnLossModifierV3(open_pnl=0.0,actual_inventory=actual.amount))
@@ -728,6 +740,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             except Exception as exc:
                 LOGGER.warning("V3 protective audit unavailable trader=%s modifier=%s kind=%s",
                                e.pilot_key,protective_key,type(exc).__name__)
+        record_v3_phase_v1('modifiers',time.perf_counter()-_modifiers_started)
         pipeline=evaluate_trader_v3(
             trader=trader,base_target=decision.decision.target,
             actual_inventory=actual,modifiers=tuple(modifiers))
@@ -899,6 +912,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             # allowed to be blocked by opening-friction verification.
             # OPEN and ADD still require a fresh Saxo cost assessment
             # and fail closed on any unavailable/expensive quote.
+            _cost_started=time.perf_counter()
             cost_assessment=assess_transaction_cost_v3(
                 broker=broker,
                 account_id=e.account_id,
@@ -907,6 +921,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 asset_type=e.asset_type,
                 amount=float(strategy_amount_config.tranche),
             )
+            record_v3_phase_v1('cost_guard',time.perf_counter()-_cost_started)
             if cost_assessment.blocked:
                 _record_runtime(
                     e.pilot_key,'BLOCKED',
@@ -940,11 +955,13 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                     )
                     continue
                 clear_capacity_hold_v3(trader_id=e.pilot_key,db_path=db_path)
+            _capital_started=time.perf_counter()
             try:
                 capped=cap_open_add_amount_v3(broker=broker,account_key=account,
                     account_currency=account_currencies.get(e.account_id,''),instrument=instrument,
                     side=side,requested_amount=mutation.amount,policy=policy,
                     current_same_side_amount=abs(actual.amount) if mutation.action=='ADD' else 0.0)
+                record_v3_phase_v1('capital_sizing',time.perf_counter()-_capital_started)
             except Exception as exc:
                 reason=str(exc).strip() if isinstance(exc,ValueError) else ''
                 LOGGER.error('v3 OPEN/ADD sizing blocked pilot=%s error_type=%s reason=%s',e.pilot_key,type(exc).__name__,reason or 'unavailable')
@@ -1001,7 +1018,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             continue
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
             external_reference=('pgv3-'+request_key)[-50:])
+        _precheck_started=time.perf_counter()
         pre=broker.precheck(order)
+        record_v3_phase_v1('precheck',time.perf_counter()-_precheck_started)
         if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
             raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
         if mutation.action in {'OPEN','ADD'}:
@@ -1107,9 +1126,11 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 'Quote impulse expired immediately before Saxo POST; no order sent',
                 db_path=db_path)
             continue
+        _submit_started=time.perf_counter()
         try:
             result=broker.place_order(order,confirm_live=True)
         except Exception as exc:
+            record_v3_phase_v1('submit',time.perf_counter()-_submit_started)
             if _definitive_saxo_rejection_v3(exc):
                 detail=f'{type(exc).__name__}: {exc}'
                 mark_order_v3(request_key=request_key,state='REJECTED',
@@ -1142,6 +1163,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
             _record_runtime(e.pilot_key,'BLOCKED','Saxo order result unknown; reconcile before retry',db_path=db_path)
             raise
+        record_v3_phase_v1('submit',time.perf_counter()-_submit_started)
         broker_order_id=str(result.get('OrderId') or '').strip() if isinstance(result,dict) else ''
         if not broker_order_id:
             mark_order_v3(request_key=request_key,state='UNKNOWN',
