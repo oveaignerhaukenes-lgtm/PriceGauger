@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-18 · Impulse Catcher v1.2/v1.3: senere normalutgang, kontrollert PAPER
+
+- **Branch:** `feature/impulse-catcher-patient-exits-v12-v13-20261118`. Separate opt-in LONG/FLAT og SHORT/FLAT v1.2 (normal retrace etter 6s uten nytt ekstrempunkt) og v1.3 (samme 6s, pluss minst 3s vedvarende støyjustert retrace). Begge beholder v1.1 sin identiske 3/10s inngang, 8s ekte Saxo BBO-gaptoleranse, 120s etterslep, umiddelbar stor-mottrykk-exit og alle V3 ordreguards. v1 og v1.1 endres ikke ved valg/deploy; ingen kontoarmering/-bytte.
+- **Analyse:** Manuell Impulse Catcher Lab sammenligner v1.1/v1.2/v1.3 på identiske faktiske 1s BBO med antatt neste-quote bid/ask-fill, og grupperer lukkede PAPER-handler etter kausal 60s trend/sideveis/blandet/ukjent ved signal. Hypotesegrenser, ingen automatisk regimebytte eller markedslab-tilknytning, ingen dokumentert resultatgevinst før tilstrekkelig uavhengige prod-quotedata og Saxo-rekonsiliering.
+- **Bevis:** 21/21 relevante lokale `unittest` grønne; compile og diff-kontroll grønne. Bred `unittest discover` er blokkert lokalt av manglende `pytest`/`requests`; GitHub CI må verifisere fullt miljø. GitHub PR/merge og Railway-deploy må bekreftes separat. Ingen reelle PAPER/P&L-tall generert i lokalt miljø uten produksjonsdatabasen.
+
 ## 2026-11-18 · Markedsmodeller: første tilstandsfundament (forskning)
 
 - **Branch:** `feature/market-models-state-foundation-20261118`. Ny separat toppmeny `Markedsmodeller` og modellkatalog (foreløpig én), med eksplisitt lesende `market_models_state_v1.py` og manuell UI. Kvantiserer hver eksakte Saxo-UIC etter **60 sammenhengende fullførte 1m-returer** som 3 retninger (NED/SIDEVEIS/OPP) × 3 rytmeklasser (RASK/MIDDELS/LANGSOM), med dimensjonsløse terskler, trend-/rytme-hysterese, kontinuerlig prisvolatilitet og svakt rytmebelegg/ukjent vist eksplisitt. Ikke interpoler hull; forming candle ekskluderes. Utvalgte andre UIC-er benytter allerede isolerte `market_instrument_ensemble_v1` for samtidighet/koherens/kobling.

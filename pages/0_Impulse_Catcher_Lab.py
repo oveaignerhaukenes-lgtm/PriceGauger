@@ -9,31 +9,29 @@ import pandas as pd
 import streamlit as st
 
 from autotrader_impulse_catcher_v1 import ImpulseCatcherConfig
+from autotrader_impulse_catcher_profiles_v1 import impulse_catcher_config
 from autotrader_impulse_catcher_replay_v1 import (
-    prepare_impulse_quotes,replay_impulse_catcher,summarize_impulse_replay,
+    prepare_impulse_quotes,replay_impulse_catcher,summarize_impulse_replay,entry_regime_asof,
 )
 from database import connect
 
 
 st.set_page_config(page_title="Impulse Catcher · Tech100",layout="wide")
 st.title("Tech100 · Impulse Catcher")
-st.caption("LONG/FLAT på C · SHORT/FLAT på D · Stoch 2.1 på E (eksisterende kontroll)")
+st.caption("Forskning: LONG/FLAT og SHORT/FLAT, uavhengig av kontonavn og aktiv strategi")
 st.info(
     "PAPER bruker identisk kausal signalmodell som LIVE, men antatt fyll på NESTE "
     "ekte Saxo bid/ask-observasjon. Kontrolldataene er ikke ekte gjennomførte "
     "handler. Reelle priser, kurtasje, kursglipp og Saxo-ordrehistorikk må "
     "avstemmes før simulert profitt kan sammenlignes med faktisk P/L."
 )
-st.caption(
-    "Startregler (hypoteser, ikke optimaliserte nivåer): 3/10s abnormal impuls, "
-    "minst 9 indeks­poeng, minst 3× forhistorisk 3/10s-prisbevegelse, "
-    "78 % retningskonsistens; 2s utmattelse/retrace eller umiddelbart stort "
-    "mottrykk. Ingen strategi-dagsgrense. Account Loss Lock er separat valgfritt."
-)
+st.caption("Identisk 3/10s inngang for v1.1, v1.2 og v1.3. Normal exit: 2s / 6s / "
+           "6s + 3s støyjustert bekreftelse. Akutt reversering lukker i alle "
+           "versjoner umiddelbart. Hypoteser, ikke dokumentert lønnsomhet.")
 hours=st.selectbox("Samme kurshistorikk for begge strategier",(1,3,6,12),index=1)
 max_rows=46000
 
-if st.button("Kjør identisk PAPER-test for C og D",type="primary"):
+if st.button("Kjør PAPER: v1.1 vs v1.2 vs v1.3",type="primary"):
     try:
         end=datetime.now(timezone.utc)
         start=end-timedelta(hours=hours)
@@ -48,8 +46,9 @@ if st.button("Kjør identisk PAPER-test for C og D",type="primary"):
         quotes=prepare_impulse_quotes([dict(x) for x in raw])
         if len(quotes)<180:
             raise ValueError("For få ekte ferske BBO-observasjoner for en gyldig test")
-        reports={side:replay_impulse_catcher(quotes,ImpulseCatcherConfig(side=side))
-                 for side in ("LONG","SHORT")}
+        reports={(side,version):replay_impulse_catcher(
+            quotes,impulse_catcher_config(side,version))
+            for side in ("LONG","SHORT") for version in ("1.1","1.2","1.3")}
         st.session_state["impulse_catcher_replay"]={
             "stamp":end.isoformat(),"hours":hours,"quotes":len(quotes),
             "first":quotes[0].at.isoformat(),"last":quotes[-1].at.isoformat(),
@@ -69,10 +68,11 @@ if report:
                    f"fra {report['first']} til {report['last']}.")
         cols=st.columns(2)
         for idx,side in enumerate(("LONG","SHORT")):
-            r=report["reports"][side]
+            r=report["reports"][(side,"1.1")]
             m=summarize_impulse_replay(r)
             with cols[idx]:
-                st.subheader("C · LONG" if side=="LONG" else "D · SHORT")
+                st.subheader("LONG/FLAT · kontroll v1.1" if side=="LONG"
+                             else "SHORT/FLAT · kontroll v1.1")
                 c1,c2,c3=st.columns(3)
                 c1.metric("PAPER-signaler",m["signals"])
                 c2.metric("Lukkede PAPER-handler",m["completed"])
@@ -94,6 +94,53 @@ if report:
                         "MAE poeng":round(t.max_adverse_points,2),
                         "Gevinst gitt tilbake":round(t.max_favorable_points-t.gross_points,2),
                     } for t in r.trades[-60:]]),hide_index=True,use_container_width=True)
+
+        st.subheader("Exit-varianter · samme BBO-historikk")
+        st.caption("Alle handler bruker neste ekte observerte bid/ask som antatt fill. "
+                   "Urealiserte/ufylte handler krediteres aldri som gevinst. "
+                   "Dette er ikke realisert kontogevinst.")
+        comparisons=[]
+        for side in ("LONG","SHORT"):
+            for version in ("1.1","1.2","1.3"):
+                result=report["reports"][(side,version)]
+                m=summarize_impulse_replay(result)
+                comparisons.append({
+                    "Retning":side,"Variant":"v"+version,
+                    "Signal":m["signals"],"Lukkede":m["completed"],
+                    "Netto indekspoeng":m["net_index_points"],
+                    "Treff %":m["win_pct"],"Median/handel":m["median_points"],
+                    "Median hold sek":(round(median((t.exited_at-t.filled_at).total_seconds()
+                                             for t in result.trades),1) if result.trades else None),
+                    "Ufylt exit":m["unfilled_exits"],
+                    "Åpne ved slutt":m["unfinished_positions"],
+                })
+        st.dataframe(pd.DataFrame(comparisons),hide_index=True,use_container_width=True)
+        regime_rows=[]
+        quote_times=tuple(q.at for q in report["source_quotes"])
+        for side in ("LONG","SHORT"):
+            for version in ("1.1","1.2","1.3"):
+                r=report["reports"][(side,version)]
+                for trade in r.trades:
+                    regime_rows.append({
+                        "Retning":side,"Variant":"v"+version,
+                        "Tilstand ved signal":entry_regime_asof(
+                            report["source_quotes"],trade.signal_at,quote_times=quote_times),
+                        "PAPER-poeng":trade.gross_points,
+                    })
+        if regime_rows:
+            st.subheader("På tvers av tilstander · klassifisert før handel")
+            st.caption("Tilstand fra observerte foregående 60s: trend (effektivitet "
+                       "≥0,55), sideveis (≤0,25), ellers blandet. Ufullstendige "
+                       "vinduer merkes ukjent; ingen fremtidig pris brukes til etiketten.")
+            state_df=pd.DataFrame(regime_rows)
+            grouped=state_df.groupby(["Retning","Variant","Tilstand ved signal"],
+                                     dropna=False)["PAPER-poeng"].agg(["count","sum","median"]).reset_index()
+            grouped.columns=["Retning","Variant","Tilstand ved signal",
+                             "Handler","Sum indekspoeng","Median/handel"]
+            st.dataframe(grouped,hide_index=True,use_container_width=True)
+        st.caption("Sammenlign både færre småtap og eventuell større tilbakegitt gevinst. "
+                   "Utfallet kan snu i andre volatilitets- og trendregimer; "
+                   "test på nye, kronologisk atskilte datoer før valg.")
 
         st.subheader("Daglig kalibrering · kun forslag")
         st.caption(
@@ -141,9 +188,11 @@ try:
         instances=db.execute("""SELECT i.instance_id,i.account_id,i.uic,i.asset_type,
             c.strategy_key,c.modifiers_json FROM autotrader_v3_engine_instances i
             JOIN autotrader_v3_config c ON c.trader_id=i.instance_id
-            WHERE i.enabled=TRUE AND c.strategy_key IN (?,?,?,?)""",
+            WHERE i.enabled=TRUE AND c.strategy_key IN (?,?,?,?,?,?,?,?)""",
             ("impulse-catcher-long-v1","impulse-catcher-short-v1",
-             "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1")).fetchall()
+             "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1",
+             "impulse-catcher-long-v1-2","impulse-catcher-short-v1-2",
+             "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3")).fetchall()
         try:
             since=(datetime.now(timezone.utc)-timedelta(days=7)).isoformat()
             logs=db.execute("""SELECT trader_id,strategy_key,quote_at,direction,

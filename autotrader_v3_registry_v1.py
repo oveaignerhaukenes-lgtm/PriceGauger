@@ -63,6 +63,30 @@ STRATEGIES_V3 = (
         "en ny impuls på et ufullstendig intervall. Opt-in; ingen automatisk LIVE-arming.",
         "impulse-catcher-short-tick-v1-1",True),
     StrategySpecV3(
+        "impulse-catcher-long-v1-2","Impulse Catcher v1.2 · LONG/FLAT · senere exit",
+        "Samme inngang og BBO-dataflyt som v1.1; normal retrace-utgang venter "
+        "6s uten ny topp i stedet for 2s. Akutt reversering lukker fortsatt straks. "
+        "Eksperimentell; ingen automatisk kontobytte eller LIVE-arming.",
+        "impulse-catcher-long-tick-v1-2",True),
+    StrategySpecV3(
+        "impulse-catcher-short-v1-2","Impulse Catcher v1.2 · SHORT/FLAT · senere exit",
+        "Samme inngang og BBO-dataflyt som v1.1; normal retrace-utgang venter "
+        "6s uten ny bunn i stedet for 2s. Akutt reversering lukker fortsatt straks. "
+        "Eksperimentell; ingen automatisk kontobytte eller LIVE-arming.",
+        "impulse-catcher-short-tick-v1-2",True),
+    StrategySpecV3(
+        "impulse-catcher-long-v1-3","Impulse Catcher v1.3 · LONG/FLAT · bekreftet exit",
+        "v1.2 sin 6s venting samt 3s vedvarende motbevegelse over "
+        "støyjustert retracegrense. Akutt reversering lukker straks. "
+        "Eksperimentell; ingen automatisk kontobytte eller LIVE-arming.",
+        "impulse-catcher-long-tick-v1-3",True),
+    StrategySpecV3(
+        "impulse-catcher-short-v1-3","Impulse Catcher v1.3 · SHORT/FLAT · bekreftet exit",
+        "v1.2 sin 6s venting samt 3s vedvarende motbevegelse over "
+        "støyjustert retracegrense. Akutt reversering lukker straks. "
+        "Eksperimentell; ingen automatisk kontobytte eller LIVE-arming.",
+        "impulse-catcher-short-tick-v1-3",True),
+    StrategySpecV3(
         "hyper-chase-10s-fast","HyperVigilant Chase 10s · FAST",
         "LIVE: ekte Saxo Tech100 bid/ask 1s, 10s impuls >=4,5bp + støy/spread-filter. Umiddelbart LONG/SHORT-mål; V3 lukker og bekrefter FLAT før motsatt OPEN, ingen strategisk cooldown. Ingen 10s utførelsesgaranti.",
         "hyper-chase-10s-fast-v1",True,
@@ -272,10 +296,14 @@ FRAKTAL1_CATALOG_KEYS_V3 = frozenset({"fraktal-1"})
 TICK_SHADOW_LIVE_CATALOG_KEYS_V3=frozenset({
     "hunter-tick-v1","rabid-dog-tick-v1",
     "impulse-catcher-long-v1","impulse-catcher-short-v1",
-    "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1"})
+    "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1",
+    "impulse-catcher-long-v1-2","impulse-catcher-short-v1-2",
+    "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3"})
 IMPULSE_CATCHER_CATALOG_KEYS_V3=frozenset({
     "impulse-catcher-long-v1","impulse-catcher-short-v1",
-    "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1"})
+    "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1",
+    "impulse-catcher-long-v1-2","impulse-catcher-short-v1-2",
+    "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3"})
 HYBRID_15S_CATALOG_KEYS_V3=frozenset({"macd-stoch-v2-3-hybrid"})
 HYPER_CHASE_10S_CATALOG_KEYS_V3=frozenset({
     "hyper-chase-10s-fast","hyper-chase-10s-filtered",
