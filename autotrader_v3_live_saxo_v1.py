@@ -16,8 +16,19 @@ class SaxoLivePilotClientV3:
         if client.base_url.rstrip("/").lower()!=LIVE_BASE_URL.lower():
             raise SaxoTradingSafetyError("v3 LIVE pilot requires Saxo LIVE endpoint")
         self.client=client
+        # Only account identity is reused within this one short-lived LIVE
+        # evaluation. P/L, margin and account-loss checks still fetch fresh.
+        self._account_identity_rows=None
     def accounts(self):
-        payload=self.client._get("port/v1/accounts/me"); return tuple(payload.get("Data") or ())
+        payload=self.client._get("port/v1/accounts/me")
+        rows=tuple(payload.get("Data") or ())
+        self._account_identity_rows=tuple(
+            (str(row.get("AccountId") or "").strip(),
+             str(row.get("AccountKey") or "").strip(),
+             str(row.get("ClientKey") or "").strip())
+            for row in rows if isinstance(row,dict)
+        )
+        return rows
     def precheck(self, order:SaxoOrderRequest):
         payload=order.payload()
         payload["FieldGroups"]=["MarginImpactBuySell","Costs"]
@@ -26,14 +37,14 @@ class SaxoLivePilotClientV3:
         if not confirm_live: raise SaxoTradingSafetyError("v3 LIVE order requires explicit confirm_live=True")
         return self._post("trade/v2/orders",order.payload())
     def _account_context_exact(self, account_id:str):
+        rows=self._account_identity_rows
+        if rows is None:
+            self.accounts()
+            rows=self._account_identity_rows
         matches=[]
-        for row in self.accounts():
-            if not isinstance(row,dict):
+        for identity,account_key,client_key in rows:
+            if identity!=str(account_id):
                 continue
-            if str(row.get("AccountId") or "").strip()!=str(account_id):
-                continue
-            account_key=str(row.get("AccountKey") or "").strip()
-            client_key=str(row.get("ClientKey") or "").strip()
             if not account_key:
                 raise SaxoTradingSafetyError("v3 LIVE account lacks AccountKey")
             matches.append((account_key,client_key))
@@ -212,6 +223,9 @@ class SaxoLivePilotClientV3:
     def _post(self,path,payload):
         self.client._set_authorization()
         response=self.client.session.post(f"{self.client.base_url}/{path}",json=payload,timeout=self.client.timeout)
+        from saxo_rest_telemetry_v1 import record_saxo_http_v1
+        record_saxo_http_v1("POST",path,response.status_code,
+                            headers=getattr(response,"headers",None))
         try: body=response.json()
         except ValueError as exc: raise SaxoError("LIVE response was not JSON",status="INVALID_RESPONSE",status_code=response.status_code) from exc
         if not response.ok: raise SaxoError(str(body),status="REQUEST_FAILED",status_code=response.status_code)
