@@ -129,6 +129,19 @@ def _live_timeframe_minutes_v3(timeframe:str)->int:
     except ValueError as exc:
         raise ValueError(f"Unsupported V3 LIVE timeframe: {label or '<empty>'}") from exc
 
+def _create_v3_decision_context_schema(db) -> None:
+    db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_live_decision_context(
+      trader_id TEXT PRIMARY KEY,
+      strategy_key TEXT NOT NULL,
+      timeframe_minutes INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+
+
+def _ensure_v3_decision_context_schema_pg(db_path) -> None:
+    with connect(db_path) as db:
+        _create_v3_decision_context_schema(db)
+
+
 def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
                                       timeframe_minutes:int,actual_amount:float,
                                       db_path="pricegauger.db")->bool:
@@ -141,12 +154,15 @@ def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
     order; the new strategy takes authority on the next genuinely new closed bar.
     """
     ensure_closed_bar_driver_schema_v3(db_path)
+    postgres = using_postgres()
+    if postgres:
+        run_postgres_schema_once_v1(
+            "v3_live_decision_context",
+            lambda: _ensure_v3_decision_context_schema_pg(db_path),
+        )
     with connect(db_path) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_live_decision_context(
-          trader_id TEXT PRIMARY KEY,
-          strategy_key TEXT NOT NULL,
-          timeframe_minutes INTEGER NOT NULL,
-          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        if not postgres:
+            _create_v3_decision_context_schema(db)
         row=db.execute(
             "SELECT strategy_key,timeframe_minutes FROM autotrader_v3_live_decision_context WHERE trader_id=?",
             (str(trader_id),),
