@@ -14,7 +14,7 @@ _WINDOW_SECONDS = 60.0
 # A phase should never be allowed to change trading behavior, even if callers
 # accidentally supply an invalid value. No account IDs or price data are logged.
 _ALLOWED = frozenset({
-    "accounts", "inventory", "instrument_rules", "decision",
+    "accounts", "inventory", "instrument_rules", "db_acquire", "decision",
     "modifiers", "cost_guard", "capital_sizing", "precheck", "submit"
 })
 
