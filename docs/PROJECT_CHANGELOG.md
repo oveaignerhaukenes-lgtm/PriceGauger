@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `1d9c3673fe7f699f3f31bf20838e4fa2bac83446`
+Latest tracked main commit: `9a8bf4d7989dc1139a9490a53c39989238ec74e0`
 
 ## Recent main commits
 
+- 2026-11-18 [`9a8bf4d798`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9a8bf4d7989dc1139a9490a53c39989238ec74e0) — Run V3 LIVE independently per account and veto stale quote entries (#853)
 - 2026-11-18 [`1d9c3673fe`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d9c3673fe7f699f3f31bf20838e4fa2bac83446) — Impulse Catcher v1.2/v1.3: patient exits and regime PAPER comparison (#852)
 - 2026-11-18 [`6a6c4ad90d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6a6c4ad90d86757f5b68885c5ca2228b454cb180) — Add Market Models hub and causal 3x3 market state foundation (#851)
 - 2026-11-17 [`e16f1db0d2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e16f1db0d21ad9d74a224c7cb5520defc96a0186) — Research: market as coupled strings — cross-market coherence, common factor, held-out leads (#849)
@@ -46,6 +47,5 @@ Latest tracked main commit: `1d9c3673fe7f699f3f31bf20838e4fa2bac83446`
 - 2026-10-30 [`65aec9e83f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/65aec9e83f0b6b8578028b5a62936a78546c7edc) — security: invalidate cached research histories when owner key changes
 - 2026-10-30 [`9689f7e4ed`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9689f7e4edc164100156ef839598d082b3bfb17a) — test: immutable private Python source version archive
 - 2026-10-30 [`c05137f393`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c05137f393402db8fa371f4b35d4d7086c3f0924) — feat: save and restore immutable AI Python code versions
-- 2026-10-30 [`278cf57dfb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/278cf57dfbe700f3083b2ae9199910acdc1462a2) — feat: immutable owner-scoped Python research source versions
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
