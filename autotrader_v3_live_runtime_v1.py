@@ -907,6 +907,20 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         policy=None
         if mutation.action in {'OPEN','ADD'}:
+            # Reject an already-expired quote impulse BEFORE expensive cost and
+            # margin HTTP requests. The same freshness checks after precheck
+            # and immediately before POST remain authoritative; this gate
+            # never permits an order that those final guards would reject.
+            if not _fresh_quote_open_authorized_v3(
+                strategy_key=e.strategy_key,decision_key=decision.decision_key,
+                trader_id=e.pilot_key,db_path=db_path,
+            ):
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    'Quote impulse expired before Saxo cost/precheck; no stale OPEN/ADD sent',
+                    db_path=db_path)
+                LOGGER.info('v3 LIVE early stale quote entry veto trader=%s action=%s',
+                            e.pilot_key,mutation.action)
+                continue
             # Broker cost GETs can be slow or time out. Do not request them
             # during FLAT/HOLD, CLOSE or REDUCE: those actions are never
             # allowed to be blocked by opening-friction verification.
