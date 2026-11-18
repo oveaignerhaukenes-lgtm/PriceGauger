@@ -23,6 +23,7 @@ from autotrader_v3_live_runtime_v1 import (
 )
 from config import openai_api_key, openai_market_model
 from database import using_postgres, v3_postgres_pool_scope
+from v3_runtime_timing_v1 import record_v3_phase_v1
 from indicator_ai_insights_v1 import refresh_indicator_ai_once_v1
 from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
 from news_context_store import NewsContextStore
@@ -380,6 +381,7 @@ def run_v3_live_fast_loop_v1(
                     continue
                 del running[account_id]
                 elapsed=time.monotonic()-running_started.pop(account_id,started)
+                record_v3_phase_v1('account_cycle',elapsed)
                 if elapsed>=5:
                     LOGGER.warning('v3 LIVE account cycle slow account_suffix=%s elapsed_s=%.2f',
                                    str(account_id)[-4:],elapsed)

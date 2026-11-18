@@ -354,29 +354,37 @@ class DatabaseConnection(AbstractContextManager):
     def execute(self, sql: str, parameters: Iterable[Any] | None = None):
         query = _postgres_sql(sql) if self.is_postgres else sql
         values = tuple(parameters or ())
+        track = getattr(self, "is_postgres", False) and _V3_POSTGRES_POOL_ENABLED.get()
+        started = time.perf_counter() if track else 0.0
         try:
-            return self._connection.execute(query, values)
-        except Exception:
-            if not self.is_postgres or not _is_read_only_sql(sql):
-                raise
-            # Railway's public PostgreSQL proxy can occasionally drop an otherwise
-            # healthy read connection. Reconnect and retry one idempotent read once.
-            old_connection = self._connection
-            self._connection = None
             try:
-                old_connection.close()
+                return self._connection.execute(query, values)
             except Exception:
-                pass
-            if getattr(self, "_postgres_pool", None) is not None:
-                # Return the broken connection to the pool so it is discarded.
-                # A replacement is checked before the one permitted read retry.
-                self._postgres_pool.putconn(old_connection)
-                self._connection = self._postgres_pool.getconn(
-                    timeout=_V3_POSTGRES_POOL_WAIT_SECONDS
+                if not self.is_postgres or not _is_read_only_sql(sql):
+                    raise
+                # Only retry an idempotent read after a dropped connection.
+                # Never repeat a broker-related or DB write mutation.
+                old_connection = self._connection
+                self._connection = None
+                try:
+                    old_connection.close()
+                except Exception:
+                    pass
+                if getattr(self, "_postgres_pool", None) is not None:
+                    self._postgres_pool.putconn(old_connection)
+                    self._connection = self._postgres_pool.getconn(
+                        timeout=_V3_POSTGRES_POOL_WAIT_SECONDS
+                    )
+                else:
+                    self._connection = self._open_postgres()
+                return self._connection.execute(query, values)
+        finally:
+            if track:
+                from v3_runtime_timing_v1 import record_v3_phase_v1
+                record_v3_phase_v1(
+                    "db_read" if _is_read_only_sql(sql) else "db_write",
+                    time.perf_counter() - started,
                 )
-            else:
-                self._connection = self._open_postgres()
-            return self._connection.execute(query, values)
 
     def executescript(self, script: str) -> None:
         if not self.is_postgres:
@@ -392,6 +400,8 @@ class DatabaseConnection(AbstractContextManager):
         connection = getattr(self, "_connection", None)
         if connection is None:
             return False
+        track = getattr(self, "is_postgres", False) and _V3_POSTGRES_POOL_ENABLED.get()
+        started = time.perf_counter() if track else 0.0
         try:
             if exc_type is None:
                 connection.commit()
@@ -414,6 +424,10 @@ class DatabaseConnection(AbstractContextManager):
                 # Preserve the original exception when connection cleanup fails.
                 if exc_type is None:
                     raise
+            finally:
+                if track:
+                    from v3_runtime_timing_v1 import record_v3_phase_v1
+                    record_v3_phase_v1("db_finalize", time.perf_counter() - started)
         return False
 
 
