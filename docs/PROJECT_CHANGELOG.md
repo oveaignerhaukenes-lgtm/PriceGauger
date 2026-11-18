@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `184bb9cb72691a32f18bcb52d964a90cb67d091b`
+Latest tracked main commit: `de8273e43d9ec1af1df3aded845ff44be38caf52`
 
 ## Recent main commits
 
+- 2026-11-18 [`de8273e43d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/de8273e43d9ec1af1df3aded845ff44be38caf52) — Move V3 PostgreSQL schema checks out of every LIVE evaluation (#859)
 - 2026-11-18 [`184bb9cb72`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/184bb9cb72691a32f18bcb52d964a90cb67d091b) — Measure V3 PostgreSQL query, transaction, and full cycle P99 (#858)
 - 2026-11-18 [`8fc1ddb007`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8fc1ddb007768cb6b19f64990809abcec94af65d) — Bound and reuse PostgreSQL connections for V3 account tasks; measure tail latency (#857)
 - 2026-11-18 [`ba8ef958b5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ba8ef958b5b70f1d4605d863ec48517b30f8c06f) — V3: reject expired impulse entries before Saxo cost/precheck calls (#856)
@@ -46,6 +47,5 @@ Latest tracked main commit: `184bb9cb72691a32f18bcb52d964a90cb67d091b`
 - 2026-11-02 [`5d507bf5bb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5d507bf5bb96539d9a2e9069e00189cc013105bc) — fix: repair Algolabb controls, Saxo lot calibration and account labels
 - 2026-11-02 [`37297066cc`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/37297066cc7724a10da86617ee28ebe1dfb531ce) — fix: repair Algolabb controls, Saxo lot calibration and account labels
 - 2026-11-02 [`ed2e013d8a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ed2e013d8a59f45117c968a2b478dd6ce6800b00) — fix: repair Algolabb controls, Saxo lot calibration and account labels
-- 2026-11-02 [`57133e919e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/57133e919e4e5fb64f58870b6ec79c25a582a8a5) — fix: repair Algolabb controls, Saxo lot calibration and account labels
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
