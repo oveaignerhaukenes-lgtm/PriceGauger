@@ -21,7 +21,9 @@ REPORT_SECONDS = 60.0
 
 def normalized_saxo_endpoint_v1(path: str) -> str:
     parts = str(path).split("?")[0].strip("/").lower().split("/")
-    if len(parts) >= 4 and parts[:4] == ["trade", "v2", "orders", "precheck"]:\n        return "trade/v2/orders/precheck"\n    if len(parts) >= 4 and parts[:3] == ["ref", "v1", "instruments"]:
+    if len(parts) >= 4 and parts[:4] == ["trade", "v2", "orders", "precheck"]:
+        return "trade/v2/orders/precheck"
+    if len(parts) >= 4 and parts[:3] == ["ref", "v1", "instruments"]:
         return "ref/v1/instruments/details"
     if len(parts) >= 3:
         return "/".join(parts[:3])
