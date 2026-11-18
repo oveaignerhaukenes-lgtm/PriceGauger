@@ -31,6 +31,9 @@ class ImpulseCatcherConfig:
     retrace_fraction: float = 0.20
     urgent_retrace_points: float = 12.0
     cooldown_seconds: float = 5.0
+    # Optional v1.3 exit-only filters. Zero keeps the original v1/v1.1 rules.
+    exit_noise_multiple: float = 0.0
+    exit_confirmation_seconds: float = 0.0
 
     def __post_init__(self):
         if self.side not in ("LONG", "SHORT"):
@@ -40,6 +43,8 @@ class ImpulseCatcherConfig:
             raise ValueError("Invalid observed lookback")
         if not 0 < self.minimum_directional_efficiency <= 1:
             raise ValueError("Invalid directionality")
+        if self.exit_noise_multiple < 0 or self.exit_confirmation_seconds < 0:
+            raise ValueError("Invalid exit confirmation")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,10 +112,27 @@ class ImpulseCatcher:
             retrace = direction*(self.extreme-mid)
             threshold = max(cfg.minimum_retrace_points,
                             cfg.retrace_fraction*travelled,2*spread)
+            if cfg.exit_noise_multiple:
+                # Only genuine already-observed adjacent ticks, never a
+                # future bar or an artificial jump across a quote silence.
+                recent=[(t,p) for t,p in self.samples
+                        if t>=at-timedelta(seconds=20)]
+                steps=[abs(p1-p0) for (t0,p0),(t1,p1) in zip(recent,recent[1:])
+                       if 0<(t1-t0).total_seconds()<=2]
+                if steps:
+                    threshold=max(threshold,cfg.exit_noise_multiple*median(steps))
             urgent = max(cfg.urgent_retrace_points,0.35*travelled,3*spread)
             stalled = (at-self.last_extreme_at).total_seconds()>=cfg.exhaustion_seconds
+            confirmed=True
+            if cfg.exit_confirmation_seconds:
+                window=[(t,p) for t,p in self.samples
+                        if t>=at-timedelta(seconds=cfg.exit_confirmation_seconds)]
+                confirmed=(len(window)>=3 and
+                    (at-window[0][0]).total_seconds()>=cfg.exit_confirmation_seconds-0.01 and
+                    all(0<(t1-t0).total_seconds()<=2 for (t0,_),(t1,_) in zip(window,window[1:])) and
+                    all(direction*(self.extreme-p)>=threshold for _,p in window))
             # A real reversal must not wait several completed minute bars.
-            if retrace>=urgent or (retrace>=threshold and stalled):
+            if retrace>=urgent or (retrace>=threshold and stalled and confirmed):
                 self.target="FLAT"
                 self.last_exit_at=at
                 self.entry_mid=self.extreme=None

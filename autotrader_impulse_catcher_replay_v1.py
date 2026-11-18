@@ -9,7 +9,8 @@ unmodelled and must be compared prospectively with real reconciliations.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from bisect import bisect_right
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 from statistics import median
 
@@ -183,3 +184,32 @@ def summarize_impulse_replay(result: ImpulsePaperResult) -> dict[str, float | in
         "median_exit_delay_s":(round(median(t.exit_delay_s for t in result.trades),2)
                                if result.trades else None),
     }
+
+
+def entry_regime_asof(
+    quotes: tuple[ImpulseQuote, ...],at: datetime,
+    *, quote_times: tuple[datetime, ...] | None = None,
+) -> str:
+    """Predefined causal 60s price-path-efficiency bucket; never post-entry data.
+
+    Requires observed 1s BBO with sufficient contiguous coverage. Buckets are
+    descriptive research hypotheses, not evidence of a price forecast.
+    """
+    if not quotes:
+        return "UKJENT"
+    stamps=quote_times if quote_times is not None else [q.at for q in quotes]
+    until=bisect_right(stamps,at)
+    first=bisect_right(stamps,at-timedelta(seconds=60),0,until)
+    window=quotes[first:until]
+    if (len(window)<30 or (window[-1].at-window[0].at).total_seconds()<45 or
+        any((b.at-a.at).total_seconds()>8 for a,b in zip(window,window[1:]))):
+        return "UKJENT"
+    path=sum(abs(b.mid-a.mid) for a,b in zip(window,window[1:]))
+    if path<=0:
+        return "SIDEVEIS"
+    efficiency=abs(window[-1].mid-window[0].mid)/path
+    if efficiency>=0.55:
+        return "TREND"
+    if efficiency<=0.25:
+        return "SIDEVEIS"
+    return "BLANDET"

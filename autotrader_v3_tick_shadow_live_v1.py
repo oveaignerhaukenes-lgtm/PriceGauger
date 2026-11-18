@@ -15,6 +15,7 @@ from math import isfinite
 
 from autotrader_hunter_v1 import Hunter
 from autotrader_impulse_catcher_v1 import ImpulseCatcher, ImpulseCatcherConfig
+from autotrader_impulse_catcher_profiles_v1 import impulse_catcher_config
 from autotrader_rabid_dog_v1 import RabidDog, RabidDogConfig
 from autotrader_v3_closed_bar_driver_v1 import ClosedBarDecisionV3
 from autotrader_v3_domain import TargetInventoryV3
@@ -34,12 +35,20 @@ IMPULSE_LONG_V11_CATALOG_KEY = "impulse-catcher-long-v1-1"
 IMPULSE_SHORT_V11_CATALOG_KEY = "impulse-catcher-short-v1-1"
 IMPULSE_LONG_V11_RUNTIME_KEY = "impulse-catcher-long-tick-v1-1"
 IMPULSE_SHORT_V11_RUNTIME_KEY = "impulse-catcher-short-tick-v1-1"
+IMPULSE_PATIENT_VERSIONS = ("1-2", "1-3")
+IMPULSE_PATIENT_CATALOG_KEYS = frozenset(
+    f"impulse-catcher-{side}-v{version}"
+    for side in ("long", "short") for version in IMPULSE_PATIENT_VERSIONS)
+IMPULSE_PATIENT_RUNTIME_KEYS = frozenset(
+    f"impulse-catcher-{side}-tick-v{version}"
+    for side in ("long", "short") for version in IMPULSE_PATIENT_VERSIONS)
 IMPULSE_V11_CATALOG_KEYS = frozenset({IMPULSE_LONG_V11_CATALOG_KEY,IMPULSE_SHORT_V11_CATALOG_KEY})
-IMPULSE_CATALOG_KEYS = frozenset({IMPULSE_LONG_CATALOG_KEY,IMPULSE_SHORT_CATALOG_KEY} | IMPULSE_V11_CATALOG_KEYS)
+IMPULSE_REPLAY_CATALOG_KEYS = IMPULSE_V11_CATALOG_KEYS | IMPULSE_PATIENT_CATALOG_KEYS
+IMPULSE_CATALOG_KEYS = frozenset({IMPULSE_LONG_CATALOG_KEY,IMPULSE_SHORT_CATALOG_KEY} | IMPULSE_REPLAY_CATALOG_KEYS)
 TICK_CATALOG_KEYS = frozenset({HUNTER_CATALOG_KEY, DOG_CATALOG_KEY} | IMPULSE_CATALOG_KEYS)
 TICK_RUNTIME_KEYS = frozenset({HUNTER_RUNTIME_KEY,DOG_RUNTIME_KEY,
                                IMPULSE_LONG_RUNTIME_KEY,IMPULSE_SHORT_RUNTIME_KEY,
-                               IMPULSE_LONG_V11_RUNTIME_KEY,IMPULSE_SHORT_V11_RUNTIME_KEY})
+                               IMPULSE_LONG_V11_RUNTIME_KEY,IMPULSE_SHORT_V11_RUNTIME_KEY} | IMPULSE_PATIENT_RUNTIME_KEYS)
 TICK_LIVE_UIC = 4912
 MAX_QUOTE_AGE_S = 5
 MAX_TRANSIT_S = 5
@@ -56,6 +65,7 @@ _DT_FIELDS = {
     IMPULSE_SHORT_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
     IMPULSE_LONG_V11_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
     IMPULSE_SHORT_V11_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
+    **{key: {"last_extreme_at","last_exit_at"} for key in IMPULSE_PATIENT_CATALOG_KEYS},
 }
 _DEQUE_FIELDS = {
     HUNTER_CATALOG_KEY: {"samples"},
@@ -64,6 +74,7 @@ _DEQUE_FIELDS = {
     IMPULSE_SHORT_CATALOG_KEY: {"samples"},
     IMPULSE_LONG_V11_CATALOG_KEY: {"samples"},
     IMPULSE_SHORT_V11_CATALOG_KEY: {"samples"},
+    **{key: {"samples"} for key in IMPULSE_PATIENT_CATALOG_KEYS},
 }
 
 
@@ -139,8 +150,12 @@ def _new_model(key):
         return RabidDog(RabidDogConfig(
             units=.01,orders_per_hour=SHADOW_DOG_EVENTS_PER_HOUR))
     if key in IMPULSE_CATALOG_KEYS:
+        side="LONG" if key.startswith("impulse-catcher-long") else "SHORT"
+        if key in IMPULSE_PATIENT_CATALOG_KEYS:
+            version="1.2" if key.endswith("v1-2") else "1.3"
+            return ImpulseCatcher(impulse_catcher_config(side,version))
         return ImpulseCatcher(ImpulseCatcherConfig(
-            side="LONG" if key in {IMPULSE_LONG_CATALOG_KEY,IMPULSE_LONG_V11_CATALOG_KEY} else "SHORT",
+            side=side,
             quote_gap_seconds=(V11_MAX_QUOTE_GAP_SECONDS if key in IMPULSE_V11_CATALOG_KEYS else 4.0)))
     raise ValueError("unsupported tick strategy")
 
@@ -223,8 +238,9 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
         return hold("BLOCK_PRODUCT","Tick strategy requires exact Tech100 CfdOnIndex UIC 4912")
     if abs(current)>float(tranche)+1e-9:
         return hold("BLOCK_SIZE","Tick strategies cannot manage oversized inventory automatically")
-    if (strategy_key in {IMPULSE_LONG_CATALOG_KEY,IMPULSE_LONG_V11_CATALOG_KEY} and current<-1e-9 or
-        strategy_key in {IMPULSE_SHORT_CATALOG_KEY,IMPULSE_SHORT_V11_CATALOG_KEY} and current>1e-9):
+    if (strategy_key in IMPULSE_CATALOG_KEYS and (
+        (strategy_key.startswith("impulse-catcher-long") and current<-1e-9) or
+        (strategy_key.startswith("impulse-catcher-short") and current>1e-9))):
         return hold("BLOCK_OPPOSITE_INVENTORY",
                     "Wrong-side broker inventory; operator must reconcile before using one-sided strategy")
     try:
@@ -235,7 +251,7 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
             reset=(row is None or context_changed or
                 row["strategy_key"]!=strategy_key or int(row["provider_uic"])!=int(account_uic))
             last_at=None if reset else _utc(row["last_quote_at"])
-            v11=strategy_key in IMPULSE_V11_CATALOG_KEYS
+            v11=strategy_key in IMPULSE_REPLAY_CATALOG_KEYS
             # v1.1 replays all real recorded quotes since the last evaluation.
             # The old 12s clipping produced a false >5s 'feed gap' whenever
             # the broker-reconciliation cycle itself took more than 12s.
