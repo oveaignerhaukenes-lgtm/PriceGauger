@@ -4,7 +4,7 @@ from pathlib import Path
 
 def test_pending_audit_uses_existing_account_listing_and_same_fail_closed_wait():
     src=(Path(__file__).resolve().parent.parent / "autotrader_v3_live_runtime_v1.py").read_text()
-    assert src.count("for row in broker.accounts():") == 1
+    assert src.count("account_rows=broker.accounts()") == 1\n    assert "for row in account_rows:" in src
     assert "row.get('AccountName') or row.get('DisplayName')" in src
     assert "_PENDING_AUDIT_LOGGED_V3=set()" in src
     wait=src.index("elif reconciliation.state=='WAIT':")
