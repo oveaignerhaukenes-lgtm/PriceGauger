@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `6a6c4ad90d86757f5b68885c5ca2228b454cb180`
+Latest tracked main commit: `1d9c3673fe7f699f3f31bf20838e4fa2bac83446`
 
 ## Recent main commits
 
+- 2026-11-18 [`1d9c3673fe`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d9c3673fe7f699f3f31bf20838e4fa2bac83446) — Impulse Catcher v1.2/v1.3: patient exits and regime PAPER comparison (#852)
 - 2026-11-18 [`6a6c4ad90d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6a6c4ad90d86757f5b68885c5ca2228b454cb180) — Add Market Models hub and causal 3x3 market state foundation (#851)
 - 2026-11-17 [`e16f1db0d2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e16f1db0d21ad9d74a224c7cb5520defc96a0186) — Research: market as coupled strings — cross-market coherence, common factor, held-out leads (#849)
 - 2026-11-17 [`67c733c951`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/67c733c951d43cca4990a284b03aa4463513de06) — Impulse Catcher v1.1: eliminate false BBO gaps from slow V3 cycles (#848)
@@ -46,6 +47,5 @@ Latest tracked main commit: `6a6c4ad90d86757f5b68885c5ca2228b454cb180`
 - 2026-10-30 [`9689f7e4ed`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9689f7e4edc164100156ef839598d082b3bfb17a) — test: immutable private Python source version archive
 - 2026-10-30 [`c05137f393`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c05137f393402db8fa371f4b35d4d7086c3f0924) — feat: save and restore immutable AI Python code versions
 - 2026-10-30 [`278cf57dfb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/278cf57dfbe700f3083b2ae9199910acdc1462a2) — feat: immutable owner-scoped Python research source versions
-- 2026-10-30 [`eb9b26d510`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/eb9b26d510906f1eadafb01ce11ade742e154c6c) — fix: align chronological train/test boundary to completed 1m candle
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
