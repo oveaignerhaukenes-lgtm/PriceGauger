@@ -223,6 +223,9 @@ class SaxoLivePilotClientV3:
     def _post(self,path,payload):
         self.client._set_authorization()
         response=self.client.session.post(f"{self.client.base_url}/{path}",json=payload,timeout=self.client.timeout)
+        from saxo_rest_telemetry_v1 import record_saxo_http_v1
+        record_saxo_http_v1("POST",path,response.status_code,
+                            headers=getattr(response,"headers",None))
         try: body=response.json()
         except ValueError as exc: raise SaxoError("LIVE response was not JSON",status="INVALID_RESPONSE",status_code=response.status_code) from exc
         if not response.ok: raise SaxoError(str(body),status="REQUEST_FAILED",status_code=response.status_code)
