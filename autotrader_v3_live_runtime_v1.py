@@ -18,7 +18,7 @@ from autotrader_v3_execution_plan_v1 import plan_execution_v3
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_legacy_ownership_migration_v1 import backfill_legacy_v3_live_ownership_v1
 from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3, order_state as order_state_v3, order_detail as order_detail_v3, claim_reserved_for_submission_v3
-from database import connect,using_postgres
+from database import connect,using_postgres,run_postgres_schema_once_v1
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
@@ -177,14 +177,33 @@ def _prepare_live_decision_context_v3(*,trader_id:str,strategy_key:str,
             (str(trader_id),str(strategy_key),int(timeframe_minutes)))
     return changed
 
+def _create_v3_runtime_state_schema(db) -> None:
+    db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_live_runtime_state(
+      trader_id TEXT PRIMARY KEY,status TEXT NOT NULL,detail TEXT,updated_at TEXT NOT NULL)""")
+
+
+def _ensure_v3_runtime_state_schema_pg(db_path) -> None:
+    with connect(db_path) as db:
+        _create_v3_runtime_state_schema(db)
+
+
 def _record_runtime(trader_id, status, detail="", *, db_path="pricegauger.db"):
     LOGGER.info("v3 runtime trader=%s status=%s detail=%s",trader_id,status,detail)
+    # Keep SQLite's existing self-initializing behavior. A committed
+    # PostgreSQL schema can be reused safely for every later account cycle.
+    postgres = using_postgres()
+    if postgres:
+        run_postgres_schema_once_v1(
+            "v3_live_runtime_state",
+            lambda: _ensure_v3_runtime_state_schema_pg(db_path),
+        )
     with connect(db_path) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_live_runtime_state(
-          trader_id TEXT PRIMARY KEY,status TEXT NOT NULL,detail TEXT,updated_at TEXT NOT NULL)""")
+        if not postgres:
+            _create_v3_runtime_state_schema(db)
         db.execute("""INSERT INTO autotrader_v3_live_runtime_state(trader_id,status,detail,updated_at)
           VALUES(?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(trader_id) DO UPDATE SET
           status=excluded.status,detail=excluded.detail,updated_at=excluded.updated_at""",(trader_id,status,detail))
+
 
 def _actual(e,broker):
     return TargetInventoryV3(broker.signed_inventory_exact(
