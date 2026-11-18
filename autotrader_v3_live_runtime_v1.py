@@ -72,7 +72,7 @@ from autotrader_v3_fractal_rhythm_variants_v1 import RHYTHM_TREND_FRACTAL_KEY_V3
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from saxo_provider import SaxoError,SaxoInstrument
 from saxo_trading import SaxoOrderRequest
-from v3_runtime_timing_v1 import record_v3_phase_v1
+from v3_runtime_timing_v1 import record_v3_phase_v1, record_v3_quote_submit_age_v1
 
 LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 # Read-only audit: one entry per unresolved instance per worker lifetime.
@@ -592,6 +592,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                     "signal_timeframe_minutes":timeframe_minutes,
                     "now":end} if e.strategy_key in AEN_CORE_KEYS_V3 else {}))
         record_v3_phase_v1('decision',time.perf_counter()-_decision_started)
+        _decision_finished=time.perf_counter()
         trader=TraderV3(
             e.pilot_key,
             AccountBoundaryV3(e.account_id,int(e.uic),e.asset_type),
@@ -1140,6 +1141,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 'Quote impulse expired immediately before Saxo POST; no order sent',
                 db_path=db_path)
             continue
+        # Timestamp at the POST boundary; excludes Saxo acknowledgement/fill.
+        record_v3_phase_v1('decision_to_submit',time.perf_counter()-_decision_finished)
+        record_v3_quote_submit_age_v1(decision.decision_key)
         _submit_started=time.perf_counter()
         try:
             result=broker.place_order(order,confirm_live=True)
