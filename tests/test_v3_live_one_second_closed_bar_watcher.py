@@ -1,5 +1,6 @@
 """One-second canonical bar wakeup with bounded Saxo API safety cadence."""
 from datetime import datetime,timedelta,timezone
+from concurrent.futures import Future
 import sqlite3
 from pathlib import Path
 
@@ -55,7 +56,30 @@ class StopAfter:
         self.ticks+=1
 
 
+class ImmediatePool:
+    """Deterministic completion for cadence checks; no actual Saxo calls."""
+    def __init__(self,**_):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self,*_):
+        return False
+    def submit(self,fn,**kwargs):
+        future=Future()
+        try:
+            future.set_result(fn(**kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+
+def _one_account(monkeypatch):
+    monkeypatch.setattr(worker,'ThreadPoolExecutor',ImmediatePool)
+    monkeypatch.setattr(worker,'owned_live_account_routes_v3',lambda **_: {'acct-1':False})
+
+
 def test_v3_full_cycle_on_new_bars_but_not_each_second(monkeypatch):
+    _one_account(monkeypatch)
     bar1=((7,"2026-10-12T20:00:00+00:00"),)
     bar2=((7,"2026-10-12T20:01:00+00:00"),)
     timeline=[(),(),bar1,bar1,bar1,bar2]+[bar2]*32
@@ -79,6 +103,7 @@ def test_v3_full_cycle_on_new_bars_but_not_each_second(monkeypatch):
 
 
 def test_market_stale_still_reconciles_manual_positions_every_30s(monkeypatch):
+    _one_account(monkeypatch)
     stop=StopAfter([()] * 66)
     cycles=[]
     monkeypatch.setattr(worker.time,"monotonic",lambda:float(stop.ticks))
@@ -91,6 +116,7 @@ def test_market_stale_still_reconciles_manual_positions_every_30s(monkeypatch):
 
 
 def test_probe_failure_does_not_hot_loop_saxo(monkeypatch):
+    _one_account(monkeypatch)
     stop=StopAfter([()] * 33)
     cycles=[]
     monkeypatch.setattr(worker.time,"monotonic",lambda:float(stop.ticks))
@@ -104,13 +130,14 @@ def test_probe_failure_does_not_hot_loop_saxo(monkeypatch):
     assert cycles==[0,30]
 
 
-def test_no_tick_based_order_execution_added_and_the_feed_is_streaming():
+def test_account_scoped_execution_and_feed_is_streaming():
     source=Path("worker.py").read_text()
     stream=Path("saxo_streaming.py").read_text()
     assert "V3_LIVE_INTERVAL_SECONDS = 1" in source
     assert "V3_LIVE_RECONCILE_SECONDS = 30" in source
     assert "closed_instrument_cursors_v3" in source
     assert "DEFAULT_REFRESH_MS = 1000" in stream
-    # Same guarded, single-threaded LIVE mutation chain as before.
-    assert "run_v3_live_cycle_v1(db_path=str(db_path))" in source
+    # Concurrent accounts are dispatched independently; never overlap one account.
+    assert 'account_ids=(account_id,)' in source
+    assert 'if account_id in running:' in source
     assert "include_v3_live=False" in source

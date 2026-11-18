@@ -2,6 +2,14 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-18 · V3 LIVE: uavhengig kontoeksekusjon og sanntidsgrense
+
+- **Branch:** `fix/v3-concurrent-account-execution-20261118` fra `main` `6f8d36e`; lokal implementasjon under verifikasjon. Dokumentert live-avvik: sekvensiell Saxo GET/POST over 6 kontoer førte til 10–50s syklus; Tech100-E tickinngang ca. 13s og exit ca. 38s bak reell BBO-beslutning 18.11. Det er ingen dokumentert Railway-CPU- eller RAM-metning, og Saxo-1s-feed hadde typisk 53–54 ankomster/minutt.
+- **Implementasjon:** worker deler opp eksakt eide/armede LIVE-kontoer i egne, avgrensede fastquote- og bar-threadpools; hver konto kan ha maks én in-flight beslutning; en ny prisimpuls køes til samme konto er ferdig, mens andre kontoer kjører samtidig. Hver oppgave bruker egen Saxo-session; full 1m / 30s-rekonsiliering bevares også for quote-kontoer. Ny `account_ids` begrensning filtrerer instanser *etter* autorisasjon/ownership, ikke før. Ingen automatisk strategi-, risiko- eller arming-endring.
+- **Sikkerhet:** Hver LIVE-beslutning må fortsatt hente eksakt Saxo-inventory og passere precheck, kost- og kapitalkontroll, atomisk order guard og avstemming. Siste sjekk før Saxo POST bekrefter fortsatt V3-account-owner og LIVE-arming. For quote-drevet OPEN/ADD kreves både siste faktiske BBO og (for tickmodeller) lagret impuls-tidspunkt ≤5s ved selve innsendingen; foreldede innganger avvises uten POST og lukk/reduksjon blokkeres ikke av ferskhetskravet. Ny `REJECTED` reservasjon betyr *ingen ordre sendt* og tillater bare ny beslutningsnøkkel, aldri blind retry.
+- **Verifikasjon:** Lokal ren `python -m pytest -q --tb=short`: **3159 passed**, 10 subtests, ingen failures (99 hovedsakelig eldre advarsler); `py_compile` og `git diff --check` grønne. Nye regresjoner dekker to samtidig planlagte kontoer selv med blokkert fremdrift, samme-konto-no-overlap, etterfølgende quote wake, kombinert fast/bar-ruting og ekte tick signalalder før POST.
+- **Gjenstår:** GitHub CI/PR/merge; verifisere faktisk Railway worker-deploy SHA, quote→ordre-tid og ingen overlappende Saxo-ordre. Reell forbedring i latency og lønnsomhet er **ikke dokumentert** før produksjonsmåling.
+
 ## 2026-11-18 · Impulse Catcher v1.2/v1.3: senere normalutgang, kontrollert PAPER
 
 - **Branch:** `feature/impulse-catcher-patient-exits-v12-v13-20261118`. Separate opt-in LONG/FLAT og SHORT/FLAT v1.2 (normal retrace etter 6s uten nytt ekstrempunkt) og v1.3 (samme 6s, pluss minst 3s vedvarende støyjustert retrace). Begge beholder v1.1 sin identiske 3/10s inngang, 8s ekte Saxo BBO-gaptoleranse, 120s etterslep, umiddelbar stor-mottrykk-exit og alle V3 ordreguards. v1 og v1.1 endres ikke ved valg/deploy; ingen kontoarmering/-bytte.
