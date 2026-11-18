@@ -160,13 +160,14 @@ def test_v3_pool_only_via_account_task_wrapper(monkeypatch):
 
 
 def test_quote_submit_age_and_tail_percentiles(caplog,monkeypatch):
-    monkeypatch.setattr(timing,"_STARTED",100.0)
+    monkeypatch.setattr(timing,"_STARTED",timing.time.monotonic())
     timing._SAMPLES.clear()
     stamp=datetime(2026,11,18,22,0,0,tzinfo=timezone.utc)
     timing.record_v3_quote_submit_age_v1(
         f"tick:impulse-catcher-long-v1-1:{(stamp-timedelta(seconds=2)).isoformat()}:TICK_LONG",
         now=stamp)
     assert timing._SAMPLES["quote_to_submit"]==[2.0]
+    monkeypatch.setattr(timing,"_STARTED",100.0)
     with caplog.at_level("INFO"):
         timing.record_v3_phase_v1("db_acquire",0.01,now=101)
         timing.record_v3_phase_v1("db_acquire",0.02,now=161)
