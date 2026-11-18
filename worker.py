@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 import time
@@ -17,7 +18,9 @@ from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
 from autotrader_v3_sim_runtime_v1 import run_v3_sim_cycle_v1
 from autotrader_v3_fleet_observer_v1 import run_monitor_once
-from autotrader_v3_live_runtime_v1 import run_v3_live_cycle_v1
+from autotrader_v3_live_runtime_v1 import (
+    owned_live_account_routes_v3, run_v3_live_cycle_v1,
+)
 from config import openai_api_key, openai_market_model
 from database import using_postgres
 from indicator_ai_insights_v1 import refresh_indicator_ai_once_v1
@@ -327,12 +330,11 @@ def run_v3_live_fast_loop_v1(
     stop_event: threading.Event,
     interval_seconds: int = V3_LIVE_INTERVAL_SECONDS,
 ) -> None:
-    """Check canonical closed 1m bars every second, broker cycle on progress.
+    """Run armed accounts independently, never two cycles on one Saxo account.
 
-    The full Saxo-account cycle is unchanged, still single-threaded and never
-    duplicated. Idle checks read the database only; pending orders and manual
-    Saxo position changes still get a 30s heartbeat. One-second polling does
-    NOT mean intrabar strategies or guaranteed 1s broker order execution.
+    Fast-quote accounts get dedicated workers so a slow closed-bar account
+    cannot delay their broker-backed decisions. Account-specific Saxo sessions,
+    explicit LIVE ownership and durable reservations remain mandatory.
     """
     from autotrader_v3_live_bar_watcher_v1 import (
         closed_instrument_cursors_v3, has_new_closed_bar_v3,
@@ -346,89 +348,131 @@ def run_v3_live_fast_loop_v1(
     last_hyper_quotes=()
     last_hyper_quality_at=0.0
     errors_at=0.0
+    route_refresh_at=float('-inf')
+    routes={}
+    running={}
+    running_started={}
+    queued={}
     LOGGER.info(
-        "v3 LIVE closed-bar watch started poll=%ss reconciliation=%ss",
+        "v3 LIVE concurrent account watch started poll=%ss reconciliation=%ss fast_workers=6 bar_workers=6",
         interval,reconciliation,
     )
-    while not stop_event.is_set():
-        started=time.monotonic()
-        changed=False
-        try:
-            current=closed_instrument_cursors_v3(db_path=str(db_path))
-            changed=has_new_closed_bar_v3(last_closed,current)
-            last_closed=current
-        except Exception as exc:
-            # Startup schema/DB failures fall back to the bounded Saxo heartbeat.
-            # Never turn a database outage into a network retry storm.
-            if started-errors_at>=60:
-                LOGGER.warning(
-                    "v3 LIVE closed-bar watcher unavailable; keeping heartbeat: %s",
-                    type(exc).__name__,
-                )
-                errors_at=started
-        # Only an already-armed, exactly owned HyperChase LIVE instance
-        # subscribes the V3 worker to fresh quote wakeups. Ordinary V3
-        # remains closed-bar/30s heartbeat, with no extra Saxo GET storm.
-        quote_changed=False
-        try:
-            from autotrader_v3_hyper_chase_live_v1 import live_hyper_quote_cursors_v3
-            current_hyper=live_hyper_quote_cursors_v3(db_path=str(db_path))
-            old_hyper=dict(last_hyper_quotes)
-            quote_changed=any(
-                stamp!=old_hyper.get(uic) for uic,stamp in current_hyper)
-            last_hyper_quotes=current_hyper
-        except Exception as exc:
-            if started-errors_at>=60:
-                LOGGER.warning(
-                    "v3 hyper quote wake unavailable; heartbeat preserved type=%s",
-                    type(exc).__name__)
-                errors_at=started
-        # Read-only 60s HyperChase feed audit, even with all LIVE switches off.
-        # Do not infer 1s quote quality from the V3 worker poll interval.
-        if started-last_hyper_quality_at>=60:
-            last_hyper_quality_at=started
+    with (ThreadPoolExecutor(max_workers=6,thread_name_prefix='v3-quote') as fast_pool,
+          ThreadPoolExecutor(max_workers=6,thread_name_prefix='v3-bars') as bar_pool):
+        def dispatch(account_id, *, quote_only):
+            # A separate Saxo client/session is constructed inside each task.
+            pool=fast_pool if routes[account_id] else bar_pool
+            running_started[account_id]=time.monotonic()
+            running[account_id]=pool.submit(
+                run_v3_live_cycle_v1,db_path=str(db_path),
+                hyper_quote_only=quote_only,account_ids=(account_id,))
+
+        while not stop_event.is_set():
+            started=time.monotonic()
+            for account_id,future in tuple(running.items()):
+                if not future.done():
+                    continue
+                del running[account_id]
+                elapsed=time.monotonic()-running_started.pop(account_id,started)
+                if elapsed>=5:
+                    LOGGER.warning('v3 LIVE account cycle slow account_suffix=%s elapsed_s=%.2f',
+                                   str(account_id)[-4:],elapsed)
+                try:
+                    executed=future.result()
+                    if executed:
+                        LOGGER.info('v3 LIVE account=%s executed mutations=%d',
+                                    str(account_id)[-4:],executed)
+                except Exception as exc:
+                    LOGGER.warning('v3 LIVE account=%s cycle failed kind=%s',
+                                   str(account_id)[-4:],type(exc).__name__,exc_info=True)
+                if account_id in queued:
+                    full=queued.pop(account_id)
+                    if account_id in routes:
+                        dispatch(account_id,quote_only=not full)
+
+            newly_routed=()
+            if started-route_refresh_at>=5:
+                route_refresh_at=started
+                try:
+                    updated=owned_live_account_routes_v3(db_path=str(db_path))
+                    newly_routed=tuple(set(updated)-set(routes))
+                    routes=updated
+                except Exception as exc:
+                    # No cached authorization may schedule new broker work
+                    # when fresh account-ownership checks are unavailable.
+                    routes={}
+                    queued.clear()
+                    if started-errors_at>=60:
+                        LOGGER.warning('v3 LIVE account route unavailable kind=%s',
+                                       type(exc).__name__)
+                        errors_at=started
+            changed=False
             try:
-                from hyper_chase_quote_quality_probe_v1 import probe_hyper_quote_quality_v1
-                quality=probe_hyper_quote_quality_v1(db_path=str(db_path))
-                if not quality:
-                    LOGGER.info("hyper chase BBO QUALITY no_valid_recent_samples")
-                for sample in quality:
-                    LOGGER.info(
-                        "hyper chase BBO QUALITY uic=%d quotes_60s=%d "
-                        "latest_age_s=%s max_gap_s=%s wide_spread_quotes=%d "
-                        "valid_10s_windows=%d",
-                        sample["uic"],sample["quotes_60s"],sample["latest_age_s"],
-                        sample["max_gap_s"],sample["wide_spread_quotes"],
-                        sample["valid_10s_windows"])
+                current=closed_instrument_cursors_v3(db_path=str(db_path))
+                changed=has_new_closed_bar_v3(last_closed,current)
+                last_closed=current
             except Exception as exc:
-                LOGGER.warning(
-                    "hyper chase BBO QUALITY unavailable error_type=%s",
-                    type(exc).__name__)
-        heartbeat=(last_cycle_at is None or
-                   started-last_cycle_at>=reconciliation)
-        if changed or heartbeat or quote_changed:
-            last_cycle_at=started
-            if changed:
-                LOGGER.info("v3 LIVE canonical closed-bar advanced; evaluating now")
+                if started-errors_at>=60:
+                    LOGGER.warning('v3 LIVE closed-bar watcher unavailable kind=%s',
+                                   type(exc).__name__)
+                    errors_at=started
+            quote_changed=False
             try:
-                # One-shot, exact-instance, user-authorized risk-reducing config
-                # change; no Saxo mutation. Other LIVE engines are untouched.
-                apply_authorized_whipsaw_b_once(db_path=str(db_path))
+                from autotrader_v3_hyper_chase_live_v1 import live_hyper_quote_cursors_v3
+                current_hyper=live_hyper_quote_cursors_v3(db_path=str(db_path))
+                old_hyper=dict(last_hyper_quotes)
+                quote_changed=any(
+                    stamp!=old_hyper.get(uic) for uic,stamp in current_hyper)
+                last_hyper_quotes=current_hyper
             except Exception as exc:
-                LOGGER.warning("Tech100-B LIVE whipsaw opt-in deferred error_type=%s",
-                               type(exc).__name__)
-            try:
-                if quote_changed and not (changed or heartbeat):
-                    executed=run_v3_live_cycle_v1(
-                        db_path=str(db_path),hyper_quote_only=True)
-                else:
-                    executed=run_v3_live_cycle_v1(db_path=str(db_path))
-                if executed:
-                    LOGGER.info("v3 LIVE fast loop executed mutations=%d", executed)
-            except Exception as exc:
-                LOGGER.warning("v3 LIVE fast loop failed; retrying: %s", exc, exc_info=True)
-        remaining=max(0.1,interval-(time.monotonic()-started))
-        stop_event.wait(remaining)
+                if started-errors_at>=60:
+                    LOGGER.warning('v3 hyper quote wake unavailable kind=%s',
+                                   type(exc).__name__)
+                    errors_at=started
+            if started-last_hyper_quality_at>=60:
+                last_hyper_quality_at=started
+                try:
+                    from hyper_chase_quote_quality_probe_v1 import probe_hyper_quote_quality_v1
+                    quality=probe_hyper_quote_quality_v1(db_path=str(db_path))
+                    if not quality:
+                        LOGGER.info('hyper chase BBO QUALITY no_valid_recent_samples')
+                    for sample in quality:
+                        LOGGER.info(
+                            'hyper chase BBO QUALITY uic=%d quotes_60s=%d '
+                            'latest_age_s=%s max_gap_s=%s wide_spread_quotes=%d '
+                            'valid_10s_windows=%d',
+                            sample['uic'],sample['quotes_60s'],sample['latest_age_s'],
+                            sample['max_gap_s'],sample['wide_spread_quotes'],
+                            sample['valid_10s_windows'])
+                except Exception as exc:
+                    LOGGER.warning('hyper chase BBO QUALITY unavailable error_type=%s',
+                                   type(exc).__name__)
+            heartbeat=(last_cycle_at is None or started-last_cycle_at>=reconciliation)
+            full=changed or heartbeat
+            if full or quote_changed or newly_routed:
+                if full:
+                    last_cycle_at=started
+                    if changed:
+                        LOGGER.info('v3 LIVE canonical closed-bar advanced; evaluating now')
+                if full or newly_routed:
+                    try:
+                        apply_authorized_whipsaw_b_once(db_path=str(db_path))
+                    except Exception as exc:
+                        LOGGER.warning('Tech100-B LIVE whipsaw opt-in deferred error_type=%s',
+                                       type(exc).__name__)
+                selected=(set(routes) if full else
+                          {aid for aid,is_fast in routes.items() if is_fast}
+                          if quote_changed else set()) | set(newly_routed)
+                # Fast accounts always receive worker slots independently of
+                # slow bar accounts; within an account, never overlap cycles.
+                for account_id in sorted(selected,key=lambda aid:(not routes[aid],aid)):
+                    wants_full=full or account_id in newly_routed
+                    if account_id in running:
+                        queued[account_id]=queued.get(account_id,False) or wants_full
+                    else:
+                        dispatch(account_id,quote_only=not wants_full)
+            remaining=max(0.1,interval-(time.monotonic()-started))
+            stop_event.wait(remaining)
 
 
 def run_forever(

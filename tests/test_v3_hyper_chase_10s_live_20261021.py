@@ -121,7 +121,8 @@ def test_broker_side_always_v3_reconcile_first_and_no_auto_activation():
     module=Path("autotrader_v3_hyper_chase_live_v1.py").read_text()
     assert "evaluate_hyper_chase_live_v3(" in runtime
     assert "hyper_quote_only" in runtime
-    assert "if quote_changed and not (changed or heartbeat)" in watcher
+    assert "quote_changed" in watcher
+    assert "quote_only=not wants_full" in watcher
     assert "live_hyper_quote_cursors_v3" in watcher
     assert "pending_order_v3(" in runtime
     assert "reconcile_position_v3(" in runtime

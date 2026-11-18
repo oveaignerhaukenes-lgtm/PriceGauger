@@ -188,13 +188,18 @@ def _actual(e,broker):
     return TargetInventoryV3(broker.signed_inventory_exact(
         account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type))
 
-def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db"):
+def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db",
+                                            skip_legacy_migration=False,
+                                            account_ids=None):
     """Return only enabled V3 instances with explicit LIVE authority and exact account ownership."""
     active=[]
     instances=load_v3_runtime_instances_v1(db_path=db_path)
+    if account_ids is not None:
+        allowed=frozenset(str(value) for value in account_ids)
+        instances=tuple(e for e in instances if str(e.account_id) in allowed)
     LOGGER.info("v3 LIVE discovered enabled instances=%d ids=%s",
         len(instances),",".join(e.pilot_key for e in instances) or "-")
-    if using_postgres():
+    if using_postgres() and not skip_legacy_migration:
         try:
             claimed=backfill_legacy_v3_live_ownership_v1(instances,db_path=db_path)
             if claimed:
@@ -236,15 +241,76 @@ def _fast_quote_eligible_v3(instance, *, db_path="pricegauger.db"):
         return False
 
 
+def owned_live_account_routes_v3(*, db_path="pricegauger.db"):
+    """Exact armed/owned account routes; one account belongs to one worker lane.
+
+    Fast eligibility is computed per account, never used to weaken ownership.
+    A mix of fast and bar-based strategies on one Saxo account stays serialized.
+    """
+    routes={}
+    for instance in _load_owned_armed_runtime_instances_v3(db_path=db_path):
+        account_id=str(instance.account_id)
+        routes[account_id]=routes.get(account_id,False) or _fast_quote_eligible_v3(
+            instance,db_path=db_path)
+    return routes
+
+
+def _fresh_quote_open_authorized_v3(*, strategy_key, decision_key, trader_id,
+                                     db_path, clock=None):
+    """Recheck a quote-driven OPEN/ADD against the real time of Saxo submission.
+
+    Earlier strategy evaluation and Saxo precheck can take seconds. A fresh
+    decision at evaluation time is NOT automatically fresh at order POST.
+    Tick strategies also require the actual stored impulse timestamp, which
+    may be older than the last quote timestamp in the decision key.
+    """
+    if strategy_key not in (TICK_RUNTIME_KEYS | HYPER_RUNTIME_KEYS):
+        return True
+    current=clock or datetime.now(timezone.utc)
+    try:
+        # ISO-8601 timestamps contain ':' themselves; strip the trailing
+        # action from the RIGHT rather than splitting the timestamp apart.
+        stamp=str(decision_key).split(":",2)[2].rsplit(":",1)[0]
+        at=datetime.fromisoformat(stamp.replace("Z","+00:00"))
+        if at.tzinfo is None:
+            return False
+        age=(current-at.astimezone(timezone.utc)).total_seconds()
+        if not 0<=age<=5:
+            return False
+        if strategy_key in TICK_RUNTIME_KEYS:
+            with connect(db_path) as db:
+                row=db.execute(
+                    "SELECT last_signal_at FROM pg_v3_tick_live_state WHERE trader_id=?",
+                    (str(trader_id),)).fetchone()
+            if row is None or not row["last_signal_at"]:
+                return False
+            signal_at=datetime.fromisoformat(str(row["last_signal_at"]).replace("Z","+00:00"))
+            if signal_at.tzinfo is None:
+                return False
+            signal_age=(current-signal_at.astimezone(timezone.utc)).total_seconds()
+            if not 0<=signal_age<=5:
+                return False
+        return True
+    except (ValueError,TypeError,IndexError,KeyError,AttributeError):
+        return False
+
+
 def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
-                         hyper_quote_only:bool=False)->int:
+                         hyper_quote_only:bool=False,
+                         account_ids=None)->int:
     """One Saxo-safe LIVE order pipeline, including quote-driven 10s signals.
 
     Quote-only cycles evaluate 10s instances and explicitly opted-in Impulse
     Exit guards even on ordinary 1m strategies. Regular/bar/heartbeat cycles
     still reconcile every armed instance. No unarmed account is added.
     """
-    active=_load_owned_armed_runtime_instances_v3(db_path=db_path)
+    # The account router completed the one-time legacy ownership migration
+    # before dispatch. Each independent account task still reloads and checks
+    # exact current LIVE arming and V3 ownership, but never repeats DDL and
+    # legacy migration work on every 1s quote wake.
+    active=_load_owned_armed_runtime_instances_v3(
+        db_path=db_path,skip_legacy_migration=account_ids is not None,
+        account_ids=account_ids)
     if hyper_quote_only:
         # A fast 1s wake must NOT silently skip a normal 1m strategy whose
         # owner explicitly enabled Impulse Exit. Preserve ownership/arming,
@@ -980,6 +1046,18 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 f'action={mutation.action} amount={mutation.amount:g} '
                 f'capital_required_nok={capital_required:g} cap_nok={policy.max_notional_nok:g}',
                 db_path=db_path)
+        if mutation.action in {'OPEN','ADD'} and not _fresh_quote_open_authorized_v3(
+            strategy_key=e.strategy_key,decision_key=decision.decision_key,
+            trader_id=e.pilot_key,db_path=db_path,
+        ):
+            # No durable reservation was made and no Saxo order was sent.
+            # Never let a 5s quote impulse become a 30s delayed entry.
+            _record_runtime(e.pilot_key,'BLOCKED',
+                'Quote impulse expired while checking Saxo; no stale OPEN/ADD sent',
+                db_path=db_path)
+            LOGGER.warning('v3 LIVE stale quote entry veto trader=%s action=%s',
+                           e.pilot_key,mutation.action)
+            continue
         inserted=reserve_order_v3(request_key=request_key,trader_id=e.pilot_key,
             account_id=e.account_id,uic=e.uic,asset_type=e.asset_type,
             expected_inventory=actual.amount+signed_delta,
@@ -1004,6 +1082,30 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
         if not claim_reserved_for_submission_v3(request_key=request_key,db_path=db_path):
             _record_runtime(e.pilot_key,'PENDING',
                 'Reserved intent changed before submission; NO SAXO POST',db_path=db_path)
+            continue
+        # After broker precheck/reservation, validate authority again. A LIVE
+        # disarm/ownership change while Saxo was slow must not execute later.
+        current_owner=load_account_owner_v1(e.account_id,db_path=db_path)
+        if (not live_authority_armed_v3(e.pilot_key,db_path=db_path)
+            or current_owner is None or current_owner.engine_id!=ENGINE_V3
+            or current_owner.owner_key!=e.pilot_key):
+            mark_order_v3(request_key=request_key,state='REJECTED',
+                detail='LIVE account authority changed before Saxo POST; no order sent',
+                db_path=db_path)
+            _record_runtime(e.pilot_key,'BLOCKED',
+                'LIVE account authority changed before Saxo POST; no order sent',
+                db_path=db_path)
+            continue
+        if mutation.action in {'OPEN','ADD'} and not _fresh_quote_open_authorized_v3(
+            strategy_key=e.strategy_key,decision_key=decision.decision_key,
+            trader_id=e.pilot_key,db_path=db_path,
+        ):
+            mark_order_v3(request_key=request_key,state='REJECTED',
+                detail='Quote signal expired after reservation, before Saxo POST; no order sent',
+                db_path=db_path)
+            _record_runtime(e.pilot_key,'BLOCKED',
+                'Quote impulse expired immediately before Saxo POST; no order sent',
+                db_path=db_path)
             continue
         try:
             result=broker.place_order(order,confirm_live=True)

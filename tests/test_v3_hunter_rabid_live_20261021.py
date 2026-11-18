@@ -180,5 +180,6 @@ def test_catalog_controls_and_quote_only_worker_gating():
             control_mode="Manuell",modifiers=())
     source=Path("autotrader_v3_live_runtime_v1.py").read_text()
     assert "elif e.strategy_key in TICK_RUNTIME_KEYS" in source
-    assert "hyper_quote_only=True" in Path("worker.py").read_text()
+    assert "hyper_quote_only=quote_only" in Path("worker.py").read_text()
+    assert "account_ids=(account_id,)" in Path("worker.py").read_text()
     assert "TICK_CATALOG_KEYS" in Path("autotrader_v3_hyper_chase_live_v1.py").read_text()
