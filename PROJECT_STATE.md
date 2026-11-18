@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-18 · Markedsmodeller: første tilstandsfundament (forskning)
+
+- **Branch:** `feature/market-models-state-foundation-20261118`. Ny separat toppmeny `Markedsmodeller` og modellkatalog (foreløpig én), med eksplisitt lesende `market_models_state_v1.py` og manuell UI. Kvantiserer hver eksakte Saxo-UIC etter **60 sammenhengende fullførte 1m-returer** som 3 retninger (NED/SIDEVEIS/OPP) × 3 rytmeklasser (RASK/MIDDELS/LANGSOM), med dimensjonsløse terskler, trend-/rytme-hysterese, kontinuerlig prisvolatilitet og svakt rytmebelegg/ukjent vist eksplisitt. Ikke interpoler hull; forming candle ekskluderes. Utvalgte andre UIC-er benytter allerede isolerte `market_instrument_ensemble_v1` for samtidighet/koherens/kobling.
+- **Avgrensning:** Ingen markedsprognoser, strategi-P/L, automatisk modellvalg, Saxo-orders, LIVE-arming, databasewrites, worker eller account-tilpasning. Kvantiseringsterskler er forhåndsvalgte **hypoteser**; ingen validert handelsfordel eller prediksjonsintervall. Neste: kronologisk holdout av tilstand→utfall, deretter strategikobling/PAPER når empiriske data og kostnader foreligger.
+- **Bevis:** 19/19 isolerte `unittest` grønne (egen modell, tidligere strenger og HH/HL) samt compile/diff-kontroll. Lokal `pytest` utilgjengelig. GitHub PR/CI, merge, Railway SHA og faktisk produksjonsdata må verifiseres separat.
+
 ## 2026-11-17 · Markedsinstrumentet: koblede prisstrenger (forskning)
 
 - Ny isolert **read-only** `market_instrument_ensemble_v1.py` og panel i `pages/0_Markedsrytme.py`, 2–8 eksakte abonnerte Saxo-UIC-er, 7/14/30d kanoniske ferdiglukkede 1m-priser. Måler samtidige retning/aktivitet, Fourier-koherens 4–64m på sammenhengende vinduer, regimeavhengig samvariasjon, komplett-overlapp PCA-faktor samt forhåndsdefinerte 1/2/5/10m kronologiske 60/40 holdout-leadkontroller mot valgt målmarked. Ingen hullfylling, broker/ordre eller strategiendringer. Tester med syntetiske ledere, uavhengige signaler, hull og sammenfall; faktisk markedsresultat krever manuell analyse med eksisterende produksjons-DB.
