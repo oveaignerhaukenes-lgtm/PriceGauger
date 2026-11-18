@@ -150,4 +150,4 @@ def test_rest_telemetry_tracks_http_but_never_logs_account_key(caplog, monkeypat
         )
     assert "GET:ref/v1/instruments/details=1/min(429=0)" in caplog.text
     assert "GET:port/v1/netpositions=1/min(429=1)" in caplog.text
-    assert "secret" not in caplog.text
+    assert telemetry.normalized_saxo_endpoint_v1("trade/v2/orders/precheck") == "trade/v2/orders/precheck"\n    assert telemetry.normalized_saxo_endpoint_v1("trade/v2/orders") == "trade/v2/orders"\n    assert "secret" not in caplog.text
