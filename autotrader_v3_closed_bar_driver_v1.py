@@ -82,7 +82,7 @@ from autotrader_v3_macd_trailing_v1 import (
     STRATEGY_KEY_V3 as TRAILING_KEY, MacdTrailingConfigV3,
     MacdTrailingDecisionV3, macd_trailing_target_v3,
 )
-from database import connect
+from database import connect, run_postgres_schema_once_v1
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +92,7 @@ class ClosedBarDecisionV3:
     is_new: bool
 
 
-def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
+def _ensure_closed_bar_driver_schema_uncached_v3(db_path: str = "pricegauger.db") -> None:
     with connect(db_path) as db:
         db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_closed_bar_state (
           trader_id TEXT PRIMARY KEY,
@@ -125,6 +125,14 @@ def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
           reference_level DOUBLE PRECISION,
           updated_at TEXT NOT NULL
         )""")
+
+
+def ensure_closed_bar_driver_schema_v3(db_path: str = "pricegauger.db") -> None:
+    """Commit schema once on PostgreSQL; keep SQLite/test setup unchanged."""
+    return run_postgres_schema_once_v1(
+        "v3_closed_bar_driver",
+        lambda: _ensure_closed_bar_driver_schema_uncached_v3(db_path),
+    )
 
 
 def align_closed_bar_target_v3(*, trader_id: str, target_amount: float,

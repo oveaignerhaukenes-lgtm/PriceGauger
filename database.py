@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
 import sqlite3
 import threading
 import time
 from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Callable
 
 
 _ENV_KEYS = ("DATABASE_URL", "DATABASE_PUBLIC_URL")
@@ -299,6 +300,32 @@ def _get_v3_postgres_pool():
         _V3_POSTGRES_POOL = pool
         _V3_POSTGRES_POOL_DSN = current_dsn
         return pool
+
+
+# PostgreSQL schema initialization is a deployment/bootstrap concern, not a
+# per-tick operation. Guard only the Postgres case; SQLite tests and local
+# workers preserve their existing automatic schema initialization behavior.
+_POSTGRES_SCHEMA_LOCK = threading.Lock()
+_POSTGRES_SCHEMA_READY: set[tuple[str, str]] = set()
+
+
+def run_postgres_schema_once_v1(schema_key: str, initialize: Callable[[], None]) -> None:
+    """Initialize one schema transactionally once per process/DB identity.
+
+    Only mark readiness AFTER the initialization function commits. Waiting
+    concurrent V3 tasks cannot observe a half-created schema. An error must be
+    retried on the next call, not cached as success.
+    """
+    if not using_postgres():
+        initialize()
+        return
+    identity = hashlib.sha256(database_url().encode("utf-8")).hexdigest()
+    key = (str(schema_key), identity)
+    with _POSTGRES_SCHEMA_LOCK:
+        if key in _POSTGRES_SCHEMA_READY:
+            return
+        initialize()
+        _POSTGRES_SCHEMA_READY.add(key)
 
 
 class DatabaseConnection(AbstractContextManager):
