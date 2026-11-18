@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 import math
+import hashlib
+import threading
+import time
 from typing import Any
 
 from autotrader_entry_sizing_policy_v2 import SIZING_MODE_FIXED, load_entry_sizing_policy_v2
@@ -14,7 +17,7 @@ from autotrader_margin_envelope_v2 import (
     AutoTraderMarginStateV2,
     evaluate_margin_envelope_v2,
 )
-from saxo_provider import SaxoClient, SaxoError, SaxoInstrument
+from saxo_provider import LIVE_BASE_URL, SaxoClient, SaxoError, SaxoInstrument
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +123,7 @@ def _normalize_side(direction: str) -> str:
     raise ValueError("entry direction must be LONG or SHORT")
 
 
-def load_entry_instrument_rules_v2(
+def _load_entry_instrument_rules_uncached_v2(
     client: SaxoClient,
     *,
     account_key: str,
@@ -189,6 +192,66 @@ def load_entry_instrument_rules_v2(
         reference_minimum_amount=None if reference_minimum is None else float(reference_minimum),
         minimum_order_value=_positive(raw.get("MinimumOrderValue")),
     )
+
+
+# LIVE reference data can be shared between the six account worker threads,
+# but only for the exact same Saxo authorization AND account boundary.
+# Never cache positions, balances, market quotes, prechecks, or orders here.
+_LIVE_RULES_TTL_SECONDS = 15.0
+_LIVE_RULES_CACHE: dict[tuple[str, str, str, int, str], tuple[float, EntryInstrumentRulesV2]] = {}
+_LIVE_RULES_KEY_LOCKS: dict[tuple[str, str, str, int, str], threading.Lock] = {}
+_LIVE_RULES_LOCK = threading.RLock()
+
+
+def load_entry_instrument_rules_v2(
+    client: SaxoClient, *, account_key: str, instrument: SaxoInstrument
+) -> EntryInstrumentRulesV2:
+    """Single-flight, short-lived LIVE rules snapshot; strict uncached SIM/tests.
+
+    Only a successfully broker-validated immutable rule set is reused. A
+    changed/revoked token makes a new key; expiration always fetches from Saxo
+    and errors fail closed rather than serving stale rules.
+    """
+    if not isinstance(client, SaxoClient) or client.base_url.rstrip("/").lower() != LIVE_BASE_URL.lower():
+        return _load_entry_instrument_rules_uncached_v2(
+            client, account_key=account_key, instrument=instrument
+        )
+    # Authenticate BEFORE consulting the cache: a revoked/rotated token must
+    # not obtain rules validated under a different bearer credential.
+    client._set_authorization()
+    authorization = str(client.session.headers.get("Authorization") or "")
+    if not authorization.startswith("Bearer ") or not authorization[7:].strip():
+        raise SaxoError("Saxo bearer token unavailable", status="TOKEN_MISSING")
+    credential_hash = hashlib.sha256(authorization.encode("utf-8")).hexdigest()
+    key = (
+        client.base_url.rstrip("/").lower(), credential_hash,
+        str(account_key), int(instrument.uic), str(instrument.asset_type),
+    )
+    with _LIVE_RULES_LOCK:
+        key_lock = _LIVE_RULES_KEY_LOCKS.setdefault(key, threading.Lock())
+    # Concurrent evaluations for the same account/instrument wait for the
+    # one in-flight reference lookup; unrelated accounts remain independent.
+    with key_lock:
+        now = time.monotonic()
+        with _LIVE_RULES_LOCK:
+            cached = _LIVE_RULES_CACHE.get(key)
+            if cached is not None and now - cached[0] < _LIVE_RULES_TTL_SECONDS:
+                return cached[1]
+        rules = _load_entry_instrument_rules_uncached_v2(
+            client, account_key=account_key, instrument=instrument
+        )
+        with _LIVE_RULES_LOCK:
+            _LIVE_RULES_CACHE[key] = (time.monotonic(), rules)
+            # Bound retained data as OAuth tokens rotate. Key locks are retained
+            # to preserve single-flight for in-progress requests.
+            if len(_LIVE_RULES_CACHE) > 256:
+                for stale_key in list(_LIVE_RULES_CACHE):
+                    if stale_key != key and (
+                        time.monotonic() - _LIVE_RULES_CACHE[stale_key][0]
+                        >= _LIVE_RULES_TTL_SECONDS
+                    ):
+                        del _LIVE_RULES_CACHE[stale_key]
+        return rules
 
 
 def _quantized_amount(value: float, rules: EntryInstrumentRulesV2, *, upward: bool) -> float:
