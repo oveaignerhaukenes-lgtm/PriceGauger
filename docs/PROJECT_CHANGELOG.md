@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `b707bd450105d5ffbfe31845d673a56a87838dc6`
+Latest tracked main commit: `7e08d7539a7ba1c0d90ae4a84bea5f57443e915d`
 
 ## Recent main commits
 
+- 2026-11-18 [`7e08d7539a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7e08d7539a7ba1c0d90ae4a84bea5f57443e915d) — Measure V3 LIVE time spent per phase without extra broker calls (#855)
 - 2026-11-18 [`b707bd4501`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b707bd450105d5ffbfe31845d673a56a87838dc6) — Reduce Saxo LIVE REST load by sharing validated reference reads (#854)
 - 2026-11-18 [`9a8bf4d798`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9a8bf4d7989dc1139a9490a53c39989238ec74e0) — Run V3 LIVE independently per account and veto stale quote entries (#853)
 - 2026-11-18 [`1d9c3673fe`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d9c3673fe7f699f3f31bf20838e4fa2bac83446) — Impulse Catcher v1.2/v1.3: patient exits and regime PAPER comparison (#852)
@@ -46,6 +47,5 @@ Latest tracked main commit: `b707bd450105d5ffbfe31845d673a56a87838dc6`
 - 2026-10-30 [`1ee7a63a3d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1ee7a63a3db77a14fb0a2bc71e890566977ac335) — Merge pull request #831 from oveaignerhaukenes-lgtm/feat/algorithm-lab-phase2-20261030
 - 2026-10-30 [`7292e58c60`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7292e58c602379b5d31dd62d6c434bf73e118880) — Merge pull request #830 from oveaignerhaukenes-lgtm/feat/algorithm-lab-directional-v1-20261030
 - 2026-10-30 [`65aec9e83f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/65aec9e83f0b6b8578028b5a62936a78546c7edc) — security: invalidate cached research histories when owner key changes
-- 2026-10-30 [`9689f7e4ed`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9689f7e4edc164100156ef839598d082b3bfb17a) — test: immutable private Python source version archive
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
