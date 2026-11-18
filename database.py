@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
-from contextlib import AbstractContextManager
+import threading
+import time
+from contextlib import AbstractContextManager, contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -243,6 +246,61 @@ def _split_postgres_script(script: str) -> tuple[str, ...]:
     return tuple(statements)
 
 
+# LIVE V3 account tasks may reuse PostgreSQL connections. This opt-in is
+# scoped to the worker task's context, NOT to the worker's other jobs or the UI.
+# Broker position/authorization state is never cached by the DB pool.
+_V3_POSTGRES_POOL_ENABLED: ContextVar[bool] = ContextVar(
+    "pricegauger_v3_postgres_pool_enabled", default=False
+)
+_V3_POSTGRES_POOL_LOCK = threading.Lock()
+_V3_POSTGRES_POOL = None
+_V3_POSTGRES_POOL_DSN = None
+_V3_POSTGRES_POOL_MAX = 12
+_V3_POSTGRES_POOL_WAIT_SECONDS = 3.0
+
+
+@contextmanager
+def v3_postgres_pool_scope():
+    """Opt into bounded connections only while an independent V3 account runs."""
+    token = _V3_POSTGRES_POOL_ENABLED.set(True)
+    try:
+        yield
+    finally:
+        _V3_POSTGRES_POOL_ENABLED.reset(token)
+
+
+def _get_v3_postgres_pool():
+    global _V3_POSTGRES_POOL, _V3_POSTGRES_POOL_DSN
+    current_dsn = database_url()
+    if not current_dsn:
+        raise RuntimeError("V3 PostgreSQL pool requires DATABASE_URL")
+    with _V3_POSTGRES_POOL_LOCK:
+        if _V3_POSTGRES_POOL is not None:
+            if _V3_POSTGRES_POOL_DSN != current_dsn:
+                # Never reuse authenticated PostgreSQL sessions after a runtime
+                # database change. Railway redeploys are required for rotation.
+                raise RuntimeError("V3 PostgreSQL database URL changed; restart required")
+            return _V3_POSTGRES_POOL
+        try:
+            from psycopg_pool import ConnectionPool
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise RuntimeError("V3 PostgreSQL pool requires psycopg[pool]") from exc
+        pool = ConnectionPool(
+            conninfo=current_dsn,
+            kwargs={"row_factory": dict_row, "connect_timeout": 10},
+            min_size=0,
+            max_size=_V3_POSTGRES_POOL_MAX,
+            timeout=_V3_POSTGRES_POOL_WAIT_SECONDS,
+            max_idle=300.0,
+            check=ConnectionPool.check_connection,
+            open=True,
+        )
+        _V3_POSTGRES_POOL = pool
+        _V3_POSTGRES_POOL_DSN = current_dsn
+        return pool
+
+
 class DatabaseConnection(AbstractContextManager):
     """Minimal connection adapter shared by SQLite and PostgreSQL stores.
 
@@ -262,8 +320,17 @@ class DatabaseConnection(AbstractContextManager):
         # runtime. sqlite_path remains a legacy fallback argument; isolated
         # tools and tests must opt into SQLite explicitly.
         self.is_postgres = using_postgres() and not force_sqlite
+        self._postgres_pool = None
         if self.is_postgres:
-            self._connection = self._open_postgres()
+            if _V3_POSTGRES_POOL_ENABLED.get():
+                started = time.perf_counter()
+                pool = _get_v3_postgres_pool()
+                self._connection = pool.getconn(timeout=_V3_POSTGRES_POOL_WAIT_SECONDS)
+                self._postgres_pool = pool
+                from v3_runtime_timing_v1 import record_v3_phase_v1
+                record_v3_phase_v1("db_acquire", time.perf_counter() - started)
+            else:
+                self._connection = self._open_postgres()
         else:
             connection = sqlite3.connect(self.sqlite_path)
             connection.row_factory = sqlite3.Row
@@ -294,11 +361,21 @@ class DatabaseConnection(AbstractContextManager):
                 raise
             # Railway's public PostgreSQL proxy can occasionally drop an otherwise
             # healthy read connection. Reconnect and retry one idempotent read once.
+            old_connection = self._connection
+            self._connection = None
             try:
-                self._connection.close()
+                old_connection.close()
             except Exception:
                 pass
-            self._connection = self._open_postgres()
+            if getattr(self, "_postgres_pool", None) is not None:
+                # Return the broken connection to the pool so it is discarded.
+                # A replacement is checked before the one permitted read retry.
+                self._postgres_pool.putconn(old_connection)
+                self._connection = self._postgres_pool.getconn(
+                    timeout=_V3_POSTGRES_POOL_WAIT_SECONDS
+                )
+            else:
+                self._connection = self._open_postgres()
             return self._connection.execute(query, values)
 
     def executescript(self, script: str) -> None:
@@ -312,21 +389,31 @@ class DatabaseConnection(AbstractContextManager):
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
+        connection = getattr(self, "_connection", None)
+        if connection is None:
+            return False
         try:
             if exc_type is None:
-                self._connection.commit()
+                connection.commit()
             else:
                 try:
-                    self._connection.rollback()
+                    connection.rollback()
                 except Exception:
                     # A dropped PostgreSQL connection cannot be rolled back. Preserve
                     # the original query exception instead of masking it here.
                     pass
         finally:
             try:
-                self._connection.close()
+                pool = getattr(self, "_postgres_pool", None)
+                if pool is not None:
+                    self._connection = None
+                    pool.putconn(connection)
+                else:
+                    connection.close()
             except Exception:
-                pass
+                # Preserve the original exception when connection cleanup fails.
+                if exc_type is None:
+                    raise
         return False
 
 

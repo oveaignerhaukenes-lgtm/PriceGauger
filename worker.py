@@ -22,7 +22,7 @@ from autotrader_v3_live_runtime_v1 import (
     owned_live_account_routes_v3, run_v3_live_cycle_v1,
 )
 from config import openai_api_key, openai_market_model
-from database import using_postgres
+from database import using_postgres, v3_postgres_pool_scope
 from indicator_ai_insights_v1 import refresh_indicator_ai_once_v1
 from news_context_engine import NewsContextAssessment, OpenAINewsContextEngine
 from news_context_store import NewsContextStore
@@ -324,6 +324,12 @@ def run_once(
     return summary
 
 
+def _run_v3_live_pooled_account_v1(**kwargs):
+    """Scope PostgreSQL pooling to this task, preserving per-account isolation."""
+    with v3_postgres_pool_scope():
+        return run_v3_live_cycle_v1(**kwargs)
+
+
 def run_v3_live_fast_loop_v1(
     *,
     db_path: str | Path,
@@ -364,7 +370,7 @@ def run_v3_live_fast_loop_v1(
             pool=fast_pool if routes[account_id] else bar_pool
             running_started[account_id]=time.monotonic()
             running[account_id]=pool.submit(
-                run_v3_live_cycle_v1,db_path=str(db_path),
+                _run_v3_live_pooled_account_v1,db_path=str(db_path),
                 hyper_quote_only=quote_only,account_ids=(account_id,))
 
         while not stop_event.is_set():
