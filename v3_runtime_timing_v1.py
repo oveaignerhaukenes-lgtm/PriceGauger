@@ -17,7 +17,8 @@ _WINDOW_SECONDS = 60.0
 _ALLOWED = frozenset({
     "accounts", "inventory", "instrument_rules", "db_acquire", "decision",
     "modifiers", "cost_guard", "capital_sizing", "precheck", "submit",
-    "decision_to_submit", "quote_to_submit"
+    "decision_to_submit", "quote_to_submit", "db_read", "db_write",
+    "db_finalize", "account_cycle"
 })
 
 
