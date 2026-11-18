@@ -354,7 +354,7 @@ class DatabaseConnection(AbstractContextManager):
     def execute(self, sql: str, parameters: Iterable[Any] | None = None):
         query = _postgres_sql(sql) if self.is_postgres else sql
         values = tuple(parameters or ())
-        track = self.is_postgres and _V3_POSTGRES_POOL_ENABLED.get()
+        track = getattr(self, "is_postgres", False) and _V3_POSTGRES_POOL_ENABLED.get()
         started = time.perf_counter() if track else 0.0
         try:
             try:
@@ -400,7 +400,7 @@ class DatabaseConnection(AbstractContextManager):
         connection = getattr(self, "_connection", None)
         if connection is None:
             return False
-        track = self.is_postgres and _V3_POSTGRES_POOL_ENABLED.get()
+        track = getattr(self, "is_postgres", False) and _V3_POSTGRES_POOL_ENABLED.get()
         started = time.perf_counter() if track else 0.0
         try:
             if exc_type is None:
