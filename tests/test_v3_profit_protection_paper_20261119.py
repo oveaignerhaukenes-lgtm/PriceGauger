@@ -127,5 +127,20 @@ class ProfitProtectionResearchTest(unittest.TestCase):
                         window_end=START+timedelta(minutes=20))
         self.assertEqual(present[0].episodes,1)
 
+    def test_canonical_postgres_iso8601_bar_times_are_accepted(self):
+        """Production canonical rows store bar_time as str, not datetime."""
+        source=market([110,120,109,110,110,100],opens={18:105})
+        canonical=tuple(SimpleNamespace(**{
+            **vars(bar), 'bar_time':bar.bar_time.isoformat()})
+            for bar in source)
+        events=(event(15,'OPEN',0,1,100),event(20,'CLOSE',1,0,100))
+        expected=do_test(source,events)
+        actual=do_test(canonical,events)
+        self.assertEqual(actual,expected)
+        zulu=tuple(SimpleNamespace(**{
+            **vars(bar), 'bar_time':bar.bar_time.isoformat().replace('+00:00','Z')})
+            for bar in source)
+        self.assertEqual(do_test(zulu,events),expected)
+
 
 if __name__=='__main__':unittest.main()
