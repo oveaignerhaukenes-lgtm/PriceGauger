@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `1cae540e2713a1f3961ada7baeba29ab820f9de3`
+Latest tracked main commit: `55f1ecfbc509df08914fec32aaad634b2efee600`
 
 ## Recent main commits
 
+- 2026-11-19 [`55f1ecfbc5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/55f1ecfbc509df08914fec32aaad634b2efee600) — fix(v3): treat Saxo order HTTP 429 as definitive rejection (#868)
 - 2026-11-19 [`1cae540e27`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1cae540e2713a1f3961ada7baeba29ab820f9de3) — Research: impulse strength and clusters to later price paths (#867)
 - 2026-11-19 [`dfd3f2abe0`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/dfd3f2abe0cc2660131fad8f35ead81f07a05021) — Markedsfilter: egen menyside med modulstrøm, status og statistikk (#866)
 - 2026-11-19 [`4349c587b7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4349c587b7bcf9682f8109d9cb24c197ad3a2931) — feat: show observed Saxo REST calls and rate-limit quotas (#865)
@@ -46,6 +47,5 @@ Latest tracked main commit: `1cae540e2713a1f3961ada7baeba29ab820f9de3`
 - 2026-11-02 [`3dcd23eec3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/3dcd23eec374e63ce1d6c49c9bf3560f3e09acb5) — feat: add AI findings at top of probability lab
 - 2026-11-02 [`4c7cd5a747`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4c7cd5a7473cef5b3ecb2cd8a91aa93105f5f188) — test: Saxo account names, calibrated lots, top AI evidence guards
 - 2026-11-02 [`da15fc0799`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/da15fc0799f8dda129cd22f9922dd13e77bb310a) — test: expected renamed Algolabb menu
-- 2026-11-02 [`c88485ff43`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c88485ff430104c33b5c0c330476091e2659961c) — feat: AI observations at top of cycle research
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
