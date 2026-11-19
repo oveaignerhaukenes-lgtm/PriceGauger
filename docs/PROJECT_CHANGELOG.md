@@ -3,10 +3,12 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `fade6270566cbc444e0e452d7b8e5011c72d72ed`
+Latest tracked main commit: `c862149b1d4ecbaa392cb55f59e4f42937e97d8f`
 
 ## Recent main commits
 
+- 2026-11-19 [`c862149b1d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c862149b1d4ecbaa392cb55f59e4f42937e97d8f) — Merge pull request #870 from oveaignerhaukenes-lgtm/fix/v3-idle-saxo-poll-60s-20261119
+- 2026-11-19 [`38c70827ad`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/38c70827ad5328db5126b0502a93d837933c0270) — Reduce V3 idle Saxo GET polls to 60s; verify exact truth before LIVE POST
 - 2026-11-19 [`fade627056`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fade6270566cbc444e0e452d7b8e5011c72d72ed) — feat(saxo): attribute measured REST quota usage to caller modules (#869)
 - 2026-11-19 [`55f1ecfbc5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/55f1ecfbc509df08914fec32aaad634b2efee600) — fix(v3): treat Saxo order HTTP 429 as definitive rejection (#868)
 - 2026-11-19 [`1cae540e27`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1cae540e2713a1f3961ada7baeba29ab820f9de3) — Research: impulse strength and clusters to later price paths (#867)
@@ -45,7 +47,5 @@ Latest tracked main commit: `fade6270566cbc444e0e452d7b8e5011c72d72ed`
 - 2026-11-02 [`a2d9931af7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a2d9931af7ba8804476c08716e7be12780bf1520) — feat: AI evidence digest above historical Saxo spread research
 - 2026-11-02 [`449c02d628`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/449c02d628753af17829a84139ff3757713700e0) — feat: top evidence-backed AI in trade/flat gate lab
 - 2026-11-02 [`f892dbbf4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f892dbbf4a54358a9532c436b0b25bba298abf5f) — feat: top evidence digest for tempo comparison
-- 2026-11-02 [`3dcd23eec3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/3dcd23eec374e63ce1d6c49c9bf3560f3e09acb5) — feat: add AI findings at top of probability lab
-- 2026-11-02 [`4c7cd5a747`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4c7cd5a7473cef5b3ecb2cd8a91aa93105f5f188) — test: Saxo account names, calibrated lots, top AI evidence guards
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
