@@ -43,6 +43,7 @@ from autotrader_v3_protective_live_v1 import (
     ProtectiveEvidenceV3, ProtectiveModifierV3,
     evaluate_impulse_live_v3, evaluate_account_loss_live_v3,
 )
+from autotrader_v3_trade_filter_v1 import allow_new_exposure_v1
 from autotrader_v3_modifier_audit_v1 import (record_modifier_evaluation_v3,record_modifier_target_change_v3)
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
@@ -939,6 +940,15 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                     mutation.action,float(permitted),mutation.direction,
                     mutation.requires_flat_confirmation,
                     mutation.reason+f'; floored to Saxo amount step {float(step):g}')
+        if mutation.action in {'OPEN','ADD'} and not allow_new_exposure_v1(
+            instance_id=e.pilot_key,strategy_key=e.strategy_key,db_path=db_path):
+            # Never let a blocked closed-bar target queue a surprise entry.
+            align_closed_bar_target_v3(
+                trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+            _record_runtime(e.pilot_key,'BLOCKED',
+                'V3 STOPP-filter blocks OPEN/ADD; CLOSE/REDUCE remain available',
+                db_path=db_path)
+            continue
         side=("Buy" if mutation.direction=="LONG" else "Sell")
         if mutation.action in {"REDUCE","CLOSE"}: side=("Sell" if mutation.direction=="LONG" else "Buy")
         policy=None
@@ -1174,6 +1184,17 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 db_path=db_path)
             _record_runtime(e.pilot_key,'BLOCKED',
                 'Quote impulse expired immediately before Saxo POST; no order sent',
+                db_path=db_path)
+            continue
+        if mutation.action in {'OPEN','ADD'} and not allow_new_exposure_v1(
+            instance_id=e.pilot_key,strategy_key=e.strategy_key,db_path=db_path):
+            mark_order_v3(request_key=request_key,state='REJECTED',
+                detail='V3 STOPP-filter changed before Saxo POST; no order sent',
+                db_path=db_path)
+            align_closed_bar_target_v3(
+                trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
+            _record_runtime(e.pilot_key,'BLOCKED',
+                'V3 STOPP-filter veto after order reservation; no Saxo POST',
                 db_path=db_path)
             continue
         # Timestamp at the POST boundary; excludes Saxo acknowledgement/fill.

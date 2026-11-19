@@ -188,6 +188,30 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption(truth.reason + (f' · {truth.detail}' if truth.detail else ''))
     st.caption('Siste bekreftede handel: '+(truth.last_execution or 'ingen tilgjengelig i eventloggen'))
     st.caption('Tallene er forrige worker-heartbeat, ikke en sanntids-Saxo-posisjonsforespørsel.')
+    with st.expander('Stopp/kjør-filter · manuell nødstopp',expanded=False):
+        from autotrader_v3_trade_filter_v1 import (
+            load_trade_filter_v1,set_trade_filter_v1,
+        )
+        try:
+            filter_state=load_trade_filter_v1(
+                instance_id=trader_id,strategy_key=config.strategy_key)
+            st.write('🔴 STOPP' if filter_state.mode=='STOP' else '🟢 KJØR')
+            st.caption('STOPP sperrer alle nye OPEN/ADD for denne strategien, '
+                       'også når ordren allerede er under Saxo precheck. '
+                       'Nødvendige CLOSE/REDUCE og eksisterende risikovern beholdes. '
+                       'Ordre som allerede er sendt til Saxo, kanselleres ikke. '
+                       'Automatisk markedsfilter er foreløpig bare i observasjonsmodus.')
+            confirmed=st.checkbox(
+                'Jeg bekrefter at jeg vil endre dette LIVE-filteret',
+                key=f'{key_prefix}:filter-confirm:{trader_id}')
+            desired='GO' if filter_state.mode=='STOP' else 'STOP'
+            if st.button('Gjenoppta KJØR' if desired=='GO' else 'Aktiver STOPP',
+                key=f'{key_prefix}:filter-set:{trader_id}',disabled=not confirmed):
+                set_trade_filter_v1(instance_id=trader_id,
+                    strategy_key=config.strategy_key,mode=desired)
+                st.rerun()
+        except Exception as exc:
+            st.warning('Filterstatus/utilgjengelig: '+type(exc).__name__)
     with st.expander('Unngå tap V1 · Saxo datakontroll (kun lesing)',expanded=False):
         st.caption(
             'Kontroller eksakt konto og instrument mot Saxo LIVE med kun GET. '

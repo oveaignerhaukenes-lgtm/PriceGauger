@@ -6,7 +6,7 @@ from autotrader_v3_registry_v1 import strategy_display_label_v3
 
 def test_fleet_renders_strategy_in_full_width_text_not_metric():
     source=Path("autotrader_v3_fleet_ui_v1.py").read_text(encoding="utf-8")
-    assert "st.markdown(f'**Strategi:** {active_label}')" in source
+    assert "st.markdown(f'**Strategi:** {light.symbol} {active_label} · **{light.label}**')" in source
     assert ".metric('Strategi',active_label)" not in source
     assert "c=st.columns([2,1,1,1])" in source
 

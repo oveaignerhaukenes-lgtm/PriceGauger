@@ -180,6 +180,18 @@ def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> Non
                 )
         except Exception as exc:
             LOGGER.warning("account learning cycle failed kind=%s",type(exc).__name__)
+        # Research-only state/strategy pairing, with next-5m PRICE labels
+        # attached only after all five future minute candles have completed.
+        # Never feeds the live STOP/GO latch or places broker orders.
+        try:
+            from autotrader_v3_market_state_observer_v1 import observe_market_strategy_once_v1
+            market_learning=observe_market_strategy_once_v1(db_path=str(db_path))
+            if any(market_learning.values()):
+                LOGGER.info('v3 state learning snapshots=%d matured=%d skipped=%d errors=%d',
+                    market_learning['snapshots'],market_learning['matured'],
+                    market_learning['skipped'],market_learning['errors'])
+        except Exception as exc:
+            LOGGER.warning('v3 state learning unavailable kind=%s',type(exc).__name__)
         stop_event.wait(COLLECTION_SECONDS)
 
 
