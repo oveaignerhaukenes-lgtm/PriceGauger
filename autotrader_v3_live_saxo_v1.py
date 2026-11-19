@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import time
 from typing import Mapping
 from saxo_provider import LIVE_BASE_URL,SaxoClient,SaxoInstrument,SaxoError,configured_client
 from saxo_trading import SaxoOrderRequest,SaxoTradingSafetyError
@@ -222,10 +223,12 @@ class SaxoLivePilotClientV3:
         raise SaxoTradingSafetyError("v3 LIVE position lacks direction authority")
     def _post(self,path,payload):
         self.client._set_authorization()
+        request_started=time.perf_counter()
         response=self.client.session.post(f"{self.client.base_url}/{path}",json=payload,timeout=self.client.timeout)
         from saxo_rest_telemetry_v1 import record_saxo_http_v1
         record_saxo_http_v1("POST",path,response.status_code,
-                            headers=getattr(response,"headers",None))
+                            headers=getattr(response,"headers",None),
+                            latency_seconds=time.perf_counter()-request_started)
         try: body=response.json()
         except ValueError as exc: raise SaxoError("LIVE response was not JSON",status="INVALID_RESPONSE",status_code=response.status_code) from exc
         if not response.ok: raise SaxoError(str(body),status="REQUEST_FAILED",status_code=response.status_code)
