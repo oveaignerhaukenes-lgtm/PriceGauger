@@ -140,6 +140,7 @@ def test_rest_telemetry_tracks_http_but_never_logs_account_key(caplog, monkeypat
     telemetry._COUNTS.clear()
     telemetry._RATE_LIMITED.clear()
     telemetry._RATE_REMAINING.clear()
+    telemetry._LATENCY_SECONDS.clear()
     with caplog.at_level("INFO"):
         telemetry.record_saxo_http_v1(
             "GET", "ref/v1/instruments/details/4912/CfdOnIndex?AccountKey=secret",
