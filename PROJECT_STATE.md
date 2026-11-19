@@ -2,6 +2,10 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · PAPER production-test: kanoniske ISO-tidsstempler
+
+- Etter #871, grønn CI og alle fem `SUCCESS` i Railway var den manuelle historiske testen synlig i produksjon. Første kjøring feilet trygt med `AttributeError: 'str' object has no attribute 'tzinfo'`: kanonisk PostgreSQL `CanonicalMarketBarV2.bar_time` er ISO-8601-streng, mens de opprinnelige ni enhetstestene brukte `datetime`. `fix/v3-profit-paper-canonical-timestamp-20261119` oppdaterer bare den nye PAPER-komparatorens klokkeparser og legger til regresjon for faktiske kanoniske `+00:00`/`Z`-strenger. Ingen LIVE-motor, Saxo-kall eller ordre berøres. Kjør UI-testen igjen på produksjons-DB etter CI og deploy før noen resultatkonklusjon.
+
 ## 2026-11-19 · Regime-short: 25/50/75 % beskyttelse i PAPER-forskning
 
 - **Branch:** `research/v3-regime-profit-protection-paper-20261119`. Utvider eksisterende manuelle `AutoTrader · Taps- og regimelab` med én read-only knapp for eksakte historiske, fullførte Saxo-Tech100 1m-barer og samme V3 pure SHORT-regimesignal. Baseline mot ATR-only og 25/50/75 % tillatt tilbakegang fra høyste *netto* observerte åpne gevinst, aktivert først etter minst 2× anslått rundturkostnad; tidlig feilinngangsstopp ved minst 1,5× historisk, fullført ATR(14) og 2× spread-bevegelse. Bruker konfigurert scenariopunktverdi/spread/avgift, aldri antar at dette er faktisk Saxo-fill/nettoresultat.

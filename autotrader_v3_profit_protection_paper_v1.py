@@ -7,7 +7,7 @@ This is intentionally NOT a full feedback-aware strategy replay or LIVE stop.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 
 
@@ -28,9 +28,13 @@ class ProtectionTrialV1:
 
 
 def _utc(value):
-    if value.tzinfo is None:
+    # CanonicalMarketBarV2.bar_time is an ISO-8601 string in PostgreSQL reads;
+    # replay event timestamps and analysis-window bounds are datetimes.
+    parsed = (value if isinstance(value, datetime) else
+              datetime.fromisoformat(str(value).replace('Z', '+00:00')))
+    if parsed.tzinfo is None:
         raise ValueError('PAPER bars require timezone-aware timestamps')
-    return value.astimezone(timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _completed_episodes(events):
