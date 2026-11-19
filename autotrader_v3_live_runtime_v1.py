@@ -20,6 +20,7 @@ from autotrader_v3_legacy_ownership_migration_v1 import backfill_legacy_v3_live_
 from autotrader_v3_order_guard_v1 import reserve as reserve_order_v3, mark as mark_order_v3, unresolved as unresolved_order_v3, pending_order as pending_order_v3, order_state as order_state_v3, order_detail as order_detail_v3, claim_reserved_for_submission_v3
 from database import connect,using_postgres,run_postgres_schema_once_v1
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
+from autotrader_v3_idle_saxo_cache_v1 import IDLE_SAXO_CACHE_V1
 from autotrader_v3_macd_histogram_v1 import STRATEGY_KEY_V3
 from autotrader_v3_macd_regime_histogram_v1 import STRATEGY_KEY_V3 as MACD_REGIME_HIST_KEY
 from autotrader_v3_aen2_sticky_regime_v1 import STRATEGY_KEY_V3 as AEN2_STICKY_KEY
@@ -233,8 +234,10 @@ def _record_runtime(trader_id, status, detail="", *, db_path="pricegauger.db"):
 
 
 def _actual(e,broker):
-    return TargetInventoryV3(broker.signed_inventory_exact(
-        account_id=e.account_id,uic=int(e.uic),asset_type=e.asset_type))
+    # Genuine LIVE adapters reuse at most 60s-old inventory only for idle
+    # decision evaluation. Every pending order and every broker POST bypasses
+    # the cache through the explicit checks below.
+    return TargetInventoryV3(IDLE_SAXO_CACHE_V1.position(e,broker))
 
 def _load_owned_armed_runtime_instances_v3(*,db_path="pricegauger.db",
                                             skip_legacy_migration=False,
@@ -413,7 +416,7 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
     account_contexts={}
     account_labels={}
     _accounts_started=time.perf_counter()
-    account_rows=broker.accounts()
+    account_rows=IDLE_SAXO_CACHE_V1.accounts(broker)
     record_v3_phase_v1('accounts',time.perf_counter()-_accounts_started)
     for row in account_rows:
         if not isinstance(row,dict):
@@ -431,6 +434,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
         pending=pending_order_v3(account_id=e.account_id,uic=e.uic,
                                  asset_type=e.asset_type,db_path=db_path)
         if pending:
+            # An unresolved Saxo mutation is never an idle read: the result
+            # must be independently and freshly reconciled every time.
+            IDLE_SAXO_CACHE_V1.invalidate_position(e,broker)
             if (
                 str(pending.get('state') or '').upper()=='UNKNOWN'
                 and _recorded_definitive_saxo_rejection_v3(pending.get('detail'))
@@ -1172,6 +1178,33 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             _record_runtime(e.pilot_key,'PENDING',
                 'Reserved intent changed before submission; NO SAXO POST',db_path=db_path)
             continue
+        # An idle signal may have used <=60s cached Saxo inventory/account.
+        # Re-read both before any mutating POST. A manual broker change makes
+        # the old decision invalid, so no order can follow it.
+        if IDLE_SAXO_CACHE_V1.applies_to(broker):
+            try:
+                exact_ok,fresh_amount=IDLE_SAXO_CACHE_V1.verified_pre_submit(
+                    e,broker,account_key=account,observed_amount=actual.amount)
+            except Exception as exc:
+                mark_order_v3(request_key=request_key,state='REJECTED',
+                    detail='Fresh Saxo account/inventory verification unavailable before POST; no order sent',
+                    db_path=db_path)
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    f'Fresh Saxo verification failed: {type(exc).__name__}; no order sent',
+                    db_path=db_path)
+                continue
+            if not exact_ok:
+                mark_order_v3(request_key=request_key,state='REJECTED',
+                    detail='Saxo account or inventory changed since idle observation; no order sent',
+                    db_path=db_path)
+                align_closed_bar_target_v3(
+                    trader_id=e.pilot_key,target_amount=fresh_amount,db_path=db_path)
+                _record_runtime(e.pilot_key,'BLOCKED',
+                    'Fresh Saxo account/inventory differs from idle snapshot; next signal must re-evaluate',
+                    db_path=db_path)
+                continue
+            # Pending reconciliation will now fetch fresh Saxo inventory.
+            IDLE_SAXO_CACHE_V1.invalidate_position(e,broker)
         # After broker precheck/reservation, validate authority again. A LIVE
         # disarm/ownership change while Saxo was slow must not execute later.
         current_owner=load_account_owner_v1(e.account_id,db_path=db_path)

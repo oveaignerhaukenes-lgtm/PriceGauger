@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · V3 LIVE: 60s Saxo beholdning/konto i rolige sykluser
+
+- **Operatørbeslutning:** Idle-kontroll av eksakt Saxo-konto og nettoposisjon høyst hvert 60. sekund per worker/prosess, med samsvarende kontoidentitet gjenbrukt mellom samtidige V3-sesjoner. Endringen gjøres i `autotrader_v3_idle_saxo_cache_v1.py` og `autotrader_v3_live_runtime_v1.py` på `fix/v3-idle-saxo-poll-60s-20261119`; ingen strategi, instans, størrelse eller LIVE-arming byttes.
+- **Sikkerhet:** En ordre basert på mulig cached idle-inventory kan aldri nå Saxo POST uten to **nye** Saxo GET: kontoidentitet og nøyaktig signert posisjon. Enhver endring/feil avviser den reserverte ordren uten POST; en ny strategibeslutning kreves. Pending/UNKNOWN invaliderer cache og reavstemmes fra faktisk Saxo, og gamle UNKNOWN låser oppheves ikke. LIVE owner/arming, STOPP/KJØR, quote-ferskhet, precheck, idempotent order-guard og ingen blind retry består. Bare den virkelige LIVE Saxo-adapteren bruker cache; fake/testbrokere beholder direkte observasjon.
+- **Måling:** Forventet stor reduksjon i `GET accounts` og `GET netpositions` på *idle* sykluser; reelt antall, rate-limits, latens og eventuell kildetrafikk utenfor V3 skal kontrolleres mot Saxo-menyens nye kallkilder etter Railway deploy. Under arbeid: compile/diff-check bestått, lokal pytest ikke installert; GitHub CI/merge/deploy ennå ikke bekreftet.
+
 ## 2026-11-19 · V3 LIVE: Saxo ordre-429 kan låse Impulse Catcher
 
 - **Observerte fakta:** Tech100-D registrerte en uavklart Buy/CLOSE 0,01 med `UNKNOWN` fra 17:54:22 UTC, og fortsatte `PENDING actual=-0.01 expected=0` til minst 18:34 UTC. Samme minutt fikk LIVE ordre-endepunktet én HTTP 429 og D fikk `SaxoError`; aggregerte loggdata beviser ikke eksakt hvilken ordre som fikk 429. Tech100-C hadde også eldre `UNKNOWN`. Operatøren opplyste senere at posisjonene ble lukket manuelt i Saxo; dette bekrefter **ikke** at ordrehistorikken er avstemt i V3.
