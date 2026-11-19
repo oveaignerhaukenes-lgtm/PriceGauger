@@ -46,6 +46,17 @@ MODULES_V1 = (
         "pages/0_Markedsfilter.py",
     ),
     ModuleDefinitionV1(
+        "impulse_bridge", "Impuls → videre regimebevegelse",
+        "Lagrede ekte Saxo 1s bid/ask + eksakt UICs fullførte 1m-barer",
+        "Reproduserer LONG/SHORT Impulse Catcher v1.1-signaler og måler tidligere "
+        "impulsrekker/styrke mot fremtidig 5/15/30/60m pris",
+        "Tidsdelt prisfortsettelse, maksimum pluss/minus og datadekning – ikke strategi-P/L",
+        "Manuell SHADOW / PAPER-analyse",
+        "Fem minutters impulsvindu; holdout uten overlappende treningsetiketter; "
+        "ingen LIVE-styring eller nye Saxo-kall",
+        "pages/0_Markedsfilter.py",
+    ),
+    ModuleDefinitionV1(
         "filter", "STOPP/KJØR-nødmekanisme", "Vedvarende instans/strategi-lås i PostgreSQL + V3-beslutning",
         "Veto mot OPEN/ADD både før og etter ordreservasjon",
         "KJØR/STOPP per aktiv strategi; CLOSE/REDUCE beholdes", "LIVE · kun manuelt STOPP",

@@ -121,7 +121,7 @@ def test_stats_follow_exact_sources_and_only_matured_future_candles(tmp_path):
 def test_catalog_is_bounded_and_every_module_has_a_real_navigation_page():
     known = {x["page"] for group in PAGE_GROUPS.values() for x in group}
     assert {module.key for module in MODULES_V1} == {
-        "canonical", "profile", "observer", "filter", "rest", "paper",
+        "canonical", "profile", "observer", "impulse_bridge", "filter", "rest", "paper",
     }
     assert len({module.key for module in MODULES_V1}) == len(MODULES_V1)
     assert all(module.page in known for module in MODULES_V1)
