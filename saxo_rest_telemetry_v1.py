@@ -6,8 +6,11 @@ Paths are normalized: never log account keys, credentials or order IDs.
 from __future__ import annotations
 
 from collections import Counter
+from collections import deque
+from datetime import datetime, timezone
 import logging
 import math
+import re
 import threading
 import time
 
@@ -18,6 +21,9 @@ _COUNTS: Counter[tuple[str, str]] = Counter()
 _RATE_LIMITED: Counter[tuple[str, str]] = Counter()
 _RATE_REMAINING: dict[tuple[str, str], str] = {}
 _LATENCY_SECONDS: dict[tuple[str, str], list[float]] = {}
+_QUOTA_HEADERS: dict[tuple[str, str], dict[str, dict[str, int]]] = {}
+_OUTBOX: deque[dict] = deque(maxlen=1000)
+_RATE_HEADER = re.compile(r"^x-ratelimit-([a-z0-9]+)-(limit|remaining|reset)$",re.I)
 _MAX_LATENCY_SAMPLES_PER_ENDPOINT = 300
 REPORT_SECONDS = 60.0
 
@@ -42,11 +48,24 @@ def record_saxo_http_v1(
     when = time.monotonic() if now is None else float(now)
     key = (str(method).upper(), normalized_saxo_endpoint_v1(path))
     remaining = None
+    quota_headers: dict[str, dict[str, int]] = {}
     if headers:
         try:
             remaining = headers.get("X-RateLimit-Remaining") or headers.get("x-ratelimit-remaining")
         except AttributeError:
             pass
+        try:
+            for label,value in headers.items():
+                matched=_RATE_HEADER.fullmatch(str(label))
+                if not matched:
+                    continue
+                number=int(str(value).strip())
+                if number<0 or number>10**12:
+                    continue
+                dimension=matched.group(1).lower()
+                quota_headers.setdefault(dimension,{})[matched.group(2).lower()]=number
+        except (AttributeError,ValueError,TypeError):
+            quota_headers={}
     with _LOCK:
         _COUNTS[key] += 1
         if latency_seconds is not None:
@@ -62,11 +81,23 @@ def record_saxo_http_v1(
             _RATE_LIMITED[key] += 1
         if remaining is not None:
             _RATE_REMAINING[key] = str(remaining)[:30]
+        if quota_headers:
+            # The newest response is a genuine Saxo observation, not an
+            # invented allocation of quotas across app processes/sessions.
+            _QUOTA_HEADERS[key]=quota_headers
         if when - _STARTED < REPORT_SECONDS:
             return
+        window_end=datetime.now(timezone.utc).isoformat()
         parts = []
         for (verb, endpoint), count in sorted(_COUNTS.items()):
             misses = _RATE_LIMITED[(verb, endpoint)]
+            _OUTBOX.append({
+                'window_ended_at':window_end,
+                'method':verb,'endpoint':endpoint,
+                'call_count':int(count),'http429_count':int(misses),
+                'quota':{dim:dict(metrics) for dim,metrics in
+                         _QUOTA_HEADERS.get((verb,endpoint),{}).items()},
+            })
             headroom = _RATE_REMAINING.get((verb, endpoint))
             durations = sorted(_LATENCY_SECONDS.get((verb, endpoint), []))
             tails = ""
@@ -87,4 +118,20 @@ def record_saxo_http_v1(
         _RATE_LIMITED.clear()
         _RATE_REMAINING.clear()
         _LATENCY_SECONDS.clear()
+        _QUOTA_HEADERS.clear()
         _STARTED = when
+
+
+def drain_saxo_rest_usage_v1() -> tuple[dict, ...]:
+    """One cheap queue swap; DB I/O belongs to the independent sidecar."""
+    with _LOCK:
+        pending=tuple(_OUTBOX)
+        _OUTBOX.clear()
+    return pending
+
+
+def restore_saxo_rest_usage_v1(pending) -> None:
+    """Retain measurements if the sidecar DB write failed."""
+    with _LOCK:
+        for row in reversed(tuple(pending)):
+            _OUTBOX.appendleft(row)

@@ -125,6 +125,17 @@ def run_once(
     return result
 
 
+def _saxo_rest_usage_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> None:
+    """Persist counters off the LIVE hot path, independently every 60s."""
+    from saxo_rest_quota_dashboard_v1 import flush_saxo_rest_usage_v1
+    while not stop_event.is_set():
+        try:
+            flush_saxo_rest_usage_v1(db_path=str(db_path))
+        except Exception as exc:
+            LOGGER.warning("saxo REST usage persistence unavailable kind=%s",type(exc).__name__)
+        stop_event.wait(60.0)
+
+
 def _account_truth_loop_v1(*,stop_event:threading.Event,db_path:str|Path) -> None:
     """Independent five-minute Saxo GET telemetry; never blocks LIVE execution."""
     from autotrader_saxo_account_truth_v1 import (
@@ -221,6 +232,13 @@ def run_forever(
         daemon=True,
     )
     v3_thread.start()
+    rest_usage_thread=threading.Thread(
+        target=_saxo_rest_usage_loop_v1,
+        kwargs={"stop_event":stop_event,"db_path":db_path},
+        name="pricegauger-saxo-rest-usage",
+        daemon=True,
+    )
+    rest_usage_thread.start()
     telemetry_thread=threading.Thread(
         target=_account_truth_loop_v1,
         kwargs={"stop_event":stop_event,"db_path":db_path},
