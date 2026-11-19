@@ -87,6 +87,15 @@ def _side(payload: dict[str, Any], key: str) -> tuple[float | None, float | None
 
 
 def _exact_account(broker, account_id: str) -> tuple[str, str]:
+    # The V3 LIVE adapter already checked the complete Saxo account list
+    # at the start of this independent account cycle. Reuse its strictly
+    # validated account ID -> AccountKey mapping here; fetching the identical
+    # list again costs REST quota and can delay short-lived impulse entries.
+    # All other broker adapters retain the original fresh account lookup.
+    from autotrader_v3_live_saxo_v1 import SaxoLivePilotClientV3
+    if isinstance(broker, SaxoLivePilotClientV3):
+        account_key, _client_key = broker._account_context_exact(account_id)
+        return account_key, ""
     matches: list[tuple[str, str]] = []
     for row in broker.accounts():
         if not isinstance(row, dict):
