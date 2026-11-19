@@ -76,7 +76,8 @@ def _atr_before_entry(bars,at,lookback=14):
 def compare_exit_protection_v1(*,replay,bars,costs,
                                givebacks=(.25,.50,.75),
                                min_peak_cost_multiple=2.,
-                               adverse_atr_multiple=1.5):
+                               adverse_atr_multiple=1.5,
+                               window_start=None,window_end=None):
     """Next 1m OPEN exits, never same-bar/favourable wick fill.
 
     Only independently completed single-tranche baseline episodes count.
@@ -90,6 +91,10 @@ def compare_exit_protection_v1(*,replay,bars,costs,
     fractions=tuple(float(x) for x in givebacks)
     if any(not isfinite(x) or x<=0 or x>=1 for x in fractions):
         raise ValueError('giveback must be between zero and one')
+    begin=_utc(window_start) if window_start is not None else None
+    finish=_utc(window_end) if window_end is not None else None
+    if begin is not None and finish is not None and finish<=begin:
+        raise ValueError('invalid PAPER observation window')
     ordered=tuple(sorted(bars,key=lambda x:_utc(x.bar_time)))
     if any(_utc(n.bar_time)<=_utc(p.bar_time) for p,n in zip(ordered,ordered[1:])):
         raise ValueError('duplicate or reversed 1m source')
@@ -101,7 +106,9 @@ def compare_exit_protection_v1(*,replay,bars,costs,
         triggers=profit_triggers=adverse_triggers=better=worse=eligible=0
         for opened,closed in completed:
             start,end=_utc(opened.at),_utc(closed.at)
-            if end<=start:continue
+            if (end<=start or (begin is not None and start<begin)
+                or (finish is not None and end>finish)):
+                continue
             direction=1 if float(opened.after_lots)>0 else -1
             qty=abs(float(opened.after_lots))
             price=float(opened.price)

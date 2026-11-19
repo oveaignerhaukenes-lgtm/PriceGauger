@@ -145,7 +145,8 @@ with st.expander('PAPER · Sikring av regimegevinst (25/50/75 %)',expanded=False
             trials=compare_exit_protection_v1(
                 replay=baseline,bars=actual_bars,costs=paper_costs,
                 min_peak_cost_multiple=float(guard_activation),
-                adverse_atr_multiple=float(guard_atr))
+                adverse_atr_multiple=float(guard_atr),
+                window_start=start,window_end=finish)
             st.session_state['losslab:guard_research']={
                 'trials':[asdict(t) for t in trials],
                 'market':str(source.market_name),

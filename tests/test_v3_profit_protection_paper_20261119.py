@@ -118,5 +118,14 @@ class ProfitProtectionResearchTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             do_test(bars+(bars[-1],),events)
 
+    def test_warmup_only_trade_is_not_misreported_as_selected_day_result(self):
+        bars=market([110,120,109,105,100,100])
+        events=(event(15,'OPEN',0,1,100),event(20,'CLOSE',1,0,100))
+        absent=do_test(bars,events,window_start=START+timedelta(minutes=16))
+        self.assertEqual(absent[0].episodes,0)
+        present=do_test(bars,events,window_start=START+timedelta(minutes=15),
+                        window_end=START+timedelta(minutes=20))
+        self.assertEqual(present[0].episodes,1)
+
 
 if __name__=='__main__':unittest.main()
