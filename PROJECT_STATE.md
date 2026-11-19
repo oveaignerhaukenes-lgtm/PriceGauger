@@ -2,6 +2,13 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · Konto-STOPP/KJØR: tre isolerte PAPER-testrunder
+
+- **Scope:** Utvider eksisterende `AutoTrader · Trade eller FLAT` i en egen forskningsgren, ikke LIVE-eksekusjon. Eksisterende 30m kausale prisformklassifisering og kronologisk 70/30 holdout med 30m purge gjenbrukes. Tre *forhåndsfastsatte* regler: (1) bare gjentatt dokumenterte tapsformer blokkeres, (2) krever positivt treningsgjennomsnitt for hver klasse, (3) krever minst 8 treningstreff og positiv én-standardfeil-margin. Holdout-utfall brukes aldri ved gating.
+- **Forbedret måling:** `strategy_lab_v2_replay.replay_v3_strategy_v2` fikk ren optional PAPER `decision_gate`; STOPP setter neste strategiønske til FLAT og betaler ordinære simulerte close/re-entry-ordre, spread og scenario-gebyr. Sammenligner holdout-NOK, drawdown, ordre, aktiv/flat-andel og gebyr mot identisk alltid-på baseline. Default ordregebyr i denne labben er 0 NOK (kun spread), fortsatt manuelt scenario.
+- **Begrensning:** Bare manuelt kjørt lokalt/prod med ekte kanoniske 1m-barer; lokal clone mangler produksjonsdatabasen. Unit-tall fra syntetiske scenarier er **ikke** empiriske Tech100-resultater. 36h og manuelle kostnader er for lite til kontogating i LIVE; verifiser uavhengige uker, faktisk Saxo-orderlatens, fill, slippage og funding før beslutninger. Ingen strategi, konto, SAXO worker eller risk-guard endret.
+- **Verifikasjon:** Hele lokal `PYTHONPATH=. pytest -q --tb=short`: **3196 passed**, 10 subtests, ingen feil; én ekstra regeltest lagt til etter full suite, målrettede 8/8 grønne; compile/diff-check grønne. PR/CI/merge/Railway-datasimulering ikke ennå ferdig. Neste: full CI og korrekt produksjons-historisk PAPER-rapport i UI, uten arming.
+
 ## 2026-11-18 · V3 LIVE: uavhengig kontoeksekusjon og sanntidsgrense
 
 - **Branch:** `fix/v3-concurrent-account-execution-20261118` fra `main` `6f8d36e`; lokal implementasjon under verifikasjon. Dokumentert live-avvik: sekvensiell Saxo GET/POST over 6 kontoer førte til 10–50s syklus; Tech100-E tickinngang ca. 13s og exit ca. 38s bak reell BBO-beslutning 18.11. Det er ingen dokumentert Railway-CPU- eller RAM-metning, og Saxo-1s-feed hadde typisk 53–54 ankomster/minutt.
