@@ -3,10 +3,12 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `de8273e43d9ec1af1df3aded845ff44be38caf52`
+Latest tracked main commit: `f45646042d73be1a2811ac77a136a71c75be3ba9`
 
 ## Recent main commits
 
+- 2026-11-19 [`f45646042d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f45646042d73be1a2811ac77a136a71c75be3ba9) — V3: avoid duplicate Saxo account lookup during cost guard; measure REST tail latency (#860)
+- 2026-11-18 [`a556a3cc51`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a556a3cc515dfb89413d5c27dc251835f5fd7df8) — docs: record V3 LIVE execution tail-latency evidence and safe next steps [skip ci]
 - 2026-11-18 [`de8273e43d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/de8273e43d9ec1af1df3aded845ff44be38caf52) — Move V3 PostgreSQL schema checks out of every LIVE evaluation (#859)
 - 2026-11-18 [`184bb9cb72`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/184bb9cb72691a32f18bcb52d964a90cb67d091b) — Measure V3 PostgreSQL query, transaction, and full cycle P99 (#858)
 - 2026-11-18 [`8fc1ddb007`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8fc1ddb007768cb6b19f64990809abcec94af65d) — Bound and reuse PostgreSQL connections for V3 account tasks; measure tail latency (#857)
@@ -45,7 +47,5 @@ Latest tracked main commit: `de8273e43d9ec1af1df3aded845ff44be38caf52`
 - 2026-11-02 [`8d05985ba4`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/8d05985ba4e977c2051ccbffca6c11aa87c69632) — feat: evidence-backed summary above Algolabb simulation
 - 2026-11-02 [`5c077abefb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5c077abefbc17db118e2870eaeb6783c21f951f4) — feat: evidence-bound AI digest with source-linked numeric figures
 - 2026-11-02 [`5d507bf5bb`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5d507bf5bb96539d9a2e9069e00189cc013105bc) — fix: repair Algolabb controls, Saxo lot calibration and account labels
-- 2026-11-02 [`37297066cc`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/37297066cc7724a10da86617ee28ebe1dfb531ce) — fix: repair Algolabb controls, Saxo lot calibration and account labels
-- 2026-11-02 [`ed2e013d8a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ed2e013d8a59f45117c968a2b478dd6ce6800b00) — fix: repair Algolabb controls, Saxo lot calibration and account labels
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
