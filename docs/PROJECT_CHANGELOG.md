@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `4eb99e2b7675d54f422d2ecf54c98fb231309bb2`
+Latest tracked main commit: `5550dce61e8dca93e294bcc17bd93c6076eda310`
 
 ## Recent main commits
 
+- 2026-11-19 [`5550dce61e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5550dce61e8dca93e294bcc17bd93c6076eda310) — fix(v3): audit-recover legacy Saxo 429 order locks (#873)
 - 2026-11-19 [`4eb99e2b76`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4eb99e2b7675d54f422d2ecf54c98fb231309bb2) — Merge pull request #872 from oveaignerhaukenes-lgtm/fix/v3-profit-paper-canonical-timestamp-20261119
 - 2026-11-19 [`458938d6f3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/458938d6f309e69e8cf8219943087f8745ec8fa3) — Fix canonical timestamp parsing in regime PAPER trial
 - 2026-11-19 [`ed6a20f975`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ed6a20f97511672a25fda0fafda1705a50ff3cfa) — Merge pull request #871 from oveaignerhaukenes-lgtm/research/v3-regime-profit-protection-paper-20261119
@@ -46,6 +47,5 @@ Latest tracked main commit: `4eb99e2b7675d54f422d2ecf54c98fb231309bb2`
 - 2026-11-14 [`79169208a9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/79169208a92a74ef7fb20d79b3685bfebe930369) — docs: synchronize V3 split MACD-Stoch strategies CI and Railway deploy blocker
 - 2026-11-14 [`b8f56fca8f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b8f56fca8f9e20fe34e080917e59e767daaecba5) — Add separate MACD+Stoch V2.1 long-flat and short-flat R/S/E strategies
 - 2026-11-06 [`e60f4cba42`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e60f4cba4298014fb1461c2b032e6007d42ad07c) — Fix Algolabb AI suggestion disabled on invalid editor
-- 2026-11-06 [`b4a6ef92bd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b4a6ef92bdf506e608d46e6da940f09f2de06ddf) — Fix Algolabb blank preset JSON field
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
