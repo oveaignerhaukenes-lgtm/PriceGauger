@@ -272,7 +272,7 @@ def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market,regi
 
 def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                           timeframe:str="2m",regime_timeframe:str="30m",
-                          exit_timeframe:str="2m")->ReplayResultV2:
+                          exit_timeframe:str="2m",decision_gate=None)->ReplayResultV2:
     """Full replay, no SQL. An order from candle T fills at T+1m OPEN only.
 
     A reversal first closes at the next open. Re-entry cannot fill before a
@@ -389,6 +389,12 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                         exit_minutes=PERIODS[exit_timeframe])
                     target=max(-max_lots,min(max_lots,float(decision.target.amount)))
                     sig=str(decision.action)
+                    # PAPER research only: a blocked period may close existing
+                    # exposure but may never add new exposure. The strategy is
+                    # still observed and called on every completed signal.
+                    if decision_gate is not None and not decision_gate(closed):
+                        target=0.
+                        sig="PAPER_GATE_FLAT:"+sig
                     if abs(target-position)>1e-9:
                         pending=(target,decision.reason)
                     else:pending=None
