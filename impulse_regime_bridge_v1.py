@@ -10,15 +10,19 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from math import isfinite
 from statistics import median
 
 from autotrader_impulse_catcher_profiles_v1 import impulse_catcher_config
 from autotrader_impulse_catcher_v1 import ImpulseCatcher
+from tech100_second_impulse_research_v1 import BboSecond
 
 
 HORIZONS_MINUTES = (5, 15, 30, 60)
 SEQUENCE_WINDOW_MINUTES = 5
 MAX_RESEARCH_QUOTES = 80000  # matches validated source reader's hard cap
+V11_QUOTE_GAP_SECONDS = 8
+MAX_RECEIPT_LAG_SECONDS = 5
 
 
 def _utc(value) -> datetime:
@@ -64,11 +68,55 @@ class ImpulseRegimeOutcome:
         return "STERK >=1.5x" if self.threshold_multiple >= 1.5 else "NORMAL <1.5x"
 
 
+def prepare_impulse_sessions_v1(rows) -> tuple[tuple[BboSecond, ...], ...]:
+    """Bounded, receipt-aware BBO sessions with the actual v1.1 gap budget.
+
+    Discard both edges of stale/gapped data; an event cannot be built from a
+    discontinuous or future-received quote. Keep only sessions able to warm up
+    the original model's 150-second historical noise baseline.
+    """
+    if len(rows) > MAX_RESEARCH_QUOTES:
+        raise ValueError("Too many quote rows")
+    sessions = []
+    current = []
+    previous = None
+
+    def finish():
+        if (current and len(current) >= 25 and
+                (current[-1].at - current[0].at).total_seconds() >= 150):
+            sessions.append(tuple(current))
+
+    for row in rows:
+        try:
+            q = BboSecond(_utc(row["quote_at"]), _utc(row["received_at"]),
+                          float(row["bid"]), float(row["ask"]))
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Invalid BBO timestamp or price") from exc
+        if (not all(isfinite(x) and x > 0 for x in (q.bid, q.ask))
+                or q.ask < q.bid or (previous and q.at <= previous.at)):
+            raise ValueError("Duplicate, unordered or crossed BBO")
+        receipt_lag = (q.received - q.at).total_seconds()
+        gap = (q.at - previous.at).total_seconds() if previous else 0
+        receipt_reversed = previous is not None and q.received < previous.received
+        if (previous and (gap > V11_QUOTE_GAP_SECONDS or receipt_reversed)):
+            finish()
+            current = []
+        if receipt_lag < -2 or receipt_lag > MAX_RECEIPT_LAG_SECONDS:
+            finish()
+            current = []
+            previous = q
+            continue
+        current.append(q)
+        previous = q
+    finish()
+    return tuple(sessions)
+
+
 def detect_impulse_pulses_v1(sessions) -> tuple[ImpulsePulse, ...]:
     """Same entry algorithm as v1.1, irrespective of which account is armed.
 
     Input is validated chronological BboSecond *sessions* from
-    tech100_second_impulse_research_v1.prepare_second_quotes. Each session
+    prepare_impulse_sessions_v1. Each session
     starts with a fresh warm-up and never bridges an unobserved quote gap.
     """
     pulses = []
@@ -204,4 +252,5 @@ def summarize_impulse_regime_v1(outcomes, *, cutoff, min_samples=10):
 
 __all__ = ["HORIZONS_MINUTES", "MAX_RESEARCH_QUOTES", "ImpulsePulse",
            "ImpulseRegimeOutcome", "detect_impulse_pulses_v1",
-           "score_impulse_regime_v1", "summarize_impulse_regime_v1"]
+           "prepare_impulse_sessions_v1", "score_impulse_regime_v1",
+           "summarize_impulse_regime_v1"]

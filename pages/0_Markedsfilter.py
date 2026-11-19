@@ -15,7 +15,7 @@ from build_info import render_build_badge
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from impulse_regime_bridge_v1 import (
-    MAX_RESEARCH_QUOTES, detect_impulse_pulses_v1,
+    MAX_RESEARCH_QUOTES, detect_impulse_pulses_v1, prepare_impulse_sessions_v1,
     score_impulse_regime_v1, summarize_impulse_regime_v1,
 )
 from instrument_registry_v2 import list_subscribed_sources_v2
@@ -261,7 +261,8 @@ with filter_tab:
     with st.expander("🔬 Impulse Catcher → regime · statistisk prissammenheng", expanded=False):
         st.caption(
             "Lesende SHADOW-analyse: to uavhengige v1.1 LONG/SHORT-detektorer på samme "
-            "ekte, tidligere lagrede Saxo bid/ask. Signalstyrke og antall impulser i "
+            "ekte, tidligere lagrede Saxo bid/ask (maks 8s hull, 5s mottaksforsinkelse). "
+            "Signalstyrke og antall impulser i "
             "foregående fem minutter måles FØR videre 5/15/30/60m kursbevegelse. "
             "Ingen nye Saxo-kall, ordre, filterendringer eller automatisk læring."
         )
@@ -301,8 +302,7 @@ with filter_tab:
                         )).fetchall()
                     if len(rows) > MAX_RESEARCH_QUOTES:
                         raise ValueError("Over 80 000 BBO-rader; velg kortere intervall")
-                    from tech100_second_impulse_research_v1 import prepare_second_quotes
-                    sessions = prepare_second_quotes(tuple(dict(r) for r in rows))
+                    sessions = prepare_impulse_sessions_v1(tuple(dict(r) for r in rows))
                     pulses = detect_impulse_pulses_v1(sessions)
                     last_closed_open = end.replace(second=0, microsecond=0) - timedelta(minutes=1)
                     bars = CanonicalMarketBarStoreV2().load_instrument_range(
@@ -358,6 +358,9 @@ with filter_tab:
                     "prisens mulige senere ytterpunkter, ikke oppnåelige fills. "
                     "Gjentas signaler tett, er observasjonene avhengige: antall "
                     "hendelser er IKKE antall uavhengige forsøk. "
+                    "En impuls som fortsetter mens Impulse Catcher allerede holder "
+                    "posisjon gir ikke et nytt kvalifisert INN-signal; denne første "
+                    "versjonen teller derfor ikke alle underimpulser. "
                     "Sammenfall alene beviser ikke at impulsen forårsaket trenden. "
                     "Dette er markedsprisutvikling, IKKE reell eller simulert "
                     "MACD–Stoch-regimeavkastning. Neste fase kobler samme "

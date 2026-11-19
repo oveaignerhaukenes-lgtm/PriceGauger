@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from impulse_regime_bridge_v1 import (
-    ImpulsePulse, detect_impulse_pulses_v1, score_impulse_regime_v1,
+    ImpulsePulse, detect_impulse_pulses_v1, prepare_impulse_sessions_v1,
+    score_impulse_regime_v1,
     summarize_impulse_regime_v1,
 )
 from tech100_second_impulse_research_v1 import BboSecond
@@ -35,6 +36,34 @@ def pulse(minute, second, direction="LONG", multiple=1.2):
     at = START + timedelta(minutes=minute, seconds=second)
     return ImpulsePulse(at, at-timedelta(seconds=2), direction,
                         9.0*multiple, multiple, 3, 1000.0)
+
+
+def test_source_reader_uses_v11_eight_second_gap_not_older_four_second_limit():
+    rows = []
+    for i in range(360):
+        second = i + (5 if i >= 175 else 0) + (9 if i >= 190 else 0)
+        at = START + timedelta(seconds=second)
+        rows.append({"quote_at":at,"received_at":at+timedelta(seconds=2),
+                     "bid":1000.,"ask":1001.})
+    sessions = prepare_impulse_sessions_v1(rows)
+    # A six-second gap is accepted by v1.1; the nine-second gap starts a new
+    # independently warmed-up session rather than bridging unobserved quotes.
+    assert len(sessions) == 2
+    assert len(sessions[0]) == 190
+    assert len(sessions[1]) == 170
+
+
+def test_stale_receipts_do_not_carry_history_into_next_valid_signal():
+    rows=[]
+    for i in range(340):
+        at=START+timedelta(seconds=i)
+        received=at+timedelta(seconds=10 if i==171 else 1)
+        rows.append({"quote_at":at,"received_at":received,
+                     "bid":1000.,"ask":1001.})
+    sessions=prepare_impulse_sessions_v1(rows)
+    assert len(sessions)==2
+    assert sessions[0][-1].at == START+timedelta(seconds=170)
+    assert sessions[1][0].at == START+timedelta(seconds=172)
 
 
 def test_detects_actual_one_sided_v11_signal_using_receipt_clock():
