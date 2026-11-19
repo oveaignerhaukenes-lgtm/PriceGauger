@@ -4,7 +4,7 @@ from math import cos, sin
 import unittest
 
 from tech100_crossmarket_forecast_v1 import (
-    FACTORS, FactorReading, LabeledMarketMove, fit_crossmarket_model,
+    FACTORS, PRICE_PROXY_PCT, FactorReading, LabeledMarketMove, fit_crossmarket_model,
     forecast_crossmarket,
 )
 from tech100_four_channel_synthesis_v1 import (
@@ -89,11 +89,12 @@ class CrossMarketPredictorContracts(unittest.TestCase):
         values = {
             "Gold": sin(i / 5),
             "Brent": cos(i / 7),
+            "DXY": sin(i / 8) * 0.7,
             "US2Y": sin(i / 9) * 4,
             "US10Y": cos(i / 11) * 5,
             "US30Y": sin(i / 13) * 3,
         }
-        result = (0.4 * values["Gold"] - 0.6 * values["Brent"]
+        result = (0.4 * values["Gold"] - 0.6 * values["Brent"] - 0.8 * values["DXY"]
                   - 0.05 * values["US2Y"] + 0.03 * values["US10Y"]
                   + 0.02 * values["US30Y"])
         stamp = NOW - timedelta(minutes=240 - i)
@@ -131,6 +132,25 @@ class CrossMarketPredictorContracts(unittest.TestCase):
         stale = [FactorReading(name, 0, NOW - timedelta(minutes=11)) for name in FACTORS]
         with self.assertRaisesRegex(ValueError, "stale"):
             forecast_crossmarket(model, at=NOW, readings=stale)
+
+    def test_treasury_future_price_proxy_must_train_and_forecast_with_same_units(self):
+        proxy_units = {name: (PRICE_PROXY_PCT if name.startswith("US") else "PRICE_PCT")
+                       for name in FACTORS}
+        baseline = [self.sample(i) for i in range(210)]
+        proxy_rows = [LabeledMarketMove(row.observed_at, row.future_at,
+                                        row.factors, row.future_tech100_pct, proxy_units)
+                      for row in baseline]
+        with self.assertRaisesRegex(ValueError, "mixed"):
+            fit_crossmarket_model(proxy_rows[:209] + baseline[209:],
+                                  channel=IMPULSE, horizon_minutes=5)
+        model = fit_crossmarket_model(proxy_rows, channel=IMPULSE, horizon_minutes=5)
+        self.assertEqual(model.factor_units["US10Y"], PRICE_PROXY_PCT)
+        missing_unit = [FactorReading(name, 0, NOW) for name in FACTORS]
+        with self.assertRaisesRegex(ValueError, "unit"):
+            forecast_crossmarket(model, at=NOW, readings=missing_unit)
+        matched = [FactorReading(name, 0, NOW, proxy_units[name]) for name in FACTORS]
+        result = forecast_crossmarket(model, at=NOW, readings=matched)
+        self.assertIsNone(result.signal.expected_tech100_return_pct)
 
 
 class NewsSeparationContracts(unittest.TestCase):

@@ -21,7 +21,7 @@ from database import connect
 from instrument_registry_v2 import InstrumentSourceV2, list_subscribed_sources_v2
 from tech100_news_channels_v1 import classify_news_topic
 
-PRICE_CHANNELS = ("Tech100", "Gold", "Brent")
+PRICE_CHANNELS = ("Tech100", "Gold", "Brent", "DXY")
 YIELD_CHANNELS = ("US2Y", "US10Y", "US30Y")
 TECH100_EXACT_UIC = "4912"
 
@@ -47,6 +47,8 @@ def _market_group(source: InstrumentSourceV2) -> str | None:
         return "Gold"
     if "brent" in market:
         return "Brent"
+    if (market == "dxy" or "dollar index" in market or "usdx" in market):
+        return "DXY"
     return None
 
 
@@ -144,7 +146,7 @@ def aligned_price_moves(
     at = _utc(at)
     latest = at.replace(second=0, microsecond=0) - timedelta(minutes=1)
     if set(windows) != set(PRICE_CHANNELS) or lookback_minutes <= 0:
-        raise ValueError("expected Tech100, Gold and Brent windows and positive lookback")
+        raise ValueError("expected Tech100, Gold, Brent and DXY windows and positive lookback")
     result: dict[str, float] = {}
     ids = {name: item.source.provider_instrument_id for name, item in windows.items()}
     for name in PRICE_CHANNELS:

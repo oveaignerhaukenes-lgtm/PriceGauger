@@ -4,8 +4,8 @@
 
 ## Four independent selectable modules
 
-1. `macro_regime`: Gold and Brent percentage returns, US2Y/US10Y/US30Y *yield changes in basis points*. Trained horizon-specific long-range estimate; not MACD disguised as macro.
-2. `cross_market_impulse`: same instrument family but a separate short-horizon model, with explicit abnormal movement threshold and a short data freshness limit. Only if the external market moves **precede** the traded TECH100 move in tests.
+1. `macro_regime`: Gold, Brent and DXY percentage returns, US2Y/US10Y/US30Y *yield changes in basis points*. Trained horizon-specific long-range estimate; not MACD disguised as macro.
+2. `cross_market_impulse`: same six-factor family but a separate short-horizon model, with explicit abnormal movement threshold and a short data freshness limit. Only if the external market moves **precede** the traded TECH100 move in tests.
 3. `tech_news`: tech earnings, chips, AI infrastructure and Nasdaq-relevant developments. Topic detection routes stories; it does **not** infer bullish/bearish impact.
 4. `macro_news`: inflation, yields, Fed, employment and other economy-wide developments. Separate from tech stories, with separate validation.
 
@@ -21,21 +21,23 @@ The same source change can feed context and impulse research, but their *actual 
 ## Existing source reality and safe next gates
 
 1. Existing `CrossMarketState` explicitly substitutes MISSING for US2Y/US10Y/US30Y when no verified intraday yield feed is configured. Do **not** reinterpret Treasury futures prices as yields. The official U.S. Treasury constant-maturity series is daily, not a seconds/minutes shock feed; verify licensed, actually received data and quote-age per instrument.
-2. **Read-only canonical 1-minute Saxo bar adapter now exists:** manually select exact subscribed Tech100 UIC `4912`, Gold and Brent identities. Only completed, quality-flagged real-time, gap-free same-minute bars are eligible; this is **not** exchange-side delay certification. The manual UI displays actual lookback returns, not a predicted Tech100 return. Real **Gold/Brent quote latency/receipt quality** and historic yield availability must still be checked before a sub-minute lead claim. No interpolation.
+2. **Read-only canonical 1-minute Saxo bar adapter now exists:** manually select exact subscribed Tech100 UIC `4912`, Gold, Brent and DXY identities. Only completed, quality-flagged real-time, gap-free same-minute bars are eligible; this is **not** exchange-side delay certification. The manual UI displays actual lookback returns, not a predicted Tech100 return. Real **Gold/Brent/DXY quote latency/receipt quality** and historic yield availability must still be checked before a sub-minute lead claim. No interpolation.
 3. **Read-only news/archive adapters now exist:** archived Telegram raw posts (where deployed) and optional legacy SQLite GDELT candidates are topic-routed into TECH/MACRO via the *later of* publication and actual recorded arrival. They are **not** signed, independently validated market-impact assessments and emit no trade signals. The GDELT SQLite file/table may not exist in production; the UI shows it unavailable, not an empty verified news feed. User-requested background AI OFF remains unchanged.
 4. **Read-only CrossMarket snapshot lookup exists:** US2Y/US10Y/US30Y remain MISSING when no properly sourced data is present; even available 15-minute yield windows are explicitly marked `15M_ONLY` and are insufficient for the sub-minute impulse module. The adapter does not initialize the CrossMarket store or create a table.
+   - Saxo can also expose Treasury cash bonds and futures/CFDs. A manually triggered source probe now searches the actual accessible catalog and reads optional `PriceInfoDetails.BidYield`/`AskYield`, `Quote.DelayedByMinutes`, and `LastUpdated`. No currently accessible instrument or real-time frequency is asserted before a successful operator probe. If a future/CFD only exposes prices, its *percentage returns* can be a separate empirical predictor, but must **not** be labelled as yield changes in basis points. Forecast training and input now explicitly agree on units (`YIELD_BP` vs `PRICE_PROXY_PCT`); coefficients must be trained on the same instrument/contract and source definition.
 5. Current cross-market ridge estimator uses chronological 70/30 holdout with purged training outcomes. Synthetic unit tests confirm its mathematical behavior but **do not establish market predictiveness**. Need multiple unseen time blocks, cost/latency-aware event return distributions, baseline comparison and conditional tests (growth vs inflation vs fear) before promoting any learned weight.
 6. Evaluate 5m impulse and 60m+ regime separately; choose future horizons and thresholds based on recorded coverage and economic impact. A 0.04% quoted spread is small for a 1% move but material against a 0.1% move. Include observed spread, slippage and real completion latency in every PAPER comparison.
 
 ## Files and verified boundaries
 
 - `tech100_four_channel_synthesis_v1.py`: selection, fresh signal checks, contribution/offset, no broker calls.
-- `tech100_crossmarket_forecast_v1.py`: explainable five-market regression and shock detection, no data fetching.
+- `tech100_crossmarket_forecast_v1.py`: explainable six-factor regression (Gold/Brent/DXY + 2/10/30Y yields) and shock detection, no data fetching.
 - `tech100_news_channels_v1.py`: TECH and MACRO news topic separation and vetted signed-news aggregation; no model/API calls.
 - `tech100_synthesis_routing_v1.py`: optional existing-strategy context gate vs dedicated impulse PAPER intent; no V3 authority.
 - `tests/test_tech100_four_channel_synthesis_v1.py`: synthetic/no-lookahead/freshness/route safety checks.
 - `tech100_synthesis_data_v1.py`: existing subscribed Saxo canonical bars, as-of CrossMarket state and received Telegram/GDELT archive candidates; only read calls.
+- `tech100_treasury_source_probe_v1.py`: manual Saxo instrument catalog and one-quote GET diagnostics for approximate US2/10/30Y candidates. No streaming subscription, storage mutation or execution, and no inference of rate direction from futures prices.
 - `pages/0_Tech100_Syntese.py`: manual selectable four-module data status, instrument picker, headline candidate inspection and **FLAT/INSUFFICIENT_EVIDENCE** outcome without forecast signals.
-- `tests/test_tech100_synthesis_data_v1.py`: exact UIC, completion/quality, gap, delay/future, as-of snapshots, read-only archives and news boundary checks.
+- `tests/test_tech100_synthesis_data_v1.py` and `tests/test_tech100_treasury_source_probe_v1.py`: exact UIC, completion/quality, gap, delay/future, as-of snapshots, read-only archives and GET-only quote/source boundary checks.
 
 No production data was successfully inspected from this development container, no DB migrations, Railway deployment, Saxo REST/stream API request, account change or order was performed in this PR. Opening the manual research page against the actual deployed database is the next evidence check; then acquire real yield feeds, verify Gold/Brent delay status, train/replay and shadow the four channels. Only with later explicit approval could a guarded LIVE V3 integration be considered.

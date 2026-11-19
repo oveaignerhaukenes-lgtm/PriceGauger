@@ -25,12 +25,13 @@ NOW = datetime(2026, 11, 20, 14, 0, tzinfo=timezone.utc)
 
 
 def source(name, uic, instrument_id):
-    market = {"Tech100": "US Tech 100 NAS", "Gold": "Gold", "Brent": "Brent"}[name]
+    market = {"Tech100": "US Tech 100 NAS", "Gold": "Gold", "Brent": "Brent", "DXY": "US Dollar Index"}[name]
     return InstrumentSourceV2(1, market, instrument_id, "CFD", market,
                               "saxo", uic, "CfdOnIndex")
 
 
-SOURCES = [source("Tech100", "4912", 10), source("Gold", "100", 20), source("Brent", "200", 30)]
+SOURCES = [source("Tech100", "4912", 10), source("Gold", "100", 20),
+           source("Brent", "200", 30), source("DXY", "300", 40)]
 
 
 def bar(item, *, minutes_ago, close=100, quality=QUALITY_REALTIME):
@@ -57,6 +58,15 @@ class ExactMarketIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, "Tech100"):
             resolve_exact_subscriptions(bad)
 
+    def test_dxy_is_required_and_source_is_unambiguous(self):
+        with self.assertRaisesRegex(LookupError, "DXY"):
+            resolve_exact_subscriptions(SOURCES[:-1])
+        with self.assertRaisesRegex(LookupError, "DXY"):
+            resolve_exact_subscriptions(SOURCES + [source("DXY", "301", 41)])
+        chosen = resolve_exact_subscriptions(SOURCES + [source("DXY", "301", 41)],
+                                             selected_uics={"DXY": "301"})
+        self.assertEqual(chosen["DXY"].instrument_id, 41)
+
     def test_canonical_loader_only_uses_completed_source_bars(self):
         by_instrument = {item.instrument_id: [bar(item, minutes_ago=2),
                                                bar(item, minutes_ago=1),
@@ -77,6 +87,7 @@ class ExactMarketIdentityTests(unittest.TestCase):
         good = aligned_price_moves(valid, at=NOW, lookback_minutes=5)
         self.assertEqual(good.status, "VALID")
         self.assertAlmostEqual(good.returns_pct["Gold"], 5.0)
+        self.assertAlmostEqual(good.returns_pct["DXY"], 5.0)
         stale_gold = dict(valid)
         stale_gold["Gold"] = PriceSourceWindow(SOURCES[1], valid["Gold"].bars[:-1])
         self.assertEqual(aligned_price_moves(stale_gold, at=NOW, lookback_minutes=5).status, "INCOMPLETE")

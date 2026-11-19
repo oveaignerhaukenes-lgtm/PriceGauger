@@ -11,6 +11,7 @@ import streamlit as st
 
 from build_info import render_build_badge
 from instrument_registry_v2 import list_subscribed_sources_v2
+from saxo_provider import configured_client
 from storage import DB_PATH
 from tech100_four_channel_synthesis_v1 import (
     CHANNELS, IMPULSE, MACRO_NEWS, REGIME, TECH_NEWS, synthesize,
@@ -20,11 +21,14 @@ from tech100_synthesis_data_v1 import (
     load_archived_news, load_archived_yield_snapshot, load_canonical_prices,
     source_candidates, yield_feed_status,
 )
+from tech100_treasury_source_probe_v1 import (
+    TENOR_TERMS, probe_treasury_quote, search_treasury_candidates,
+)
 
 
 LABELS = {
-    REGIME: "1 · Makroregime (gull, Brent, 2/10/30Y)",
-    IMPULSE: "2 · Kryssmarkedsimpuls (samme priser/renter)",
+    REGIME: "1 · Makroregime (gull, Brent, DXY, 2/10/30Y)",
+    IMPULSE: "2 · Kryssmarkedsimpuls (gull, Brent, DXY, renter)",
     TECH_NEWS: "3 · Teknologinyheter",
     MACRO_NEWS: "4 · Makronyheter",
 }
@@ -41,6 +45,65 @@ st.caption(
     "Fire uavhengig valgbare moduler → felles syntese → framtidig kontekstfilter "
     "eller selvstendig impulsinstans. Denne siden leser kun lagrede mottatte data."
 )
+
+with st.expander("Undersøk Saxos 2Y / 10Y / 30Y-instrumenter (manuelle GET-kall)"):
+    st.caption(
+        "Søker kun etter instrumenter og leser en valgt pris på knappeklikk. "
+        "Ingen ordre, nye datastrømmer eller bakgrunnskall. Futures-/CFD-kurser "
+        "er prisproksyer, ikke faktiske statsrenter i basispunkter."
+    )
+    if st.button("Søk instrumentkatalogen for 2Y / 10Y / 30Y"):
+        try:
+            client = configured_client()
+            if client is None:
+                raise RuntimeError("Saxo access token unavailable")
+            st.session_state["tech100_treasury_candidates"] = search_treasury_candidates(client)
+            st.session_state.pop("tech100_treasury_quote", None)
+        except Exception as exc:
+            st.warning(f"Saxo-katalog ikke tilgjengelig ({type(exc).__name__}).")
+    available_treasuries = st.session_state.get("tech100_treasury_candidates")
+    if available_treasuries is not None:
+        st.dataframe([
+            {"Løpetidsgruppe": tenor, "Kandidater": len(items)}
+            for tenor, items in available_treasuries.items()
+        ], hide_index=True, use_container_width=True)
+        tenor = st.selectbox("Løpetidsgruppe", tuple(TENOR_TERMS), key="tech100_treasury_tenor")
+        tenor_candidates = available_treasuries.get(tenor, ())
+        candidate = st.selectbox(
+            "Saxo-instrument (eksakt UIC)", tenor_candidates,
+            format_func=lambda item: (
+                f"{item.symbol} · {item.description} · {item.asset_type} · "
+                f"UIC {item.uic} · utløp {item.expiry or 'ukjent'}"
+            ),
+            disabled=not tenor_candidates,
+        ) if tenor_candidates else None
+        if candidate is not None and st.button("Les én quote/yield fra Saxo"):
+            try:
+                client = configured_client()
+                if client is None:
+                    raise RuntimeError("Saxo access token unavailable")
+                st.session_state["tech100_treasury_quote"] = probe_treasury_quote(client, candidate)
+            except Exception as exc:
+                st.warning(f"Saxo-quote ikke tilgjengelig ({type(exc).__name__}).")
+        last_quote = st.session_state.get("tech100_treasury_quote")
+        if last_quote is not None and last_quote.candidate == candidate:
+            st.dataframe([{
+                "Løpetid": last_quote.candidate.tenor_hint,
+                "UIC": last_quote.candidate.uic,
+                "Type": last_quote.candidate.asset_type,
+                "Status": last_quote.status,
+                "Kilde sist oppdatert": str(last_quote.source_updated_at or "UKJENT"),
+                "Forsinkelse (min)": last_quote.delayed_by_minutes,
+                "Bid": last_quote.bid, "Ask": last_quote.ask,
+                "BidYield (Saxo råverdi)": last_quote.bid_yield_raw,
+                "AskYield (Saxo råverdi)": last_quote.ask_yield_raw,
+                "Forklaring": last_quote.detail,
+            }], hide_index=True, use_container_width=True)
+            st.caption(
+                "Én vellykket avlesning bekrefter ikke hyppighet. Flere beviselig "
+                "tidsstemplede avlesninger og sammenligning mot faktiske markedsbevegelser "
+                "kreves før kilden kan inngå i impulsmodellen."
+            )
 
 try:
     subscribed = list_subscribed_sources_v2(provider="saxo")
@@ -94,7 +157,7 @@ if REGIME in selected or IMPULSE in selected:
     if subscription_issue:
         price_detail = f"Abonnementsregisteret utilgjengelig ({subscription_issue})."
     elif len(chosen_uics) != len(PRICE_CHANNELS):
-        price_detail = "Mangler abonnerte UIC-er for Tech100, gull eller Brent."
+        price_detail = "Mangler abonnerte UIC-er for Tech100, gull, Brent eller DXY."
     else:
         try:
             windows = load_canonical_prices(

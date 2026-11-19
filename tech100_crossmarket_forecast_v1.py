@@ -1,13 +1,13 @@
 """Causal, explainable multi-market forecast research for TECH100.
 
 An isolated linear baseline, not a discovered trading edge. Inputs use price
-percentage changes for Gold/Brent and basis-point *yield* changes for US2/10/30.
+percentage changes for Gold/Brent/DXY and basis-point *yield* changes for US2/10/30.
 Two independent fits are required: longer regime and short impulse. No market
 data calls, broker calls or trading state exist here.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from math import isfinite, sqrt
 from statistics import mean
@@ -15,7 +15,23 @@ from typing import Mapping, Sequence
 
 from tech100_four_channel_synthesis_v1 import ChannelSignal, IMPULSE, REGIME
 
-FACTORS = ("Gold", "Brent", "US2Y", "US10Y", "US30Y")
+FACTORS = ("Gold", "Brent", "DXY", "US2Y", "US10Y", "US30Y")
+PRICE_PCT = "PRICE_PCT"
+YIELD_BP = "YIELD_BP"
+PRICE_PROXY_PCT = "PRICE_PROXY_PCT"
+DEFAULT_FACTOR_UNITS = {
+    "Gold": PRICE_PCT, "Brent": PRICE_PCT, "DXY": PRICE_PCT,
+    "US2Y": YIELD_BP, "US10Y": YIELD_BP, "US30Y": YIELD_BP,
+}
+
+
+def _validate_units(values: Mapping[str, str]) -> None:
+    if set(values) != set(FACTORS):
+        raise ValueError("factor units must name all six factors")
+    for factor, unit in values.items():
+        accepted = {PRICE_PCT} if factor in ("Gold", "Brent", "DXY") else {YIELD_BP, PRICE_PROXY_PCT}
+        if unit not in accepted:
+            raise ValueError(f"invalid factor unit for {factor}")
 
 
 def _utc(at: datetime) -> datetime:
@@ -28,7 +44,9 @@ def _utc(at: datetime) -> datetime:
 class LabeledMarketMove:
     """A historical row constructed from quotes available at ``observed_at``.
 
-    Gold/Brent inputs are percentage changes. Yield inputs are basis points.
+    Gold/Brent/DXY inputs are percentage changes. Rate inputs are yield-basis-
+    point changes, or explicitly selected percentage PRICE PROXY returns for
+    Treasury futures/CFDs. The two units may never be blended within one fit.
     ``future_at`` is when the TECH100 return became knowable; it must remain
     before the first holdout decision if used for training.
     """
@@ -36,12 +54,14 @@ class LabeledMarketMove:
     future_at: datetime
     factors: Mapping[str, float]
     future_tech100_pct: float
+    factor_units: Mapping[str, str] = field(default_factory=lambda: dict(DEFAULT_FACTOR_UNITS))
 
     def __post_init__(self) -> None:
         if _utc(self.future_at) <= _utc(self.observed_at):
             raise ValueError("future must follow feature observation")
         if set(self.factors) != set(FACTORS):
-            raise ValueError("all five factor observations required")
+            raise ValueError("all six factor observations required")
+        _validate_units(self.factor_units)
         if any(not isfinite(value) for value in self.factors.values()) or not isfinite(self.future_tech100_pct):
             raise ValueError("nonfinite market observation")
 
@@ -51,6 +71,7 @@ class FactorReading:
     name: str
     value: float
     observed_at: datetime
+    unit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +87,7 @@ class CrossMarketModel:
     holdout_mae_pct: float
     zero_baseline_mae_pct: float
     holdout_direction_accuracy: float
+    factor_units: Mapping[str, str]
 
     @property
     def holdout_better_than_zero(self) -> bool:
@@ -116,6 +138,9 @@ def fit_crossmarket_model(
     if not 0.5 <= train_fraction <= 0.85 or ridge_penalty <= 0:
         raise ValueError("invalid fit settings")
     rows = sorted(observations, key=lambda row: _utc(row.observed_at))
+    units = dict(rows[0].factor_units) if rows else dict(DEFAULT_FACTOR_UNITS)
+    if any(dict(row.factor_units) != units for row in rows):
+        raise ValueError("mixed yield-basis-point and Treasury-price-proxy units")
     if len({_utc(row.observed_at) for row in rows}) != len(rows):
         raise ValueError("duplicate decision timestamps")
     for row in rows:
@@ -156,7 +181,7 @@ def fit_crossmarket_model(
                                 for row in holdout)
     return CrossMarketModel(channel, horizon_minutes, feature_means, scales,
                             fitted[1:], fitted[0], len(train), len(holdout),
-                            mae, base_mae, directional_accuracy)
+                            mae, base_mae, directional_accuracy, units)
 
 
 def forecast_crossmarket(
@@ -175,7 +200,10 @@ def forecast_crossmarket(
     at = _utc(at)
     by_name = {item.name: item for item in readings}
     if len(readings) != len(by_name) or set(by_name) != set(FACTORS):
-        raise ValueError("exact Gold/Brent/US2Y/US10Y/US30Y readings required")
+        raise ValueError("exact Gold/Brent/DXY/US2Y/US10Y/US30Y readings required")
+    if any((item.unit or DEFAULT_FACTOR_UNITS[item.name]) != model.factor_units[item.name]
+           for item in readings):
+        raise ValueError("live factor unit differs from historical fitted unit")
     max_age = timedelta(minutes=2 if model.channel == IMPULSE else 10)
     if any(not isfinite(item.value) or not timedelta(0) <= at - _utc(item.observed_at) <= max_age
            for item in readings):
