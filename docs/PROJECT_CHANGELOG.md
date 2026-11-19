@@ -3,10 +3,13 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `c862149b1d4ecbaa392cb55f59e4f42937e97d8f`
+Latest tracked main commit: `ed6a20f97511672a25fda0fafda1705a50ff3cfa`
 
 ## Recent main commits
 
+- 2026-11-19 [`ed6a20f975`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ed6a20f97511672a25fda0fafda1705a50ff3cfa) — Merge pull request #871 from oveaignerhaukenes-lgtm/research/v3-regime-profit-protection-paper-20261119
+- 2026-11-19 [`204f1bed81`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/204f1bed818a44617964ea5514b862c6a7b1aca8) — Limit exit protection PAPER analysis to selected trading day
+- 2026-11-19 [`956fda21f3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/956fda21f313a220822fe1e71ca35a5a0dc57b7f) — Add read-only, cost-aware regime profit-protection PAPER tests
 - 2026-11-19 [`c862149b1d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c862149b1d4ecbaa392cb55f59e4f42937e97d8f) — Merge pull request #870 from oveaignerhaukenes-lgtm/fix/v3-idle-saxo-poll-60s-20261119
 - 2026-11-19 [`38c70827ad`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/38c70827ad5328db5126b0502a93d837933c0270) — Reduce V3 idle Saxo GET polls to 60s; verify exact truth before LIVE POST
 - 2026-11-19 [`fade627056`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fade6270566cbc444e0e452d7b8e5011c72d72ed) — feat(saxo): attribute measured REST quota usage to caller modules (#869)
@@ -44,8 +47,5 @@ Latest tracked main commit: `c862149b1d4ecbaa392cb55f59e4f42937e97d8f`
 - 2026-11-06 [`b4a6ef92bd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b4a6ef92bdf506e608d46e6da940f09f2de06ddf) — Fix Algolabb blank preset JSON field
 - 2026-11-05 [`5a7b3fa872`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5a7b3fa872bd9f91798ca2017647a4e5fecdc320) — Research: macro release lead/lag observer (NFP, CPI, PPI)
 - 2026-11-02 [`fd7d4e895b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fd7d4e895b9c1253d4f15afaa1922048853055cc) — Merge pull request #832 from oveaignerhaukenes-lgtm/fix/algolabb-summary-account-labels-20261102
-- 2026-11-02 [`a2d9931af7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a2d9931af7ba8804476c08716e7be12780bf1520) — feat: AI evidence digest above historical Saxo spread research
-- 2026-11-02 [`449c02d628`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/449c02d628753af17829a84139ff3757713700e0) — feat: top evidence-backed AI in trade/flat gate lab
-- 2026-11-02 [`f892dbbf4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f892dbbf4a54358a9532c436b0b25bba298abf5f) — feat: top evidence digest for tempo comparison
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
