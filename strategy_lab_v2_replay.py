@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime,timedelta,timezone
 from math import isfinite
-from typing import Sequence
+from typing import Callable,Sequence
 from collections import defaultdict
 
 from autotrader_v3_registry_v1 import STRATEGIES_V3,TIMEFRAMES_V3
@@ -272,13 +272,18 @@ def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market,regi
 
 def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                           timeframe:str="2m",regime_timeframe:str="30m",
-                          exit_timeframe:str="2m")->ReplayResultV2:
+                          exit_timeframe:str="2m",
+                          paper_gate:Callable[[datetime,Sequence],bool]|None=None)->ReplayResultV2:
     """Full replay, no SQL. An order from candle T fills at T+1m OPEN only.
 
     A reversal first closes at the next open. Re-entry cannot fill before a
     subsequent observed minute. If a canonical gap occurs, positions are
     flattened at the last verified close with explicit cost, and pending
     intent is cancelled (no fictitious cross-gap profit).
+
+    Optional PAPER-only gate sees only completed 1m bars at each close. A
+    STOP requests FLAT through the same next-open order/cost path. This is
+    not a broker execution hook and cannot be used by the LIVE worker.
     """
     if strategy_key in ALL_SPLIT_KEYS_V3 and (regime_timeframe not in PERIODS or exit_timeframe not in PERIODS):
         raise ValueError("Unsupported split V2.1 regime or exit period")
@@ -393,6 +398,17 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                         pending=(target,decision.reason)
                     else:pending=None
                     previous_obs=obs
+            if paper_gate is not None:
+                # Gate wakes every fully completed 1m candle, including
+                # strategies whose next technical signal is still 2m away.
+                # Neither the forming next candle nor future NAV is visible.
+                visible_gate=tuple(segment[max(0,ix-29):ix+1])
+                if paper_gate(closed,visible_gate) is not True:
+                    if (abs(target)>1e-9 or abs(position)>1e-9 or
+                        (pending is not None and abs(float(pending[0]))>1e-9)):
+                        target=0.
+                        pending=(0.,"PAPER stop/go gate requests FLAT")
+                        sig="PAPER_GATE_STOP"
             peak=max(peak,nav)
             dd=max(dd,(peak-nav)/peak*100)
             points.append(ReplayPointV2(

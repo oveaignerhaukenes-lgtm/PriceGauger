@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · Stop/kjør: full PAPER A/B med faktisk simulert FLAT
+
+- **Branch:** `feature/v3-strategy-gate-observer-20261119`. `autotrader_v3_trade_gate_research_v1.py` fryser allerede kausalt lærte 30m markedsformregler på treningsutvalget. Ny full holdout-sammenligning bruker **samme** Strategy Lab V2 PAPER-motor både for originalen og kandidaten; STOP ved en fullført 1m-bar ber om FLAT ved neste åpning, med modellert spread/gebyr og reell strategi-state/re-entry. Ingen framtidige holdout-priser eller utfall er tillatt i stopp/kjør-beslutningen. Uavklart 30m grunnlag gir ingen GO. Manuell `AutoTrader_Gate_Lab` viser både gammel proxy og denne kostnadsjusterte PAPER A/B for eksakt Saxo-UIC og frosset signalperioder.
+- **Sikkerhetsgrense:** Ingen LIVE-/Saxo-ordre, kontoarmering eller automatisk modellpromotering. Det mangler fortsatt kontantstrømjustert Saxo P/L, flere uavhengige holdout-uker, eksplisitt canary-konto/budsjett og en statusprikk som er koblet til en faktisk håndhevet LIVE-policy. Disse må på plass før et grønt GO/rødt STOPP kan styre kontoen.
+- **Bevis/videre:** Regresjonstester for kausale 30m-inndata, neste 1m-OPEN FLAT, ordre-/kostnadsføring, og identisk NAV/inventory før cutoff. Lokal relevant suite **18 passed**; full `python -m pytest -q --tb=short` **3,198 passed**, 10 subtests, 99 warnings; compile/diff-sjekk grønn. GitHub PR/CI og Railway-deploy kontrolleres separat. Faktiske historiske Saxo-barer må evalueres manuelt i laben etter levering; ingen dokumentert P/L-bedring ennå.
+
 ## 2026-11-18 · V3 LIVE: uavhengig kontoeksekusjon og sanntidsgrense
 
 - **Branch:** `fix/v3-concurrent-account-execution-20261118` fra `main` `6f8d36e`; lokal implementasjon under verifikasjon. Dokumentert live-avvik: sekvensiell Saxo GET/POST over 6 kontoer førte til 10–50s syklus; Tech100-E tickinngang ca. 13s og exit ca. 38s bak reell BBO-beslutning 18.11. Det er ingen dokumentert Railway-CPU- eller RAM-metning, og Saxo-1s-feed hadde typisk 53–54 ankomster/minutt.
