@@ -2,6 +2,11 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · V3 protective modifiers: PostgreSQL schema fast path
+
+- **Branch:** `fix/v3-protective-schema-once-20261119`. `autotrader_v3_protective_live_v1.py` now shares the already-tested, DB-identity-scoped `run_postgres_schema_once_v1` initializer with the other LIVE modules: the protective-state `CREATE TABLE IF NOT EXISTS` runs once per worker PostgreSQL process instead of once per `_load`/account cycle. SQLite retains per-file bootstrap; concurrent calls wait for committed initialization, and a failure is retried. Both modifiers' state SELECT/UPSERT, BBO/NAV gates, locks, sizing, broker orders and account arming are untouched.
+- **Evidence/next:** concurrent two-modifier and separate-SQLite regression tests added; local targeted pytest **20 passed**, full local `python -m pytest -q --tb=short` **3,196 passed**, 10 subtests, 99 warnings. GitHub CI and Railway deployment remain unverified. No production latency reduction or P/L improvement is claimed before new matching-SHA runtime measurements.
+
 ## 2026-11-18 · V3 LIVE: uavhengig kontoeksekusjon og sanntidsgrense
 
 - **Branch:** `fix/v3-concurrent-account-execution-20261118` fra `main` `6f8d36e`; lokal implementasjon under verifikasjon. Dokumentert live-avvik: sekvensiell Saxo GET/POST over 6 kontoer førte til 10–50s syklus; Tech100-E tickinngang ca. 13s og exit ca. 38s bak reell BBO-beslutning 18.11. Det er ingen dokumentert Railway-CPU- eller RAM-metning, og Saxo-1s-feed hadde typisk 53–54 ankomster/minutt.
