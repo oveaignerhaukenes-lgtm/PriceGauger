@@ -23,13 +23,13 @@ def test_overview_is_the_only_default_page() -> None:
 
 
 def test_tradingdesk_and_autodesk_are_prominent_top_level_operational_pages() -> None:
-    assert [page["title"] for page in PAGE_GROUPS[""]] == ["Oversikt", "TradingDesk", "Live Chart", "Markedsrytme", "Markedsmodeller", "Markedsfilter", "AutoTrader V3", "Autodesk"]
+    assert [page["title"] for page in PAGE_GROUPS[""]] == ["Oversikt", "TradingDesk", "Live Chart", "Markedsrytme", "Markedsmodeller", "AutoTrader V3", "Markedsfilter", "Autodesk"]
     trading_desk = PAGE_GROUPS[""][1]
     live_chart = PAGE_GROUPS[""][2]
     markedsrytme = PAGE_GROUPS[""][3]
     markedsmodeller = PAGE_GROUPS[""][4]
-    markedsfilter = PAGE_GROUPS[""][5]
-    autotrader_v3 = PAGE_GROUPS[""][6]
+    autotrader_v3 = PAGE_GROUPS[""][5]
+    markedsfilter = PAGE_GROUPS[""][6]
     autodesk = PAGE_GROUPS[""][7]
     assert trading_desk["page"] == "pages/0_TradingDesk.py"
     assert trading_desk["url_path"] == "TradingDesk"

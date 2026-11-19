@@ -64,8 +64,9 @@ for item in instances:
 lights = load_v3_stop_go_lights_v1(tuple(valid_lights)) if valid_lights else {}
 
 
-def _fresh(value, minutes):
-    return evidence_freshness_v1(value, now=now, fresh_seconds=minutes * 60)
+def _fresh(value, minutes, *, sql_utc=False):
+    return evidence_freshness_v1(
+        value, now=now, fresh_seconds=minutes * 60, sql_utc=sql_utc)
 
 
 def _stamp(value):
@@ -127,7 +128,8 @@ with filter_tab:
     socket_state = _stream_state(latest_stream)
     observer_state = _fresh(evidence["last_observed"], 10)
     runtime_states = [
-        _fresh(evidence["runtime"].get(i.instance_id, {}).get("updated_at"), 2)
+        _fresh(evidence["runtime"].get(i.instance_id, {}).get("updated_at"),
+               2, sql_utc=True)
         for i in instances
     ]
     n_running = sum(s["label"] == "NYLIGE DATA" for s in runtime_states)
@@ -208,7 +210,7 @@ with filter_tab:
                 "1m-volatilitet %": latest_profile.get("volatility_pct_1m"),
                 "Antall observasjoner": observation.get("samples") or 0,
                 "Modne 5m": observation.get("matured") or 0,
-                "Worker": _fresh(runtime.get("updated_at"), 2)["symbol"]
+                "Worker": _fresh(runtime.get("updated_at"), 2, sql_utc=True)["symbol"]
                           + " " + str(runtime.get("status") or "UKJENT"),
             })
         st.dataframe(fleet_rows, hide_index=True, width="stretch")

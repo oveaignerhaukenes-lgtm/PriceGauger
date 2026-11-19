@@ -69,22 +69,30 @@ MODULES_V1 = (
 )
 
 
-def _date(value) -> datetime | None:
+def _date(value, *, sql_utc: bool = False) -> datetime | None:
     if value is None:
         return None
     try:
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(
             str(value).replace("Z", "+00:00"))
-        return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
+        if parsed.tzinfo is None:
+            # V3 runtime_state.updated_at is populated by SQL
+            # CURRENT_TIMESTAMP, which SQLite stores as naive *UTC* text.
+            # Do not apply this fallback to Saxo/network timestamps.
+            if not sql_utc:
+                return None
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
     except (TypeError, ValueError, OverflowError):
         return None
 
 
 def evidence_freshness_v1(value, *, now: datetime | None = None,
-                          fresh_seconds: int = 180) -> dict:
+                          fresh_seconds: int = 180,
+                          sql_utc: bool = False) -> dict:
     """Data freshness, NOT a live network connectivity assertion."""
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    stamp = _date(value)
+    stamp = _date(value, sql_utc=sql_utc)
     if stamp is None:
         return {"symbol": "⚪", "label": "INGEN OBSERVASJON", "age_seconds": None}
     age = (clock - stamp).total_seconds()

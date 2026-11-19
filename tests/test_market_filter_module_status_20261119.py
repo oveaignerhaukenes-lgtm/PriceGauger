@@ -29,6 +29,8 @@ def test_freshness_never_calls_missing_or_stale_data_a_broken_saxo_link():
     assert status["age_seconds"] == 600
     assert evidence_freshness_v1(_at(-5), now=NOW)["label"] == "KLOKKEAVVIK"
     assert evidence_freshness_v1("2026-11-19T12:00:00", now=NOW)["symbol"] == "⚪"
+    assert evidence_freshness_v1("2026-11-19 11:59:00",now=NOW,
+                                 sql_utc=True)["label"] == "NYLIGE DATA"
     assert latest_observed_timestamp_v1((None,_at(2),NOW-timedelta(minutes=1))) == (
         NOW-timedelta(minutes=1))
 
