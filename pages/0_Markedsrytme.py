@@ -31,6 +31,8 @@ from market_rhythm_research_v1 import (
     structure_report,
 )
 from market_instrument_ensemble_v1 import ensemble_report
+from market_rhythm_phase_paper_v1 import ResearchBarV1, compare_long_regime_clocks_v1
+from strategy_lab_v2_replay import MAX_BARS, ReplayCostsV2
 
 st.set_page_config(page_title="Markedsrytme · PriceGauger", page_icon="〰️", layout="wide")
 st.title("Markedsrytme")
@@ -595,3 +597,94 @@ with st.expander("Metode, usikkerhet og videre fraktal forskning", expanded=Fals
         "kobling til faktisk LIVE-strategiversjon, Saxo-fill og netto P/L. "
         "Inntil da er samvariasjon på tvers av skalaer en **testbar hypotese**, ikke bevist edge."
     )
+
+st.subheader("Rytmelab · Fasefeil og tidsvinduer (PAPER)")
+st.caption(
+    "Sammenlign *samme* Long/regime V3 (R10/E2) med 1m, 2m, 3m og 5m "
+    "inngangssignaler på de samme Saxo-barene. 3m er bare støttet her i "
+    "PAPER, ikke som LIVE-valg. Resultatene inkluderer manuelle kostnadsscenarioer, "
+    "aldri faktiske Saxo-fills. Ingen strategi, konto eller ordre endres."
+)
+with st.form("rhythm-phase-paper-v1"):
+    left, middle, right = st.columns(3)
+    with left:
+        phase_days = st.selectbox("Kildehistorikk", (7, 14, 30), index=0,
+                                  key="rhythm-phase-days")
+        phase_bar_limit = st.selectbox(
+            "Antall siste 1m-barer (lengre test tar mer tid)",
+            (900, 1500, 3000), index=0, key="rhythm-phase-bar-limit",
+        )
+        phase_point = st.number_input("NOK per punkt per lot (scenario)",
+                                      min_value=.001, value=10., step=1.,
+                                      key="rhythm-phase-point")
+    with middle:
+        phase_spread = st.number_input("Spread (bps, scenario)",
+                                       min_value=0., value=3., step=.5,
+                                       key="rhythm-phase-spread")
+        phase_variable = st.number_input("Variabel avgift (bps/side)",
+                                         min_value=0., value=2., step=.5,
+                                         key="rhythm-phase-variable")
+    with right:
+        phase_fixed = st.number_input("Fast avgift per ordre (NOK)",
+                                      min_value=0., value=1., step=.5,
+                                      key="rhythm-phase-fixed")
+        phase_nav = st.number_input("PAPER-startverdi (NOK)",
+                                    min_value=100., value=10000., step=1000.,
+                                    key="rhythm-phase-nav")
+    run_phase = st.form_submit_button("Test fase og tidsvinduer", type="primary")
+
+if run_phase:
+    try:
+        with st.spinner("Beregner frosset Long/regime på samme historikk …"):
+            source_bars = _research_bars(int(selected.instrument_id), phase_days)
+            # Existing V3 replay has a strict 3000-bar safety/compute cap.
+            # Explicitly disclose the clipped window; never describe this as 30d.
+            clipped = source_bars[-min(MAX_BARS, int(phase_bar_limit)):]
+            chart_bars = tuple(ResearchBarV1(
+                market_name=selected.market_name, bar_time=b.at.isoformat(),
+                open=b.open, high=b.high, low=b.low, close=b.close,
+            ) for b in clipped)
+            scenario = ReplayCostsV2(
+                point_value_nok=float(phase_point), spread_bps=float(phase_spread),
+                variable_fee_bps=float(phase_variable), fixed_fee_nok=float(phase_fixed),
+                lot_step=.01, max_lots=.03, starting_nav_nok=float(phase_nav),
+                source="USER_MANUAL_SCENARIO_NOT_SAXO_VERIFIED",
+            )
+            comparison = compare_long_regime_clocks_v1(chart_bars, scenario)
+        st.session_state["rhythm-phase-paper-result"] = {
+            "instrument":_source_label(selected), "asked_days":phase_days,
+            "available_bars":len(source_bars), "comparison":comparison,
+        }
+    except Exception as exc:
+        st.error(f"Fase-PAPER kunne ikke kjøres: {type(exc).__name__}: {str(exc)[:180]}")
+
+phase_report = st.session_state.get("rhythm-phase-paper-result")
+if phase_report:
+    comparison = phase_report["comparison"]
+    st.caption(
+        f"Kilde: {phase_report['instrument']} · forespurt {phase_report['asked_days']}d "
+        f"({phase_report['available_bars']} barer), testet eksakt "
+        f"{comparison['bars']} barer fra {comparison['from']} til {comparison['to']}. "
+        "PAPER 1m neste åpning; ingen ordreforsinkelse eller Saxo-utførelsesbevis."
+    )
+    if comparison["summary"]:
+        st.dataframe(comparison["summary"], hide_index=True, use_container_width=True)
+        st.caption(
+            "PAPER-netto gjelder hele testperioden inkludert indikatoroppvarming. "
+            "Et høyere historisk resultat beviser ikke bedre fremtidige handler; "
+            "Saxo spread/kostnader er ikke verifisert."
+        )
+        chosen_clock = st.selectbox("Undersøk etterfølgende bevegelser for signal",
+                                    tuple(comparison["phase"]), key="rhythm-phase-clock")
+        st.dataframe(comparison["phase"][chosen_clock], hide_index=True,
+                     use_container_width=True)
+        st.caption(
+            "Feilfase = prisnedgang etter LONG-inngang/økning, eller prisoppgang "
+            "etter at LONG gikk flat. Tilstand bruker bare de 20 foregående "
+            "ferdiglukkede 1m-barene (effektivitetsforhold). Fremtidige 1/3/5m "
+            "priser brukes KUN til å score utfallet, aldri til signaler. "
+            "Hull i data sensurerer hendelser. Hurst, entropi og adaptive "
+            "retrace-regler er ikke testet i denne første versjonen."
+        )
+    if comparison["failures"]:
+        st.warning("Noen scenarier mangler resultat: " + str(comparison["failures"])[:500])
