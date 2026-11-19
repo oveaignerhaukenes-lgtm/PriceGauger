@@ -10,6 +10,7 @@ from autotrader_v3_instance_inspection_v1 import render_v3_instance_inspection_v
 from autotrader_v3_instance_registry_v1 import bootstrap_v3_instances_from_enrollments_v1
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_registry_v1 import strategy_display_label_v3
+from autotrader_v3_stop_go_status_v1 import load_v3_stop_go_lights_v1
 from autotrader_v3_fleet_pnl_display_v1 import (
     account_currency_v1,broker_open_pnl_for_fleet_v1,
     render_stable_fleet_pnl_html_v1,
@@ -61,7 +62,10 @@ def render_v3_fleet_management_v1():
         except Exception:
             pnl=None
         rows.append((item,config,policy,auth,status,detail,updated,pnl,_event_count(item.instance_id)))
+    gate_lights=load_v3_stop_go_lights_v1(tuple(
+        (r[0].instance_id,r[1].strategy_key,r[3].live_armed) for r in rows))
     st.subheader('V3 Fleet'); st.caption('Samlet oversikt over aktive autotradere. TradingDesk er den raske arbeidsflaten for én instans; begge bruker samme canonical config. Handler 24t inkluderer også handler før eventuelle strategibytter.')
+    st.caption('Strategilys: 🟢 KJØR = filteret tillater nye handler; 🔴 STOPP = filteret blokkerer ny eksponering; ⚪ AV/UKJENT = inaktiv eller uavklart. Risikoreduserende lukkinger kan fortsatt utføres. Andre Saxo- og risikovern gjelder alltid.')
     m=st.columns(4); m[0].metric('Instanser',len(rows)); m[1].metric('LIVE',sum(r[3].live_armed for r in rows)); m[2].metric('SIM',sum(r[3].sim_armed for r in rows)); m[3].metric('Handler 24t',sum(r[8] for r in rows))
     comparable=[
         {'label':f'{account_names.get(r[0].account_id) or r[0].account_id} · {r[0].market_name}',
@@ -99,7 +103,9 @@ def render_v3_fleet_management_v1():
             c[2].metric('Åpen P/L','—' if pnl is None
                         else f'{pnl.amount:+.2f} {pnl.unit_label}')
             c[3].metric('Handler 24t',count)
-            st.markdown(f'**Strategi:** {active_label}')
+            light=gate_lights[item.instance_id]
+            st.markdown(f'**Strategi:** {light.symbol} {active_label} · **{light.label}**')
+            st.caption(light.detail)
             st.caption(f'V3 {item.instance_id[:8]} · konto {item.account_id} · UIC {item.uic} · {item.asset_type} · instrument {item.instrument_id}')
             cap=f'{policy.max_notional_nok:,.0f} NOK' if policy else 'ikke satt'; st.caption(f'{status} · {detail} · aktiv {active_label} · options {", ".join(config.modifiers) or "ingen"} · ramme {cap}')
             try:

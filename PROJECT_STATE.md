@@ -2,6 +2,13 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · V3 strategifilter: manuell STOPP/KJØR + kausal markedsobservasjon
+
+- **Branch:** `feature/v3-stop-go-status-dot-20261119`. Eksakt instans/strategi-lås i `autotrader_v3_trade_filter_v1.py`: standard `GO`, eksplisitt operatør-`STOP`, PostgreSQL-init én gang per worker. LIVE-rutinen kontrollerer OPEN/ADD både før ordreforberedelse og etter reservasjon/revurdert autorisasjon, umiddelbart før Saxo POST. Den forkaster sperrede vedvarende ønskemål. CLOSE/REDUCE beholder eksisterende beskyttelse og avstemming selv ved STOPP; STOPP kansellerer ikke allerede sendte ordre. Ingen automatisk markedsbasert STOPP, kontoendring, arming eller modellvalg.
+- **UI:** V3 Fleet viser grønn KJØR, rød STOPP, grå AV/UKJENT fra samme faktiske kontrolltilstand som ordrebanen; manuell bekreftet nødbryter i per-instans-kontroller. Grønn betyr ikke at andre risikogates/Saxo precheck aksepterer ordre, og sier intet om profitt.
+- **Observasjon:** `autotrader_v3_market_state_observer_v1.py` kobler eksakt LIVE-eid/armert instans, strategi og tilstandsklasse fra 61 sammenhengende **fullførte** 1m Saxo-barer til én 5m-prisutfallsproxy, først etter fem fremtidige fullførte barer. Egen isolert 5m research-sidecar, ingen Saxo-kall eller kontrollskifte. Prisutfallet er ikke strategi-netto-P/L; kontantstrømmer og faktisk fill-kost må fremdeles avstemmes før en mulig modellregel kan foreslås.
+- **Bevis/gjenstår:** full lokal `python -m pytest -q --tb=short`: **3,205 passed**, 10 subtests, 99 eldre advarsler (ren test-DB); egne eksakte STOP/GO-, pre-POST- og market-state-kausalitetstester grønne. GitHub CI og Railway deploy må verifiseres på eksakt SHA før LIVE-påstand. Automatiske tapsprofiler krever purget kronologisk PAPER-holdout, sprednings-/handelskostnad og stor nok prøve; #862/#863 overlapper og skal samordnes, ikke begge blindt merges.
+
 ## 2026-11-19 · V3 protective modifiers: PostgreSQL schema fast path
 
 - **Branch:** `fix/v3-protective-schema-once-20261119`. `autotrader_v3_protective_live_v1.py` now shares the already-tested, DB-identity-scoped `run_postgres_schema_once_v1` initializer with the other LIVE modules: the protective-state `CREATE TABLE IF NOT EXISTS` runs once per worker PostgreSQL process instead of once per `_load`/account cycle. SQLite retains per-file bootstrap; concurrent calls wait for committed initialization, and a failure is retried. Both modifiers' state SELECT/UPSERT, BBO/NAV gates, locks, sizing, broker orders and account arming are untouched.
