@@ -12,6 +12,7 @@ from analysis_digest_v1 import render_summary
 from autotrader_v3_trade_gate_research_v1 import (
     build_causal_gate_windows,evaluate_trade_gate_train_holdout,
 )
+from autotrader_v3_trade_gate_rounds_v1 import evaluate_full_flat_replay_rounds
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from instrument_registry_v2 import list_subscribed_sources_v2
 from strategy_lab_v2_replay import (
@@ -66,8 +67,8 @@ point=c.number_input("NOK per punkt/lot (scenario)",min_value=.01,
 fees=b.number_input("Øvrige variable gebyrer i bp per side",
                     min_value=0.,value=0.,step=.5)
 d,e,f=st.columns(3)
-fixed=d.number_input("Fast gebyr per ordre NOK",min_value=0.,
-                     value=1.,step=.5)
+fixed=d.number_input("Fast gebyr per ordre NOK (0 ved kun spread)",min_value=0.,
+                     value=0.,step=.5)
 lots=e.number_input("Maks posisjon lot",min_value=.01,
                     value=.03,step=.01,format="%.2f")
 capital=f.number_input("PAPER start NAV NOK",min_value=100.,
@@ -98,10 +99,15 @@ if st.button("Evaluer markedsformer på tidsadskilt data",type="primary"):
             bars=bars,points=replay.points,spread_bps=float(spread),
             start=start,end=end)
         result=evaluate_trade_gate_train_holdout(windows)
+        rounds=evaluate_full_flat_replay_rounds(
+            windows=windows,baseline=replay,bars=bars,
+            strategy_key=strategy,timeframe=timeframe,costs=costs,
+        ) if result is not None else ()
         st.session_state["tradegate:report"]={
             "key":(int(source.instrument_id),strategy,timeframe,hours,
                    spread,fees,point,fixed,lots,capital),
             "asof":now.isoformat(),"data":windows,"evaluation":result,
+            "rounds":rounds,
             "source":source.market_name,"uic":source.provider_instrument_id,
             "replay_trades":replay.trades,
             "replay_costs":replay.total_cost_nok,
@@ -185,12 +191,52 @@ if report:
                 "en implementert FLAT-strategi. Krever fullstendig PAPER "
                 "med faktiske exit/re-entry-kostnader før videre beslutninger."
             )
+            st.subheader("Tre faktiske PAPER-runder med STOPP/KJØR")
+            st.caption(
+                "Samme kronologiske holdout for alle tre reglene. "
+                "Hver regel læres bare av tidligere baseline-PAPER-resultater. "
+                "Når den sier STOPP, simuleres utgang ved neste mulige "
+                "signal og utførelse på neste 1m-åpning; når den sier KJØR, "
+                "fortsetter strategien. Inkluderer modellerte spread- og "
+                "ordregebyrer. Dette er fremdeles ikke Saxo-fyll, slippage, "
+                "swap eller verifisert kontogevinst."
+            )
+            if report["rounds"]:
+                st.dataframe(pd.DataFrame([{
+                    "Fast modell":v.description,
+                    "KJØR-vinduer":v.eligible_windows,
+                    "STOPP-vinduer":v.blocked_windows,
+                    "Alle handler · NOK":round(v.holdout_baseline_nok,2),
+                    "Med filter · NOK":round(v.holdout_gated_nok,2),
+                    "Forskjell · NOK":round(v.holdout_delta_nok,2),
+                    "Drawdown uten %":round(v.holdout_baseline_drawdown_pct,2),
+                    "Drawdown med %":round(v.holdout_gated_drawdown_pct,2),
+                    "Ordre uten / med":f"{v.baseline_orders} / {v.gated_orders}",
+                    "Kostnader med · NOK":round(v.gated_execution_cost_nok,2),
+                } for v in report["rounds"]]),hide_index=True,
+                    use_container_width=True)
+                st.info(
+                    "En modell med 0 KJØR-vinduer er en null-handelskontroll, "
+                    "ikke dokumentert forbedret trading. Et enkelt 36t-vindu "
+                    "er for kort til LIVE-aktivering: prøv uavhengige "
+                    "dager og ulike kostnadsscenarier."
+                )
         export={
             "schema":"V3_CAUSAL_TRADE_GATE_RESEARCH_V1",
             "source":report["source"],"uic":report["uic"],
             "strategy":strategy,"timeframe":timeframe,
             "asof_utc":report["asof"],"windows":[asdict(v) for v in rows],
             "holdout_evaluation":asdict(r) if r else None,
+            "paper_flat_rounds":[{
+                k:getattr(round,k) for k in (
+                    "name","description","decisions","eligible_windows",
+                    "blocked_windows","holdout_baseline_nok",
+                    "holdout_gated_nok","holdout_delta_nok",
+                    "holdout_baseline_drawdown_pct",
+                    "holdout_gated_drawdown_pct","baseline_orders",
+                    "gated_orders","gated_execution_cost_nok",
+                )
+            } for round in report["rounds"]],
             "notes":"Read-only research, incomplete FLAT-state model, no account impact.",
         }
         st.download_button(
