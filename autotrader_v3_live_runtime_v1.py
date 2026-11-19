@@ -94,14 +94,24 @@ def _hyper_safety_1m_points_v3(db_path:str,instrument_id:int,minute:datetime):
 
 
 def _definitive_saxo_rejection_v3(exc:Exception)->bool:
-    """True only when Saxo returned a concrete client-side rejection response."""
+    """True only for documented, definite broker-side HTTP rejections.
+
+    Saxo explicitly rejects order POSTs with HTTP 429 (rate limit). This
+    response cannot have placed the order and must not become a permanent
+    UNKNOWN lock. A timeout (408) remains ambiguous.
+    """
     if not isinstance(exc,SaxoError):
         return False
     code=getattr(exc,"status_code",None)
-    return isinstance(code,int) and 400 <= code < 500 and code not in {408,429}
+    return isinstance(code,int) and 400 <= code < 500 and code != 408
 
 def _recorded_definitive_saxo_rejection_v3(detail:str|None)->bool:
-    """Recognize only durable UNKNOWN rows that contain an explicit Saxo HTTP 4xx."""
+    """Repair only legacy UNKNOWN rows with previously accepted 4xx evidence.
+
+    Keep preexisting 429 UNKNOWN rows locked: old request text alone cannot
+    establish which Saxo call failed or whether a concurrent order filled.
+    The new POST path classifies verified 429 responses before persisting.
+    """
     match=re.search(r"\bHTTP\s+(\d{3})\b",str(detail or ""))
     if match is None:
         return False
