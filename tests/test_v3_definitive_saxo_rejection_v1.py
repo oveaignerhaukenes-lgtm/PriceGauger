@@ -12,13 +12,13 @@ def test_saxo_http_400_is_definitive_rejection():
     assert _definitive_saxo_rejection_v3(exc) is True
 
 
-def test_timeout_and_rate_limit_remain_uncertain():
+def test_timeout_remains_uncertain_but_documented_saxo_order_429_is_rejected():
     assert _definitive_saxo_rejection_v3(
         SaxoError("timeout",status="TIMEOUT")
     ) is False
     assert _definitive_saxo_rejection_v3(
         SaxoError("rate limited",status="REQUEST_FAILED",status_code=429)
-    ) is False
+    ) is True
     assert _definitive_saxo_rejection_v3(
         SaxoError("request timeout",status="REQUEST_FAILED",status_code=408)
     ) is False
@@ -28,6 +28,7 @@ def test_server_error_remains_uncertain():
     assert _definitive_saxo_rejection_v3(
         SaxoError("server",status="REQUEST_FAILED",status_code=500)
     ) is False
+    assert _definitive_saxo_rejection_v3(RuntimeError("429")) is False
 
 
 def test_recorded_http_400_unknown_can_be_repaired_but_ambiguous_failures_cannot():
