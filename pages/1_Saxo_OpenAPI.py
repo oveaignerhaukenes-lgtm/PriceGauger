@@ -17,6 +17,10 @@ from saxo_provider import (
     instrument_is_unexpired,
     latest_gold_silver_ratio,
 )
+from saxo_rest_quota_dashboard_v1 import (
+    load_saxo_rest_usage_v1,
+    summarize_saxo_rest_usage_v1,
+)
 
 
 st.set_page_config(page_title="Saxo · PriceGauger", page_icon="🔌", layout="wide")
@@ -85,6 +89,103 @@ else:
             oauth.disconnect()
             st.success("Saxo-token er fjernet fra det delte lageret.")
             st.rerun()
+
+st.subheader("Saxo API · REST-kall og kvoter")
+st.caption(
+    "Måles uten ekstra Saxo-kall. Dette er REST-kall observert av PriceGauger LIVE-worker, "
+    "ikke et komplett regnskap over alle Saxo-apper eller sesjoner. "
+    "Web-panelet leser bare lagrede tellere, normalt med rundt 1–2 minutters forsinkelse."
+)
+period = st.selectbox(
+    "Statistikkperiode", [15, 60, 360, 1440], index=1,
+    format_func=lambda minutes: {
+        15: "15 minutter", 60: "1 time", 360: "6 timer", 1440: "24 timer",
+    }[minutes],
+    key="saxo_rest_usage_minutes",
+)
+try:
+    usage = summarize_saxo_rest_usage_v1(load_saxo_rest_usage_v1(minutes=period))
+except Exception as exc:
+    st.warning(
+        "Klarte ikke å lese REST-statistikk fra databasen. "
+        f"Feilkategori: {type(exc).__name__}."
+    )
+    usage = summarize_saxo_rest_usage_v1(())
+api_total, api_limited, api_peak = st.columns(3)
+api_total.metric("Observerte REST-kall", f"{usage['calls']:,}".replace(",", " "))
+api_limited.metric("HTTP 429", usage["http429"])
+peak = max((bucket["calls"] for bucket in usage["minutes"]), default=0)
+api_peak.metric("Høyeste rapporterte intervall", peak)
+
+if usage["calls"]:
+    st.caption(
+        "Sist rapporterte vindu (UTC): "
+        + max(bucket["minute"] for bucket in usage["minutes"])
+        + ". Intervallene er normalt 60 sekunder under aktiv handel. "
+        "Antall per vindu måler faktiske HTTP-forsøk; det er ikke en "
+        "glidende, Saxo-autoritativ minuttkvote."
+    )
+    st.markdown("**Kall per type og endepunkt**")
+    st.dataframe(
+        [
+            {
+                "Metode": row["method"], "Endepunkt": row["endpoint"],
+                "Antall": row["calls"], "HTTP 429": row["http429"],
+            }
+            for row in usage["endpoints"]
+        ],
+        hide_index=True, use_container_width=True,
+    )
+    with st.expander("Tidsserie · rapporterte 60s-vinduer"):
+        st.dataframe(
+            [
+                {"UTC": row["minute"], "REST-kall": row["calls"], "HTTP 429": row["http429"]}
+                for row in usage["minutes"]
+            ],
+            hide_index=True, use_container_width=True,
+        )
+else:
+    st.info(
+        "Ingen lagrede LIVE-REST-kall i perioden ennå. "
+        "Tellere vises når worker har rapportert og sideprosessen kan lese felles database."
+    )
+
+st.markdown("**Saxos kvoteheadere · siste observerte svar**")
+quota_labels = {
+    "appday": "AppDay · applikasjon/døgn",
+    "session": "Session · sesjon/tjenestegruppe/minutt",
+    "sessionorders": "SessionOrders · sesjon/ordre/sekund",
+}
+if usage["quotas"]:
+    st.dataframe(
+        [
+            {
+                "Kvotetype": quota_labels.get(row["dimension"], row["dimension"]),
+                "Grense": row["limit"], "Gjenstår": row["remaining"],
+                "Brukt (%)": row["used_pct"],
+                "Til reset (sek)": row["reset_seconds"] if row["reset_seconds"] is not None else "—",
+                "Målt fra": row["source"], "Vindu (UTC)": row["sampled_at"][:19],
+            }
+            for row in usage["quotas"]
+        ],
+        hide_index=True, use_container_width=True,
+    )
+    st.caption(
+        "Prosentene kommer fra Saxos Limit/Remaining-headere, ikke fra våre lokale summer. "
+        "Sesjonskvotene gjelder bare den sesjonen/tjenestegruppen som leverte svaret; "
+        "de kan ikke summeres som én felles seks-instanskvote. "
+        "Reset-verdier er fra prøvetidspunktet, ikke en nåværende nedtelling."
+    )
+else:
+    st.caption(
+        "Ingen komplette Limit/Remaining-headere observert i perioden. "
+        "Viser ingen anslått kvoteprosent uten Saxos faktiske tall."
+    )
+st.caption(
+    "Saxos dokumenterte standardgrenser: 10 millioner per applikasjon/døgn, "
+    "120 per sesjon/tjenestegruppe/minutt og én ordre per sesjon/sekund. "
+    "Ingen generell timekvote er oppgitt. Faktiske kvoter kan avvike per applikasjon."
+)
 
 st.subheader("Finn Saxo-instrumenter")
 st.caption(
