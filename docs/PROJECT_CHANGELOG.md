@@ -3,10 +3,12 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `ed6a20f97511672a25fda0fafda1705a50ff3cfa`
+Latest tracked main commit: `4eb99e2b7675d54f422d2ecf54c98fb231309bb2`
 
 ## Recent main commits
 
+- 2026-11-19 [`4eb99e2b76`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4eb99e2b7675d54f422d2ecf54c98fb231309bb2) — Merge pull request #872 from oveaignerhaukenes-lgtm/fix/v3-profit-paper-canonical-timestamp-20261119
+- 2026-11-19 [`458938d6f3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/458938d6f309e69e8cf8219943087f8745ec8fa3) — Fix canonical timestamp parsing in regime PAPER trial
 - 2026-11-19 [`ed6a20f975`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ed6a20f97511672a25fda0fafda1705a50ff3cfa) — Merge pull request #871 from oveaignerhaukenes-lgtm/research/v3-regime-profit-protection-paper-20261119
 - 2026-11-19 [`204f1bed81`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/204f1bed818a44617964ea5514b862c6a7b1aca8) — Limit exit protection PAPER analysis to selected trading day
 - 2026-11-19 [`956fda21f3`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/956fda21f313a220822fe1e71ca35a5a0dc57b7f) — Add read-only, cost-aware regime profit-protection PAPER tests
@@ -45,7 +47,5 @@ Latest tracked main commit: `ed6a20f97511672a25fda0fafda1705a50ff3cfa`
 - 2026-11-14 [`b8f56fca8f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b8f56fca8f9e20fe34e080917e59e767daaecba5) — Add separate MACD+Stoch V2.1 long-flat and short-flat R/S/E strategies
 - 2026-11-06 [`e60f4cba42`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e60f4cba4298014fb1461c2b032e6007d42ad07c) — Fix Algolabb AI suggestion disabled on invalid editor
 - 2026-11-06 [`b4a6ef92bd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b4a6ef92bdf506e608d46e6da940f09f2de06ddf) — Fix Algolabb blank preset JSON field
-- 2026-11-05 [`5a7b3fa872`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5a7b3fa872bd9f91798ca2017647a4e5fecdc320) — Research: macro release lead/lag observer (NFP, CPI, PPI)
-- 2026-11-02 [`fd7d4e895b`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/fd7d4e895b9c1253d4f15afaa1922048853055cc) — Merge pull request #832 from oveaignerhaukenes-lgtm/fix/algolabb-summary-account-labels-20261102
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
