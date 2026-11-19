@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `4349c587b7bcf9682f8109d9cb24c197ad3a2931`
+Latest tracked main commit: `dfd3f2abe0cc2660131fad8f35ead81f07a05021`
 
 ## Recent main commits
 
+- 2026-11-19 [`dfd3f2abe0`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/dfd3f2abe0cc2660131fad8f35ead81f07a05021) — Markedsfilter: egen menyside med modulstrøm, status og statistikk (#866)
 - 2026-11-19 [`4349c587b7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4349c587b7bcf9682f8109d9cb24c197ad3a2931) — feat: show observed Saxo REST calls and rate-limit quotas (#865)
 - 2026-11-19 [`f5c3a36196`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f5c3a3619607733123b888e7431c7eeaf406e8bb) — feat(v3): guarded strategy STOP GO and causal state observer (#864)
 - 2026-11-19 [`d2e975f89a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/d2e975f89a4c6aad69fc7284e6dc2eea3d94d56b) — perf(v3): bootstrap protective risk schema once per PostgreSQL worker (#861)
@@ -46,6 +47,5 @@ Latest tracked main commit: `4349c587b7bcf9682f8109d9cb24c197ad3a2931`
 - 2026-11-02 [`da15fc0799`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/da15fc0799f8dda129cd22f9922dd13e77bb310a) — test: expected renamed Algolabb menu
 - 2026-11-02 [`c88485ff43`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c88485ff430104c33b5c0c330476091e2659961c) — feat: AI observations at top of cycle research
 - 2026-11-02 [`7c02275c9d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7c02275c9d674a2cf58996b0df3daf35be19eae8) — feat: AI digest at top of Tech100 second impulse research
-- 2026-11-02 [`e49bd1371d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e49bd1371d0a7ee964a4b28cc6818eb3f3e4f9be) — feat: evidence-bound AI digest for Strategy Lab V2
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
