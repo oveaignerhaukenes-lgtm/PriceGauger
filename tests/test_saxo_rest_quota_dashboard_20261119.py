@@ -15,12 +15,14 @@ def reset_process_metrics(monkeypatch):
     monkeypatch.setattr(telemetry, "_STARTED", 100.0)
     for name in (
         "_COUNTS", "_RATE_LIMITED", "_RATE_REMAINING",
+        "_ORIGIN_COUNTS", "_ORIGIN_RATE_LIMITED",
         "_LATENCY_SECONDS", "_QUOTA_HEADERS", "_OUTBOX",
     ):
         getattr(telemetry, name).clear()
     yield
     for name in (
         "_COUNTS", "_RATE_LIMITED", "_RATE_REMAINING",
+        "_ORIGIN_COUNTS", "_ORIGIN_RATE_LIMITED",
         "_LATENCY_SECONDS", "_QUOTA_HEADERS", "_OUTBOX",
     ):
         getattr(telemetry, name).clear()
@@ -88,6 +90,49 @@ def test_absent_or_incomplete_headers_do_not_invent_quota_percentage(tmp_path):
     )
     assert stats["calls"] == 1
     assert stats["quotas"] == ()
+
+
+def test_origin_counts_split_same_endpoint_and_persist_privately(tmp_path):
+    db_path=tmp_path/"attribution.sqlite"
+    telemetry.record_saxo_http_v1(
+        "GET","port/v1/accounts/me?AccountKey=secret",200,
+        source_module="autotrader_v3_live_saxo_v1",now=101,
+    )
+    telemetry.record_saxo_http_v1(
+        "GET","port/v1/accounts/me?AccountKey=secret",200,
+        source_module="telegram_multi_worker",now=110,
+    )
+    telemetry.record_saxo_http_v1(
+        "GET","port/v1/accounts/me?AccountKey=secret",429,
+        source_module="autotrader_v3_live_saxo_v1",now=161,
+    )
+    assert dashboard.flush_saxo_rest_usage_v1(db_path=db_path)==1
+    aggregate=dashboard.summarize_saxo_rest_usage_v1(
+        dashboard.load_saxo_rest_usage_v1(db_path=db_path))
+    origin=dashboard.summarize_saxo_rest_call_origins_v1(
+        dashboard.load_saxo_rest_call_origins_v1(db_path=db_path))
+    assert aggregate['calls']==3
+    assert origin['total']==3
+    assert origin['sources']==(
+        {'source_module':'autotrader_v3_live_saxo_v1','calls':2,'http429':1},
+        {'source_module':'telegram_multi_worker','calls':1,'http429':0},
+    )
+    assert origin['routes'][0]['endpoint']=='port/v1/accounts'
+    with dashboard.connect(db_path) as db:
+        saved=str([dict(row) for row in db.execute(
+            'SELECT * FROM pg_saxo_rest_call_origins_v1').fetchall()])
+    assert 'secret' not in saved
+    assert 'AccountKey' not in saved
+
+
+def test_origin_module_identifier_is_sanitized_and_unknown_stays_visible():
+    telemetry.record_saxo_http_v1(
+        "GET","port/v1/netpositions",200,
+        source_module="unsafe?AccountKey=secret",now=161,
+    )
+    rows=telemetry.drain_saxo_rest_usage_v1()
+    assert rows[0]['origins']==(
+        {'source_module':'unknown','call_count':1,'http429_count':0},)
 
 
 def test_failed_persistence_restores_buffer_for_retry(tmp_path, monkeypatch):

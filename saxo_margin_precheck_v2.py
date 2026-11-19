@@ -7,7 +7,7 @@ from typing import Any, Iterable
 import requests
 
 from saxo_low_friction_candidates_v2 import LowFrictionCandidateV2, LowFrictionScanResultV2
-from saxo_provider import SaxoClient, SaxoError, SaxoInstrument
+from saxo_provider import LIVE_BASE_URL, SaxoClient, SaxoError, SaxoInstrument
 
 
 PRECHECK_PATH_V2 = "trade/v2/orders/precheck"
@@ -159,7 +159,17 @@ def _post_precheck_only_v2(client: SaxoClient, payload: dict[str, Any]) -> dict[
         client._set_authorization(force_refresh=force_refresh)
         force_refresh = False
         try:
+            started=time.perf_counter()
             response = client.session.post(url, json=payload, timeout=client.timeout)
+            if client.base_url.rstrip('/').lower()==LIVE_BASE_URL.lower():
+                try:
+                    from saxo_rest_telemetry_v1 import record_saxo_http_v1
+                    record_saxo_http_v1('POST',PRECHECK_PATH_V2,response.status_code,
+                        headers=getattr(response,'headers',None),
+                        latency_seconds=time.perf_counter()-started)
+                except Exception:
+                    # Analysis counters must not change precheck semantics.
+                    pass
         except requests.Timeout as exc:
             raise SaxoError(f"tidsavbrudd etter {client.timeout:g} sekunder", status="TIMEOUT") from exc
         except requests.ConnectionError as exc:
