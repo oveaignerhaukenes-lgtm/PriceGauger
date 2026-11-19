@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime,timedelta,timezone
+from math import isfinite
 from statistics import mean
 from typing import Sequence
 
@@ -44,6 +45,43 @@ class GateEvaluation:
     holdout_skipped_negative_sum_pct:float
     holdout_predicted_trade_windows:int
     warning:str
+
+
+@dataclass(frozen=True)
+class GateFullReplayComparison:
+    """True PAPER state evolution, not a sum of foregone 30m returns."""
+    cutoff:datetime
+    baseline_holdout_pct:float
+    gated_holdout_pct:float
+    gated_minus_baseline_pct:float
+    baseline_orders:int
+    gated_orders:int
+    baseline_cost_nok:float
+    gated_cost_nok:float
+    baseline_max_drawdown_pct:float
+    gated_max_drawdown_pct:float
+    cost_source:str
+    warning:str
+
+
+def gate_class_for_completed_bars_v1(bars:Sequence,spread_bps:float)->str|None:
+    """Assign the same shape used in training from exactly 30 prior 1m bars."""
+    if len(bars)!=30 or not isfinite(spread_bps) or spread_bps<0:
+        return None
+    stamps=[utc(b.bar_time) for b in bars]
+    if any(stamps[i]-stamps[i-1]!=timedelta(minutes=1)
+           for i in range(1,len(stamps))):
+        return None
+    info=classify_completed_regime(bars)
+    if info is None:
+        return None
+    if info.median_swing_bps is not None and info.median_swing_bps<=2*spread_bps:
+        return "SPREAD_DOMINATED_SWINGS"
+    if info.regime=="SIDEVEIS_RYTME_WHIPSAW_KANDIDAT":
+        return "OSCILLATING_CHOP"
+    if info.regime=="RETNINGSTREND_KANDIDAT":
+        return "DIRECTIONAL_TREND"
+    return "MIXED_STRUCTURE"
 
 
 def _at_bars(bars,start,end):
@@ -85,14 +123,10 @@ def build_causal_gate_windows(*,bars,points,spread_bps:float,
                 if len(following)==30 and all(
                     utc(b.bar_time)==t+timedelta(minutes=k)
                     for k,b in enumerate(following)):
-                    if (prior_regime.median_swing_bps is not None
-                         and prior_regime.median_swing_bps <= 2*spread_bps):
-                        key="SPREAD_DOMINATED_SWINGS"
-                    elif prior_regime.regime=="SIDEVEIS_RYTME_WHIPSAW_KANDIDAT":
-                        key="OSCILLATING_CHOP"
-                    elif prior_regime.regime=="RETNINGSTREND_KANDIDAT":
-                        key="DIRECTIONAL_TREND"
-                    else:key="MIXED_STRUCTURE"
+                    key=gate_class_for_completed_bars_v1(prior,spread_bps)
+                    if key is None:
+                        t+=step
+                        continue
                     samples.append(GateWindow(
                         t,t+step,key,prior_regime.regime,
                         prior_regime.efficiency_ratio,
@@ -144,4 +178,70 @@ def evaluate_trade_gate_train_holdout(windows:Sequence[GateWindow],
         holdout_predicted_trade_windows=len(adopted),
         warning=("Not a net backtest of going FLAT: exiting, re-entry, "
                  "funding and changed strategy state absent. Never use as LIVE.")
+    )
+
+
+def replay_trained_gate_holdout_v1(*,bars,costs,strategy_key:str,
+                                   timeframe:str,evaluation:GateEvaluation,
+                                   baseline=None):
+    """Freeze train-only actions, then replay BOTH models on the same bars.
+
+    The policy is entirely inactive before the held-out cutoff, ensuring
+    identical initial inventory/NAV. After cutoff a STOP closes on next open
+    with normal modeled spread, fees and delayed re-entry. Unknown evidence
+    is never interpreted as a positive GO signal.
+    """
+    from strategy_lab_v2_replay import replay_v3_strategy_v2
+
+    frozen={key:action for key,action,_,_ in evaluation.trained_actions}
+    cutoff=utc(evaluation.train_cutoff)
+
+    def paper_gate(closed,visible):
+        if closed<cutoff:
+            return True
+        category=gate_class_for_completed_bars_v1(visible,costs.spread_bps)
+        return category is not None and frozen.get(category)=="TRADE"
+
+    original=baseline or replay_v3_strategy_v2(
+        strategy_key=strategy_key,bars=bars,costs=costs,timeframe=timeframe)
+    gated=replay_v3_strategy_v2(
+        strategy_key=strategy_key,bars=bars,costs=costs,timeframe=timeframe,
+        paper_gate=paper_gate)
+    def at_cutoff(result):
+        return next((p for p in result.points if p.at==cutoff),None)
+    first_original=at_cutoff(original)
+    first_gated=at_cutoff(gated)
+    if first_original is None or first_gated is None:
+        raise ValueError("complete identical holdout cutoff is required")
+    if (abs(first_original.nav_nok-first_gated.nav_nok)>1e-7 or
+        abs(first_original.lots-first_gated.lots)>1e-9):
+        raise ValueError("PAPER gate changed baseline before holdout")
+    if not original.points or not gated.points or first_original.nav_nok<=0:
+        raise ValueError("valid positive PAPER NAV required")
+    if original.points[-1].at!=gated.points[-1].at:
+        raise ValueError("replays must cover identical source intervals")
+    pct=lambda result:100*(result.points[-1].nav_nok/first_original.nav_nok-1)
+    originals=tuple(e for e in original.events if e.at>=cutoff)
+    candidates=tuple(e for e in gated.events if e.at>=cutoff)
+    def holdout_drawdown(points):
+        peak=first_original.nav_nok
+        worst=0.
+        for point in points:
+            if point.at<cutoff:
+                continue
+            peak=max(peak,point.nav_nok)
+            worst=max(worst,100*(peak-point.nav_nok)/peak)
+        return worst
+    a,b=pct(original),pct(gated)
+    return GateFullReplayComparison(
+        cutoff=cutoff,baseline_holdout_pct=a,gated_holdout_pct=b,
+        gated_minus_baseline_pct=b-a,
+        baseline_orders=len(originals),gated_orders=len(candidates),
+        baseline_cost_nok=sum(e.cost_nok for e in originals),
+        gated_cost_nok=sum(e.cost_nok for e in candidates),
+        baseline_max_drawdown_pct=holdout_drawdown(original.points),
+        gated_max_drawdown_pct=holdout_drawdown(gated.points),
+        cost_source=costs.source,
+        warning=("PAPER next-open fills with scenario spread/fees; not Saxo "
+                 "fills or real net account performance. No LIVE promotion."),
     )

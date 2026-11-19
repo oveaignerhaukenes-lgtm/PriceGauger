@@ -11,6 +11,7 @@ from analysis_digest_v1 import render_summary
 
 from autotrader_v3_trade_gate_research_v1 import (
     build_causal_gate_windows,evaluate_trade_gate_train_holdout,
+    replay_trained_gate_holdout_v1,
 )
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from instrument_registry_v2 import list_subscribed_sources_v2
@@ -28,11 +29,10 @@ st.caption(
     "blir utprøvd kronologisk, med tidsmessig purge."
 )
 st.warning(
-    "Dette er IKKE en aktiv LIVE-guard. Det er ikke en AI-nevralsystem-"
-    "modell eller en full simulering av at man går FLAT! "
-    "Når strategien stopper eller starter på nytt, endres ordre og "
-    "spreadkostnader. Først må dette testes med full kontospesifikk "
-    "PAPER-ordreutførelse, konto-NAV og senere uavhengige uker."
+    "Dette er IKKE en aktiv LIVE-guard eller en AI-nevralsystem-modell. "
+    "En full simulering av STOP/FLAT modellerer neste 1m OPEN, "
+    "ordre og kostnader i PAPER, men er ikke faktisk Saxo-fill eller "
+    "avstemt kontoresultat. Uavhengige uker og LIVE-risikorammer gjenstår."
 )
 try:
     sources=tuple(x for x in list_subscribed_sources_v2(provider="saxo")
@@ -98,10 +98,21 @@ if st.button("Evaluer markedsformer på tidsadskilt data",type="primary"):
             bars=bars,points=replay.points,spread_bps=float(spread),
             start=start,end=end)
         result=evaluate_trade_gate_train_holdout(windows)
+        full_comparison=None
+        comparison_error=None
+        if result is not None:
+            try:
+                full_comparison=replay_trained_gate_holdout_v1(
+                    bars=bars,costs=costs,strategy_key=strategy,
+                    timeframe=timeframe,evaluation=result,baseline=replay)
+            except (ValueError,TypeError) as exc:
+                comparison_error=str(exc)[:180]
         st.session_state["tradegate:report"]={
             "key":(int(source.instrument_id),strategy,timeframe,hours,
                    spread,fees,point,fixed,lots,capital),
             "asof":now.isoformat(),"data":windows,"evaluation":result,
+            "full_comparison":full_comparison,
+            "comparison_error":comparison_error,
             "source":source.market_name,"uic":source.provider_instrument_id,
             "replay_trades":replay.trades,
             "replay_costs":replay.total_cost_nok,
@@ -181,17 +192,41 @@ if report:
                 "Tallene er **summerte**, ikke kompounderte 30m-avkastninger. "
                 "SKIP-vinduer som egentlig ga gevinst mister også "
                 f"{r.holdout_skipped_positive_sum_pct:+.2f} prosentpoeng i "
-                "denne PROXY-modellen. Ingen av tallene er avkastning fra "
-                "en implementert FLAT-strategi. Krever fullstendig PAPER "
-                "med faktiske exit/re-entry-kostnader før videre beslutninger."
+                "denne PROXY-modellen. Den inkluderer ikke endret "
+                "strategitilstand eller FLAT-kostnader; se tilstandsfull "
+                "PAPER A/B nedenfor før videre vurdering."
             )
+            st.subheader("Tilstandsfull STOP/KJØR · PAPER A/B")
+            st.caption(
+                "Samme komplette 1m-priser og kostnadsscenario. Kun "
+                "treningsperioden bestemmer stopp/kjør-reglene; i holdout "
+                "utløser STOP en modellert FLAT-ordre på neste 1m-åpning, "
+                "med spread og gebyrer. GO tillater basestrategien å handle igjen."
+            )
+            full=report.get("full_comparison")
+            if full is not None:
+                c1,c2,c3=st.columns(3)
+                c1.metric("Baseline · holdout PAPER %",f"{full.baseline_holdout_pct:+.2f}")
+                c2.metric("Stopp/kjør · holdout PAPER %",f"{full.gated_holdout_pct:+.2f}")
+                c3.metric("Forskjell · prosentpoeng",f"{full.gated_minus_baseline_pct:+.2f}")
+                st.caption(
+                    f"Fra {full.cutoff.isoformat()} UTC · ordre baseline/gate "
+                    f"{full.baseline_orders}/{full.gated_orders} · modellert "
+                    f"kostnad baseline/gate {full.baseline_cost_nok:.2f}/"
+                    f"{full.gated_cost_nok:.2f} NOK. {full.warning}"
+                )
+            else:
+                st.warning("Ingen full PAPER-sammenligning: "+
+                           str(report.get("comparison_error") or "utilstrekkelig datagrunnlag"))
         export={
             "schema":"V3_CAUSAL_TRADE_GATE_RESEARCH_V1",
             "source":report["source"],"uic":report["uic"],
             "strategy":strategy,"timeframe":timeframe,
             "asof_utc":report["asof"],"windows":[asdict(v) for v in rows],
             "holdout_evaluation":asdict(r) if r else None,
-            "notes":"Read-only research, incomplete FLAT-state model, no account impact.",
+            "full_paper_comparison":asdict(report["full_comparison"])
+                if report.get("full_comparison") else None,
+            "notes":"Read-only research. Thirty-minute skip totals are a proxy; full PAPER replay models FLAT and costs, never actual Saxo fills or account impact.",
         }
         st.download_button(
             "Eksporter form/utfall/holdout (JSON)",
