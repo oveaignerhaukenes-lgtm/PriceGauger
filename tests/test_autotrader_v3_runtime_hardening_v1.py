@@ -75,7 +75,10 @@ def test_account_scoped_response_may_omit_redundant_account_id():
 
 def test_live_runtime_uses_v3_exact_inventory_reader_not_v2_portfolio_reader():
     source=Path('autotrader_v3_live_runtime_v1.py').read_text()
-    assert 'broker.signed_inventory_exact(' in source
+    cache_source=Path('autotrader_v3_idle_saxo_cache_v1.py').read_text()
+    assert 'IDLE_SAXO_CACHE_V1.position(e,broker)' in source
+    assert 'broker.signed_inventory_exact(' in cache_source
+    assert 'IDLE_SAXO_CACHE_V1.verified_pre_submit(' in source
     assert '_position_observations_v2' not in source
 
 
