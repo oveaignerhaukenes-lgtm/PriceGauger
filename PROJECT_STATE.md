@@ -2,6 +2,13 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-20 · TECH100 four-channel market synthesis V1 (PAPER prototype)
+
+- **Isolated branch:** `research/tech100-four-channel-synthesis-20261119`. Four independently selectable signal families: macro regime, cross-market impulse, tech news and macro news; common expiry/horizon guards, transparent weighted cancellation and default FLAT on unavailable/unvalidated selected inputs. No free-standing probability or profit claim.
+- **Two intended V3 adapters:** (1) external context can veto *new technical strategy entries*, but never its exits; (2) a dedicated independent impulsive PAPER target carries deterministic ID, TTL and max holding-age contract. **Neither is wired to V3/Saxo, accounts or UI.** Existing arming, broker ownership and execution guards untouched. News processing makes no background AI calls.
+- **Data blocker:** existing `CrossMarketState` US2Y/10Y/30Y fields are explicit missing-feed placeholders; 1m Gold/Brent and independent timestamp/quality must be verified before claiming lag predictive. A simple chronology-purged ridge baseline is software-tested on synthetic samples only, not real market history. See `docs/TECH100_FOUR_CHANNEL_SYNTHESIS_V1.md`.
+- **Verification:** 12 targeted standard-library tests pass locally; full CI/PR and real source-aligned holdout still pending. No actual broker orders, P/L or Railway deployment in this scope. Next step is read-only exact-source research adapters and manual UI before any SHADOW/LIVE consideration.
+
 ## 2026-11-19 · V3 operator reset for documented legacy Saxo rate-limit rejects
 
 - **Cause:** Railway LIVE logs linked historical `UNKNOWN` order guards to explicit Saxo order-POST `HTTP 429 RateLimitExceeded`, not missing successful order IDs. Current `main` already marks *new* Saxo 429 submissions as `REJECTED`; historical UNKNOWN rows remain fail-closed to avoid inferred fills.
