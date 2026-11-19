@@ -541,12 +541,16 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     st.markdown('**Instans-recovery**')
     st.caption(
         'Kontroller V3-ordrelås og faktisk Saxo-posisjon uten å slette '
-        'ordre-/handelshistorikk. Kun gamle, verifisert usendte RESERVED '
-        'kan frigjøres; SUBMITTING, SUBMITTED og UNKNOWN forblir sperret. '
-        'Strategi, konto, budsjett og LIVE PÅ/AV beholdes.'
+        'ordre-/handelshistorikk. Gamle, verifisert usendte RESERVED og '
+        'dokumenterte Saxo HTTP 429 RateLimitExceeded kan frigjøres etter '
+        'fersk Saxo-kontroll. Andre UNKNOWN, SUBMITTING og SUBMITTED forblir '
+        'sperret. Strategi, konto, budsjett og LIVE PÅ/AV beholdes. '
+        'Reset lukker ALDRI en Saxo-posisjon.'
     )
     from autotrader_v3_order_guard_v1 import pending_order as pending_order_v3
-    from autotrader_v3_operator_order_recovery_v1 import OrderRecoveryDeniedV3
+    from autotrader_v3_operator_order_recovery_v1 import (
+        OrderRecoveryDeniedV3, documented_saxo_rate_limit_v3,
+    )
     from autotrader_v3_instance_reset_v1 import reset_instance_safely_v3
     recovery_pending=pending_order_v3(
         account_id=str(instance.account_id),
@@ -554,15 +558,23 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     )
     if recovery_pending:
         pending_state=str(recovery_pending.get('state') or 'UNKNOWN')
-        st.warning(
-            f'Uavklart ordrelås: {pending_state}. '
-            'Reset nekter alle mulige innsendte Saxo-ordrer.'
-        )
+        if documented_saxo_rate_limit_v3(recovery_pending):
+            st.warning(
+                'Saxo avviste ordre: HTTP 429 RateLimitExceeded. '
+                'Denne eldre avvisningen er lagret som UNKNOWN uten Saxo-ID. '
+                'Kontrollert reset kan frigjøre låsen dersom Saxo bekrefter '
+                'uendret posisjon og ingen aktive ordre.'
+            )
+        else:
+            st.warning(
+                f'Uavklart ordrelås: {pending_state}. '
+                'Reset nekter alle mulige innsendte Saxo-ordrer.'
+            )
     if st.button(
-        'Kontroller / reset fastlåst instans',
+        'Kontroller Saxo / frigi ordrelås',
         key=f'{key_prefix}:safe-reset:{trader_id}',width='stretch',
-        help='Bare dokumentert usendt RESERVED kan frigjøres. '
-             'Ingenting slettes hos Saxo; ingen ordre opprettes.',
+        help='Frigir bare dokumentert usendt RESERVED eller avvist Saxo 429 '
+             'etter verifisering. Ingen ordre sendes eller posisjoner lukkes.',
     ):
         try:
             outcome=reset_instance_safely_v3(instance_id=trader_id)

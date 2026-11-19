@@ -1,12 +1,14 @@
-"""One-click recovery of provably unsubmitted V3 RESERVED intents.
+"""Broker-verified operator recovery for provably unsubmitted V3 order intents.
 
-Fail closed for SUBMITTING, SUBMITTED and UNKNOWN: those may have reached Saxo.
-No broker POST, no deletion, no position changes and no implicit recovery.
+Only stale RESERVED or a documented Saxo HTTP 429 RateLimitExceeded rejection
+can be retired. Ambiguous UNKNOWN, SUBMITTING and SUBMITTED remain locked.
+No broker POST, deletion, position changes or implicit recovery.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from math import isfinite
+import re
 
 from database import connect
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
@@ -14,6 +16,21 @@ from autotrader_v3_order_guard_v1 import pending_order as pending_order_v3
 from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 
 MIN_STALE_SECONDS = 120
+
+
+def documented_saxo_rate_limit_v3(pending):
+    """Only a durable POST failure with Saxo's exact rate-limit response qualifies.
+
+    A generic HTTP 429, a timeout, or missing OrderId is insufficient.
+    """
+    if not isinstance(pending, dict) or pending.get("state") != "UNKNOWN" or pending.get("broker_order_id"):
+        return False
+    detail = str(pending.get("detail") or "")
+    return bool(
+        detail.startswith("SaxoError: REQUEST_FAILED")
+        and re.search(r"\bHTTP\s+429\s*:", detail)
+        and re.search(r"['\"]ErrorCode['\"]\s*:\s*['\"]RateLimitExceeded['\"]", detail)
+    )
 
 
 class OrderRecoveryDeniedV3(RuntimeError):
@@ -114,4 +131,71 @@ def recover_stale_reserved_v3(*, instance_id, request_key, db_path="pricegauger.
     return f"{instance.instance_id}: gammel RESERVED frigjort etter Saxo-verifikasjon. Ingen ordre sendt."
 
 
-__all__ = ["recover_stale_reserved_v3", "recovery_eligibility_v3", "OrderRecoveryDeniedV3"]
+def recover_documented_rate_limit_v3(*, instance_id, request_key, db_path="pricegauger.db", broker=None, now=None):
+    """Retire one legacy UNKNOWN only after a documented Saxo 429 + fresh reads.
+
+    No retry, broker POST, position changes, LIVE toggle or audit removal.
+    The DB CAS prevents a concurrent state change from being overwritten.
+    """
+    instances = tuple(i for i in load_v3_instances_v1(db_path=db_path) if i.instance_id == str(instance_id))
+    if len(instances) != 1:
+        raise OrderRecoveryDeniedV3("Finner ikke nøyaktig én V3-instans.")
+    instance = instances[0]
+    pending = pending_order_v3(
+        account_id=instance.account_id, uic=instance.uic,
+        asset_type=instance.asset_type, db_path=db_path,
+    )
+    if pending is None or pending.get("request_key") != str(request_key):
+        raise OrderRecoveryDeniedV3("Ordrelåsen er endret; oppdater status først.")
+    if not documented_saxo_rate_limit_v3(pending):
+        raise OrderRecoveryDeniedV3("Bare dokumentert Saxo HTTP 429 RateLimitExceeded kan frigjøres her.")
+    stamp = _timestamp(pending.get("updated_at"))
+    current = now or datetime.now(timezone.utc)
+    if stamp is None or (current.astimezone(timezone.utc) - stamp).total_seconds() < MIN_STALE_SECONDS:
+        raise OrderRecoveryDeniedV3("Avvisningen er for ny eller mangler sikkert tidsstempel.")
+    try:
+        qty = float(pending["submitted_amount"])
+        expected = float(pending["expected_inventory"])
+        side = str(pending["submitted_side"]).lower()
+        if side not in {"buy", "sell"} or not all(map(isfinite, (qty, expected))) or qty <= 0:
+            raise ValueError()
+        pre_order = expected - (qty if side == "buy" else -qty)
+    except (TypeError, ValueError, KeyError):
+        raise OrderRecoveryDeniedV3("Ordredata er ufullstendige; behold låsen.") from None
+    broker = broker if broker is not None else configured_live_pilot_client_v3()
+    if broker is None:
+        raise OrderRecoveryDeniedV3("Saxo LIVE er utilgjengelig; behold låsen.")
+    account_key, _ = broker._account_context_exact(instance.account_id)
+    actual = float(broker.signed_inventory_exact(
+        account_id=instance.account_id, uic=instance.uic, asset_type=instance.asset_type))
+    if not isfinite(actual) or abs(actual - pre_order) > 1e-8:
+        raise OrderRecoveryDeniedV3("Saxos posisjon er ikke lik posisjonen før avvist ordre.")
+    _assert_no_working_orders_v3(
+        broker, account_id=instance.account_id, account_key=account_key,
+        uic=instance.uic, asset_type=instance.asset_type,
+    )
+    actual2 = float(broker.signed_inventory_exact(
+        account_id=instance.account_id, uic=instance.uic, asset_type=instance.asset_type))
+    if not isfinite(actual2) or abs(actual2 - pre_order) > 1e-8:
+        raise OrderRecoveryDeniedV3("Saxo-posisjonen endret seg under kontrollen.")
+    with connect(db_path) as db:
+        cursor = db.execute("""UPDATE autotrader_v3_order_guard
+            SET state='REJECTED',
+                detail=detail || '; OPERATOR_RECOVERED_CONFIRMED_SAXO_RATE_LIMIT; exact inventory and active orders checked',
+                updated_at=CURRENT_TIMESTAMP
+            WHERE request_key=? AND trader_id=? AND account_id=? AND uic=? AND asset_type=?
+              AND state='UNKNOWN' AND broker_order_id IS NULL
+              AND detail=? AND updated_at=?""",
+            (str(request_key), instance.instance_id, instance.account_id, int(instance.uic),
+             instance.asset_type, pending["detail"], pending["updated_at"]))
+        if cursor.rowcount != 1:
+            raise OrderRecoveryDeniedV3("Ordrelåsen ble endret under kontrollen; ingen reset utført.")
+    return (f"{instance.instance_id}: dokumentert Saxo 429-avvisning frigjort etter "
+            "dobbel Saxo-posisjonssjekk og fullstendig kontroll av aktive ordre. "
+            "Ingen ordre sendt eller posisjon endret.")
+
+
+__all__ = [
+    "recover_stale_reserved_v3", "recover_documented_rate_limit_v3",
+    "documented_saxo_rate_limit_v3", "recovery_eligibility_v3", "OrderRecoveryDeniedV3",
+]

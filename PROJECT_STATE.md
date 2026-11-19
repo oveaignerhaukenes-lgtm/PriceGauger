@@ -2,6 +2,13 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · V3 operator reset for documented legacy Saxo rate-limit rejects
+
+- **Cause:** Railway LIVE logs linked historical `UNKNOWN` order guards to explicit Saxo order-POST `HTTP 429 RateLimitExceeded`, not missing successful order IDs. Current `main` already marks *new* Saxo 429 submissions as `REJECTED`; historical UNKNOWN rows remain fail-closed to avoid inferred fills.
+- **Change:** Manual V3 `Kontroller Saxo / frigi ordrelås` recognizes only historical `UNKNOWN` with exact durable `SaxoError: REQUEST_FAILED · HTTP 429: {'ErrorCode': 'RateLimitExceeded'}` and no broker order ID; requires stale age, matching pre-order exact Saxo inventory twice, exhaustive uncapped same-account working-order check, and CAS against exact old guard detail/time to retire as `REJECTED` with preserved audit. All other UNKNOWN, SUBMITTING, SUBMITTED, missing/changed Saxo state remain blocked. UI renders actual `HTTP 429 RateLimitExceeded` rather than generic UNKNOWN for this proven case.
+- **Boundary:** Operator-only, no auto-retry, broker POST, position closing, account or strategy changes, LIVE arming changes or DB history deletion. A separate "close positions" operation must use a guarded, explicit Saxo closing order tied to position identity; **not** a side effect of reset.
+- **Evidence:** Focused regression 39/39 pass; full local pytest **3258 passed**, 10 subtests, 99 existing warnings (2026-11-19). PR/CI/Railway deploy and actual operator click/broker-confirmed reset pending. No account unlocked merely by merging code.
+
 ## 2026-11-19 · PAPER production-test: kanoniske ISO-tidsstempler
 
 - Etter #871, grønn CI og alle fem `SUCCESS` i Railway var den manuelle historiske testen synlig i produksjon. Første kjøring feilet trygt med `AttributeError: 'str' object has no attribute 'tzinfo'`: kanonisk PostgreSQL `CanonicalMarketBarV2.bar_time` er ISO-8601-streng, mens de opprinnelige ni enhetstestene brukte `datetime`. `fix/v3-profit-paper-canonical-timestamp-20261119` oppdaterer bare den nye PAPER-komparatorens klokkeparser og legger til regresjon for faktiske kanoniske `+00:00`/`Z`-strenger. Ingen LIVE-motor, Saxo-kall eller ordre berøres. Kjør UI-testen igjen på produksjons-DB etter CI og deploy før noen resultatkonklusjon.
