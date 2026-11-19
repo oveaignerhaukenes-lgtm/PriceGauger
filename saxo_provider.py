@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import pandas as pd
 import requests
+import time
 
 from market_data import MarketProvider, MarketRequest
 
@@ -103,11 +104,13 @@ class SaxoClient:
         for attempt in range(2):
             self._set_authorization(force_refresh=attempt == 1)
             try:
+                request_started = time.perf_counter()
                 response = self.session.get(url, params=params, timeout=self.timeout)
                 if self.base_url.lower() == LIVE_BASE_URL.lower():
                     from saxo_rest_telemetry_v1 import record_saxo_http_v1
                     record_saxo_http_v1("GET", path, response.status_code,
-                                        headers=getattr(response, "headers", None))
+                                        headers=getattr(response, "headers", None),
+                                        latency_seconds=time.perf_counter()-request_started)
             except requests.Timeout as exc:
                 raise SaxoError(f"tidsavbrudd etter {self.timeout:g} sekunder", status="TIMEOUT") from exc
             except requests.ConnectionError as exc:
