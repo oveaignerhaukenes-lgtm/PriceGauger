@@ -19,8 +19,10 @@ from autotrader_saxo_strategy_timeline_v1 import observed_live_nav_windows_v1
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from instrument_registry_v2 import list_subscribed_sources_v2
 from strategy_lab_v2_replay import (
-    ReplayCostsV2,replay_v3_strategy_v2,MAX_BARS,
+    ReplayCostsV2,replay_v3_strategy_v2,MAX_BARS,PURE_V3,
 )
+from autotrader_v3_registry_v1 import STRATEGIES_V3
+from autotrader_v3_profit_protection_paper_v1 import compare_exit_protection_v1
 from autotrader_v3_session_loss_lab_v1 import (
     OSLO,utc,current_oslo_session,oslo_session_start,
     account_session_result,summarize_fleet_sessions,
@@ -93,6 +95,97 @@ max_lots=c2.number_input("Maksimal PAPER-posisjon, lot",min_value=.01,
                          value=.03,step=.01,format="%.2f")
 nav=c3.number_input("PAPER-startkapital (NOK)",min_value=100.,
                     value=10000.,step=1000.)
+
+with st.expander('PAPER · Sikring av regimegevinst (25/50/75 %)',expanded=False):
+    st.caption(
+        'Kun allerede lagrede, fullførte Saxo 1m-barer. Identiske '
+        'regime-short-innganger, ett 0,01-lot steg, neste 1m-åpning '
+        'som hypotetisk exit. Spread/ordrekost trekkes fra. '
+        'Etter tidlig exit tillates ingen ny inngang før uendret '
+        'grunnstrategi ville åpnet neste handel. Ingen intrabar-stop, '
+        'faktiske fills eller dokumentert LIVE-forbedring.'
+    )
+    short_candidates=tuple(x for x in STRATEGIES_V3
+                           if x.key in PURE_V3 and 'short-flat' in x.key)
+    preferred=next((i for i,x in enumerate(short_candidates)
+                    if x.key.endswith('r-short-flat-v3')),0)
+    short_choice=st.selectbox('Regime-short strategi',short_candidates,
+                              index=preferred,
+                              format_func=lambda x:x.label) if short_candidates else None
+    g1,g2=st.columns(2)
+    guard_activation=g1.number_input(
+        'Minste toppgevinst, ganger rundturkostnad',
+        min_value=1.,max_value=10.,value=2.,step=.5)
+    guard_atr=g2.number_input(
+        'Tidlig feilinngang: ATR(14)-multiplikator',
+        min_value=.25,max_value=5.,value=1.5,step=.25)
+    guard_parameters=(str(day),int(source.instrument_id) if source else None,
+        short_choice.key if short_choice else None,float(per_point),float(spread),
+        float(variable),float(fixed),float(nav),float(guard_activation),
+        float(guard_atr))
+    if st.button('Test regimeutganger på Saxo-historikk',
+                 disabled=(source is None or short_choice is None)):
+        try:
+            actual_bars=CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(source.instrument_id),
+                start=start-timedelta(hours=14),end=finish,
+                limit=MAX_BARS+1)
+            if len(actual_bars)>MAX_BARS:
+                raise ValueError('Mer enn 3000 barer: begrens datovinduet')
+            paper_costs=ReplayCostsV2(
+                point_value_nok=float(per_point),spread_bps=float(spread),
+                variable_fee_bps=float(variable),fixed_fee_nok=float(fixed),
+                lot_step=.01,max_lots=.01,starting_nav_nok=float(nav),
+                source='MANUELL_PAPER_KOST_INGEN_SAXO_FILL',
+            )
+            baseline=replay_v3_strategy_v2(
+                strategy_key=short_choice.key,bars=actual_bars,
+                costs=paper_costs,timeframe='1m',
+                regime_timeframe='10m',exit_timeframe='2m')
+            trials=compare_exit_protection_v1(
+                replay=baseline,bars=actual_bars,costs=paper_costs,
+                min_peak_cost_multiple=float(guard_activation),
+                adverse_atr_multiple=float(guard_atr),
+                window_start=start,window_end=finish)
+            st.session_state['losslab:guard_research']={
+                'trials':[asdict(t) for t in trials],
+                'market':str(source.market_name),
+                'strategy':str(short_choice.label),
+                'bars':len(actual_bars),
+                'updated':clock.isoformat(),
+                'cost_source':paper_costs.source,
+                'parameters':guard_parameters,
+            }
+        except Exception as exc:
+            st.session_state.pop('losslab:guard_research',None)
+            st.error('PAPER-test feilet uten LIVE-endring: '+type(exc).__name__+': '+str(exc)[:150])
+    report=st.session_state.get('losslab:guard_research')
+    if report and report.get('parameters')!=guard_parameters:
+        st.info('Parametre, dato eller instrument er endret. Kjør PAPER-testen på nytt.')
+    elif report:
+        st.caption(f"{report['market']} · {report['strategy']} · "
+                   f"{report['bars']} 1m-barer · Kostnader: {report['cost_source']}")
+        st.dataframe(pd.DataFrame(report['trials']).rename(columns={
+            'label':'Regel','episodes':'Fullførte enkle handler',
+            'protective_exits':'Tidlige utganger','profit_exits':'Gevinstsikring',
+            'adverse_exits':'Feilinngangsstopp',
+            'baseline_net_nok':'Basis netto (NOK)',
+            'scenario_net_nok':'Scenario netto (NOK)',
+            'difference_nok':'Forskjell (NOK)',
+            'improved_episodes':'Bedre handler',
+            'worsened_episodes':'Dårligere handler',
+            'complex_episodes_excluded':'Utelatt bygg/reduksjon',
+            'incomplete_episodes_excluded':'Utelatt åpne handler',
+        }),hide_index=True,use_container_width=True)
+        if not report['trials'][0]['episodes']:
+            st.info('Ingen fullførte, entydige enkelttranche-handler i dette vinduet. '
+                    'Ingen relative avkastningskonklusjoner kan trekkes.')
+        st.warning(
+            'Retrospektiv hypotese-screen: enkle, ferdig lukkede PAPER-handler. '
+            'Andre re-entry-signaler etter stop, faktisk Saxo-filltid, '
+            'intrabarlys og glidning er IKKE verifisert. '
+            'Ikke sammenlign tallene som bevis for lønnsom LIVE-handel.'
+        )
 
 if st.button("Analyser tapsdagen og test strategier",type="primary"):
     try:

@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-19 · Regime-short: 25/50/75 % beskyttelse i PAPER-forskning
+
+- **Branch:** `research/v3-regime-profit-protection-paper-20261119`. Utvider eksisterende manuelle `AutoTrader · Taps- og regimelab` med én read-only knapp for eksakte historiske, fullførte Saxo-Tech100 1m-barer og samme V3 pure SHORT-regimesignal. Baseline mot ATR-only og 25/50/75 % tillatt tilbakegang fra høyste *netto* observerte åpne gevinst, aktivert først etter minst 2× anslått rundturkostnad; tidlig feilinngangsstopp ved minst 1,5× historisk, fullført ATR(14) og 2× spread-bevegelse. Bruker konfigurert scenariopunktverdi/spread/avgift, aldri antar at dette er faktisk Saxo-fill/nettoresultat.
+- **Kausalitet:** Kun sluttkurs for fullført 1m-bar utløser PAPER stop, neste tilgjengelige **1m OPEN** brukes som hypotetisk fill; ingen intrabar high/low som gratis exit eller over-markedsgap. Teller bare entydige, fullførte ett-tranche-episoder; endret volum og fortsatt åpne handler utelates tydelig. Ingen ny inngang etter beskyttelsesutgang før den *uendrede* basisstrategien ville åpnet en ny handel. Dette er en isolert exit-counterfactual, **ikke** en full endogen strategi-replay med nye signaler, faktisk Saxo-slippage, latency eller garantert profitt. Kost- og periodenøkkel er synlig i UI.
+- **Ingen LIVE-endring:** Ingen endring i worker, ordrelogikk, P/L-modifikatorer, kontoarming, strategier, Saxo GET/POST eller markedstrøm. Ingen virkelige historiske resultater kan beregnes lokalt (produksjonsdatabasen er ikke montert i arbeidskopien); manuell kjøring mot PG sin eksisterende Railway PostgreSQL behøves for tall. Rene syntetiske unittest dekker både gevinstavståelse, initial ATR-stop, next-open-timing, manglende ATR, ingen re-entry, utelatte bygg og avviste input. GitHub CI/deploy verifiseres separat.
+
 ## 2026-11-19 · V3 LIVE: 60s Saxo beholdning/konto i rolige sykluser
 
 - **Operatørbeslutning:** Idle-kontroll av eksakt Saxo-konto og nettoposisjon høyst hvert 60. sekund per worker/prosess, med samsvarende kontoidentitet gjenbrukt mellom samtidige V3-sesjoner. Endringen gjøres i `autotrader_v3_idle_saxo_cache_v1.py` og `autotrader_v3_live_runtime_v1.py` på `fix/v3-idle-saxo-poll-60s-20261119`; ingen strategi, instans, størrelse eller LIVE-arming byttes.
