@@ -1,8 +1,8 @@
 """Safe, single-instance V3 reset: reconcile broker truth, never clear a live order.
 
-The only state mutation is a CAS retire of an old, provably unsubmitted
-RESERVED intent through the established operator recovery path. SUBMITTING,
-SUBMITTED, UNKNOWN and broker-working orders are never silently discarded.
+The only state mutation is an audited CAS retirement of provably unsubmitted
+RESERVED or a documented, broker-verified Saxo 429 RateLimitExceeded. Other
+UNKNOWN, SUBMITTING, SUBMITTED and broker-working orders stay locked.
 An already clean instance needs no reset: the worker resumes its existing
 strategy/config on the next eligible closed bar.
 """
@@ -17,6 +17,8 @@ from autotrader_v3_live_saxo_v1 import configured_live_pilot_client_v3
 from autotrader_v3_operator_order_recovery_v1 import (
     OrderRecoveryDeniedV3,
     _assert_no_working_orders_v3,
+    documented_saxo_rate_limit_v3,
+    recover_documented_rate_limit_v3,
     recover_stale_reserved_v3,
 )
 
@@ -31,7 +33,7 @@ def reset_instance_safely_v3(
     *, instance_id: str, db_path: str = "pricegauger.db",
     broker=None, now=None,
 ) -> InstanceResetResultV3:
-    """Check one exact account/product boundary and recover only safe RESERVED.
+    """Check one exact account/product boundary and recover only verified rejects.
 
     No broker POST, no position cancellation/closing, no config changes,
     no authority ON/OFF toggle, no signal cursor reset, and no audit deletion.
@@ -47,6 +49,16 @@ def reset_instance_safely_v3(
         db_path=db_path,
     )
     if pending is not None:
+        if documented_saxo_rate_limit_v3(pending):
+            result = recover_documented_rate_limit_v3(
+                instance_id=e.instance_id, request_key=pending["request_key"],
+                db_path=db_path, broker=broker, now=now,
+            )
+            return InstanceResetResultV3(
+                "RATE_LIMIT_RECOVERED",
+                result + " LIVE-tilstand og strategikonfigurasjon er bevart. "
+                         "Neste nye beslutning kan vurderes av workeren.",
+            )
         # No UNKNOWN/SUBMITTING/SUBMITTED retry. Another order could still
         # execute; clearing it creates a double-order risk.
         if pending.get("state") != "RESERVED" or pending.get("broker_order_id"):
