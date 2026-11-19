@@ -1,6 +1,6 @@
 # TECH100 four-channel synthesis V1 — research boundary
 
-**State: source-only PAPER prototype, not integrated with V3 runtime, account controls, Saxo or LIVE.** All predictions require real historical evaluation before using a position.
+**State: manual, read-only data adapter and PAPER prototype, not integrated with V3 runtime, account controls, Saxo order APIs or LIVE.** All predictions require real historical evaluation before using a position.
 
 ## Four independent selectable modules
 
@@ -21,10 +21,11 @@ The same source change can feed context and impulse research, but their *actual 
 ## Existing source reality and safe next gates
 
 1. Existing `CrossMarketState` explicitly substitutes MISSING for US2Y/US10Y/US30Y when no verified intraday yield feed is configured. Do **not** reinterpret Treasury futures prices as yields. The official U.S. Treasury constant-maturity series is daily, not a seconds/minutes shock feed; verify licensed, actually received data and quote-age per instrument.
-2. PriceGauger has canonical 1-minute subscribed Saxo bars and an event-driven Tech100 BBO recorder; real **Gold/Brent tick receipt quality** and historic yield availability must be checked before a sub-minute model can claim a lead. Do not interpolate absent instruments or permit late-arriving news to leak into earlier decisions.
-3. News input consists of pre-classified `AssessedNewsItem` records with distinct received/published times. Integration with existing GDELT/Telegram/news stores and a directional impact scorer **is not yet implemented**. Keyword routing alone emits no trade signal. User-requested background AI OFF remains unchanged; future AI scoring must be a separately approved opt-in/manual action.
-4. Current cross-market ridge estimator uses chronological 70/30 holdout with purged training outcomes. Synthetic unit tests confirm its mathematical behavior but **do not establish market predictiveness**. Need multiple unseen time blocks, cost/latency-aware event return distributions, baseline comparison and conditional tests (growth vs inflation vs fear) before promoting any learned weight.
-5. Evaluate 5m impulse and 60m+ regime separately; choose future horizons and thresholds based on recorded coverage and economic impact. A 0.04% quoted spread is small for a 1% move but material against a 0.1% move. Include observed spread, slippage and real completion latency in every PAPER comparison.
+2. **Read-only canonical 1-minute Saxo bar adapter now exists:** manually select exact subscribed Tech100 UIC `4912`, Gold and Brent identities. Only completed, quality-flagged real-time, gap-free same-minute bars are eligible; this is **not** exchange-side delay certification. The manual UI displays actual lookback returns, not a predicted Tech100 return. Real **Gold/Brent quote latency/receipt quality** and historic yield availability must still be checked before a sub-minute lead claim. No interpolation.
+3. **Read-only news/archive adapters now exist:** archived Telegram raw posts (where deployed) and optional legacy SQLite GDELT candidates are topic-routed into TECH/MACRO via the *later of* publication and actual recorded arrival. They are **not** signed, independently validated market-impact assessments and emit no trade signals. The GDELT SQLite file/table may not exist in production; the UI shows it unavailable, not an empty verified news feed. User-requested background AI OFF remains unchanged.
+4. **Read-only CrossMarket snapshot lookup exists:** US2Y/US10Y/US30Y remain MISSING when no properly sourced data is present; even available 15-minute yield windows are explicitly marked `15M_ONLY` and are insufficient for the sub-minute impulse module. The adapter does not initialize the CrossMarket store or create a table.
+5. Current cross-market ridge estimator uses chronological 70/30 holdout with purged training outcomes. Synthetic unit tests confirm its mathematical behavior but **do not establish market predictiveness**. Need multiple unseen time blocks, cost/latency-aware event return distributions, baseline comparison and conditional tests (growth vs inflation vs fear) before promoting any learned weight.
+6. Evaluate 5m impulse and 60m+ regime separately; choose future horizons and thresholds based on recorded coverage and economic impact. A 0.04% quoted spread is small for a 1% move but material against a 0.1% move. Include observed spread, slippage and real completion latency in every PAPER comparison.
 
 ## Files and verified boundaries
 
@@ -33,5 +34,8 @@ The same source change can feed context and impulse research, but their *actual 
 - `tech100_news_channels_v1.py`: TECH and MACRO news topic separation and vetted signed-news aggregation; no model/API calls.
 - `tech100_synthesis_routing_v1.py`: optional existing-strategy context gate vs dedicated impulse PAPER intent; no V3 authority.
 - `tests/test_tech100_four_channel_synthesis_v1.py`: synthetic/no-lookahead/freshness/route safety checks.
+- `tech100_synthesis_data_v1.py`: existing subscribed Saxo canonical bars, as-of CrossMarket state and received Telegram/GDELT archive candidates; only read calls.
+- `pages/0_Tech100_Syntese.py`: manual selectable four-module data status, instrument picker, headline candidate inspection and **FLAT/INSUFFICIENT_EVIDENCE** outcome without forecast signals.
+- `tests/test_tech100_synthesis_data_v1.py`: exact UIC, completion/quality, gap, delay/future, as-of snapshots, read-only archives and news boundary checks.
 
-No production data read, DB migrations, Streamlit route, Railway deployment, Saxo API request, live account switch or order in this PR. Next implementation increment: verified exact-source data adapters and a manual synthesis research page with separate channel outcomes; after that replay and shadow controls, and only with later explicit approval a guarded LIVE V3 integration.
+No production data was successfully inspected from this development container, no DB migrations, Railway deployment, Saxo REST/stream API request, account change or order was performed in this PR. Opening the manual research page against the actual deployed database is the next evidence check; then acquire real yield feeds, verify Gold/Brent delay status, train/replay and shadow the four channels. Only with later explicit approval could a guarded LIVE V3 integration be considered.
