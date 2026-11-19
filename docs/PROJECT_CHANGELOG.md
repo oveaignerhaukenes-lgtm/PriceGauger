@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `dfd3f2abe0cc2660131fad8f35ead81f07a05021`
+Latest tracked main commit: `1cae540e2713a1f3961ada7baeba29ab820f9de3`
 
 ## Recent main commits
 
+- 2026-11-19 [`1cae540e27`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1cae540e2713a1f3961ada7baeba29ab820f9de3) — Research: impulse strength and clusters to later price paths (#867)
 - 2026-11-19 [`dfd3f2abe0`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/dfd3f2abe0cc2660131fad8f35ead81f07a05021) — Markedsfilter: egen menyside med modulstrøm, status og statistikk (#866)
 - 2026-11-19 [`4349c587b7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4349c587b7bcf9682f8109d9cb24c197ad3a2931) — feat: show observed Saxo REST calls and rate-limit quotas (#865)
 - 2026-11-19 [`f5c3a36196`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f5c3a3619607733123b888e7431c7eeaf406e8bb) — feat(v3): guarded strategy STOP GO and causal state observer (#864)
@@ -46,6 +47,5 @@ Latest tracked main commit: `dfd3f2abe0cc2660131fad8f35ead81f07a05021`
 - 2026-11-02 [`4c7cd5a747`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4c7cd5a7473cef5b3ecb2cd8a91aa93105f5f188) — test: Saxo account names, calibrated lots, top AI evidence guards
 - 2026-11-02 [`da15fc0799`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/da15fc0799f8dda129cd22f9922dd13e77bb310a) — test: expected renamed Algolabb menu
 - 2026-11-02 [`c88485ff43`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/c88485ff430104c33b5c0c330476091e2659961c) — feat: AI observations at top of cycle research
-- 2026-11-02 [`7c02275c9d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7c02275c9d674a2cf58996b0df3daf35be19eae8) — feat: AI digest at top of Tech100 second impulse research
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
