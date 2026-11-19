@@ -18,7 +18,9 @@ from saxo_provider import (
     latest_gold_silver_ratio,
 )
 from saxo_rest_quota_dashboard_v1 import (
+    load_saxo_rest_call_origins_v1,
     load_saxo_rest_usage_v1,
+    summarize_saxo_rest_call_origins_v1,
     summarize_saxo_rest_usage_v1,
 )
 
@@ -149,6 +151,44 @@ else:
         "Ingen lagrede LIVE-REST-kall i perioden ennå. "
         "Tellere vises når worker har rapportert og sideprosessen kan lese felles database."
     )
+
+st.markdown("**Hvilke moduler utløser API-kallene?**")
+try:
+    origins = summarize_saxo_rest_call_origins_v1(
+        load_saxo_rest_call_origins_v1(minutes=period))
+except Exception as exc:
+    st.warning(f"Kunne ikke lese kildemålingene: {type(exc).__name__}.")
+    origins = summarize_saxo_rest_call_origins_v1(())
+if origins["sources"]:
+    source_labels = {
+        "autotrader_v3_live_saxo_v1": "AutoTrader V3 · Saxo LIVE",
+        "telegram_multi_worker": "Worker · kontosannhet / kontroll",
+        "saxo_trading": "Saxo-ordre · øvrige klienter",
+        "saxo_streaming": "Saxo streaming · kontroll",
+    }
+    st.dataframe([
+        {
+            "Kilde": source_labels.get(row["source_module"],row["source_module"]),
+            "Modul": row["source_module"],
+            "REST-kall": row["calls"], "HTTP 429": row["http429"],
+            "Andel målt (%)": round(100*row["calls"]/origins["total"],1),
+        }
+        for row in origins["sources"]
+    ],hide_index=True,use_container_width=True)
+    with st.expander("Kildemodul × endepunkt"):
+        st.dataframe([
+            {"Modul":row["source_module"],"Metode":row["method"],
+             "Endepunkt":row["endpoint"],"Kall":row["calls"],"429":row["http429"]}
+            for row in origins["routes"]
+        ],hide_index=True,use_container_width=True)
+    st.caption(
+        "Kilden spores automatisk fra modulen som kalte HTTP-klienten. "
+        "Måler bare instrumenterte REST-kall i prosesser som lagrer tellere; "
+        "viser ikke en full Saxo-konto/app-kvote på tvers av tjenester. "
+        "Ingen kontonøkler, URL-parametere eller token lagres."
+    )
+else:
+    st.caption("Ingen kildemerket historikk ennå. Nye vinduer vises etter worker-utrulling.")
 
 st.markdown("**Saxos kvoteheadere · siste observerte svar**")
 quota_labels = {

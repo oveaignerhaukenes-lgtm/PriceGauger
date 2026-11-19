@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import logging
 import math
 import re
+import sys
 import threading
 import time
 
@@ -19,6 +20,8 @@ _LOCK = threading.Lock()
 _STARTED = time.monotonic()
 _COUNTS: Counter[tuple[str, str]] = Counter()
 _RATE_LIMITED: Counter[tuple[str, str]] = Counter()
+_ORIGIN_COUNTS: Counter[tuple[str, str, str]] = Counter()
+_ORIGIN_RATE_LIMITED: Counter[tuple[str, str, str]] = Counter()
 _RATE_REMAINING: dict[tuple[str, str], str] = {}
 _LATENCY_SECONDS: dict[tuple[str, str], list[float]] = {}
 _QUOTA_HEADERS: dict[tuple[str, str], dict[str, dict[str, int]]] = {}
@@ -26,6 +29,29 @@ _OUTBOX: deque[dict] = deque(maxlen=1000)
 _RATE_HEADER = re.compile(r"^x-ratelimit-([a-z0-9]+)-(limit|remaining|reset)$",re.I)
 _MAX_LATENCY_SAMPLES_PER_ENDPOINT = 300
 REPORT_SECONDS = 60.0
+_SAFE_MODULE_NAME = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]{0,79}$")
+
+
+def saxorest_origin_module_v1() -> str:
+    """Attribute a response to a local caller, without logging URLs or secrets.
+
+    A bounded frame walk costs no Saxo requests and works across shared
+    SaxoClient GET and V3 adapter POST calls. It records only a validated
+    Python module identifier; never arguments, file paths or stack traces.
+    """
+    try:
+        frame = sys._getframe(2)
+    except ValueError:
+        return "unknown"
+    for _ in range(16):
+        if frame is None:
+            break
+        module = str(frame.f_globals.get("__name__") or "")
+        if module not in {"saxo_rest_telemetry_v1", "saxo_provider"}:
+            if _SAFE_MODULE_NAME.fullmatch(module):
+                return module
+        frame = frame.f_back
+    return "unknown"
 
 
 def normalized_saxo_endpoint_v1(path: str) -> str:
@@ -42,11 +68,17 @@ def normalized_saxo_endpoint_v1(path: str) -> str:
 def record_saxo_http_v1(
     method: str, path: str, status_code: int, *, headers=None,
     now: float | None = None, latency_seconds: float | None = None,
+    source_module: str | None = None,
 ) -> None:
     """Report aggregate per-endpoint HTTP usage at most once per minute."""
     global _STARTED
     when = time.monotonic() if now is None else float(now)
     key = (str(method).upper(), normalized_saxo_endpoint_v1(path))
+    source = (str(source_module) if source_module is not None
+              else saxorest_origin_module_v1())
+    if not _SAFE_MODULE_NAME.fullmatch(source):
+        source = "unknown"
+    origin_key = (source, *key)
     remaining = None
     quota_headers: dict[str, dict[str, int]] = {}
     if headers:
@@ -68,6 +100,7 @@ def record_saxo_http_v1(
             quota_headers={}
     with _LOCK:
         _COUNTS[key] += 1
+        _ORIGIN_COUNTS[origin_key] += 1
         if latency_seconds is not None:
             try:
                 duration = float(latency_seconds)
@@ -79,6 +112,7 @@ def record_saxo_http_v1(
                 pass
         if int(status_code) == 429:
             _RATE_LIMITED[key] += 1
+            _ORIGIN_RATE_LIMITED[origin_key] += 1
         if remaining is not None:
             _RATE_REMAINING[key] = str(remaining)[:30]
         if quota_headers:
@@ -88,6 +122,12 @@ def record_saxo_http_v1(
         if when - _STARTED < REPORT_SECONDS:
             return
         window_end=datetime.now(timezone.utc).isoformat()
+        origins_by_endpoint: dict[tuple[str,str],list[dict]] = {}
+        for (source_name,method_name,endpoint_name),count in sorted(_ORIGIN_COUNTS.items()):
+            origins_by_endpoint.setdefault((method_name,endpoint_name),[]).append({
+                'source_module':source_name,'call_count':int(count),
+                'http429_count':int(_ORIGIN_RATE_LIMITED[(source_name,method_name,endpoint_name)]),
+            })
         parts = []
         for (verb, endpoint), count in sorted(_COUNTS.items()):
             misses = _RATE_LIMITED[(verb, endpoint)]
@@ -95,6 +135,7 @@ def record_saxo_http_v1(
                 'window_ended_at':window_end,
                 'method':verb,'endpoint':endpoint,
                 'call_count':int(count),'http429_count':int(misses),
+                'origins':tuple(origins_by_endpoint.get((verb,endpoint),())),
                 'quota':{dim:dict(metrics) for dim,metrics in
                          _QUOTA_HEADERS.get((verb,endpoint),{}).items()},
             })
@@ -116,6 +157,8 @@ def record_saxo_http_v1(
         LOGGER.info("Saxo LIVE REST usage 60s %s", " ".join(parts))
         _COUNTS.clear()
         _RATE_LIMITED.clear()
+        _ORIGIN_COUNTS.clear()
+        _ORIGIN_RATE_LIMITED.clear()
         _RATE_REMAINING.clear()
         _LATENCY_SECONDS.clear()
         _QUOTA_HEADERS.clear()

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any
 
 import requests
 
-from saxo_provider import SIM_BASE_URL, SaxoClient, SaxoError, SaxoInstrument, configured_client
+from saxo_provider import LIVE_BASE_URL, SIM_BASE_URL, SaxoClient, SaxoError, SaxoInstrument, configured_client
 
 
 class SaxoTradingSafetyError(RuntimeError):
@@ -136,7 +137,17 @@ class SaxoTradingClient:
         for attempt in range(2):
             self.client._set_authorization(force_refresh=attempt == 1)
             try:
+                started=time.perf_counter()
                 response = self.client.session.post(url, json=payload, timeout=self.client.timeout)
+                if self.client.base_url.rstrip('/').lower()==LIVE_BASE_URL.lower():
+                    try:
+                        from saxo_rest_telemetry_v1 import record_saxo_http_v1
+                        record_saxo_http_v1('POST',path,response.status_code,
+                            headers=getattr(response,'headers',None),
+                            latency_seconds=time.perf_counter()-started)
+                    except Exception:
+                        # Telemetry must never alter the outcome of a broker POST.
+                        pass
             except requests.Timeout as exc:
                 raise SaxoError(
                     f"tidsavbrudd etter {self.client.timeout:g} sekunder",
