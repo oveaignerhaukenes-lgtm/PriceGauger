@@ -16,7 +16,7 @@ from statistics import median
 from typing import Mapping, Sequence
 
 from autotrader_v3_domain import TargetInventoryV3
-from database import connect
+from database import connect,run_postgres_schema_once_v1
 
 IMPULSE_LOOKBACK_S = 80
 IMPULSE_WINDOW_S = 10
@@ -68,12 +68,17 @@ class ProtectiveModifierV3:
 
 
 def ensure_risk_schema_v3(db_path="pricegauger.db"):
-    with connect(db_path) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_protective_state(
-            trader_id TEXT NOT NULL, modifier_key TEXT NOT NULL,
-            context TEXT NOT NULL, status TEXT NOT NULL, since_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL, quiet_since TEXT, reference_value DOUBLE PRECISION,
-            peak_value DOUBLE PRECISION, PRIMARY KEY(trader_id,modifier_key))""")
+    # Both LIVE protective modifiers call _load on every account cycle.  The
+    # shared helper initializes PostgreSQL once per process/DB identity, under
+    # a lock and only after commit; SQLite still initializes each local file.
+    def initialize():
+        with connect(db_path) as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS autotrader_v3_protective_state(
+                trader_id TEXT NOT NULL, modifier_key TEXT NOT NULL,
+                context TEXT NOT NULL, status TEXT NOT NULL, since_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL, quiet_since TEXT, reference_value DOUBLE PRECISION,
+                peak_value DOUBLE PRECISION, PRIMARY KEY(trader_id,modifier_key))""")
+    run_postgres_schema_once_v1("v3_protective_state",initialize)
 
 
 def _load(trader_id,key,db_path):

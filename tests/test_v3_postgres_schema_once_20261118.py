@@ -9,6 +9,7 @@ import pytest
 import database
 import autotrader_v3_closed_bar_driver_v1 as closed
 import autotrader_v3_live_runtime_v1 as live
+import autotrader_v3_protective_live_v1 as protective
 
 
 def _pg(monkeypatch, name="schema-test"):
@@ -101,6 +102,31 @@ def test_runtime_status_ddl_once_but_live_updates_never_skipped(monkeypatch):
     live._record_runtime("trader","MANAGING","two")
     assert len([q for q in queries if "CREATE TABLE IF NOT EXISTS" in q])==1
     assert len([q for q in queries if "INSERT INTO autotrader_v3_live_runtime_state" in q])==2
+
+
+def test_protective_schema_once_across_concurrent_accounts_and_modifiers(monkeypatch):
+    _pg(monkeypatch,"schema-protective-concurrent")
+    queries=[]
+    monkeypatch.setattr(protective,"connect",lambda *_:FakeDB(queries))
+
+    def evaluate(index):
+        key="impulse-exit" if index % 2 else "account-loss-lock"
+        protective._load(f"trader-{index}",key,"ignored.pg")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(evaluate,range(24)))
+
+    assert len([q for q in queries if "CREATE TABLE IF NOT EXISTS autotrader_v3_protective_state" in q])==1
+    assert len([q for q in queries if "SELECT context,status,since_at" in q])==24
+
+
+def test_protective_sqlite_schema_remains_per_file(monkeypatch,tmp_path):
+    monkeypatch.setattr(database,"using_postgres",lambda:False)
+    for name in ("one.db","two.db"):
+        path=str(tmp_path/name)
+        protective.ensure_risk_schema_v3(path)
+        with database.connect(path) as db:
+            assert db.execute("SELECT COUNT(*) AS n FROM autotrader_v3_protective_state").fetchone()["n"]==0
 
 
 def test_decision_context_schema_once_with_each_live_evaluation(monkeypatch):
