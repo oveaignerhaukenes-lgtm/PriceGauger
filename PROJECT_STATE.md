@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-20 · V3 Impulse Catcher: 10s ordreinngangsfrist (isolert rettelse)
+
+- **Brukerbeslutning:** 5s maks alder ved OPEN/ADD før Saxo POST er for knapp ved oppgitt ~5–6s handelskjede. `autotrader_v3_live_runtime_v1.py` bruker nå 10s fra både siste beslutningsquote og lagret impuls-trigger for *kun* `impulse-catcher-*`-LIVE; Hunter, Rabid, HyperChase beholder 5s. Den uavhengige `MAX_QUOTE_AGE_S=5` i tick-adapteren og 8s grense for registrerte BBO-gap endres ikke; det gjør heller ikke Saxo cost/precheck, eksakt beholdningskontroll, autoritet, STOPP-filter, idempotens eller manuell ordrelås.
+- **Begrunnelse/begrensning:** Railway-loggene viste flere C LONG `stale quote entry veto` og `Quote impulse expired immediately before Saxo POST`, som samsvarer med «no order sent» i brukerbildet. En 10s tillatelse kan redusere disse avvisningene, men garanterer ikke at prisimpulsen varer eller at ordren fylles lønnsomt. En forsinket/reversert pris må måles i videre PAPER/LIVE-observasjoner før vurdering av mer avansert siste-BBO-validering.
+- **Kontroll:** nye grense- og regresjonstester for begge Impulse Catcher-retninger, 10s tillatt/11s avvist og HyperChase fortsatt 5s; lokal `compileall` og `git diff --check` OK. Lokale importbaserte runtime-tester hindret av manglende `requests`/`pandas` i arbeidsmiljøet; GitHub CI skal kontrollere dem før merge. Isolert PR, ingen LIVE-konto, ordre eller Railway-deploy endret ved opprettelse.
+
 ## 2026-11-20 · TECH100 four-channel market synthesis V1 (PAPER prototype)
 
 - **Isolated branch:** `research/tech100-four-channel-synthesis-20261119`. Four independently selectable signal families: macro regime, cross-market impulse, tech news and macro news; common expiry/horizon guards, transparent weighted cancellation and default FLAT on unavailable/unvalidated selected inputs. No free-standing probability or profit claim.
