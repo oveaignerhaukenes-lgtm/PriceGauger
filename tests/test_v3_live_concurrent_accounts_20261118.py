@@ -109,12 +109,36 @@ def test_tick_open_expires_against_actual_signal_time(tmp_path):
     valid=dict(strategy_key='impulse-catcher-long-tick-v1-1',decision_key=key,
                trader_id='E',db_path=db,clock=now)
     assert live._fresh_quote_open_authorized_v3(**valid)
+    # An active Impulse Catcher signal now tolerates normal Saxo precheck time.
     with sqlite3.connect(db) as conn:
         conn.execute('UPDATE pg_v3_tick_live_state SET last_signal_at=?',(
-            (now-timedelta(seconds=6)).isoformat(),))
+            (now-timedelta(seconds=10)).isoformat(),))
+    assert live._fresh_quote_open_authorized_v3(**valid)
+    with sqlite3.connect(db) as conn:
+        conn.execute('UPDATE pg_v3_tick_live_state SET last_signal_at=?',(
+            (now-timedelta(seconds=11)).isoformat(),))
     assert not live._fresh_quote_open_authorized_v3(**valid)
     assert not live._fresh_quote_open_authorized_v3(**{**valid,
         'decision_key':'tick:impulse-catcher-long-tick-v1-1:not-a-date:TICK_LONG'})
+
+
+def test_impulse_open_quote_deadline_is_10s_on_both_sides(tmp_path):
+    db=str(tmp_path/'signals.db')
+    now=datetime(2026,11,20,20,0,0,tzinfo=timezone.utc)
+    with sqlite3.connect(db) as conn:
+        conn.execute('CREATE TABLE pg_v3_tick_live_state (trader_id TEXT PRIMARY KEY, last_signal_at TEXT)')
+        conn.executemany('INSERT INTO pg_v3_tick_live_state VALUES (?,?)',[
+            ('long',(now-timedelta(seconds=8)).isoformat()),
+            ('short',(now-timedelta(seconds=10)).isoformat()),
+        ])
+    for side,age in [('long',8),('short',10)]:
+        key=f'impulse-catcher-{side}-tick-v1-3'
+        decision=f'tick:{key}:{(now-timedelta(seconds=age)).isoformat()}:OPEN'
+        assert live._fresh_quote_open_authorized_v3(
+            strategy_key=key,decision_key=decision,trader_id=side,db_path=db,clock=now)
+        older=f'tick:{key}:{(now-timedelta(seconds=11)).isoformat()}:OPEN'
+        assert not live._fresh_quote_open_authorized_v3(
+            strategy_key=key,decision_key=older,trader_id=side,db_path=db,clock=now)
 
 
 def test_hyper_open_expiry_preserves_non_tick_strategies():
@@ -123,5 +147,8 @@ def test_hyper_open_expiry_preserves_non_tick_strategies():
     old=(now-timedelta(seconds=12)).isoformat()
     assert not live._fresh_quote_open_authorized_v3(strategy_key='hyper-chase-10s-fast-v1',
         decision_key=f'quote10:hyper-chase-10s-fast-v1:{old}:CHASE',**common)
+    recent=(now-timedelta(seconds=6)).isoformat()
+    assert not live._fresh_quote_open_authorized_v3(strategy_key='hyper-chase-10s-fast-v1',
+        decision_key=f'quote10:hyper-chase-10s-fast-v1:{recent}:CHASE',**common)
     assert live._fresh_quote_open_authorized_v3(strategy_key='macd-stoch-v21-r-short-flat-v1',
         decision_key='any',**common)
