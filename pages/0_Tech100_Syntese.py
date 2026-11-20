@@ -1,6 +1,6 @@
 """Manual read-only four-channel TECH100 data connectivity research.
 
-The page never calls Saxo, constructs scored signals or runs AI. No V3 access.
+Saxo GET probes require explicit button clicks; no orders, AI or V3 access.
 """
 from __future__ import annotations
 
