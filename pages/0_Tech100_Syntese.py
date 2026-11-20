@@ -225,8 +225,11 @@ st.subheader("Datatilgang per valgt modul")
 st.dataframe(rows, hide_index=True, use_container_width=True)
 st.caption(
     "Et 'VALID' prisvindu bekrefter kun tidsmessig komplett lagret 1m-historikk, "
-    "ikke at Saxo-kursene er uten børstidsforsinkelse. 2/10/30Y må være ekte "
-    "tidsstemplede statsrenter (basispunktendringer), ikke futures. "
+    "ikke at Saxo-kursene er uten børstidsforsinkelse. 2/10/30Y kan bruke "
+    "verifiserte, ferske futures-/CFD-proksyer som relative prosentbevegelser "
+    "etter separat modellkalibrering, men aldri som basispunktendringer. "
+    "Saxos tre testede Micro Yield-futures rapporterte 10 minutters forsinkelse "
+    "20.11.2026 og er dermed ikke en godkjent rask impulsfeed. "
     "Nyheter må måles fra mottakstid, ikke kun publiseringstid."
 )
 
