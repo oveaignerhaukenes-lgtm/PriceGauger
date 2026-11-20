@@ -14,9 +14,11 @@ if TYPE_CHECKING:
     from saxo_provider import SaxoClient
 
 TENOR_TERMS = {
-    "US2Y": "US 2 Year Treasury",
-    "US10Y": "US 10 Year Treasury",
-    "US30Y": "US 30 Year Treasury",
+    # Exact product-family wording observed in Saxo LIVE catalog on 2026-11-20.
+    # These are MONTHLY yield FUTURES, not constant-maturity cash yields.
+    "US2Y": "Micro 2-Year Yield",
+    "US10Y": "Micro 10-Year Yield",
+    "US30Y": "Micro 30-Year Yield",
 }
 # Saxo Bond is preferable if it actually exposes BidYield/AskYield. Otherwise
 # explicitly-labelled market futures/CFDs may be tested as PRICE proxies only.
@@ -95,10 +97,15 @@ def search_treasury_candidates(
             kind = str(row.get("AssetType") or "")
             if uic <= 0 or kind not in SEARCH_ASSET_TYPES.split(","):
                 continue
+            description = str(row.get("Description") or "")
+            # Saxo keyword queries can return unrelated symbol matches. Never
+            # expose an unrelated Nasdaq/foreign contract as a US tenor source.
+            if term.casefold() not in description.casefold():
+                continue
             item = TreasuryCandidate(
                 tenor_hint=tenor, uic=uic, asset_type=kind,
                 symbol=str(row.get("Symbol") or ""),
-                description=str(row.get("Description") or ""),
+                description=description,
                 expiry=str(row["ExpiryDate"]) if row.get("ExpiryDate") else None,
             )
             candidates[(uic, kind)] = item
