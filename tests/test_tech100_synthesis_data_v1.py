@@ -34,6 +34,15 @@ SOURCES = [source("Tech100", "4912", 10), source("Gold", "100", 20),
            source("Brent", "200", 30), source("DXY", "300", 40)]
 
 
+class NavigationRegistrationTests(unittest.TestCase):
+    def test_tech100_synthesis_page_is_visible_in_navigation(self):
+        from navigation_config import PAGE_GROUPS
+        synthesis = [page for page in PAGE_GROUPS["Analyse"]
+                     if page["page"] == "pages/0_Tech100_Syntese.py"]
+        self.assertEqual(len(synthesis), 1)
+        self.assertEqual(synthesis[0]["url_path"], "Tech100_Syntese")
+
+
 def bar(item, *, minutes_ago, close=100, quality=QUALITY_REALTIME):
     stamp = NOW - timedelta(minutes=minutes_ago)
     return CanonicalMarketBarV2(item.instrument_id, item.market_id, item.market_name,
