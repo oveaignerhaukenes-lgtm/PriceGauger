@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `4aa86840105246c3aa96f58486b89a3f37742bfd`
+Latest tracked main commit: `88b6b4d8e68bd67aa9993d0dc6e58c6e2cd3d8c1`
 
 ## Recent main commits
 
+- 2026-11-20 [`88b6b4d8e6`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/88b6b4d8e68bd67aa9993d0dc6e58c6e2cd3d8c1) — Fix Tech100 synthesis research page navigation (#875)
 - 2026-11-20 [`4aa8684010`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4aa86840105246c3aa96f58486b89a3f37742bfd) — Add read-only Tech100 synthesis and Saxo Treasury source probe (#874)
 - 2026-11-19 [`5550dce61e`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5550dce61e8dca93e294bcc17bd93c6076eda310) — fix(v3): audit-recover legacy Saxo 429 order locks (#873)
 - 2026-11-19 [`4eb99e2b76`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4eb99e2b7675d54f422d2ecf54c98fb231309bb2) — Merge pull request #872 from oveaignerhaukenes-lgtm/fix/v3-profit-paper-canonical-timestamp-20261119
@@ -46,6 +47,5 @@ Latest tracked main commit: `4aa86840105246c3aa96f58486b89a3f37742bfd`
 - 2026-11-15 [`1d63002bb1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d63002bb16908bcbed3461aa0bd1e74888a2acd) — feat: paired Tech100 impulse catchers with BBO PAPER and LIVE observability
 - 2026-11-15 [`00525fefa6`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/00525fefa6ec656798dabb93f7cbefacb88e62fc) — Disable unsolicited AI calls while preserving manual opt-ins and raw ingest (#839)
 - 2026-11-14 [`79169208a9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/79169208a92a74ef7fb20d79b3685bfebe930369) — docs: synchronize V3 split MACD-Stoch strategies CI and Railway deploy blocker
-- 2026-11-14 [`b8f56fca8f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b8f56fca8f9e20fe34e080917e59e767daaecba5) — Add separate MACD+Stoch V2.1 long-flat and short-flat R/S/E strategies
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
