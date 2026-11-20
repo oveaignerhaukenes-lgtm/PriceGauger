@@ -18,8 +18,10 @@ class FakeSaxo:
         self.calls.append((path, dict(params)))
         if path == "ref/v1/instruments":
             return {"Data": [
-                {"Identifier": 100 + len(self.calls), "AssetType": "Bond",
-                 "Symbol": "TNOTE", "Description": params["Keywords"]},
+                {"Identifier": 100 + len(self.calls), "AssetType": "ContractFutures",
+                 "Symbol": "2YYX6", "Description": params["Keywords"] + " - Nov 2026"},
+                {"Identifier": 999, "AssetType": "ContractFutures",
+                 "Symbol": "MNQZ6", "Description": "Micro E-mini Nasdaq 100"},
                 {"Identifier": "bad", "AssetType": "Bond"},
                 {"Identifier": 7, "AssetType": "Stock"},
             ]}
@@ -37,6 +39,10 @@ class TreasurySourceProbeContracts(unittest.TestCase):
         self.assertEqual(len(client.calls), 3)
         self.assertEqual({path for path, _ in client.calls}, {"ref/v1/instruments"})
         self.assertTrue(all("Bond" in args["AssetTypes"] for _, args in client.calls))
+        self.assertEqual(list(TENOR_TERMS.values()), [
+            "Micro 2-Year Yield", "Micro 10-Year Yield", "Micro 30-Year Yield",
+        ])
+        self.assertTrue(all(found[tenor][0].asset_type == "ContractFutures" for tenor in TENOR_TERMS))
 
     def test_verified_yield_fields_do_not_mean_constant_maturity(self):
         candidate = TreasuryCandidate("US10Y", 22, "Bond", "TNOTE", "Treasury", None)
