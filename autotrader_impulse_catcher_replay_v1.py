@@ -13,8 +13,11 @@ from bisect import bisect_right
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 from statistics import median
+from typing import Callable
 
-from autotrader_impulse_catcher_v1 import ImpulseCatcher, ImpulseCatcherConfig
+from autotrader_impulse_catcher_v1 import (
+    ImpulseCatcher, ImpulseCatcherConfig, ImpulseCatcherDecision,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +45,9 @@ class ImpulsePaperTrade:
     max_adverse_points: float
     entry_delay_s: float
     exit_delay_s: float
+    entry_trigger_points: float = 0.0
+    entry_window_seconds: int = 0
+    entry_signal_mid: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +59,7 @@ class ImpulsePaperResult:
     unfilled_exits: int
     unfinished_positions: int
     trades: tuple[ImpulsePaperTrade, ...]
+    blocked_entries: int = 0
 
     @property
     def net_points(self) -> float:
@@ -97,8 +104,16 @@ def replay_impulse_catcher(
     quotes: tuple[ImpulseQuote, ...],
     config: ImpulseCatcherConfig,
     *, max_fill_delay_s: float = 3.0,
+    exit_config_asof: Callable[[datetime], ImpulseCatcherConfig] | None = None,
+    entry_allowed_asof: Callable[[ImpulseCatcherDecision], bool] | None = None,
 ) -> ImpulsePaperResult:
-    """Replay with separate signal vs next-quote execution clocks."""
+    """Replay with separate signal vs next-quote execution clocks.
+
+    An optional PAPER-only as-of callback can alter *exit* thresholds on each
+    quote. An optional PAPER entry gate can veto an already-qualified impulse,
+    resetting the hypothetical signal engine to FLAT with a normal 5s cooldown.
+    It must never suppress FLAT or a broker safety exit. LIVE uses neither hook.
+    """
     if max_fill_delay_s<=0:
         raise ValueError("PAPER fill delay limit must be positive")
     model=ImpulseCatcher(config)
@@ -106,7 +121,7 @@ def replay_impulse_catcher(
     open_trade=None
     awaiting_entry=None
     awaiting_exit=None
-    signals=missed_entries=missed_exits=0
+    signals=missed_entries=missed_exits=blocked_entries=0
     sign=1 if config.side=="LONG" else -1
     for q in quotes:
         # Previous quote's hypothetical order: never fill on trigger tick.
@@ -119,7 +134,9 @@ def replay_impulse_catcher(
                 open_trade={"signal_at":signal.at,"filled_at":q.at,
                             "fill_price":price,"mfe":sign*((q.bid if sign>0 else q.ask)-price),
                             "mae":sign*((q.bid if sign>0 else q.ask)-price),
-                            "entry_delay":delay}
+                            "entry_delay":delay,"entry_trigger_points":signal.trigger_points,
+                            "entry_window_seconds":signal.window_seconds,
+                            "entry_signal_mid":signal.price}
             else:
                 missed_entries+=1
         if open_trade is not None:
@@ -141,20 +158,50 @@ def replay_impulse_catcher(
                     gross_points=sign*(price-open_trade["fill_price"]),
                     max_favorable_points=open_trade["mfe"],
                     max_adverse_points=open_trade["mae"],
-                    entry_delay_s=open_trade["entry_delay"],exit_delay_s=delay))
+                    entry_delay_s=open_trade["entry_delay"],exit_delay_s=delay,
+                    entry_trigger_points=open_trade["entry_trigger_points"],
+                    entry_window_seconds=open_trade["entry_window_seconds"],
+                    entry_signal_mid=open_trade["entry_signal_mid"]))
                 open_trade=None
             else:
                 missed_exits+=1
                 # A failed close is not a realized PAPER gain. Account for
                 # remaining unmatched exposure and require manual review.
                 break
+        if exit_config_asof is not None:
+            candidate=exit_config_asof(q.at)
+            if not isinstance(candidate,ImpulseCatcherConfig):
+                raise ValueError("Exit policy must return an ImpulseCatcherConfig")
+            for name in (
+                "side", "windows_seconds", "history_seconds", "min_impulse_points",
+                "relative_impulse_multiple", "minimum_directional_efficiency",
+                "maximum_spread_points", "spread_impulse_multiple",
+                "quote_gap_seconds", "minimum_retrace_points", "retrace_fraction",
+                "urgent_retrace_points", "cooldown_seconds",
+            ):
+                if getattr(candidate,name)!=getattr(config,name):
+                    raise ValueError("PAPER exit policy cannot change "+name)
+            model.config=candidate
         decision=model.on_quote(q.at,q.bid,q.ask)
         if decision is None:
             continue
         if decision.target==config.side:
             signals+=1
             if open_trade is None and awaiting_entry is None:
-                awaiting_entry=decision
+                allowed=entry_allowed_asof(decision) if entry_allowed_asof is not None else True
+                if type(allowed) is not bool:
+                    raise ValueError("PAPER entry policy must return bool")
+                if allowed:
+                    awaiting_entry=decision
+                else:
+                    blocked_entries+=1
+                    # The order was never submitted. Do not simulate a position
+                    # (or its exit) inside the signal engine. Rate-limit identical
+                    # vetoes using the unchanged engine cooldown, not a broker call.
+                    model.target="FLAT"
+                    model.entry_mid=model.extreme=None
+                    model.last_extreme_at=None
+                    model.last_exit_at=q.at
         elif decision.target=="FLAT":
             if awaiting_entry is not None:
                 awaiting_entry=None
@@ -166,13 +213,15 @@ def replay_impulse_catcher(
     if awaiting_exit is not None:
         missed_exits+=1
     return ImpulsePaperResult(config.side,len(quotes),signals,missed_entries,
-                              missed_exits,int(open_trade is not None),tuple(trades))
+                              missed_exits,int(open_trade is not None),tuple(trades),
+                              blocked_entries)
 
 
 def summarize_impulse_replay(result: ImpulsePaperResult) -> dict[str, float | int | None]:
     """Metrics in *index points*, not account NAV or leveraged NOK returns."""
     return {
         "signals":result.signals,"completed":len(result.trades),
+        "blocked_entries":result.blocked_entries,
         "unfilled_entries":result.unfilled_entries,
         "unfilled_exits":result.unfilled_exits,
         "unfinished_positions":result.unfinished_positions,
