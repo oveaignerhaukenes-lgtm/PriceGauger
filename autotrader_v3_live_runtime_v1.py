@@ -80,6 +80,11 @@ LOGGER=logging.getLogger("pricegauger.autotrader.v3.live")
 # Read-only audit: one entry per unresolved instance per worker lifetime.
 _PENDING_AUDIT_LOGGED_V3=set()
 REGIME_RUNTIME_KEYS_V3={MACD_REGIME_HIST_KEY,AEN2_STICKY_KEY,AEN21_FAST_EXIT_KEY,RHYTHM_TREND_KEY,RHYTHM_TREND_FRACTAL_KEY_V3} | ALL_SPLIT_KEYS_V3
+# Allow the normal Saxo cost/precheck/verification path to finish for a genuine
+# Impulse Catcher signal. This is an OPEN/ADD execution deadline, NOT permission
+# to process a stale BBO feed (still capped at 5s in the tick adapter).
+IMPULSE_CATCHER_OPEN_MAX_AGE_S_V3 = 10
+OTHER_FAST_OPEN_MAX_AGE_S_V3 = 5
 
 @lru_cache(maxsize=96)
 def _hyper_safety_1m_points_v3(db_path:str,instrument_id:int,minute:datetime):
@@ -313,10 +318,14 @@ def _fresh_quote_open_authorized_v3(*, strategy_key, decision_key, trader_id,
     Earlier strategy evaluation and Saxo precheck can take seconds. A fresh
     decision at evaluation time is NOT automatically fresh at order POST.
     Tick strategies also require the actual stored impulse timestamp, which
-    may be older than the last quote timestamp in the decision key.
+    may be older than the last quote timestamp in the decision key. Only
+    Impulse Catcher gets 10s; Hunter/Rabid/HyperChase retain their 5s guard.
     """
     if strategy_key not in (TICK_RUNTIME_KEYS | HYPER_RUNTIME_KEYS):
         return True
+    max_age=(IMPULSE_CATCHER_OPEN_MAX_AGE_S_V3
+             if strategy_key in TICK_RUNTIME_KEYS and strategy_key.startswith('impulse-catcher-')
+             else OTHER_FAST_OPEN_MAX_AGE_S_V3)
     current=clock or datetime.now(timezone.utc)
     try:
         # ISO-8601 timestamps contain ':' themselves; strip the trailing
@@ -326,7 +335,7 @@ def _fresh_quote_open_authorized_v3(*, strategy_key, decision_key, trader_id,
         if at.tzinfo is None:
             return False
         age=(current-at.astimezone(timezone.utc)).total_seconds()
-        if not 0<=age<=5:
+        if not 0<=age<=max_age:
             return False
         if strategy_key in TICK_RUNTIME_KEYS:
             with connect(db_path) as db:
@@ -339,7 +348,7 @@ def _fresh_quote_open_authorized_v3(*, strategy_key, decision_key, trader_id,
             if signal_at.tzinfo is None:
                 return False
             signal_age=(current-signal_at.astimezone(timezone.utc)).total_seconds()
-            if not 0<=signal_age<=5:
+            if not 0<=signal_age<=max_age:
                 return False
         return True
     except (ValueError,TypeError,IndexError,KeyError,AttributeError):
@@ -1146,7 +1155,8 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             trader_id=e.pilot_key,db_path=db_path,
         ):
             # No durable reservation was made and no Saxo order was sent.
-            # Never let a 5s quote impulse become a 30s delayed entry.
+            # Never let a short-lived impulse become a delayed entry beyond
+            # its explicit strategy-specific deadline (10s for IC, 5s others).
             _record_runtime(e.pilot_key,'BLOCKED',
                 'Quote impulse expired while checking Saxo; no stale OPEN/ADD sent',
                 db_path=db_path)
