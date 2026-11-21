@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `0f5a35f7c962895ad5a7d05d6959e515a9449757`
+Latest tracked main commit: `656086ced5c6928731a50206fcb390e0fcd5dff2`
 
 ## Recent main commits
 
+- 2026-11-21 [`656086ced5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/656086ced5c6928731a50206fcb390e0fcd5dff2) — Allow 10s Impulse Catcher entry signal age before Saxo POST (#879)
 - 2026-11-20 [`0f5a35f7c9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0f5a35f7c962895ad5a7d05d6959e515a9449757) — Recognize Saxo Micro 2Y, 10Y and 30Y yield futures in manual probe (#876)
 - 2026-11-20 [`88b6b4d8e6`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/88b6b4d8e68bd67aa9993d0dc6e58c6e2cd3d8c1) — Fix Tech100 synthesis research page navigation (#875)
 - 2026-11-20 [`4aa8684010`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/4aa86840105246c3aa96f58486b89a3f37742bfd) — Add read-only Tech100 synthesis and Saxo Treasury source probe (#874)
@@ -46,6 +47,5 @@ Latest tracked main commit: `0f5a35f7c962895ad5a7d05d6959e515a9449757`
 - 2026-11-15 [`e364cd2d9a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e364cd2d9ab26a8aa4cf1c8b7db69be43f52fd00) — fix: expose Tech100 Impulse Catcher Lab in navigation
 - 2026-11-15 [`7c00fec2ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7c00fec2ffc1bb78741e0360f166de9323bdc4dc) — feat: price-confirmed MACD-Stoch V2.1 regime long/flat and short/flat V2
 - 2026-11-15 [`1d63002bb1`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d63002bb16908bcbed3461aa0bd1e74888a2acd) — feat: paired Tech100 impulse catchers with BBO PAPER and LIVE observability
-- 2026-11-15 [`00525fefa6`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/00525fefa6ec656798dabb93f7cbefacb88e62fc) — Disable unsolicited AI calls while preserving manual opt-ins and raw ingest (#839)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
