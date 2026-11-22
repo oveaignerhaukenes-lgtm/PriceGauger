@@ -24,6 +24,10 @@ from autotrader_price_regime_timing_paper_v1 import (
     price_regime_timing_timeline_paper,
 )
 from autotrader_impulse_v14_chop_paper_v1 import ImpulseChopGatePaper
+from autotrader_impulse_sideways_paper_v1 import (
+    PAPER_MODES, SpecializedICEntryGatePaper,
+    specialized_ic_config_paper, sideways_timeline_paper,
+)
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect
 from instrument_registry_v2 import resolve_instrument_source_v2
@@ -483,6 +487,93 @@ with st.expander("PAPER · Impulse Catcher v1.4 – blokkér åpenbare rangefell
         st.warning("Ingen automatisk v1.4-strateginøkkel er registrert for LIVE. "
                    "Enkeltperioder og ikke-uavhengige signaler beviser ikke "
                    "fremtidig avkastning. Ta først nye dager i uavhengig holdout.")
+
+with st.expander("PAPER · Sideveis Impulse Catcher og sjeldne motimpulser",expanded=False):
+    st.caption(
+        "Ny arbeidsdeling: regime-strategiene håndterer bekreftet opp-/nedtrend. "
+        "IC får høyere impuls- og effektivitetskrav, 25s kjølepause og senere "
+        "normal exit. Kun fullførte sammenhengende 1m-barer kan bekrefte "
+        "SIDEWAYS; 30/60m retningskonflikt blir TRANSITION og handler ikke. "
+        "Sjeldent sjokk-alternativ tillater kun ekstraordinære mottrendbrudd "
+        "med 3s akselerasjon – ikke ordinære medtrend-innganger."
+    )
+    if report is None or report["hours"] != hours:
+        st.info("Kjør først 1s BBO PAPER-replayet over med ønsket tidsrom.")
+    elif st.button("Kjør PAPER: IC sideveis / sideveis + sjokk",key="ic_sideways_paper"):
+        try:
+            quotes = report["source_quotes"]
+            source = resolve_instrument_source_v2(
+                provider="saxo",provider_instrument_id="4912",require_subscription=True)
+            history = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=int(source.instrument_id),
+                start=quotes[0].at-timedelta(hours=3),
+                end=quotes[-1].at,limit=1000)
+            timeline = sideways_timeline_paper(
+                source_bars=history,cutoff=quotes[-1].at,
+                market_name=source.market_name)
+            results={}
+            for side in ("LONG","SHORT"):
+                baseline = impulse_catcher_config(side,"1.3")
+                results[(side,"v1.3")]=replay_impulse_catcher(quotes,baseline)
+                cfg = specialized_ic_config_paper(side)
+                for mode in PAPER_MODES:
+                    gate = SpecializedICEntryGatePaper(
+                        quotes=quotes, config=cfg,timeline=timeline,mode=mode)
+                    results[(side,mode)] = replay_impulse_catcher(
+                        quotes,cfg,entry_allowed_asof=lambda decision,gate=gate:
+                        gate.evaluate(decision).allowed)
+            st.session_state["ic_sideways_results"]={
+                "stamp":report["stamp"],"hours":hours,
+                "results":results,"bars":len(history),
+                "quotes":quotes,"timeline":timeline,
+                "holdout_at":quotes[int(.7*len(quotes))].at,
+            }
+        except (ValueError,TypeError,OverflowError) as exc:
+            st.warning(str(exc))
+        except Exception as exc:
+            st.error("IC sideveis PAPER feilet: "+type(exc).__name__)
+    sideways_paper=st.session_state.get("ic_sideways_results")
+    if (sideways_paper and report and sideways_paper["stamp"]==report["stamp"]
+        and sideways_paper["hours"]==hours):
+        results=sideways_paper["results"]
+        quotes=sideways_paper["quotes"]
+        holdout_at=sideways_paper["holdout_at"]
+        states=[sideways_paper["timeline"].state_asof(q.at).state
+                for q in quotes[::60]]
+        st.caption(
+            f"{len(quotes)} reelle Saxo BBO, {sideways_paper['bars']} "
+            f"fullførte 1m-barer, markedsprøver {len(states)}: "
+            +", ".join(f"{s}={states.count(s)}" for s in sorted(set(states)))
+            +f". Holdout starter {holdout_at.isoformat()}."
+        )
+        if not any(s=="SIDEWAYS_CONFIRMED" for s in states):
+            st.warning("Ingen bekreftet sideveis periode i disse markedsprøvene. "
+                       "At en spesialisert modell avviser alt, er ikke bevis for "
+                       "lønnsomhet; velg flere sammenhengende siderange-perioder.")
+        rows=[]
+        for side in ("LONG","SHORT"):
+            for mode in ("v1.3",)+PAPER_MODES:
+                result=results[(side,mode)]
+                valid=tuple(t for t in result.trades
+                            if t.filled_at>=holdout_at and t.exited_at<=quotes[-1].at)
+                brief=sum((t.exited_at-t.filled_at).total_seconds()<20
+                          for t in result.trades)
+                rows.append({
+                    "Retning":side,"Variant":mode,
+                    "Signal":result.signals,"Veto":result.blocked_entries,
+                    "Lukkede":len(result.trades),"<20s hold":brief,
+                    "Poeng etter spread":round(result.net_points,2),
+                    "Holdout handler":len(valid),
+                    "Holdout poeng":round(sum(t.gross_points for t in valid),2),
+                    "Ufylt exit":result.unfilled_exits,
+                    "Åpen slutt":result.unfinished_positions,
+                })
+        st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
+        st.warning(
+            "Kun PAPER: spread via neste reelle bid/ask, men ingen Saxo-latens, "
+            "faktiske fills eller konto-P/L. Ukjent regime blokkeres kun i disse "
+            "to simulerte IC-variantene; ingen LIVE-innstillinger endres."
+        )
 
 st.subheader("LIVE-observasjoner · signal vs. Saxo-rekonsiliering")
 try:

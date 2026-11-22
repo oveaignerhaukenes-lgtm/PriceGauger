@@ -2,6 +2,12 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-23 · Impulse Catcher: sideveis arbeidsdeling (PAPER, PR #878)
+
+- **Faktisk loggfunn:** 22.11 kl. 23:00–23:21 UTC viste Railway V3 `SIGNAL_TRACE` for IC v1.3 9 LONG-signaler/11 LONG-FLAT og 9 SHORT-signaler/8 SHORT-FLAT. De hyppige FLAT-beslutningene oppgav `IMPULSE_EXHAUSTED`. Dette er modellbeslutninger, **ikke** antall avstemte Saxo-fills eller dokumentert P/L, men bekrefter hyppige mikroutganger i brukerens tidsvindu.
+- **To nye PAPER-kandidater:** `autotrader_impulse_sideways_paper_v1.py` og egen utvidelse i `pages/0_Impulse_Catcher_Lab.py`: `sideways_only` og `sideways_plus_shock`. Bare ferdige sammenhengende 30/60m 1m-bars får definere bekreftet sideveis; sterk motsatt 30m/60m klassifiseres `TRANSITION` og behandles aldri som flat range. Den strenge varianten krever minst 15 punkters impuls, 4,5× tidligere triggerbevegelse, retnings-effektivitet ≥0,86, 11s vanlig stall, 4s støykontrollert retrace, 18p akutt revers og 25s kjølepause. Sjokkvarianten kan i tillegg PAPER-tillate **kun** eksepsjonelle mottrendutbrudd med 3s trigger ≥30p og ≥6× baseline, nye ekstremer over forutgående ekte 60s BBO og gyldig sammenhengende feed. Ukjent eller overgang avslås i PAPER; eksisterende holdings/exits endres ikke via inngangsfilteret.
+- **Testing/avgrensning:** 63 relevante `unittest` bestått, inkludert nye no-lookahead, gap, normal range, trend vs overgang, kontrære unntak, ingen fantomposisjon og svak-mikroimpuls vs v1.3. Hypotesene er ikke testet på produksjonens faktiske historiske quote×bar; ingen LIVE-strateginøkler, aktive innstillinger, ordre eller databasetilpasninger er gjort. PAPER lab må kjøres på lagrede priser, og in-/out-of-sample sammenlignes før vurdering av LIVE.
+
 ## 2026-11-20 · PAPER: Impulse Catcher v1.4 «åpenbar rangetrapp» og 30/60-sammenligning
 
 - **Hypotese / ikke LIVE:** `autotrader_impulse_v14_chop_paper_v1.py` vetoer bare et kvalifisert 3/10s inngangssignal hvis **forutgående** 60s quotes (før trigger-vinduet) viser ≤0,20 pristi-effektivitet, minst fire reelle reverseringer, bredt prisintervall, impuls som ikke bryter utover etablert range og trigger som ikke dominerer hele rangen. Ukjent/ufullstendig quotehistorikk eller mulig utbrudd får **gå**; markedsregime alene vetoer aldri Impulse Catcher. Det er ingen lært/optimert terskel; dette er en konservativ kandidat som må testes over flere separate dager.
