@@ -27,8 +27,8 @@ def test_stale_tick_signal_rejected_without_broker_access(tmp_path):
     with sqlite3.connect(db) as conn:
         conn.execute("CREATE TABLE pg_v3_tick_live_state (trader_id TEXT PRIMARY KEY,last_signal_at TEXT)")
         conn.execute("INSERT INTO pg_v3_tick_live_state VALUES (?,?)", (
-            "test-trader",(clock-timedelta(seconds=7)).isoformat()))
-    signal=(clock-timedelta(seconds=7)).isoformat()
+            "test-trader",(clock-timedelta(seconds=11)).isoformat()))
+    signal=(clock-timedelta(seconds=11)).isoformat()
     assert not runtime._fresh_quote_open_authorized_v3(
         strategy_key="impulse-catcher-long-tick-v1-1",
         decision_key=f"tick:impulse-catcher-long-v1-1:{signal}:TICK_LONG",
