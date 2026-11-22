@@ -200,7 +200,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                        'også når ordren allerede er under Saxo precheck. '
                        'Nødvendige CLOSE/REDUCE og eksisterende risikovern beholdes. '
                        'Ordre som allerede er sendt til Saxo, kanselleres ikke. '
-                       'Automatisk markedsfilter er foreløpig bare i observasjonsmodus.')
+                       'Regimefilterets egne BULL/BEAR/SIDEWAYS-valg vises under Markedsfilter.')
             confirmed=st.checkbox(
                 'Jeg bekrefter at jeg vil endre dette LIVE-filteret',
                 key=f'{key_prefix}:filter-confirm:{trader_id}')
@@ -212,6 +212,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                 st.rerun()
         except Exception as exc:
             st.warning('Filterstatus/utilgjengelig: '+type(exc).__name__)
+    st.page_link('pages/0_Markedsfilter.py',
+                 label='🚦 Regimevalg · BULL/BEAR/SIDEWAYS og kun medgang')
     with st.expander('Unngå tap V1 · Saxo datakontroll (kun lesing)',expanded=False):
         st.caption(
             'Kontroller eksakt konto og instrument mot Saxo LIVE med kun GET. '

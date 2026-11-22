@@ -1,4 +1,4 @@
-"""Markedsfilter + shared module map; persisted read-only evidence only."""
+"""Markedsfilter overview; operator-only regime policy settings, read-only data."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -8,6 +8,11 @@ import streamlit as st
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+from autotrader_v3_regime_gate_v1 import (
+    STATES_V1, classify_regime_v1, load_regime_policy_v1, save_regime_policy_v1,
+    decide_regime_entry_v1,
+)
+from autotrader_v3_registry_v1 import strategy_v3
 from autotrader_v3_stop_go_status_v1 import (
     UNKNOWN, load_v3_stop_go_lights_v1,
 )
@@ -30,7 +35,8 @@ render_build_badge()
 st.title("Markedsfilter og modulkart")
 st.caption(
     "Se hvilke data modulene bruker, hva de vurderer og om nye observasjoner faktisk kommer inn. "
-    "Denne siden leser bare lagret databaseinformasjon – ingen Saxo-kall eller ordre."
+    "Prisdata leses fra databasen – ingen Saxo-kall eller ordre. "
+    "Kun et eksplisitt lagreklikk endrer regimefilterets innstillinger."
 )
 
 now = datetime.now(timezone.utc)
@@ -120,11 +126,12 @@ with filter_tab:
         st.caption("Tilstand × strategi lagres; fremtidig 5m-pris merkes senere")
     with lane[3].container(border=True):
         st.markdown("**4 · LIVE-kontroll**")
-        st.caption("Manuell STOPP/KJØR → OPEN/ADD-veto. Ingen automatisk modellstyring")
+        st.caption("Manuell STOPP/KJØR + valgfri regimeport for OPEN/ADD")
     st.info(
-        "Foreløpig **samler** denne modellen data; den har ikke lært eller validert "
-        "et tapsfilter. En grønn runding betyr handels­tillatelse, **ikke** forventet fortjeneste. "
-        "Rødt stopper nye posisjoner/økninger, men ikke nødvendig lukking/reduksjon."
+        "Regimefilteret er **AV som standard**. Det kan testes i SKYGGE før manuelt LIVE-valg. "
+        "BULL/BEAR/SIDEWAYS er en forhåndsdefinert prisregel, ikke et lært eller "
+        "resultatvalidert tapsfilter. Manuell STOPP har alltid forrang. "
+        "CLOSE/REDUCE blokkeres aldri av regimet."
     )
 
     price_stamps = [evidence["bars"].get(i.instrument_id) for i in instances]
@@ -206,9 +213,30 @@ with filter_tab:
             observation = evidence["instances"].get(item.instance_id, {})
             latest_profile = evidence["latest_profiles"].get(item.instance_id, {})
             runtime = evidence["runtime"].get(item.instance_id, {})
+            regime_status = "⚪ UKJENT"
+            regime_selection = "⚪ kan ikke leses"
+            if strategy != "UKJENT":
+                try:
+                    runtime_key = strategy_v3(strategy).runtime_key or strategy
+                    rp = load_regime_policy_v1(
+                        instance_id=item.instance_id, strategy_key=runtime_key)
+                    regime_selection = rp.mode + " · " + (", ".join(rp.allowed_states) or "ingen")
+                    if rp.mode != "OFF":
+                        ending = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
+                        stored = CanonicalMarketBarStoreV2().load_instrument_range(
+                            instrument_id=item.instrument_id,
+                            start=ending-timedelta(minutes=63), end=ending, limit=65)
+                        observed, _ = classify_regime_v1(stored, now=now)
+                        regime_status = observed
+                    else:
+                        regime_status = "— (AV)"
+                except Exception:
+                    pass
             fleet_rows.append({
                 "Konto": account_title, "Strategi": strategy,
-                "Handelsfilter": light.symbol + " " + light.label,
+                "Manuell STOPP/KJØR": light.symbol + " " + light.label,
+                "Regimeport": regime_selection,
+                "Prisregime": regime_status,
                 "Siste 1m-bar": _stamp(bar),
                 "Prisdata": _fresh(bar, 3)["symbol"] + " " + _fresh(bar, 3)["label"],
                 "Siste 3×3-avlesning": _stamp(observation.get("newest")),
@@ -221,10 +249,98 @@ with filter_tab:
                           + " " + str(runtime.get("status") or "UKJENT"),
             })
         st.dataframe(fleet_rows, hide_index=True, width="stretch")
+        st.caption("🟢/🔴 under manuell STOPP/KJØR viser **nødstoppen**, ikke "
+                   "en garantert tillatelse i regimeporten. Regimeport=LIVE kan "
+                   "i tillegg blokkere bare feil retning eller valgt prisregime.")
     st.page_link(
         "pages/0_AutoTrader_V3.py", label="Åpne AutoTrader V3 for manuell STOPP/KJØR og øvrige innstillinger",
         icon="⚙️",
     )
+
+    st.subheader("Regimefilter · BULL / BEAR / SIDEWAYS")
+    st.caption(
+        "Inndata: eksakt Saxo-UICs lagrede, sammenhengende og ferdige 1m-kurser. "
+        "30m er foreløpig; etter 60m brukes 60m-retning, og sterk motsatt 30m gir SIDEWAYS. "
+        "UKJENT betyr for få eller gamle priser, ikke SIDEWAYS. Ingen nye Saxo GET-kall."
+    )
+    if configured:
+        chosen_instance = st.selectbox(
+            "Konto/strategi å konfigurere",
+            tuple(configured),
+            format_func=lambda row: (
+                f"{evidence['account_names'].get(row[0].account_id) or row[0].account_id} "
+                f"· {row[1]} · {'LIVE' if row[2] else 'ikke LIVE'}"),
+            key="market-regime-instance",
+        )
+        chosen, chosen_strategy, chosen_armed = chosen_instance
+        try:
+            runtime_key = strategy_v3(chosen_strategy).runtime_key or chosen_strategy
+            policy = load_regime_policy_v1(instance_id=chosen.instance_id,
+                                           strategy_key=runtime_key)
+            last_open = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
+            bars = CanonicalMarketBarStoreV2().load_instrument_range(
+                instrument_id=chosen.instrument_id,
+                start=last_open-timedelta(minutes=63), end=last_open, limit=65)
+            market_state, market_reason = classify_regime_v1(bars, now=now)
+            status_color = "🟢" if market_state == "BULL" else "🔴" if market_state == "BEAR" else "🟡" if market_state == "SIDEWAYS" else "⚪"
+            st.write(f"**{status_color} {market_state}** · {market_reason}")
+            st.caption(
+                f"Lagret filter: {policy.mode} · {', '.join(policy.allowed_states) or 'ingen regimer'} "
+                f"· {'kun medgang' if policy.trend_only else 'begge retninger'} "
+                f"· UKJENT {'sperret' if policy.block_unknown else 'slippes gjennom'}"
+            )
+            with st.form(f"regime-policy-{chosen.instance_id}-{runtime_key}"):
+                mode = st.selectbox(
+                    "Modus",
+                    ("OFF", "SHADOW", "LIVE"),
+                    index=("OFF", "SHADOW", "LIVE").index(policy.mode),
+                    format_func=lambda s: {"OFF": "AV – ingen regimeinngrep",
+                                            "SHADOW": "SKYGGE – vurder uten blokkering",
+                                            "LIVE": "LIVE – blokker nye innganger"}[s],
+                )
+                allowed = st.multiselect(
+                    "Regimer som kan åpne handler", STATES_V1,
+                    default=policy.allowed_states,
+                    help="Fjerner du SIDEWAYS, blokkeres ny handel i sideveis marked. "
+                         "Fjerner du BULL/BEAR, blokkeres det regimet uansett retning.",
+                )
+                trend_only = st.checkbox(
+                    "Kun medgang: LONG i BULL, SHORT i BEAR",
+                    value=policy.trend_only,
+                    help="Valgt SIDEWAYS tillater begge retninger. "
+                         "Fjern SIDEWAYS for bare bekreftet trendretning.",
+                )
+                block_unknown = st.checkbox(
+                    "Blokker også UKJENT / manglende data",
+                    value=policy.block_unknown,
+                    help="Strengeste valg. Uten dette får tvilstilfeller passere.",
+                )
+                if mode == "LIVE" and trend_only and not block_unknown:
+                    st.warning("UKJENT vil fortsatt slippe gjennom handler. "
+                               "Velg «Blokker også UKJENT» for kun dokumentert medgang.")
+                confirmed = st.checkbox(
+                    "Jeg bekrefter endring for denne instansen "
+                    "(LIVE kan hindre OPEN/ADD)", value=False,
+                )
+                submitted = st.form_submit_button("Lagre regimefilter")
+                if submitted and confirmed:
+                    save_regime_policy_v1(
+                        instance_id=chosen.instance_id, strategy_key=runtime_key,
+                        mode=mode, allowed_states=tuple(allowed),
+                        trend_only=bool(trend_only), block_unknown=bool(block_unknown),
+                    )
+                    st.rerun()
+                elif submitted:
+                    st.warning("Kryss av bekreftelsen før endringen lagres.")
+            st.caption("Effekt ved neste nye ordre (forhåndsvisning): " + " · ".join(
+                direction + " " + ("✅" if decide_regime_entry_v1(
+                    policy, state=market_state, direction=direction).would_allow else "⛔")
+                for direction in ("LONG", "SHORT")
+            ))
+            st.caption("Forhåndsvisning bruker **lagrede** valg. SKYGGE/AV blokkerer aldri. "
+                       "Endringer gjelder ikke ordre som allerede er sendt til Saxo.")
+        except Exception as exc:
+            st.error("Regimefilter kan ikke lastes eller lagres: " + type(exc).__name__)
 
     st.subheader("Hva modellen har observert")
     if not evidence["observer_table_present"]:
@@ -255,7 +371,8 @@ with filter_tab:
             "kun UI-terskler.\n"
             "- **STOPP/KJØR:** standard KJØR, kun operatør kan sette STOPP. "
             "Verdien lagres per instans og aktiv strateginøkkel.\n"
-            "- **Automatisk sperreregel:** ikke aktivert; først uavhengig PAPER-/kostnadstest."
+            "- **Regimeport:** OFF/SHADOW/LIVE per instans; eksakt 30m/60m-prisretning. "
+            "Ikke dokumentert lønnsomhet; aktiveres aldri automatisk."
         )
 
     with st.expander("🔬 Impulse Catcher → regime · statistisk prissammenheng", expanded=False):

@@ -2,6 +2,13 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-22 · V3 regimefilter: valgbar BULL/BEAR/SIDEWAYS (isolert opt-in)
+
+- **Arbeidsgren:** `feature/regime-filter-selectable-states-20261122`, fra oppdatert `origin/main`. `autotrader_v3_regime_gate_v1.py` innfører per-instans/strategi OFF (standard), SHADOW og eksplisitt operatørvalgt LIVE. Egen markedsfilter-meny lar velge tillatte BULL, BEAR, SIDEWAYS, bare trendretning (LONG/BULL, SHORT/BEAR) og om UKJENT/stale skal sperres. Manuell nødstopp forblir overordnet og uendret; ingen konto eller strategi autobyttes.
+- **Regime-evidens:** nøyaktig abonnert instruments lagrede, ferdiglukkede 1m-barer, 30m foreløpig og 60m effektivitetsbasert prisretning. Sterkt motsatt 30m ved trend på 60m blir SIDEWAYS; mindre enn 30 sammenhengende minutter, tidsstemplingshull eller stale blir UKJENT (aldri oppdiktet sideveis). Ingen ekstra Saxo GET, volumkrav, lookahead eller automatisk modelltrening. Tersklene er **ikke** resultatvalidert på LIVE-historikk.
+- **Ordresikkerhet:** Kun nye OPEN/ADD kontrolleres før og etter Saxo-reservasjon; siste veto markerer REJECTED uten POST og korrigerer lukket-bar-mål. CLOSE/REDUCE, eksakt beholdningskontroll, precheck, ordreidentitet og Saxo-autoritet er uendret. SHADOW og OFF blokkerer ikke på regime, og en ulest aktiv kontroll feiler stengt. LIVE krever separat bekreftet lagring. Utløst LIVE-regimefilter er **ikke** aktivert i produksjon av denne kodeendringen.
+- **Kontroll:** 10 nye isolerte sikkerhets- og klassifiseringstester, samt 7 eksisterende tilstandsmodelltester, lokale unittest grønne; compile og diff-check grønne. Full pytest/CI, PR, Railway-deploy og faktisk databasebasert strategi-backtest verifiseres separat.
+
 ## 2026-11-20 · V3 Impulse Catcher: 10s ordreinngangsfrist (isolert rettelse)
 
 - **Brukerbeslutning:** 5s maks alder ved OPEN/ADD før Saxo POST er for knapp ved oppgitt ~5–6s handelskjede. `autotrader_v3_live_runtime_v1.py` bruker nå 10s fra både siste beslutningsquote og lagret impuls-trigger for *kun* `impulse-catcher-*`-LIVE; Hunter, Rabid, HyperChase beholder 5s. Den uavhengige `MAX_QUOTE_AGE_S=5` i tick-adapteren og 8s grense for registrerte BBO-gap endres ikke; det gjør heller ikke Saxo cost/precheck, eksakt beholdningskontroll, autoritet, STOPP-filter, idempotens eller manuell ordrelås.
