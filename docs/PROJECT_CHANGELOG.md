@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `44225e8de4298a28e2af13b6121948b6407f7a68`
+Latest tracked main commit: `eb490c55be2c7ce56226d8bcb9889c402880ccf9`
 
 ## Recent main commits
 
+- 2026-11-23 [`eb490c55be`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/eb490c55be2c7ce56226d8bcb9889c402880ccf9) — PAPER: compare sideways impulse specialization and rare countertrend shocks (#878)
 - 2026-11-22 [`44225e8de4`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/44225e8de4298a28e2af13b6121948b6407f7a68) — feat(v3): add opt-in bull bear sideways regime entry gate (#880)
 - 2026-11-21 [`656086ced5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/656086ced5c6928731a50206fcb390e0fcd5dff2) — Allow 10s Impulse Catcher entry signal age before Saxo POST (#879)
 - 2026-11-20 [`0f5a35f7c9`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0f5a35f7c962895ad5a7d05d6959e515a9449757) — Recognize Saxo Micro 2Y, 10Y and 30Y yield futures in manual probe (#876)
@@ -46,6 +47,5 @@ Latest tracked main commit: `44225e8de4298a28e2af13b6121948b6407f7a68`
 - 2026-11-16 [`a5e4688ca8`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5e4688ca8e6d072082b5a7a2cb9618398251e33) — Tech100 Regime V3: price-confirmed histogram convergence and early exit (#844)
 - 2026-11-16 [`cada668211`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cada668211d44e8319849a21be67f5172749a978) — Research: historical HH/HL sequences and mirrored 1–3m control
 - 2026-11-15 [`e364cd2d9a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e364cd2d9ab26a8aa4cf1c8b7db69be43f52fd00) — fix: expose Tech100 Impulse Catcher Lab in navigation
-- 2026-11-15 [`7c00fec2ff`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7c00fec2ffc1bb78741e0360f166de9323bdc4dc) — feat: price-confirmed MACD-Stoch V2.1 regime long/flat and short/flat V2
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
