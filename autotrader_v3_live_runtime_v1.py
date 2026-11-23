@@ -1116,11 +1116,20 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             continue
         order=SaxoOrderRequest(account_key=account,instrument=instrument,amount=mutation.amount,buy_sell=side,
             external_reference=('pgv3-'+request_key)[-50:])
-        _precheck_started=time.perf_counter()
-        pre=broker.precheck(order)
-        record_v3_phase_v1('precheck',time.perf_counter()-_precheck_started)
-        if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
-            raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
+        # CLOSE/REDUCE already has exact broker inventory and an existing
+        # position to reduce. Do not hold a time-critical exit behind a second
+        # Saxo POST to the optional precheck endpoint. Saxo validates the
+        # actual market order; post-submit inventory reconciliation remains.
+        # OPEN/ADD retains full margin/cost precheck and exposure controls.
+        if mutation.action in {'CLOSE','REDUCE'}:
+            pre={'PreCheckResult':'Ok'}
+            LOGGER.info('v3 LIVE fast exit precheck skipped trader=%s action=%s',e.pilot_key,mutation.action)
+        else:
+            _precheck_started=time.perf_counter()
+            pre=broker.precheck(order)
+            record_v3_phase_v1('precheck',time.perf_counter()-_precheck_started)
+            if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
+                raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
         if mutation.action in {'OPEN','ADD'}:
             try:
                 capital_required=enforce_execution_policy_precheck_v3(
