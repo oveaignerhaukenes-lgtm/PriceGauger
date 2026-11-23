@@ -36,8 +36,12 @@ from autotrader_v3_macd_stoch_v21_split_v2 import (
     long_flat_target_v2,short_flat_target_v2,
 )
 from autotrader_v3_macd_stoch_v21_split_v3 import (
-    LONG_KEY_V3_PRICE_HIST, SHORT_KEY_V3_PRICE_HIST, ALL_SPLIT_KEYS_V3,
+    LONG_KEY_V3_PRICE_HIST, SHORT_KEY_V3_PRICE_HIST,
+    LONG_KEY_V4_TRAP, SHORT_KEY_V4_TRAP, ALL_SPLIT_KEYS_V3,
     long_flat_target_v3_price_hist, short_flat_target_v3_price_hist,
+)
+from autotrader_v3_split_v4_trap_research import (
+    long_flat_trap_research_v4, short_flat_trap_research_v4,
 )
 from autotrader_v3_macd_stoch_v22_flip import macd_stoch_v22_flip_target_v3
 from autotrader_v3_macd_stoch_rhythm_build_v1 import macd_stoch_rhythm_build_target_v3
@@ -53,6 +57,13 @@ from autotrader_v3_rhythm_trend_v1 import rhythm_trend_target_v3
 from autotrader_v3_fractal_rhythm_variants_v1 import (
     rhythm_build_fractal_target_v3,rhythm_trend_fractal_target_v3,
 )
+
+# PAPER-only: deliberately absent from the LIVE V3 strategy registry and
+# broker driver. Research outputs must never be eligible for account arming.
+V4_LONG_TRAP_PAPER_KEY="macd-stoch-v21-r-long-flat-trap-v4-paper"
+V4_SHORT_TRAP_PAPER_KEY="macd-stoch-v21-r-short-flat-trap-v4-paper"
+REPLAY_V4_KEYS=frozenset((V4_LONG_TRAP_PAPER_KEY,V4_SHORT_TRAP_PAPER_KEY))
+REPLAY_SPLIT_KEYS=ALL_SPLIT_KEYS_V3 | REPLAY_V4_KEYS
 
 PURE_V3={
     "pricetrend-1":pricetrend_target_v1,
@@ -71,6 +82,10 @@ PURE_V3={
     SHORT_KEY_V2:short_flat_target_v2,
     LONG_KEY_V3_PRICE_HIST:long_flat_target_v3_price_hist,
     SHORT_KEY_V3_PRICE_HIST:short_flat_target_v3_price_hist,
+    LONG_KEY_V4_TRAP:long_flat_trap_research_v4,
+    SHORT_KEY_V4_TRAP:short_flat_trap_research_v4,
+    V4_LONG_TRAP_PAPER_KEY:long_flat_trap_research_v4,
+    V4_SHORT_TRAP_PAPER_KEY:short_flat_trap_research_v4,
     "macd-stoch-v2-2-flip":macd_stoch_v22_flip_target_v3,
     "macd-stoch-rhythm-build":macd_stoch_rhythm_build_target_v3,
     "precross-price-1m-macd2m":precross_price_target_v3,
@@ -92,9 +107,9 @@ FRACTAL_BUILD=frozenset(("rhythm-build-fractal",))
 MICRO_TIMING=PRECROSS|FRACTAL_BUILD|frozenset((
     "macd-stoch-rhythm-build","rhythm-trend-1","rhythm-trend-fractal"))
 STOCH=frozenset(("macd-stoch-v1","macd-stoch-v2",
-                 "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build")) | ALL_SPLIT_KEYS_V3
+                 "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build")) | REPLAY_SPLIT_KEYS
 TRAILING=frozenset(("macd-flip","macd","macd-stoch-v1","macd-stoch-v2",
-                    "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build","rhythm-build-fractal")) | ALL_SPLIT_KEYS_V3
+                    "macd-stoch-v2-1","macd-stoch-v2-2-flip","macd-stoch-rhythm-build","rhythm-build-fractal")) | REPLAY_SPLIT_KEYS
 PERIODS={"1m":1,"2m":2,"5m":5,"10m":10,"15m":15,"30m":30,"1h":60}
 MIN_HISTORY=45
 MAX_BARS=3000
@@ -133,6 +148,21 @@ def strategy_catalog_v2()->dict[str,tuple]:
             "runtime_ready":entry.runtime_ready,
             "ai_capable":False,  # AI manager is an external overlay, not an LLM strategy.
         })
+    result["V4 · Gjentatte traps · kun PAPER"].extend((
+        {"key":V4_LONG_TRAP_PAPER_KEY,
+         "name":"V4 · Long/Flat · Adaptiv trap-exit · PAPER",
+         "description":"V3 inngang uendret. Kan beholde LONG under en liten "
+                       "motbevegelse når flere tidligere traps er fullt "
+                       "gjenvunnet og ligner hverandre. V3 hard-exit uendret. "
+                       "Forskning: ingen LIVE.",
+         "replay_ready":True,"runtime_ready":False,"ai_capable":False},
+        {"key":V4_SHORT_TRAP_PAPER_KEY,
+         "name":"V4 · Short/Flat · Adaptiv trap-exit · PAPER",
+         "description":"Speilet V4 for SHORT. Krever flere tidligere fullstendig "
+                       "reverserte traps; hard-exit og regimeskifte går FLAT. "
+                       "Forskning: ingen LIVE.",
+         "replay_ready":True,"runtime_ready":False,"ai_capable":False},
+    ))
     return {key:tuple(result[key]) for key in sorted(result)}
 
 
@@ -250,7 +280,7 @@ def _call_strategy(key,target,obs,prev,bars,source,peak_state,config,market,regi
         return result.decision,result.state
     if key in PRECROSS:
         args.update(bars=bars,source_bars=source,market_name=market)
-    elif key in ALL_SPLIT_KEYS_V3:
+    elif key in REPLAY_SPLIT_KEYS:
         args.update(bars=bars,source_bars=source,market_name=market,
                     regime_timeframe_minutes=regime_minutes,
                     exit_timeframe_minutes=exit_minutes)
@@ -280,7 +310,7 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
     flattened at the last verified close with explicit cost, and pending
     intent is cancelled (no fictitious cross-gap profit).
     """
-    if strategy_key in ALL_SPLIT_KEYS_V3 and (regime_timeframe not in PERIODS or exit_timeframe not in PERIODS):
+    if strategy_key in REPLAY_SPLIT_KEYS and (regime_timeframe not in PERIODS or exit_timeframe not in PERIODS):
         raise ValueError("Unsupported split V2.1 regime or exit period")
     if strategy_key not in PURE_V3:
         raise ValueError(f"Strategy not yet replay-ready: {strategy_key}")
@@ -376,7 +406,7 @@ def replay_v3_strategy_v2(*,strategy_key:str,bars:Sequence,costs:ReplayCostsV2,
                     visible=signal_chart[max(0,end_i-130):end_i]
                     # 15m macro MACD requires > 35*15 observed minutes to warm up.
                     # A 650m as-of window is bounded but preserves its context.
-                    source=(all_source if strategy_key in ALL_SPLIT_KEYS_V3
+                    source=(all_source if strategy_key in REPLAY_SPLIT_KEYS
                             else segment[max(0,ix-650):ix+1])
                     # Price strategies check last 5 contiguous source bars,
                     # and the only 2m observation available at this minute.

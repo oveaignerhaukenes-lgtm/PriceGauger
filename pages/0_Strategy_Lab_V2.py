@@ -15,7 +15,7 @@ from live_sim_tv_charts_v1 import render_lab_tv_series
 from strategy_lab_v2_click_chart import render_lab_v2_click_chart,replay_cursor_from_chart_click_v2
 from strategy_lab_v2_replay import (
     ReplayCostsV2,PURE_V3,MAX_BARS,utc,
-    strategy_catalog_v2,replay_v3_strategy_v2,
+    strategy_catalog_v2,replay_v3_strategy_v2,REPLAY_SPLIT_KEYS,REPLAY_V4_KEYS,
 )
 from strategy_lab_v2_saxo_costs import (
     saxo_replay_costs_v2,saxobank_accounts_v2,verified_replay_costs_v2,account_label_v2,
@@ -28,7 +28,7 @@ from strategy_lab_v2_accounts import render_account_performance_v2
 from analysis_digest_v1 import render_summary
 from autotrader_v3_ai_live_presets_v1 import AI_LIVE_PRESETS_V3
 from autotrader_v3_macd_stoch_v21_split_v1 import SPLIT_KEYS_V3, LONG_KEY_V3, SHORT_KEY_V3
-from autotrader_v3_macd_stoch_v21_split_v3 import ALL_SPLIT_KEYS_V3,SPLIT_V2_KEYS_V3,SPLIT_V3_KEYS_V3
+from autotrader_v3_macd_stoch_v21_split_v3 import ALL_SPLIT_KEYS_V3,SPLIT_V2_KEYS_V3,SPLIT_V3_KEYS_V3,SPLIT_V4_KEYS_V3
 
 st.set_page_config(page_title="Strategilab v2",layout="wide")
 st.title("Strategilab v2")
@@ -123,9 +123,9 @@ with tabs[0]:
                            key="slab2:hours")
         end_at=c3.date_input("Sluttdato (UTC)",value=datetime.now(timezone.utc).date(),
                              key="slab2:date")
-        split_selected=bool(set(chosen) & ALL_SPLIT_KEYS_V3)
+        split_selected=bool(set(chosen) & REPLAY_SPLIT_KEYS)
         split_exit_tf=st.selectbox("MACD-utgangsperiode (E)",("1m","2m","5m","10m","15m","30m","1h"),index=1,key="slab2:split_exit") if split_selected else "2m"
-        split_regime_tf=st.selectbox("MACD-regimeperiode (R)",("1m","2m","5m","10m","15m","30m","1h"),index=(3 if set(chosen)&SPLIT_V3_KEYS_V3 else 4 if set(chosen)&SPLIT_V2_KEYS_V3 else 5),key="slab2:split_regime") if split_selected else "30m"
+        split_regime_tf=st.selectbox("MACD-regimeperiode (R)",("1m","2m","5m","10m","15m","30m","1h"),index=(2 if set(chosen)&(REPLAY_V4_KEYS|SPLIT_V4_KEYS_V3) else 3 if set(chosen)&SPLIT_V3_KEYS_V3 else 4 if set(chosen)&SPLIT_V2_KEYS_V3 else 5),key="slab2:split_regime") if split_selected else "30m"
         st.caption("Kanoniske 1m-prisbarer for akkurat den valgte Saxo-UIC. "
                    "For lange perioder, velg smalere vindu for å holde "
                    "beregning og prisdatakvalitet håndterbar.")
