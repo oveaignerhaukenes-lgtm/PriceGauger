@@ -36,7 +36,8 @@ from autotrader_v3_macd_stoch_v21_split_v2 import (
     long_flat_target_v2,short_flat_target_v2,
 )
 from autotrader_v3_macd_stoch_v21_split_v3 import (
-    LONG_KEY_V3_PRICE_HIST, SHORT_KEY_V3_PRICE_HIST, ALL_SPLIT_KEYS_V3,
+    LONG_KEY_V3_PRICE_HIST, SHORT_KEY_V3_PRICE_HIST,
+    LONG_KEY_V4_TRAP, SHORT_KEY_V4_TRAP, ALL_SPLIT_KEYS_V3,
     long_flat_target_v3_price_hist, short_flat_target_v3_price_hist,
 )
 from autotrader_v3_split_v4_trap_research import (
@@ -81,6 +82,8 @@ PURE_V3={
     SHORT_KEY_V2:short_flat_target_v2,
     LONG_KEY_V3_PRICE_HIST:long_flat_target_v3_price_hist,
     SHORT_KEY_V3_PRICE_HIST:short_flat_target_v3_price_hist,
+    LONG_KEY_V4_TRAP:long_flat_trap_research_v4,
+    SHORT_KEY_V4_TRAP:short_flat_trap_research_v4,
     V4_LONG_TRAP_PAPER_KEY:long_flat_trap_research_v4,
     V4_SHORT_TRAP_PAPER_KEY:short_flat_trap_research_v4,
     "macd-stoch-v2-2-flip":macd_stoch_v22_flip_target_v3,

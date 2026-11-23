@@ -166,6 +166,21 @@ STRATEGIES_V3 = (
         "macd-stoch-v21-r-short-flat-v3",True,
     ),
     StrategySpecV3(
+        "macd-stoch-v21-r-long-flat-v4", "V4 Trap · Long/Flat · LIVE-valgbar",
+        "Eksperimentell V3 LONG med avgrenset toleranse for tidligere gjenvunne "
+        "motbevegelser. Hard-exits, regimebrudd og datagap gjelder fortsatt. "
+        "Femdagers simulering viste ingen netto forbedring. Ingen automatisk "
+        "kontoendring, arming eller strategisk tapsgrense.",
+        "macd-stoch-v21-r-long-flat-v4", True,
+    ),
+    StrategySpecV3(
+        "macd-stoch-v21-r-short-flat-v4", "V4 Trap · Short/Flat · LIVE-valgbar",
+        "Speilet V4 SHORT: kun myk V3-exit kan utsettes når forrige "
+        "fullstendig gjenvunne traps ligner hverandre. Ukestest ingen gevinst. "
+        "Krever manuelt kontovalg og separat arming; ikke aktivert ved deploy.",
+        "macd-stoch-v21-r-short-flat-v4", True,
+    ),
+    StrategySpecV3(
         "macd-stoch-v2-2-flip", "MACD+Stoch V2.2 · Flip",
         "V2.1 beholdt for OPEN og BUILD, men sterk motsatt 70/30-score "
         "på én lukket candle sender straks motsatt minste-tranche-mål. "

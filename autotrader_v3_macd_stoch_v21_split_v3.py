@@ -27,7 +27,10 @@ from autotrader_v3_macd_stoch_v21_split_v2 import (
 LONG_KEY_V3_PRICE_HIST = "macd-stoch-v21-r-long-flat-v3"
 SHORT_KEY_V3_PRICE_HIST = "macd-stoch-v21-r-short-flat-v3"
 SPLIT_V3_KEYS_V3 = frozenset({LONG_KEY_V3_PRICE_HIST, SHORT_KEY_V3_PRICE_HIST})
-ALL_SPLIT_KEYS_V3 = PREVIOUS_SPLIT_KEYS_V3 | SPLIT_V3_KEYS_V3
+LONG_KEY_V4_TRAP = "macd-stoch-v21-r-long-flat-v4"
+SHORT_KEY_V4_TRAP = "macd-stoch-v21-r-short-flat-v4"
+SPLIT_V4_KEYS_V3 = frozenset({LONG_KEY_V4_TRAP, SHORT_KEY_V4_TRAP})
+ALL_SPLIT_KEYS_V3 = PREVIOUS_SPLIT_KEYS_V3 | SPLIT_V3_KEYS_V3 | SPLIT_V4_KEYS_V3
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,10 +1,18 @@
 """Regression tests for the separate, PAPER-only V4 trap exit proposal."""
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from autotrader_v3_domain import TargetInventoryV3
+from autotrader_v3_macd_stoch_v21_split_v3 import (
+    LONG_KEY_V4_TRAP, SHORT_KEY_V4_TRAP, SPLIT_V4_KEYS_V3,
+)
+from autotrader_v3_registry_v1 import strategy_v3, live_config_issues_v3, sim_config_issues_v3
+from autotrader_v3_strategy_registry_v1 import strategy_adapter_v3, evaluate_strategy_bar_v3
+from autotrader_v3_macd_trailing_v1 import MacdTrailingConfigV3
 from autotrader_v3_registry_v1 import STRATEGIES_V3
 from autotrader_v3_macd_stoch_v21_split_v1 import _decision
 from strategy_lab_v2_replay import (
@@ -125,6 +133,38 @@ class TestTrapResearch(unittest.TestCase):
                                 variable_fee_bps=0., fixed_fee_nok=0.),
             timeframe='1m', regime_timeframe='5m', exit_timeframe='2m')
         self.assertGreater(len(replay.points), 0)
+
+    def test_v4_is_live_selectable_but_no_account_is_armed(self):
+        self.assertEqual(SPLIT_V4_KEYS_V3, {LONG_KEY_V4_TRAP, SHORT_KEY_V4_TRAP})
+        self.assertTrue(SPLIT_V4_KEYS_V3.isdisjoint(REPLAY_V4_KEYS))
+        for key in SPLIT_V4_KEYS_V3:
+            self.assertTrue(strategy_v3(key).runtime_ready)
+            self.assertTrue(strategy_adapter_v3(key).live_route_enabled)
+            self.assertIn(key, PURE_V3)
+            args = dict(strategy_key=key, timeframe='1m', regime_timeframe='5m',
+                        exit_timeframe='2m', control_mode='Manuell', modifiers=())
+            self.assertFalse(live_config_issues_v3(**args))
+            self.assertFalse(sim_config_issues_v3(**args))
+
+    def test_v4_live_driver_repeats_no_order_on_duplicate_bar(self):
+        with TemporaryDirectory() as temp:
+            bars = self.recurring()
+            obs = self.obs(bars)
+            with patch('autotrader_v3_closed_bar_driver_v1.long_flat_trap_research_v4',
+                       return_value=_decision(amount=.01, action='OPEN',
+                                              reason='V4 isolated test', observation=obs)):
+                args = dict(strategy_key=LONG_KEY_V4_TRAP,
+                            trader_id='sim:v4:unit', observation=obs,
+                            source_bars=bars, bars=bars,
+                            regime_timeframe_minutes=5,
+                            exit_timeframe_minutes=2, market_name='Tech100',
+                            config=MacdTrailingConfigV3(),
+                            db_path=str(Path(temp)/'v4.sqlite'))
+                first = evaluate_strategy_bar_v3(**args)
+                duplicate = evaluate_strategy_bar_v3(**args)
+            self.assertTrue(first.is_new)
+            self.assertFalse(duplicate.is_new)
+            self.assertEqual(.01, duplicate.decision.target.amount)
 
 
 if __name__ == '__main__':
