@@ -2,6 +2,13 @@
 
 **Entry point for every new ChatGPT/developer session.** Read this file, then inspect fresh `main`, relevant code/tests, open PRs, CI and Railway runtime before asserting current status.
 
+## 2026-11-23 · V5 dynamiske kvantiseringer: isolert PAPER-forskningsspor
+
+- **Motivasjon:** Novemberuken har vært overveiende negativ. Test om en modell som justerer *beslutningsregelen online* etter resultatene fra tidligere handler kan generalisere bedre enn et statisk parametersett valgt for én falluke.
+- **Modell:** `autotrader_v3_split_v5_adaptive_research.py` holder en lokal, kortvarig sim-handelshistorikk, anslår netto resultat fra neste observerte 1m OPEN med 4bp rundtur-spread og kvantiserer siste inntil tre avsluttede handler i 0/1/2+ tap. Ved tap kreves gradvis større 12m prisretningseffektivitet og 6m ATR-normalisert medgående momentum for OPEN/ADD; minnet avtar etter 35 minutter uten nye tap. V3-exit, pris-sjokk og regimeskifte kan **aldri** utsettes av V5. Alle signalgrunnlag er fullførte 1m-bars.
+- **Eksperiment:** Fire på forhånd definerte varianter (statisk kontroll, minimal, adaptiv, forsiktig) mot uendret V3 på Saxo UIC4912 1m mandag–torsdag 16.–19.11., S1/R5/E2, neste bars OPEN, 4bp spread og 10k hypotetisk NAV. Fredag 20.11. holdes tilbake som kronologisk kontroll til én regel er valgt. Flere uker/regimer og kostnadssensitivitet kreves for statistisk tillit.
+- **Sikkerhet:** V5 er med vilje **ikke** registrert i Strategy Lab, V3 LIVE-katalog, worker eller Saxo-ruter. PAPER-resultater er simulert og uten reell fill-/restart-autoritet; LIVE-kode krever persistent, broker-rekonsilert resultatstilstand og egen sikkerhetsgjennomgang. Ingen konto aktiveres.
+
 ## 2026-11-22 · V3 regimefilter: valgbar BULL/BEAR/SIDEWAYS (isolert opt-in)
 
 - **Arbeidsgren:** `feature/regime-filter-selectable-states-20261122`, fra oppdatert `origin/main`. `autotrader_v3_regime_gate_v1.py` innfører per-instans/strategi OFF (standard), SHADOW og eksplisitt operatørvalgt LIVE. Egen markedsfilter-meny lar velge tillatte BULL, BEAR, SIDEWAYS, bare trendretning (LONG/BULL, SHORT/BEAR) og om UKJENT/stale skal sperres. Manuell nødstopp forblir overordnet og uendret; ingen konto eller strategi autobyttes.
