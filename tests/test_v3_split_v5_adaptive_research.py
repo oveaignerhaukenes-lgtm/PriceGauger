@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from autotrader_v3_domain import TargetInventoryV3
+from autotrader_v3_registry_v1 import STRATEGIES_V3
 from autotrader_v3_macd_stoch_v21_split_v1 import _decision
 from autotrader_v3_split_v5_adaptive_research import (
     AdaptiveV5Paper, V5Policy, quantized_state_v5,
@@ -33,6 +34,9 @@ def observation(index):
 
 
 class TestV5AdaptivePaper(unittest.TestCase):
+    def test_v5_does_not_enter_live_registry(self):
+        self.assertFalse(any("v5" in item.key for item in STRATEGIES_V3))
+
     def test_only_completed_history_no_future_lookahead(self):
         bars=mock_bars(60)
         policy=V5Policy()
