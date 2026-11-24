@@ -140,5 +140,44 @@ class TestRegimeGateV1(unittest.TestCase):
         self.assertIn("mark_order_v3(request_key=request_key,state='REJECTED'", section)
 
 
+
+    def test_counter_is_durable_scoped_and_deduplicated(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db = str(Path(temp) / "gate.sqlite")
+            common = dict(instance_id="A", strategy_key="s", decision_key="bar-1",
+                          action="OPEN", direction="LONG", db_path=db)
+            live = gate.RegimePolicyV1("A", "s", mode="LIVE", allowed_states=("BEAR",))
+            denied = gate.decide_regime_entry_v1(live, state="BULL", direction="LONG")
+            allowed = gate.decide_regime_entry_v1(live, state="BEAR", direction="LONG")
+            shadow = gate.decide_regime_entry_v1(
+                gate.RegimePolicyV1("A", "s", mode="SHADOW", allowed_states=()),
+                state="BULL", direction="LONG")
+            self.assertEqual(gate.load_regime_block_count_v1(instance_id="A", db_path=db), 0)
+            for _ in range(3):
+                gate.record_regime_block_v1(**common, decision=denied)
+            gate.record_regime_block_v1(**{**common, "decision_key": "bar-2"}, decision=denied)
+            gate.record_regime_block_v1(**{**common, "instance_id": "B"}, decision=denied)
+            gate.record_regime_block_v1(**{**common, "decision_key": "bar-3"}, decision=allowed)
+            gate.record_regime_block_v1(**{**common, "decision_key": "bar-4"}, decision=shadow)
+            gate.record_regime_block_v1(**{**common, "action": "CLOSE"}, decision=denied)
+            self.assertEqual(gate.load_regime_block_count_v1(instance_id="A", db_path=db), 2)
+            self.assertEqual(gate.load_regime_block_count_v1(instance_id="B", db_path=db), 1)
+            with patch.object(gate, "connect", side_effect=OSError("db offline")):
+                gate.record_regime_block_v1(**common, decision=denied)
+                self.assertIsNone(gate.load_regime_block_count_v1(instance_id="A", db_path=db))
+
+    def test_entry_directions_and_effective_preview_contract(self):
+        self.assertEqual(gate.strategy_entry_directions_v1("macd-stoch-v21-r-long-flat-v3"), ("LONG",))
+        self.assertEqual(gate.strategy_entry_directions_v1("impulse-catcher-short-tick-v1-1"), ("SHORT",))
+        self.assertEqual(gate.strategy_entry_directions_v1("macd-stoch-v2-1"), ("LONG", "SHORT"))
+        ui = Path("pages/0_Markedsfilter.py").read_text(encoding="utf-8")
+        self.assertIn("elif result.allow_new_exposure:", ui)
+        self.assertIn("on_change=save_changed", ui)
+        self.assertNotIn('form_submit_button("Lagre regimefilter")', ui)
+        self.assertIn("load_regime_block_count_v1(instance_id=item.instance_id)", ui)
+        runtime = Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
+        self.assertEqual(runtime.count("record_regime_block_v1("), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
