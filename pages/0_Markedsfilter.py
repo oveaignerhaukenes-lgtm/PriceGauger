@@ -11,6 +11,7 @@ from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_regime_gate_v1 import (
     STATES_V1, classify_regime_v1, load_regime_policy_v1, save_regime_policy_v1,
     decide_regime_entry_v1, load_regime_block_count_v1, strategy_entry_directions_v1,
+    read_regime_state_v1,
 )
 from autotrader_v3_registry_v1 import strategy_v3
 from autotrader_v3_stop_go_status_v1 import (
@@ -222,11 +223,8 @@ with filter_tab:
                         instance_id=item.instance_id, strategy_key=runtime_key)
                     regime_selection = rp.mode + " · " + (", ".join(rp.allowed_states) or "ingen")
                     if rp.mode != "OFF":
-                        ending = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
-                        stored = CanonicalMarketBarStoreV2().load_instrument_range(
-                            instrument_id=item.instrument_id,
-                            start=ending-timedelta(minutes=63), end=ending, limit=65)
-                        observed, _ = classify_regime_v1(stored, now=now)
+                        observed, _ = read_regime_state_v1(
+                            instrument_id=item.instrument_id, now=now)
                         regime_status = observed
                     else:
                         regime_status = "— (AV)"
@@ -278,11 +276,8 @@ with filter_tab:
             runtime_key = strategy_v3(chosen_strategy).runtime_key or chosen_strategy
             policy = load_regime_policy_v1(instance_id=chosen.instance_id,
                                            strategy_key=runtime_key)
-            last_open = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
-            bars = CanonicalMarketBarStoreV2().load_instrument_range(
-                instrument_id=chosen.instrument_id,
-                start=last_open-timedelta(minutes=63), end=last_open, limit=65)
-            market_state, market_reason = classify_regime_v1(bars, now=now)
+            market_state, market_reason = read_regime_state_v1(
+                instrument_id=chosen.instrument_id, now=now)
             status_color = "🟢" if market_state == "BULL" else "🔴" if market_state == "BEAR" else "🟡" if market_state == "SIDEWAYS" else "⚪"
             st.write(f"**{status_color} {market_state}** · {market_reason}")
             st.caption(
