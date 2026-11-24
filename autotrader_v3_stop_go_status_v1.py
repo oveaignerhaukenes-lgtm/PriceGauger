@@ -27,7 +27,7 @@ def load_v3_stop_go_lights_v1(
     instances: tuple[tuple[str, str, bool], ...], *,
     db_path: str = "pricegauger.db",
 ) -> dict[str, V3StopGoLightV1]:
-    """No market inference. Match exact strategy and arming."""
+    """No market inference. Match exact instance and arming."""
     lights={}
     for instance_id,strategy_key,live_armed in instances:
         if not live_armed:
