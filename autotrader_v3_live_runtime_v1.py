@@ -373,6 +373,27 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
     # before dispatch. Each independent account task still reloads and checks
     # exact current LIVE arming and V3 ownership, but never repeats DDL and
     # legacy migration work on every 1s quote wake.
+    # Emergency has priority even if the operator has disarmed the strategy:
+    # a manual OFF cannot disable account reconciliation/flatten supervision.
+    # The worker calls this function inside a single serialized account lane.
+    if account_ids is not None:
+        emergency_accounts=tuple(aid for aid in account_ids
+            if emergency_active_v1(aid,db_path=db_path))
+        if emergency_accounts:
+            try:
+                emergency_broker=configured_live_pilot_client_v3()
+                if emergency_broker is None:
+                    LOGGER.error("v3 EMERGENCY broker client unavailable; no regular orders")
+                    return 0
+                for emergency_account in emergency_accounts:
+                    phase=run_emergency_account_once_v1(
+                        emergency_account,emergency_broker,db_path=db_path,now=now)
+                    LOGGER.warning("v3 EMERGENCY account_suffix=%s state=%s",
+                                   str(emergency_account)[-4:],phase)
+            except Exception as exc:
+                LOGGER.exception("v3 EMERGENCY coordination failed kind=%s",type(exc).__name__)
+            # No ordinary account order pipeline, regardless of recovery result.
+            return 0
     active=_load_owned_armed_runtime_instances_v3(
         db_path=db_path,skip_legacy_migration=account_ids is not None,
         account_ids=account_ids)
