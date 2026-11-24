@@ -10,7 +10,7 @@ from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_regime_gate_v1 import (
     STATES_V1, classify_regime_v1, load_regime_policy_v1, save_regime_policy_v1,
-    decide_regime_entry_v1,
+    decide_regime_entry_v1, load_regime_block_count_v1, strategy_entry_directions_v1,
 )
 from autotrader_v3_registry_v1 import strategy_v3
 from autotrader_v3_stop_go_status_v1 import (
@@ -36,7 +36,7 @@ st.title("Markedsfilter og modulkart")
 st.caption(
     "Se hvilke data modulene bruker, hva de vurderer og om nye observasjoner faktisk kommer inn. "
     "Prisdata leses fra databasen – ingen Saxo-kall eller ordre. "
-    "Kun et eksplisitt lagreklikk endrer regimefilterets innstillinger."
+    "Regimefilterets innstillinger lagres direkte når du endrer dem."
 )
 
 now = datetime.now(timezone.utc)
@@ -237,6 +237,7 @@ with filter_tab:
                 "Manuell STOPP/KJØR": light.symbol + " " + light.label,
                 "Regimeport": regime_selection,
                 "Prisregime": regime_status,
+                "Regimeblokkerte ordre": load_regime_block_count_v1(instance_id=item.instance_id),
                 "Siste 1m-bar": _stamp(bar),
                 "Prisdata": _fresh(bar, 3)["symbol"] + " " + _fresh(bar, 3)["label"],
                 "Siste 3×3-avlesning": _stamp(observation.get("newest")),
@@ -289,56 +290,82 @@ with filter_tab:
                 f"· {'kun medgang' if policy.trend_only else 'begge retninger'} "
                 f"· UKJENT {'sperret' if policy.block_unknown else 'slippes gjennom'}"
             )
-            with st.form(f"regime-policy-{chosen.instance_id}-{runtime_key}"):
-                mode = st.selectbox(
-                    "Modus",
-                    ("OFF", "SHADOW", "LIVE"),
-                    index=("OFF", "SHADOW", "LIVE").index(policy.mode),
-                    format_func=lambda s: {"OFF": "AV – ingen regimeinngrep",
-                                            "SHADOW": "SKYGGE – vurder uten blokkering",
-                                            "LIVE": "LIVE – blokker nye innganger"}[s],
-                )
-                allowed = st.multiselect(
-                    "Regimer som kan åpne handler", STATES_V1,
-                    default=policy.allowed_states,
-                    help="Fjerner du SIDEWAYS, blokkeres ny handel i sideveis marked. "
-                         "Fjerner du BULL/BEAR, blokkeres det regimet uansett retning.",
-                )
-                trend_only = st.checkbox(
-                    "Kun medgang: LONG i BULL, SHORT i BEAR",
-                    value=policy.trend_only,
-                    help="Valgt SIDEWAYS tillater begge retninger. "
-                         "Fjern SIDEWAYS for bare bekreftet trendretning.",
-                )
-                block_unknown = st.checkbox(
-                    "Blokker også UKJENT / manglende data",
-                    value=policy.block_unknown,
-                    help="Strengeste valg. Uten dette får tvilstilfeller passere.",
-                )
-                if mode == "LIVE" and trend_only and not block_unknown:
-                    st.warning("UKJENT vil fortsatt slippe gjennom handler. "
-                               "Velg «Blokker også UKJENT» for kun dokumentert medgang.")
-                confirmed = st.checkbox(
-                    "Jeg bekrefter endring for denne instansen "
-                    "(LIVE kan hindre OPEN/ADD)", value=False,
-                )
-                submitted = st.form_submit_button("Lagre regimefilter")
-                if submitted and confirmed:
-                    save_regime_policy_v1(
-                        instance_id=chosen.instance_id, strategy_key=runtime_key,
-                        mode=mode, allowed_states=tuple(allowed),
-                        trend_only=bool(trend_only), block_unknown=bool(block_unknown),
-                    )
-                    st.rerun()
-                elif submitted:
-                    st.warning("Kryss av bekreftelsen før endringen lagres.")
-            st.caption("Effekt ved neste nye ordre (forhåndsvisning): " + " · ".join(
-                direction + " " + ("✅" if decide_regime_entry_v1(
-                    policy, state=market_state, direction=direction).would_allow else "⛔")
-                for direction in ("LONG", "SHORT")
-            ))
-            st.caption("Forhåndsvisning bruker **lagrede** valg. SKYGGE/AV blokkerer aldri. "
-                       "Endringer gjelder ikke ordre som allerede er sendt til Saxo.")
+            # Widgets are bound to the exact instance AND runtime strategy.
+            # Only the changed field is written, using a fresh saved policy.
+            # Rerenders and account switching never write settings.
+            prefix = f"regime-policy-auto:{chosen.instance_id}:{runtime_key}:"
+            mode_key, states_key, trend_key = (prefix + s for s in ("mode", "states", "trend"))
+            error_key = prefix + "error"
+            st.session_state[mode_key] = policy.mode
+            st.session_state[states_key] = list(policy.allowed_states) + (
+                [] if policy.block_unknown else ["UNKNOWN"])
+            st.session_state[trend_key] = policy.trend_only
+
+            def save_changed(field, widget_key, instance_id=chosen.instance_id,
+                             strategy_key=runtime_key, err_key=error_key):
+                try:
+                    saved = load_regime_policy_v1(instance_id=instance_id,
+                                                  strategy_key=strategy_key)
+                    mode, allowed, trend, block_unknown = (
+                        saved.mode, saved.allowed_states, saved.trend_only, saved.block_unknown)
+                    value = st.session_state[widget_key]
+                    if field == "mode":
+                        mode = value
+                    elif field == "states":
+                        allowed = tuple(s for s in STATES_V1 if s in value)
+                        block_unknown = "UNKNOWN" not in value
+                    elif field == "trend":
+                        trend = bool(value)
+                    save_regime_policy_v1(instance_id=instance_id, strategy_key=strategy_key,
+                        mode=mode, allowed_states=allowed, trend_only=trend,
+                        block_unknown=block_unknown)
+                    st.session_state.pop(err_key, None)
+                except Exception as exc:
+                    st.session_state[err_key] = "Endringen ble ikke lagret: " + type(exc).__name__
+
+            if error_key in st.session_state:
+                st.error(st.session_state[error_key])
+            st.selectbox("Modus", ("OFF", "SHADOW", "LIVE"), key=mode_key,
+                format_func=lambda s: {"OFF": "AV – ingen regimeinngrep",
+                    "SHADOW": "SKYGGE – vurder uten blokkering",
+                    "LIVE": "LIVE – filtrer nye innganger"}[s],
+                on_change=save_changed, args=("mode", mode_key))
+            st.multiselect("Tillat nye handler i", STATES_V1 + ("UNKNOWN",),
+                key=states_key, format_func=lambda s: "UKJENT / manglende data" if s == "UNKNOWN" else s,
+                on_change=save_changed, args=("states", states_key))
+            directions = strategy_entry_directions_v1(runtime_key)
+            # For one-sided strategies with aligned regimes the direction
+            # switch cannot change any permitted entry; keep the stored value.
+            opposite = "BEAR" if directions == ("LONG",) else "BULL"
+            if len(directions) == 2 or opposite in policy.allowed_states:
+                st.checkbox("Krev medgang (LONG i BULL, SHORT i BEAR)",
+                    key=trend_key, on_change=save_changed, args=("trend", trend_key),
+                    help="SIDEWAYS og UKJENT styres av regimevalget. Gjelder bare nye innganger.")
+            else:
+                st.caption("Retningen bestemmes av strategien: " + directions[0] + "/FLAT.")
+            st.caption("Endringer lagres umiddelbart. Lukk og reduser påvirkes aldri av regimefilteret.")
+
+            count = load_regime_block_count_v1(instance_id=chosen.instance_id)
+            st.metric("Regimeblokkerte ordreintensjoner", "Ukjent" if count is None else count)
+            st.caption("Unike LIVE OPEN/ADD-vetoer siden telleren ble innført, ikke antall kontroller.")
+            if policy.mode == "OFF":
+                st.info("Regimefilter AV – ingen nye innganger blokkeres av dette filteret.")
+            elif policy.mode == "SHADOW":
+                st.info("SKYGGE – ingen nye innganger blokkeres; hypotetisk vurdering vises separat.")
+            for direction in ("LONG", "SHORT"):
+                result = decide_regime_entry_v1(policy, state=market_state, direction=direction)
+                if direction not in directions:
+                    st.write(f"**{direction}:** Ikke støttet av strategien")
+                elif result.allow_new_exposure:
+                    hypothetical = (" · SKYGGE ville blokkert" if policy.mode == "SHADOW"
+                                    and not result.would_allow else "")
+                    st.write(f"**{direction}:** ✅ Slippes gjennom regimefilteret{hypothetical}")
+                else:
+                    reason = ("UKJENT er ikke tillatt" if market_state == "UNKNOWN"
+                              else f"{market_state} er ikke valgt" if market_state not in policy.allowed_states
+                              else "Retningen går mot regimet")
+                    st.write(f"**{direction}:** ⛔ Sperret – {reason}")
+            st.caption("Viser regimefilter og strategiretning, ikke andre ordre- eller kapitalgrenser.")
         except Exception as exc:
             st.error("Regimefilter kan ikke lastes eller lagres: " + type(exc).__name__)
 
