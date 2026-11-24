@@ -113,7 +113,7 @@ def test_ui_and_runtime_enforce_cost_guard_without_trapping_reductions():
     runtime = Path("autotrader_v3_live_runtime_v1.py").read_text(encoding="utf-8")
 
     assert "cost_blocked" in ui
-    assert "disabled=bool(live_issues or cost_blocked)" in ui
+    assert "disabled=bool(live_issues or cost_blocked or policy is None)" in ui
     assert "LIVE kostnadssperre" in ui
 
     assert "assess_transaction_cost_v3(" in runtime
