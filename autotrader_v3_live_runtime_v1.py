@@ -381,7 +381,8 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             if emergency_active_v1(aid,db_path=db_path))
         if emergency_accounts:
             try:
-                emergency_broker=configured_live_pilot_client_v3()
+                emergency_broker_factory=configured_live_pilot_client_v3
+                emergency_broker=emergency_broker_factory()
                 if emergency_broker is None:
                     LOGGER.error("v3 EMERGENCY broker client unavailable; no regular orders")
                     return 0
