@@ -11,7 +11,7 @@ from autotrader_v3_live_authority_v1 import live_authority_armed_v3
 from autotrader_v3_regime_gate_v1 import (
     STATES_V1, classify_regime_v1, load_regime_policy_v1, save_regime_policy_v1,
     decide_regime_entry_v1, load_regime_block_count_v1, strategy_entry_directions_v1,
-    read_regime_state_v1,
+    read_regime_state_v1, REGIME_PRESETS_V1, regime_preset_key_v1, save_regime_preset_v1,
 )
 from autotrader_v3_registry_v1 import strategy_v3
 from autotrader_v3_stop_go_status_v1 import (
@@ -285,59 +285,34 @@ with filter_tab:
                 f"· {'kun medgang' if policy.trend_only else 'begge retninger'} "
                 f"· UKJENT {'sperret' if policy.block_unknown else 'slippes gjennom'}"
             )
-            # Widgets are bound to the exact instance AND runtime strategy.
-            # Only the changed field is written, using a fresh saved policy.
-            # Rerenders and account switching never write settings.
-            prefix = f"regime-policy-auto:{chosen.instance_id}:{runtime_key}:"
-            mode_key, states_key, trend_key = (prefix + s for s in ("mode", "states", "trend"))
-            error_key = prefix + "error"
-            st.session_state[mode_key] = policy.mode
-            st.session_state[states_key] = list(policy.allowed_states) + (
-                [] if policy.block_unknown else ["UNKNOWN"])
-            st.session_state[trend_key] = policy.trend_only
+            # Exact instance identity, independent of strategy switches.
+            prefix = f"regime-preset:{chosen.instance_id}:"
+            preset_key, error_key = prefix + "selection", prefix + "error"
+            saved_preset = regime_preset_key_v1(policy)
+            choices = tuple(REGIME_PRESETS_V1) + (("LEGACY",) if saved_preset == "LEGACY" else ())
+            st.session_state[preset_key] = saved_preset
 
-            def save_changed(field, widget_key, instance_id=chosen.instance_id,
-                             strategy_key=runtime_key, err_key=error_key):
+            def save_changed(instance_id=chosen.instance_id, strategy_key=runtime_key,
+                             widget_key=preset_key, err_key=error_key):
                 try:
-                    saved = load_regime_policy_v1(instance_id=instance_id,
-                                                  strategy_key=strategy_key)
-                    mode, allowed, trend, block_unknown = (
-                        saved.mode, saved.allowed_states, saved.trend_only, saved.block_unknown)
-                    value = st.session_state[widget_key]
-                    if field == "mode":
-                        mode = value
-                    elif field == "states":
-                        allowed = tuple(s for s in STATES_V1 if s in value)
-                        block_unknown = "UNKNOWN" not in value
-                    elif field == "trend":
-                        trend = bool(value)
-                    save_regime_policy_v1(instance_id=instance_id, strategy_key=strategy_key,
-                        mode=mode, allowed_states=allowed, trend_only=trend,
-                        block_unknown=block_unknown)
+                    preset = st.session_state[widget_key]
+                    if preset != "LEGACY":
+                        save_regime_preset_v1(instance_id=instance_id,
+                                              strategy_key=strategy_key, preset=preset)
                     st.session_state.pop(err_key, None)
                 except Exception as exc:
                     st.session_state[err_key] = "Endringen ble ikke lagret: " + type(exc).__name__
 
             if error_key in st.session_state:
                 st.error(st.session_state[error_key])
-            st.selectbox("Modus", ("OFF", "SHADOW", "LIVE"), key=mode_key,
-                format_func=lambda s: {"OFF": "AV – ingen regimeinngrep",
-                    "SHADOW": "SKYGGE – vurder uten blokkering",
-                    "LIVE": "LIVE – filtrer nye innganger"}[s],
-                on_change=save_changed, args=("mode", mode_key))
-            st.multiselect("Tillat nye handler i", STATES_V1 + ("UNKNOWN",),
-                key=states_key, format_func=lambda s: "UKJENT / manglende data" if s == "UNKNOWN" else s,
-                on_change=save_changed, args=("states", states_key))
-            directions = strategy_entry_directions_v1(runtime_key)
-            # For one-sided strategies with aligned regimes the direction
-            # switch cannot change any permitted entry; keep the stored value.
-            opposite = "BEAR" if directions == ("LONG",) else "BULL"
-            if len(directions) == 2 or opposite in policy.allowed_states:
-                st.checkbox("Krev medgang (LONG i BULL, SHORT i BEAR)",
-                    key=trend_key, on_change=save_changed, args=("trend", trend_key),
-                    help="SIDEWAYS og UKJENT styres av regimevalget. Gjelder bare nye innganger.")
+            st.selectbox("Regimefilter", choices, key=preset_key,
+                format_func=lambda p: {"OFF": "AV", "LEGACY": "Tidligere oppsett (beholdt)"}.get(p, p.replace("+", " + ")),
+                on_change=save_changed)
+            if saved_preset == "LEGACY":
+                st.caption("Tidligere filtervalg beholdes uendret til du velger et nytt regime.")
             else:
-                st.caption("Retningen bestemmes av strategien: " + directions[0] + "/FLAT.")
+                st.caption("AV slipper gjennom alle regimer. Andre valg tillater bare de valgte regimene; UKJENT sperrer nye innganger.")
+            directions = strategy_entry_directions_v1(runtime_key)
             st.caption("Endringer lagres umiddelbart. Lukk og reduser påvirkes aldri av regimefilteret.")
 
             count = load_regime_block_count_v1(instance_id=chosen.instance_id)
