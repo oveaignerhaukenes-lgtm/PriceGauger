@@ -17,6 +17,7 @@ import os
 from database import connect, run_postgres_schema_once_v1, using_postgres
 from autotrader_v3_order_guard_v1 import (
     pending_order, reserve, claim_reserved_for_submission_v3, mark,
+    ensure_schema as ensure_order_guard_schema_v3,
 )
 from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest
@@ -284,6 +285,7 @@ def _retire_pending(pending, state, detail, *, account_id, uic, asset_type, db_p
 
 
 def _unresolved_on_account(account_id, db_path):
+    ensure_order_guard_schema_v3(db_path)
     with connect(db_path) as db:
         rows = db.execute(
             """SELECT request_key,state,broker_order_id,detail,expected_inventory,
