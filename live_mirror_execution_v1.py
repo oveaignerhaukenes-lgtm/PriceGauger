@@ -52,9 +52,8 @@ def ensure_execution_schema(db_path):
     run_postgres_schema_once_v1("pg_live_mirror_execution_v1",initialize)
 
 
-def _scenario_terms(cfg, raw):
-    key = str(cfg["boundary"]["uic"])+":"+cfg["boundary"]["asset_type"]
-    terms = dict(raw[key])
+def _scenario_terms(cfg, terms):
+    terms = dict(terms)
     terms["capital_cap_nok"] = float(cfg["capital"]["budget_nok"])*float(cfg["capital"]["exposure_pct"])/100
     return MirrorTerms(**terms)
 
@@ -154,16 +153,16 @@ def _retire(session, status, db_path):
             (status,session["session_id"],session["revision"]))
 
 
-def _start(row,cfg,terms,now,db_path):
+def _start(row,cfg,terms,now,db_path,model_source="explicit"):
     # Require the fresh, flat account reference and a new forward bar after start.
     ref=json.loads(row["reference_json"])
-    truth=ref["account"]
-    if row["status"]!="WAIT_CALIBRATION" or (now-_stamp(row["observed_at"])).total_seconds()>90:
+    truth=ref.get("account")
+    if not truth or row["status"]!="WAIT_CALIBRATION" or (now-_stamp(row["observed_at"])).total_seconds()>90:
         return None
     if (now-_stamp(truth["observed_at"])).total_seconds()>360:
         return None
     cash=float(truth["total_value"])
-    sid="scenario:"+uuid4().hex
+    sid="scenario:"+model_source+":"+uuid4().hex
     clock=now.isoformat()
     state=_json(asdict(MirrorAccount(cash)))
     with connect(db_path) as db:
@@ -240,17 +239,17 @@ def _advance(session,row,cfg,terms,now,db_path,cache):
                    account=account,status="PENDING_QUOTE")
 
 
-def run_mirror_execution_cycle(*,db_path="pricegauger.db",now=None,scenario_terms=None):
-    """Opt-in scenario execution, independent from subsequent LIVE outcomes.
+def run_mirror_execution_cycle(*,db_path="pricegauger.db",now=None,scenario_terms=None,
+                               observed_terms=None):
+    """Independent scenario execution, never auto-arm or change LIVE.
 
-    Existing accounts without explicit calibrated/scenario instrument terms
-    remain references. Never silently assume a point value or currency.
+    Explicit terms override observed candidates. An observed model is frozen
+    for its whole configuration session. No terms means no virtual trading.
     """
     now=now or datetime.now(timezone.utc)
     raw=scenario_terms if scenario_terms is not None else json.loads(
         os.getenv("PRICEGAUGER_MIRROR_SCENARIO_TERMS","{}"))
-    if not raw:
-        return {"status":"WAIT_TERMS","processed":0}
+    observed_terms=observed_terms or {}
     rows=mirror_snapshot(db_path=db_path)
     if rows is None:
         return {"status":"WAIT_REFERENCE","processed":0}
@@ -259,38 +258,52 @@ def run_mirror_execution_cycle(*,db_path="pricegauger.db",now=None,scenario_term
     ensure_execution_schema(db_path)
     sessions={s["instance_id"]:s for s in _read_sessions(db_path)}
     active={r["instance_id"]:r for r in rows}
-    for identity,s in sessions.items():
+    for identity,s in list(sessions.items()):
         if identity not in active or active[identity]["mirror_id"]!=s["mirror_id"]:
             _retire(s,"REFERENCE_CHANGED",db_path)
+            sessions.pop(identity)
     cache={}
     statuses={}
     processed=0
     for identity,row in active.items():
         reason=None
+        s=sessions.get(identity)
         try:
             cfg=json.loads(row["config_json"])
             reason=support_reason(cfg)
             if reason:
                 raise ValueError(reason)
             _policy(cfg,identity)
-            terms=_scenario_terms(cfg,raw)
-        except (ValueError,KeyError,TypeError) as exc:
+            instrument=str(cfg["boundary"]["uic"])+":"+cfg["boundary"]["asset_type"]
+            instance_key="instance:"+identity
+            explicit=raw.get(instance_key,raw.get(instrument))
+            if explicit is not None:
+                model_source="explicit"
+                terms=_scenario_terms(cfg,explicit)
+            elif s and s["session_id"].startswith("scenario:observed:"):
+                model_source="observed"
+                terms=MirrorTerms(**json.loads(s["terms_json"]))
+            elif instance_key in observed_terms:
+                model_source="observed"
+                terms=_scenario_terms(cfg,observed_terms[instance_key])
+            else:
+                raise ValueError("no observed or explicit terms")
+        except (ValueError,KeyError,TypeError):
             statuses[identity]=reason or "WAIT_TERMS_OR_POLICY"
-            if identity in sessions:
-                _retire(sessions[identity],statuses[identity],db_path)
+            if s:
+                _retire(s,statuses[identity],db_path)
             continue
-        s=sessions.get(identity)
-        if s and s["mirror_id"]==row["mirror_id"] and s["terms_json"]==_json(asdict(terms)):
+        if s and s["session_id"].startswith("scenario:"+model_source+":") and s["terms_json"]==_json(asdict(terms)):
             try:
                 processed+=int(_advance(s,row,cfg,terms,now,db_path,cache))
-                statuses[identity]="SCENARIO"
+                statuses[identity]="SCENARIO_"+model_source.upper()
             except Exception as exc:
                 statuses[identity]="SCENARIO_ERROR"
                 logging.getLogger(__name__).warning("Mirror scenario error instance=%s type=%s",identity,type(exc).__name__)
         else:
-            if s and s["mirror_id"]==row["mirror_id"]:
+            if s:
                 _retire(s,"TERMS_CHANGED",db_path)
-            statuses[identity]="SCENARIO_STARTED" if _start(row,cfg,terms,now,db_path) else row["status"]
+            statuses[identity]="SCENARIO_STARTED" if _start(row,cfg,terms,now,db_path,model_source) else row["status"]
     return {"status":"SCENARIO_ONLY","processed":processed,"instances":statuses}
 
 
