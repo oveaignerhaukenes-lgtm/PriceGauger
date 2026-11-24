@@ -112,8 +112,13 @@ def _save_instance_edit_v3(*, trader_id, expected_strategy, field, value):
     if field in ("budget_nok", "exposure_pct"):
         policy = load_execution_policy_v3(trader_id)
         if policy is None:
-            raise ValueError("Kapitalramme mangler; opprett en gyldig instans først.")
-        desired_policy = replace(policy, **{field: float(value)})
+            if field != "budget_nok" or value is None:
+                raise ValueError("Angi budsjett først.")
+            # New instances have no stored capital policy. An explicit budget
+            # edit creates it with the displayed default exposure of 100%.
+            desired_policy = ExecutionPolicyV3(trader_id, float(value), 100.0)
+        else:
+            desired_policy = replace(policy, **{field: float(value)})
         if desired_policy != policy:
             save_execution_policy_v3(desired_policy)
         return
@@ -420,13 +425,15 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     spec=next(x for x in STRATEGIES_V3 if x.key==strategy)
     if not spec.runtime_ready: st.warning('Denne strategien er SIM/sammenlignbar, men ikke runtime-klar for LIVE.')
     p1,p2=st.columns(2)
-    budget_key=bind_saved('budget',float(policy.budget_nok if policy else 2000))
+    budget_key=bind_saved('budget',float(policy.budget_nok) if policy else None)
     exposure_key=bind_saved('exposure',int(policy.exposure_pct if policy else 100))
-    p1.number_input('Budsjett (NOK)',min_value=100.0,step=100.0,key=budget_key,
-                    disabled=policy is None,on_change=save_changed,args=("budget_nok",budget_key))
+    p1.number_input('Budsjett (NOK)',min_value=100.0,step=100.0,value=None,key=budget_key,
+                    placeholder='Angi budsjett',on_change=save_changed,args=("budget_nok",budget_key))
     p2.slider('Eksponering (%)',1,100,key=exposure_key,
               disabled=policy is None,on_change=save_changed,args=("exposure_pct",exposure_key))
     st.caption(f'LIVE kapitalgrense: {cap_label} · håndheves mot Saxo precheck (margin/cash).')
+    if policy is None:
+        st.caption('Angi budsjett for ny instans. Eksponering starter på 100 % av valgt budsjett og kan deretter endres.')
     st.markdown('**Options / modifiers · nyeste endring øverst**')
     st.caption("Brytere lagres direkte. Loggen viser vurderinger og bekreftede utførelser separat.")
     other_modifiers=sorted_modifiers_by_last_change_v3(
@@ -609,7 +616,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                 st.rerun()
     else:
         st.caption(f'LIVE AV · {account_title} · aktiv config {active_label} · eksisterende posisjon endres ikke.')
-        if st.button('Slå LIVE på',type='primary',width='stretch',disabled=bool(live_issues or cost_blocked),key=f'{key_prefix}:live-on:{trader_id}'):
+        if st.button('Slå LIVE på',type='primary',width='stretch',disabled=bool(live_issues or cost_blocked or policy is None),key=f'{key_prefix}:live-on:{trader_id}'):
             try:
                 fresh_cost=assess_transaction_cost_v3(
                     broker=configured_live_pilot_client_v3(),
