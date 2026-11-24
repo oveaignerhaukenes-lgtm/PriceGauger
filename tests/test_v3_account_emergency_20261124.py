@@ -62,6 +62,7 @@ class FakeBroker:
         assert order.buy_sell == "Buy"
         assert order.instrument.uic == 4912
         assert order.external_reference.startswith("pgv3-")
+        assert order.payload()["ManualOrder"] is False
         self.sent.append(order)
         self.position = False
         self.activities.append({
