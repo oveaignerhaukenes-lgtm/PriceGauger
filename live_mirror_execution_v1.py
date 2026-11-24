@@ -7,8 +7,8 @@ Each decision and account transition is one atomic append-only event.
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 import os
-from hashlib import sha256
 from uuid import uuid4
 
 from database import connect, run_postgres_schema_once_v1
@@ -254,6 +254,8 @@ def run_mirror_execution_cycle(*,db_path="pricegauger.db",now=None,scenario_term
     rows=mirror_snapshot(db_path=db_path)
     if rows is None:
         return {"status":"WAIT_REFERENCE","processed":0}
+    if any(not _stamp(r["observed_at"]) or not 0 <= (now-_stamp(r["observed_at"])).total_seconds() <= 90 for r in rows):
+        return {"status":"STALE_REFERENCE","processed":0}
     ensure_execution_schema(db_path)
     sessions={s["instance_id"]:s for s in _read_sessions(db_path)}
     active={r["instance_id"]:r for r in rows}
@@ -278,8 +280,12 @@ def run_mirror_execution_cycle(*,db_path="pricegauger.db",now=None,scenario_term
             continue
         s=sessions.get(identity)
         if s and s["mirror_id"]==row["mirror_id"] and s["terms_json"]==_json(asdict(terms)):
-            processed+=int(_advance(s,row,cfg,terms,now,db_path,cache))
-            statuses[identity]="SCENARIO"
+            try:
+                processed+=int(_advance(s,row,cfg,terms,now,db_path,cache))
+                statuses[identity]="SCENARIO"
+            except Exception as exc:
+                statuses[identity]="SCENARIO_ERROR"
+                logging.getLogger(__name__).warning("Mirror scenario error instance=%s type=%s",identity,type(exc).__name__)
         else:
             if s and s["mirror_id"]==row["mirror_id"]:
                 _retire(s,"TERMS_CHANGED",db_path)
