@@ -441,6 +441,20 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
         request_key = str(uuid5(NAMESPACE_URL,
             f"pgv3:emergency:{account_id}:{position_ids}:{side}:{amount:.10g}"))
         buy_sell = "Sell" if side == "buy" else "Buy"
+        if incident.state=="AUTH_REQUIRED" and (current-_dt(incident.updated_at)).total_seconds()<30:
+            return "AUTH_REQUIRED"
+        # Recheck broker gross/net and orders at the POST boundary to reject
+        # stale exposure after a manual intervention or late external fill.
+        try:
+            if (_working_orders(broker,account_id,account_key)
+                or _positions(broker,account_id,account_key,client_key)!=positions
+                or _net_positions(broker,account_id,account_key,client_key)!=nets):
+                _set(account_id,"RESOLVING","POSITION_CHANGED_BEFORE_CLOSE",
+                     db_path=db_path,now=current)
+                return "RESOLVING"
+        except Exception as exc:
+            _set(account_id,_error_state(exc),type(exc).__name__,db_path=db_path,now=current)
+            return "BROKER_DOWN"
         inserted = reserve(request_key=request_key,trader_id="EMERGENCY:"+account_id,
                            account_id=account_id,uic=uic,asset_type=asset_type,
                            expected_inventory=0.0,submitted_amount=amount,submitted_side=buy_sell,
@@ -467,10 +481,12 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
                  detail="EMERGENCY_CLOSE_BROKER_ACCEPTED",db_path=db_path)
             return "SUBMITTED"
         except Exception as exc:
-            mark(request_key=request_key,state="UNKNOWN",
+            code=getattr(exc,"status_code",None)
+            rejected=isinstance(code,int) and 400<=code<500 and code!=408
+            mark(request_key=request_key,state="REJECTED" if rejected else "UNKNOWN",
                  detail="EMERGENCY_CLOSE_"+type(exc).__name__,db_path=db_path)
-            _set(account_id,"BROKER_DOWN",type(exc).__name__,db_path=db_path,now=current)
-            return "UNKNOWN"
+            _set(account_id,_error_state(exc),type(exc).__name__,db_path=db_path,now=current)
+            return "REJECTED" if rejected else "UNKNOWN"
 
     # Two distinct broker snapshots and a minimum interval are necessary;
     # each run also required complete account-scoped orders/positions/net reads.
