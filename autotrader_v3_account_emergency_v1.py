@@ -86,6 +86,24 @@ def emergency_active_v1(account_id, *, db_path="pricegauger.db"):
     incident = load_emergency_v1(account_id, db_path=db_path)
     return incident is not None and incident.state in ACTIVE
 
+def should_start_emergency_v1(pending, *, now=None):
+    """Stale unknown broker mutation becomes an account incident, not a silent lock.
+
+    UNKNOWN means the POST result was ambiguous. A confirmed broker fill is
+    already reconciled upstream, so this is called only on unresolved WAIT.
+    """
+    if not isinstance(pending, dict):
+        return False
+    state = str(pending.get("state") or "").upper()
+    if state not in {"UNKNOWN", "SUBMITTING", "SUBMITTED", "RESERVED"}:
+        return False
+    try:
+        age = (_now(now) - _dt(pending["updated_at"])).total_seconds()
+    except (ValueError, TypeError, KeyError):
+        return True
+    threshold = 15 if state == "UNKNOWN" else 90 if state != "RESERVED" else 120
+    return age >= threshold
+
 
 def activate_emergency_v1(account_id, reason, *, db_path="pricegauger.db", now=None):
     """Durable, idempotent account-wide STOP; never change LIVE authority."""
@@ -415,4 +433,5 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
 
 
 __all__ = ["AccountEmergencyV1","activate_emergency_v1","emergency_active_v1",
-           "load_emergency_v1","run_emergency_account_once_v1","ensure_schema_v1"]
+           "load_emergency_v1","run_emergency_account_once_v1","ensure_schema_v1",
+           "should_start_emergency_v1"]
