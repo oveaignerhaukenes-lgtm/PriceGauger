@@ -16,7 +16,36 @@ from autotrader_v3_avoid_loss_lab_ui_v1 import render_avoid_loss_lab_v1
 from autotrader_v2_strategy_lab_ui_v1 import render_v2_strategy_lab_v1
 
 st.title("Live-Sim Lab")
-universe=st.selectbox("Strategiunivers",("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","Unngå tap V1 · NAV-SIM","V2 strategies","Legacy strategies"),key="lsim:universe")
+universe=st.selectbox("Strategiunivers",("LIVE Mirror Lab","AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","Unngå tap V1 · NAV-SIM","V2 strategies","Legacy strategies"),key="lsim:universe")
+if universe=="LIVE Mirror Lab":
+    from live_mirror_registry_v1 import mirror_snapshot
+    st.subheader("LIVE Mirror Lab · digitale tvillinger")
+    st.caption("Fase 1: prospektiv kartlegging av LIVE-referanser. Ingen simulerte handler ennå.")
+    mirrors=mirror_snapshot()
+    if mirrors is None:
+        st.warning("Ingen tilgjengelig Mirror-worker-snapshot.")
+    elif not mirrors:
+        st.info("Ingen aktive LIVE-referanser i siste fullførte kartlegging.")
+    else:
+        rows=[]
+        for item in mirrors:
+            cfg=json.loads(item["config_json"])
+            ref=json.loads(item["reference_json"])
+            strategy=cfg.get("strategy") or {}
+            account=ref.get("account") or {}
+            quote=ref.get("quote") or {}
+            rows.append({
+                "Konto":item["account_name"],"Strategi":strategy.get("strategy_key"),
+                "S":strategy.get("timeframe"),"R":strategy.get("regime_timeframe"),
+                "E":strategy.get("exit_timeframe"),"LIVE NAV (referanse)":account.get("total_value"),
+                "Valuta":account.get("currency"),"LIVE posisjon (heartbeat)":ref.get("actual_observed"),
+                "Status":item["status"],"BBO observert":quote.get("received_at"),
+                "Oppdatert":item["observed_at"],
+            })
+        st.metric("Registrerte LIVE-referanser",len(rows))
+        st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
+        st.caption("WAIT_CALIBRATION betyr at referansen kan vurderes for oppstart, ikke at simulatoren er validert.")
+    st.stop()
 if universe=="AEn Core · Adaptive Engine":
     render_aen_core_lab_v1()
     st.stop()
