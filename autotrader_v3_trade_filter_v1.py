@@ -1,4 +1,4 @@
-"""Durable per-strategy V3 STOP/GO latch; no automatic model decisions yet.
+"""Durable per-instance V3 STOP/GO latch; no automatic model decisions yet.
 
 STOP vetoes only OPEN/ADD. An already held position must still be able to
 REDUCE/CLOSE using the existing Saxo ownership, precheck and order guards.
@@ -36,7 +36,7 @@ def ensure_trade_filter_schema_v1(db_path="pricegauger.db") -> None:
 
 def load_trade_filter_v1(*,instance_id:str,strategy_key:str,
                          db_path="pricegauger.db") -> V3TradeFilterV1:
-    """GO by default; an unreadable latch raises rather than clearing STOP."""
+    """GO only when no instance policy exists; strategy is audit context."""
     identity=str(instance_id or "").strip()
     strategy=str(strategy_key or "").strip()
     if not identity or not strategy:
@@ -46,7 +46,7 @@ def load_trade_filter_v1(*,instance_id:str,strategy_key:str,
         row=db.execute("""SELECT instance_id,strategy_key,mode,source,updated_at
             FROM pg_v3_trade_filter_control_v1 WHERE instance_id=?""",
             (identity,)).fetchone()
-    if row is None or str(row["strategy_key"])!=strategy:
+    if row is None:
         return V3TradeFilterV1(identity,strategy,"GO","DEFAULT",None)
     mode=str(row["mode"])
     if mode not in ("GO","STOP"):
