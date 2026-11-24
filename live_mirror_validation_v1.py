@@ -106,6 +106,16 @@ class IntentOutcome:
     amount: float | None = None
     verified: bool = False
 
+    def __post_init__(self):
+        _aware(self.decided_at)
+        if not all(isfinite(x) for x in (self.target,self.inventory_after)):
+            raise ValueError("nonfinite intent")
+        if self.filled_at is not None and _aware(self.filled_at)<self.decided_at:
+            raise ValueError("fill before intent")
+        for x in (self.fill_price,self.amount):
+            if x is not None and (not isfinite(x) or x<=0):
+                raise ValueError("invalid fill value")
+
 
 def compare_holdout(calibration, live, sim, *, minimum=100, min_coverage=.95,
                     min_target_agreement=.95, min_inventory_agreement=.95,
@@ -166,3 +176,54 @@ def compare_holdout(calibration, live, sim, *, minimum=100, min_coverage=.95,
             "verified_pairs":len(prices),"price_mae_points":price_mae,"latency_mae_s":latency_mae,
             "pnl_validated":False,
             "status":"EXECUTION_CHECK_PASSED" if passed else "INSUFFICIENT_OR_DIVERGENT"}
+
+
+@dataclass(frozen=True)
+class AccountWindow:
+    instance_id: str
+    start: datetime
+    end: datetime
+    live_start_nok: float
+    live_end_nok: float
+    live_external_flows_nok: float
+    sim_start_nok: float
+    sim_end_nok: float
+    sim_external_flows_nok: float
+    verified: bool
+    includes_all_costs: bool
+
+
+def validate_account_pnl(execution_report, windows, *, frozen_at,
+                         min_windows=10, max_error_pct=.5):
+    """Compare net equity changes on disjoint account windows.
+
+    External transfers are removed; fees, financing and open-position marks
+    must be included in verified ending equity. No inference from NAV alone.
+    Error is percentage points of initial LIVE equity, not relative to profit.
+    """
+    _aware(frozen_at)
+    rows=sorted(windows,key=lambda r:(r.instance_id,r.start))
+    errors=[]
+    last_end={}
+    for r in rows:
+        if (not r.instance_id or _aware(r.start)<frozen_at or _aware(r.end)<=r.start
+            or r.start<last_end.get(r.instance_id,frozen_at)):
+            raise ValueError("overlap or pre-calibration account window")
+        last_end[r.instance_id]=r.end
+        if not r.verified or not r.includes_all_costs:
+            continue
+        v=(r.live_start_nok,r.live_end_nok,r.live_external_flows_nok,
+           r.sim_start_nok,r.sim_end_nok,r.sim_external_flows_nok)
+        if not all(isfinite(x) for x in v) or min(r.live_start_nok,r.sim_start_nok)<=0:
+            continue
+        if abs(r.live_start_nok-r.sim_start_nok)>0.01:
+            continue
+        actual=r.live_end_nok-r.live_start_nok-r.live_external_flows_nok
+        paper=r.sim_end_nok-r.sim_start_nok-r.sim_external_flows_nok
+        errors.append(100*abs(actual-paper)/r.live_start_nok)
+    p95=_quantile(errors,.95)
+    verified=(len(errors)>=min_windows and len(errors)==len(rows)
+              and p95 is not None and p95<=max_error_pct)
+    return {**execution_report,"pnl_validated":bool(verified and execution_report.get("passed")),
+            "pnl_windows":len(rows),"pnl_verified_windows":len(errors),
+            "pnl_error_p95_percentage_points":p95}
