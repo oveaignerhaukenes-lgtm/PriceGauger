@@ -1,8 +1,8 @@
 """Discoverable V3 AI LIVE presets; never introduce fictional strategy keys.
 
 The canonical V3 strategy remains deterministic. Selecting a preset fills its
-base strategy, timeframe and 'ai-loss-manager' modifier in the UI draft only.
-Only the usual 'Bruk på denne instansen' action persists those values.
+base strategy, timeframe and 'ai-loss-manager' modifier into a pure config
+proposal. The shared editor persists an explicit selection immediately.
 """
 from __future__ import annotations
 
