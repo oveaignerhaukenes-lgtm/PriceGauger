@@ -179,5 +179,22 @@ class TestRegimeGateV1(unittest.TestCase):
         self.assertEqual(runtime.count("record_regime_block_v1("), 2)
 
 
+
+    def test_unreadable_price_data_obeys_saved_unknown_policy(self):
+        for mode, block_unknown, expected in (
+            ("OFF", True, True), ("SHADOW", True, True),
+            ("LIVE", False, True), ("LIVE", True, False),
+        ):
+            policy = gate.RegimePolicyV1("A", "s", mode=mode, block_unknown=block_unknown)
+            with patch.object(gate, "load_regime_policy_v1", return_value=policy), \
+                 patch.object(gate, "CanonicalMarketBarStoreV2", side_effect=OSError("price data")):
+                result = gate.check_regime_entry_v1(
+                    instance_id="A", strategy_key="s", instrument_id=42,
+                    direction="LONG", now=CLOCK)
+                self.assertEqual(result.allow_new_exposure, expected)
+                self.assertEqual(result.mode, mode)
+                self.assertEqual(result.state, "UNKNOWN")
+
+
 if __name__ == "__main__":
     unittest.main()
