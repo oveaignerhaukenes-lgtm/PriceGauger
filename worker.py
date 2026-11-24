@@ -505,6 +505,12 @@ def run_forever(
         name="pricegauger-v3-live",
         daemon=True,
     )
+    # Nonblocking telemetry writer; failure does not affect the LIVE loop.
+    try:
+        from live_mirror_telemetry_v1 import start_mirror_telemetry
+        start_mirror_telemetry(db_path=str(db_path))
+    except Exception:
+        LOGGER.warning("Mirror telemetry unavailable; LIVE unaffected")
     v3_thread.start()
     while True:
         started = time.monotonic()
