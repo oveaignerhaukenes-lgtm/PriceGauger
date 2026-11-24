@@ -216,3 +216,10 @@ def test_live_runtime_checks_account_emergency_at_post_boundary():
     assert "SAXO_ORDER_POST_UNCERTAIN" in src[place:]
     worker=Path("worker.py").read_text(encoding="utf-8")
     assert "active_emergency_accounts_v1(db_path=str(db_path))" in worker
+
+def test_emergency_is_critical_even_if_operator_disarmed_strategy():
+    from autotrader_v3_fleet_observer_v1 import assess
+    severity, signal = assess(now=NOW,status="EMERGENCY",updated_at=NOW,
+                              pending=None,pending_at=None,fills=0)
+    assert severity=="CRITICAL"
+    assert "ACCOUNT_EMERGENCY" in signal
