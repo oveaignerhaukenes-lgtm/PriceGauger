@@ -416,25 +416,30 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
         return "RESOLVING"
 
     if positions or nets:
-        # A true full-account flatten must not guess what netting mode Saxo
-        # applies. The initial pilot permits only an unambiguous one-position
-        # per product with its exact net inventory equal to that position.
+        # Real-time netting may show multiple same-side positions per product.
+        # Aggregate only when every gross position agrees with the net and
+        # there is no intra-product hedge/offset; otherwise stop and alert.
         by_product = {}
         for pid, uic, asset_type, side, amount in positions:
             by_product.setdefault((uic,asset_type),[]).append((pid,side,amount))
-        if not positions or any(len(p) != 1 for p in by_product.values()) or set(by_product) != set(nets):
+        if not positions or set(by_product) != set(nets):
             _set(account_id,"RESOLVING","GROSS_NET_POSITION_MISMATCH",db_path=db_path,now=current)
             return "RESOLVING"
         for (uic,asset_type), group in by_product.items():
-            pid,side,amount = group[0]
-            actual = nets[(uic,asset_type)]
-            signed = amount if side == "buy" else -amount
-            if abs(signed-actual) > 1e-8:
+            direction_set={side for _,side,_ in group}
+            if len(direction_set)!=1:
+                _set(account_id,"RESOLVING","HEDGED_GROSS_POSITION",db_path=db_path,now=current)
+                return "RESOLVING"
+            signed=sum(amount if side=="buy" else -amount for _,side,amount in group)
+            if abs(signed-nets[(uic,asset_type)]) > 1e-8:
                 _set(account_id,"RESOLVING","NET_POSITION_CHANGED",db_path=db_path,now=current)
                 return "RESOLVING"
         (uic,asset_type), group = sorted(by_product.items())[0]
-        pid, side, amount = group[0]
-        request_key = str(uuid5(NAMESPACE_URL, f"pgv3:emergency:{account_id}:{pid}:{side}:{amount:.10g}"))
+        side=group[0][1]
+        amount=sum(row[2] for row in group)
+        position_ids=":".join(sorted(row[0] for row in group))
+        request_key = str(uuid5(NAMESPACE_URL,
+            f"pgv3:emergency:{account_id}:{position_ids}:{side}:{amount:.10g}"))
         buy_sell = "Sell" if side == "buy" else "Buy"
         inserted = reserve(request_key=request_key,trader_id="EMERGENCY:"+account_id,
                            account_id=account_id,uic=uic,asset_type=asset_type,
