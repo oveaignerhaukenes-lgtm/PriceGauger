@@ -100,14 +100,6 @@ def run_once(*, db_path="pricegauger.db", now=None):
     except Exception as exc:
         LOGGER.warning("Context Lab calendar unavailable error_type=%s",
                        type(exc).__name__)
-    # Discover LIVE references prospectively, in the separate research worker.
-    # This does not arm any instance or run virtual orders before calibration.
-    try:
-        from live_mirror_registry_v1 import refresh_mirror_registry
-        mirrors = refresh_mirror_registry(db_path=db_path, now=moment)
-        LOGGER.info("LIVE_MIRROR_REFERENCE active=%d", mirrors)
-    except Exception as exc:
-        LOGGER.warning("LIVE_MIRROR_REFERENCE unavailable error_type=%s", type(exc).__name__)
     evaluated = process_lab_cycle(db_path=db_path, now=moment)
     # AEn has NO Saxo imports or broker authority. 5 frozen 0.01-unit
     # PAPER cohorts enrol prospectively on the next minute boundary.
@@ -267,6 +259,31 @@ def optional_paper_ai_enabled(variable: str) -> bool:
     return os.getenv(variable, "0").strip().lower() in ("1", "true", "yes", "on")
 
 
+def run_live_mirror_loop(*,db_path,stop_event,interval=2.0):
+    """Separate research loop; bounded cadence, no additional broker requests."""
+    from live_mirror_registry_v1 import refresh_mirror_registry
+    from live_mirror_execution_v1 import run_mirror_execution_cycle
+    next_reference=0.0
+    last_log=0.0
+    LOGGER.info("LIVE_MIRROR research loop started")
+    while not stop_event.is_set():
+        started=time.monotonic()
+        try:
+            if started>=next_reference:
+                mirrors=refresh_mirror_registry(db_path=db_path)
+                next_reference=started+30.0
+                LOGGER.info("LIVE_MIRROR_REFERENCE active=%d",mirrors)
+            result=run_mirror_execution_cycle(db_path=db_path)
+            if started-last_log>=30.0:
+                LOGGER.info("LIVE_MIRROR_EXECUTION %s",json.dumps(result,separators=(",",":")))
+                last_log=started
+        except Exception as exc:
+            if started-last_log>=30.0:
+                LOGGER.warning("LIVE_MIRROR unavailable error_type=%s",type(exc).__name__)
+                last_log=started
+        stop_event.wait(max(.1,interval-(time.monotonic()-started)))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="pricegauger.db")
@@ -283,6 +300,10 @@ def main():
         daemon=True,
     )
     hyper_thread.start()
+    mirror_thread=threading.Thread(target=run_live_mirror_loop,
+        kwargs={'db_path':args.db,'stop_event':stop_event},
+        name='pricegauger-live-mirror',daemon=True)
+    mirror_thread.start()
     # Costly AI PAPER experiments are explicit opt-ins. This does not affect
     # historical simulator, 1s HyperChase PAPER, or any V3 LIVE AI modifier.
     if optional_paper_ai_enabled("PRICEGAUGER_LAB_AI_TECH_ENABLED"):
