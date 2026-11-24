@@ -100,6 +100,14 @@ def run_once(*, db_path="pricegauger.db", now=None):
     except Exception as exc:
         LOGGER.warning("Context Lab calendar unavailable error_type=%s",
                        type(exc).__name__)
+    # Discover LIVE references prospectively, in the separate research worker.
+    # This does not arm any instance or run virtual orders before calibration.
+    try:
+        from live_mirror_registry_v1 import refresh_mirror_registry
+        mirrors = refresh_mirror_registry(db_path=db_path, now=moment)
+        LOGGER.info("LIVE_MIRROR_REFERENCE active=%d", mirrors)
+    except Exception as exc:
+        LOGGER.warning("LIVE_MIRROR_REFERENCE unavailable error_type=%s", type(exc).__name__)
     evaluated = process_lab_cycle(db_path=db_path, now=moment)
     # AEn has NO Saxo imports or broker authority. 5 frozen 0.01-unit
     # PAPER cohorts enrol prospectively on the next minute boundary.
