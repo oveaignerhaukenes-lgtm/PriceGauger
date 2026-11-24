@@ -24,7 +24,9 @@ from saxo_trading import SaxoOrderRequest
 LOG = logging.getLogger("pricegauger.v3.emergency")
 ACTIVE = frozenset({"PAUSED", "BROKER_DOWN", "AUTH_REQUIRED", "RESOLVING", "CANCELLING", "CLOSING", "VERIFYING"})
 GRACE_SECONDS = 90  # never treat absence from one snapshot as a failed POST
-FLAT_CONFIRM_SECONDS = 5
+FLAT_CONFIRM_SECONDS = 60  # watch for delayed broker fills before rearming
+UNOBSERVED_CONFIRM_SECONDS = 15
+UNKNOWN_SETTLEMENT_SECONDS = 90
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,8 +324,26 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
         _set(account_id, "PAUSED", "AUTO_FLATTEN_NOT_ENABLED", db_path=db_path, now=current)
         return "PAUSED"
 
-    # First resolve the durable order uncertainty; never submit another order
-    # while a previous order can still be executed.
+    # Cancel every working order on the affected Saxo account first, not just
+    # the instrument that triggered the incident. Cancellation is rechecked
+    # through a fresh broker snapshot on the next cycle.
+    if orders:
+        first = orders[0]
+        order_id = str(first.get("OrderId") or "")
+        if not order_id:
+            _set(account_id,"RESOLVING","WORKING_ORDER_WITHOUT_ID",db_path=db_path,now=current)
+            return "RESOLVING"
+        from autotrader_execution_guard_v1 import _delete_order_once_v1
+        _set(account_id,"CANCELLING","CANCELLING_ACCOUNT_WORKING_ORDER",db_path=db_path,now=current)
+        try:
+            _delete_order_once_v1(broker.client,account_key=account_key,order_id=order_id)
+        except Exception as exc:
+            _set(account_id,_error_state(exc),type(exc).__name__,db_path=db_path,now=current)
+        return "CANCELLING"
+
+    # Resolve old durable uncertainty against current Saxo truth. Never repeat
+    # the original order. A separate emergency close is based on freshly read
+    # *current* account exposure after a bounded settlement observation period.
     for item in pending:
         item["_account_id"] = account_id
         try:
@@ -352,38 +372,46 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
             if status == "FinalFill" and sub in {"", "Confirmed"} and abs(actual-expected) <= 1e-8:
                 if _retire_pending(item,"RECONCILED","EMERGENCY_BROKER_FILL_CONFIRMED",
                                    account_id=account_id,uic=uic,asset_type=asset_type,db_path=db_path):
+                    _set(account_id,"RESOLVING","BROKER_FILL_RECONCILED",db_path=db_path,now=current)
                     return "RESOLVED"
             if status in {"Cancelled","Expired"} and sub == "Confirmed" and pre is not None and abs(actual-pre) <= 1e-8 and not same_working and not float(activity.get("FilledAmount") or 0):
                 if _retire_pending(item,"REJECTED","EMERGENCY_BROKER_CANCEL_CONFIRMED",
                                    account_id=account_id,uic=uic,asset_type=asset_type,db_path=db_path):
+                    _set(account_id,"RESOLVING","BROKER_CANCEL_RECONCILED",db_path=db_path,now=current)
                     return "RESOLVED"
             _set(account_id,"RESOLVING","BROKER_ORDER_STILL_UNRESOLVED",
                  db_path=db_path,now=current)
             return "RESOLVING"
-        # An unobserved order is not a rejected order: do NOT release UNKNOWN
-        # or SUBMITTING just because two independent GETs found no matching id.
-        # Broker-side order settlement needs positive terminal confirmation.
-        if item["state"] == "RESERVED" and age >= GRACE_SECONDS and pre is not None and abs(actual-pre) <= 1e-8 and not orders:
+        # RESERVED has not reached the submission CAS; broker observations
+        # also confirm it did not mutate inventory.
+        if item["state"] == "RESERVED" and age >= GRACE_SECONDS and pre is not None and abs(actual-pre) <= 1e-8:
             if _retire_pending(item,"REJECTED","EMERGENCY_NEVER_SUBMITTED_RESERVED",
                                account_id=account_id,uic=uic,asset_type=asset_type,db_path=db_path):
+                _set(account_id,"RESOLVING","UNSENT_RESERVATION_RETIRED",db_path=db_path,now=current)
                 return "RESOLVED"
-        _set(account_id,"RESOLVING","NO_VERIFIABLE_BROKER_ORDER_RESULT",
+        # A market POST can be accepted even when its HTTP response is lost.
+        # Negative activity alone is not proof of rejection. After Saxo is
+        # healthy and all working orders are gone, observe the *same* fresh
+        # net exposure twice, separated in time, before retiring that intent
+        # as superseded (NOT claiming that Saxo definitively rejected it).
+        # Recovery then sends a NEW, uniquely identified close sized from
+        # current Saxo exposure; it never retransmits the ambiguous intent.
+        if item["state"] in {"UNKNOWN","SUBMITTING","SUBMITTED"} and age >= UNKNOWN_SETTLEMENT_SECONDS:
+            identity = f"STABLE_NO_ACTIVITY:{item['request_key']}:{actual:.10g}"
+            if incident.reason != identity or incident.flat_seen_at is None:
+                _set(account_id,"RESOLVING",identity,db_path=db_path,now=current,
+                     flat_seen_at=current.isoformat())
+                return "RESOLVING"
+            if (current-_dt(incident.flat_seen_at)).total_seconds() >= UNOBSERVED_CONFIRM_SECONDS:
+                if _retire_pending(item,"RECONCILED",
+                                   "EMERGENCY_SUPERSEDED_AFTER_BROKER_STABILITY_NOT_PROOF_OF_REJECTION",
+                                   account_id=account_id,uic=uic,asset_type=asset_type,db_path=db_path):
+                    _set(account_id,"RESOLVING","OLD_UNCERTAIN_INTENT_SUPERSEDED",
+                         db_path=db_path,now=current)
+                    return "RESOLVED"
+        _set(account_id,"RESOLVING","WAITING_FOR_BROKER_SETTLEMENT",
              db_path=db_path,now=current)
         return "RESOLVING"
-
-    if orders:
-        first = orders[0]
-        order_id = str(first.get("OrderId") or "")
-        if not order_id:
-            _set(account_id,"RESOLVING","WORKING_ORDER_WITHOUT_ID",db_path=db_path,now=current)
-            return "RESOLVING"
-        from autotrader_execution_guard_v1 import _delete_order_once_v1
-        _set(account_id,"CANCELLING","CANCELLING_ACCOUNT_WORKING_ORDER",db_path=db_path,now=current)
-        try:
-            _delete_order_once_v1(broker.client,account_key=account_key,order_id=order_id)
-        except Exception as exc:
-            _set(account_id,_error_state(exc),type(exc).__name__,db_path=db_path,now=current)
-        return "CANCELLING"
 
     if positions or nets:
         # A true full-account flatten must not guess what netting mode Saxo
