@@ -118,7 +118,7 @@ def test_confirmed_saxo_short_is_closed_and_flat_confirmed_twice(tmp_path,monkey
     assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW+timedelta(seconds=1))=="RESOLVED"
     assert len(b.sent)==1
     assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW+timedelta(seconds=2))=="VERIFYING"
-    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW+timedelta(seconds=8))=="RESUMED"
+    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW+timedelta(seconds=63))=="RESUMED"
     assert not em.emergency_active_v1("account-A",db_path=db)
     assert len(b.sent)==1
 
@@ -128,6 +128,23 @@ def test_uncertain_existing_order_does_not_duplicate(tmp_path,monkeypatch):
     db,b=prepare(tmp_path,state="UNKNOWN")
     assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW)=="RESOLVING"
     assert len(b.sent)==0
+    # The first missing-audit read is not permission to replay the old POST.
+    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,
+        now=NOW+timedelta(seconds=5))=="RESOLVING"
+    assert len(b.sent)==0
+
+
+def test_stable_absent_broker_order_is_superseded_without_replaying_it(tmp_path,monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_V3_EMERGENCY_AUTO_FLATTEN_ENABLED","true")
+    db,b=prepare(tmp_path,state="UNKNOWN")
+    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW)=="RESOLVING"
+    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,
+        now=NOW+timedelta(seconds=16))=="RESOLVED"
+    assert b.sent==[]
+    # A new emergency close is based on fresh confirmed exposure only.
+    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,
+        now=NOW+timedelta(seconds=20))=="SUBMITTED"
+    assert len(b.sent)==1
 
 
 def test_auth_failed_keeps_latch_and_does_not_submit(tmp_path,monkeypatch):
