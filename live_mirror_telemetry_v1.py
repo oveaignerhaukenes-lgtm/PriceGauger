@@ -46,7 +46,7 @@ def observe_decision(*, instance_id, decision_key, strategy_key, timeframe,
                      raw, approved, actual, action):
     """First new decision only. Producer must never raise into LIVE."""
     try:
-        _enqueue("decision:"+str(decision_key),instance_id,decision_key,"DECISION",
+        _enqueue("decision:"+str(instance_id)+":"+str(strategy_key)+":"+str(timeframe)+":"+str(decision_key),instance_id,decision_key,"DECISION",
                  dict(strategy=strategy_key,timeframe=timeframe,raw=float(raw),
                       approved=float(approved),actual=float(actual),action=str(action)))
     except Exception:
@@ -59,6 +59,38 @@ def observe_submission(*, instance_id, decision_key, request_key, side, amount,
         _enqueue("submission:"+str(request_key),instance_id,decision_key,"SUBMIT",
                  dict(request_key=str(request_key),side=str(side),amount=float(amount),
                       action=str(action),actual=float(actual),expected=float(expected)))
+    except Exception:
+        pass
+
+
+
+def observe_broker_terms(*,instance_id,decision_key,request_key,side,amount,
+                         price,rules,account_currency,precheck,cost,tranche):
+    """Capture only whitelisted numeric broker observations, never raw response."""
+    try:
+        impact=precheck.get("MarginImpactBuySell") or {}
+        suffix="Buy" if str(side).lower()=="buy" else "Sell"
+        def number(v):
+            from math import isfinite
+            try:
+                x=float(v)
+                return x if isfinite(x) else None
+            except (TypeError,ValueError):
+                return None
+        payload=dict(uic=int(rules.uic),asset_type=str(rules.asset_type),
+            instrument_currency=str(rules.currency),account_currency=str(account_currency),
+            contract_size=number(rules.contract_size),minimum_lots=number(tranche),
+            order_amount=number(amount),side=str(side),reference_price=number(price),
+            conversion_rate=number(precheck.get("InstrumentToAccountConversionRate")),
+            margin_currency=str(impact.get("Currency") or ""),
+            initial_margin=number(impact.get("InitialMargin"+suffix,impact.get("InitialMargin"))),
+            available_margin=number(impact.get("InitialMarginAvailableCurrent")),
+            cost_quote_amount=number(cost.amount),
+            long_commission=number(cost.long_commission),short_commission=number(cost.short_commission),
+            commission_currency=str(cost.commission_currency or ""),
+            long_total_cost_pct=number(cost.long_total_cost_pct),
+            short_total_cost_pct=number(cost.short_total_cost_pct))
+        _enqueue("terms:"+str(request_key),instance_id,decision_key,"TERMS",payload)
     except Exception:
         pass
 
