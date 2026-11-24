@@ -150,6 +150,8 @@ def compare_holdout(calibration, live, sim, *, minimum=100, min_coverage=.95,
             live_fills+=1
         if l is None or s is None:
             continue
+        if l.outcome in ("UNKNOWN","UNOBSERVED","PENDING") or s.outcome in ("UNKNOWN","UNOBSERVED","PENDING"):
+            continue
         targets+=int(abs(l.target-s.target)<=1e-9)
         inventories+=int(abs(l.inventory_after-s.inventory_after)<=1e-9)
         outcomes+=int(l.outcome==s.outcome)
