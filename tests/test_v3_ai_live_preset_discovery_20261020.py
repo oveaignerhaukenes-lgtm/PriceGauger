@@ -67,7 +67,7 @@ def test_fleet_and_tradingdesk_shared_editor_discoverable_ai():
     assert "Strategi / AI-oppsett (LIVE)" in ui
     assert "'AI Loss Manager · LIVE (styr eksisterende posisjon)'" in ui
     assert "resolve_selector_draft_v3(" in ui
-    assert "disabled=is_ai_preset" in ui
-    assert "Bruk på denne instansen" in ui
+    assert 'on_change=save_changed,args=("strategy",strategy_widget)' in ui
+    assert "Bruk på denne instansen" not in ui
     assert "render_v3_instance_controls_v1" in fleet
     assert "render_v3_instance_controls_v1" in desk
