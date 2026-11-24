@@ -148,6 +148,55 @@ def test_stable_absent_broker_order_is_superseded_without_replaying_it(tmp_path,
     assert len(b.sent)==1
 
 
+def test_two_confirmed_same_side_positions_are_closed_as_one_net_delta(tmp_path,monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_V3_EMERGENCY_AUTO_FLATTEN_ENABLED","true")
+    db,b=prepare(tmp_path)
+    original=b.client._get
+    calls=[]
+    def get(path,params=None):
+        if path=="port/v1/positions":
+            return {"Data":[{
+                "PositionId":f"P{i}",
+                "PositionBase":{"AccountId":"account-A","Uic":4912,
+                                "AssetType":"CfdOnIndex","Amount":.01,
+                                "OpeningDirection":"Sell","Status":"Open"}
+            } for i in (1,2)]}
+        if path=="port/v1/netpositions":
+            return {"Data":[{"NetPositionBase":{
+                "AccountId":"account-A","Uic":4912,"AssetType":"CfdOnIndex",
+                "AmountShort":.02,"AmountLong":0}}]}
+        return original(path,params)
+    b.client._get=get
+    def send(order, *, confirm_live):
+        assert confirm_live and order.amount==.02 and order.buy_sell=="Buy"
+        assert order.payload()["ManualOrder"] is False
+        calls.append(order)
+        return {"OrderId":"saxo-multi"}
+    b.place_order=send
+    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW)=="SUBMITTED"
+    assert len(calls)==1
+
+
+def test_hedged_gross_positions_require_netting_resolution(tmp_path,monkeypatch):
+    monkeypatch.setenv("PRICEGAUGER_V3_EMERGENCY_AUTO_FLATTEN_ENABLED","true")
+    db,b=prepare(tmp_path)
+    original=b.client._get
+    def get(path,params=None):
+        if path=="port/v1/positions":
+            return {"Data":[{
+                "PositionId":f"P{i}",
+                "PositionBase":{"AccountId":"account-A","Uic":4912,
+                                "AssetType":"CfdOnIndex","Amount":.01,
+                                "OpeningDirection":side,"Status":"Open"}
+            } for i,side in enumerate(("Sell","Buy"))]}
+        if path=="port/v1/netpositions":
+            return {"Data":[]}
+        return original(path,params)
+    b.client._get=get
+    assert em.run_emergency_account_once_v1("account-A",b,db_path=db,now=NOW)=="RESOLVING"
+    assert not b.sent
+
+
 def test_auth_failed_keeps_latch_and_does_not_submit(tmp_path,monkeypatch):
     monkeypatch.setenv("PRICEGAUGER_V3_EMERGENCY_AUTO_FLATTEN_ENABLED","true")
     db,b=prepare(tmp_path)
