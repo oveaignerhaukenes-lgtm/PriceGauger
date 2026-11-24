@@ -167,10 +167,23 @@ def decide_regime_entry_v1(policy: RegimePolicyV1, *, state: str,
                              policy.mode != "LIVE" or would_allow, policy.mode)
 
 
+def read_regime_state_v1(*, instrument_id, db_path="pricegauger.db", now=None):
+    """Same market evidence in UI and LIVE; unreadable prices are UNKNOWN."""
+    try:
+        clock = _utc(now or datetime.now(timezone.utc))
+        last_open = clock.replace(second=0, microsecond=0) - timedelta(minutes=1)
+        rows = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
+            instrument_id=int(instrument_id), start=last_open-timedelta(minutes=63),
+            end=last_open, limit=65)
+        return classify_regime_v1(rows, now=clock)
+    except Exception:
+        return "UNKNOWN", "Kanoniske prisdata kunne ikke leses"
+
+
 def check_regime_entry_v1(*, instance_id: str, strategy_key: str,
                           instrument_id: int, direction: str, db_path="pricegauger.db",
                           now: datetime | None = None) -> RegimeDecisionV1:
-    """An armed LIVE policy fails closed on any unreadable control or data.
+    """A known policy controls UNKNOWN; unreadable policy is a separate error.
 
     OFF defaults to allow; SHADOW evaluates without veto; manual STOP remains
     a separate, higher-priority gate. CLOSE/REDUCE must not call this helper.
@@ -180,18 +193,13 @@ def check_regime_entry_v1(*, instance_id: str, strategy_key: str,
                                        strategy_key=strategy_key, db_path=db_path)
         if policy.mode == "OFF":
             return RegimeDecisionV1("UNKNOWN", "Filter AV", True, True, "OFF")
-        clock = _utc(now or datetime.now(timezone.utc))
-        last_open = clock.replace(second=0, microsecond=0) - timedelta(minutes=1)
-        rows = CanonicalMarketBarStoreV2(db_path).load_instrument_range(
-            instrument_id=int(instrument_id), start=last_open-timedelta(minutes=63),
-            end=last_open, limit=65)
-        state, evidence = classify_regime_v1(rows, now=clock)
+        state, evidence = read_regime_state_v1(
+            instrument_id=instrument_id, db_path=db_path, now=now)
         return decide_regime_entry_v1(policy, state=state, direction=direction,
                                        evidence=evidence)
     except Exception:
-        # Never turn a broken LIVE safety gate into implicit permission.
+        # A broken policy read cannot establish permission.
         return RegimeDecisionV1("UNKNOWN", "Regimekontroll utilgjengelig", False, False, "ERROR")
-
 
 
 def _ensure_regime_block_schema_v1(db_path):
@@ -253,4 +261,4 @@ __all__ = ["STATES_V1", "MODES_V1", "RegimePolicyV1", "RegimeDecisionV1",
            "load_regime_policy_v1", "save_regime_policy_v1", "classify_regime_v1",
            "decide_regime_entry_v1", "check_regime_entry_v1",
            "record_regime_block_v1", "load_regime_block_count_v1",
-           "strategy_entry_directions_v1"]
+           "strategy_entry_directions_v1", "read_regime_state_v1"]
