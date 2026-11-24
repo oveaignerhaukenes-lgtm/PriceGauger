@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from database import connect
 from autotrader_v3_instance_registry_v1 import load_v3_instances_v1
 from autotrader_v3_live_authority_v1 import live_authority_armed_v3
+from autotrader_v3_account_emergency_v1 import emergency_active_v1
 from autotrader_engine_account_ownership_v1 import load_account_owner_v1,ENGINE_V3
 from autotrader_v3_config_v1 import load_autotrader_config_v3
 
@@ -26,6 +27,8 @@ def ensure_monitor_schema(db_path="pricegauger.db"):
 def assess(*, now, status, updated_at, pending, pending_at, fills):
     t=_clock(now)
     flags=[]
+    if status == "EMERGENCY":
+        flags.append("ACCOUNT_EMERGENCY")
     if updated_at is None:
         flags.append("NO_HEARTBEAT")
     elif (t-_clock(updated_at)).total_seconds()>180:
@@ -38,7 +41,7 @@ def assess(*, now, status, updated_at, pending, pending_at, fills):
     if fills>=6:
         flags.append("HIGH_TURNOVER_REVIEW_SPREAD")
     severe=any(x in flags for x in
-        ("STALE_HEARTBEAT","UNRESOLVED_ORDER","RUNTIME_FAILED"))
+        ("STALE_HEARTBEAT","UNRESOLVED_ORDER","RUNTIME_FAILED","ACCOUNT_EMERGENCY"))
     return ("CRITICAL" if severe else "WARNING" if flags else "OK",
             ",".join(flags) if flags else "healthy")
 
@@ -49,11 +52,14 @@ def run_monitor_once(*,db_path="pricegauger.db",now=None):
     ensure_monitor_schema(db_path)
     rows=[]
     for inst in load_v3_instances_v1(db_path=db_path):
-        if not live_authority_armed_v3(inst.instance_id,db_path=db_path):
+        armed=live_authority_armed_v3(inst.instance_id,db_path=db_path)
+        emergency=emergency_active_v1(inst.account_id,db_path=db_path)
+        if not armed and not emergency:
             continue
-        owner=load_account_owner_v1(inst.account_id,db_path=db_path)
-        if owner is None or owner.engine_id!=ENGINE_V3 or owner.owner_key!=inst.instance_id:
-            continue
+        if armed and not emergency:
+            owner=load_account_owner_v1(inst.account_id,db_path=db_path)
+            if owner is None or owner.engine_id!=ENGINE_V3 or owner.owner_key!=inst.instance_id:
+                continue
         cfg=load_autotrader_config_v3(inst.instance_id,db_path=db_path)
         with connect(db_path) as db:
             try:
@@ -76,7 +82,7 @@ def run_monitor_once(*,db_path="pricegauger.db",now=None):
                     (clock-timedelta(minutes=15)).isoformat())).fetchone()
                 fills=int(result["n"] or 0)
             except Exception:fills=0
-        status=str(runtime["status"]) if runtime else "UNKNOWN"
+        status="EMERGENCY" if emergency else str(runtime["status"]) if runtime else "UNKNOWN"
         updated=runtime["updated_at"] if runtime else None
         p_state=str(pending["state"]) if pending else None
         p_at=pending["updated_at"] if pending else None

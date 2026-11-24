@@ -18,6 +18,7 @@ from autotrader_ai_baseline_v1 import run_ai_baseline_shadow_once_v1
 from autotrader_strategy_series_materializer_v1 import materialize_strategy_series_once_v1
 from autotrader_v3_sim_runtime_v1 import run_v3_sim_cycle_v1
 from autotrader_v3_fleet_observer_v1 import run_monitor_once
+from autotrader_v3_account_emergency_v1 import active_emergency_accounts_v1
 from autotrader_v3_live_runtime_v1 import (
     owned_live_account_routes_v3, run_v3_live_cycle_v1,
 )
@@ -357,6 +358,8 @@ def run_v3_live_fast_loop_v1(
     errors_at=0.0
     route_refresh_at=float('-inf')
     routes={}
+    emergency_routes=()
+    emergency_refresh_at=float('-inf')
     running={}
     running_started={}
     queued={}
@@ -403,6 +406,10 @@ def run_v3_live_fast_loop_v1(
                 route_refresh_at=started
                 try:
                     updated=owned_live_account_routes_v3(db_path=str(db_path))
+                    # Persisted emergency supervision runs even if all V3
+                    # strategies have been disarmed on this Saxo account.
+                    for emergency_account in active_emergency_accounts_v1(db_path=str(db_path)):
+                        updated.setdefault(emergency_account,False)
                     newly_routed=tuple(set(updated)-set(routes))
                     routes=updated
                 except Exception as exc:
@@ -455,9 +462,17 @@ def run_v3_live_fast_loop_v1(
                 except Exception as exc:
                     LOGGER.warning('hyper chase BBO QUALITY unavailable error_type=%s',
                                    type(exc).__name__)
+            if started-emergency_refresh_at>=5:
+                emergency_refresh_at=started
+                try:
+                    emergency_routes=active_emergency_accounts_v1(db_path=str(db_path))
+                except Exception as exc:
+                    LOGGER.error('v3 EMERGENCY route inspection failed kind=%s',type(exc).__name__)
+                    # Keep the previously known incidents scheduled if the
+                    # database temporarily fails; never clear the route here.
             heartbeat=(last_cycle_at is None or started-last_cycle_at>=reconciliation)
             full=changed or heartbeat
-            if full or quote_changed or newly_routed:
+            if full or quote_changed or newly_routed or emergency_routes:
                 if full:
                     last_cycle_at=started
                     if changed:
@@ -471,10 +486,11 @@ def run_v3_live_fast_loop_v1(
                 selected=(set(routes) if full else
                           {aid for aid,is_fast in routes.items() if is_fast}
                           if quote_changed else set()) | set(newly_routed)
+                selected |= (set(emergency_routes) & set(routes))
                 # Fast accounts always receive worker slots independently of
                 # slow bar accounts; within an account, never overlap cycles.
                 for account_id in sorted(selected,key=lambda aid:(not routes[aid],aid)):
-                    wants_full=full or account_id in newly_routed
+                    wants_full=full or account_id in newly_routed or account_id in emergency_routes
                     if account_id in running:
                         queued[account_id]=queued.get(account_id,False) or wants_full
                     else:

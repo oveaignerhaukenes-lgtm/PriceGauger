@@ -45,6 +45,10 @@ from autotrader_v3_protective_live_v1 import (
     evaluate_impulse_live_v3, evaluate_account_loss_live_v3,
 )
 from autotrader_v3_trade_filter_v1 import allow_new_exposure_v1
+from autotrader_v3_account_emergency_v1 import (
+    activate_emergency_v1, emergency_active_v1,
+    run_emergency_account_once_v1, should_start_emergency_v1,
+)
 from autotrader_v3_regime_gate_v1 import check_regime_entry_v1
 from autotrader_v3_modifier_audit_v1 import (record_modifier_evaluation_v3,record_modifier_target_change_v3)
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
@@ -369,6 +373,28 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
     # before dispatch. Each independent account task still reloads and checks
     # exact current LIVE arming and V3 ownership, but never repeats DDL and
     # legacy migration work on every 1s quote wake.
+    # Emergency has priority even if the operator has disarmed the strategy:
+    # a manual OFF cannot disable account reconciliation/flatten supervision.
+    # The worker calls this function inside a single serialized account lane.
+    if account_ids is not None:
+        emergency_accounts=tuple(aid for aid in account_ids
+            if emergency_active_v1(aid,db_path=db_path))
+        if emergency_accounts:
+            try:
+                emergency_broker_factory=configured_live_pilot_client_v3
+                emergency_broker=emergency_broker_factory()
+                if emergency_broker is None:
+                    LOGGER.error("v3 EMERGENCY broker client unavailable; no regular orders")
+                    return 0
+                for emergency_account in emergency_accounts:
+                    phase=run_emergency_account_once_v1(
+                        emergency_account,emergency_broker,db_path=db_path,now=now)
+                    LOGGER.warning("v3 EMERGENCY account_suffix=%s state=%s",
+                                   str(emergency_account)[-4:],phase)
+            except Exception as exc:
+                LOGGER.exception("v3 EMERGENCY coordination failed kind=%s",type(exc).__name__)
+            # No ordinary account order pipeline, regardless of recovery result.
+            return 0
     active=_load_owned_armed_runtime_instances_v3(
         db_path=db_path,skip_legacy_migration=account_ids is not None,
         account_ids=account_ids)
@@ -443,6 +469,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
     for e in enrollments:
         pending=pending_order_v3(account_id=e.account_id,uic=e.uic,
                                  asset_type=e.asset_type,db_path=db_path)
+        if emergency_active_v1(e.account_id,db_path=db_path):
+            phase=run_emergency_account_once_v1(e.account_id,broker,db_path=db_path,now=end)
+            _record_runtime(e.pilot_key,'EMERGENCY',f'account recovery phase={phase}; ordinary orders stopped',db_path=db_path)
+            continue
         if pending:
             # An unresolved Saxo mutation is never an idle read: the result
             # must be independently and freshly reconciled every time.
@@ -497,6 +527,11 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                     f'actual={fresh_actual.amount:g} expected={expected_amount:g} pending=confirmed; next cycle may evaluate target',
                     db_path=db_path)
             elif reconciliation.state=='WAIT':
+                if should_start_emergency_v1(pending,now=end):
+                    activate_emergency_v1(e.account_id,'UNRESOLVED_SAXO_ORDER',db_path=db_path,now=end)
+                    phase=run_emergency_account_once_v1(e.account_id,broker,db_path=db_path,now=end)
+                    _record_runtime(e.pilot_key,'EMERGENCY',f'unresolved order recovery phase={phase}',db_path=db_path)
+                    continue
                 # Never auto-expire an unknown Saxo mutation. Emit one read-only
                 # account/name+durable-intent audit so an operator can reconcile it.
                 if e.pilot_key not in _PENDING_AUDIT_LOGGED_V3:
@@ -1287,6 +1322,13 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                     f'V3 markedsregime {regime_entry.state} veto after reservation; no Saxo POST',
                     db_path=db_path)
                 continue
+        # A durable account quarantine vetoes every ordinary broker mutation,
+        # not just OPEN/ADD. Emergency coordinator owns future CLOSE orders.
+        if emergency_active_v1(e.account_id,db_path=db_path):
+            mark_order_v3(request_key=request_key,state='REJECTED',
+                detail='Account emergency latched before ordinary Saxo POST',db_path=db_path)
+            _record_runtime(e.pilot_key,'EMERGENCY','Account emergency veto before Saxo POST',db_path=db_path)
+            continue
         # Timestamp at the POST boundary; excludes Saxo acknowledgement/fill.
         record_v3_phase_v1('decision_to_submit',time.perf_counter()-_decision_finished)
         record_v3_quote_submit_age_v1(decision.decision_key)
@@ -1325,14 +1367,16 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 continue
             mark_order_v3(request_key=request_key,state='UNKNOWN',
                 detail=f'{type(exc).__name__}: {exc}',db_path=db_path)
-            _record_runtime(e.pilot_key,'BLOCKED','Saxo order result unknown; reconcile before retry',db_path=db_path)
+            activate_emergency_v1(e.account_id,'SAXO_ORDER_POST_UNCERTAIN',db_path=db_path,now=end)
+            _record_runtime(e.pilot_key,'EMERGENCY','Saxo POST ambiguous; account frozen for recovery',db_path=db_path)
             raise
         record_v3_phase_v1('submit',time.perf_counter()-_submit_started)
         broker_order_id=str(result.get('OrderId') or '').strip() if isinstance(result,dict) else ''
         if not broker_order_id:
             mark_order_v3(request_key=request_key,state='UNKNOWN',
                 detail='Saxo accepted request but response lacks a verifiable OrderId',db_path=db_path)
-            _record_runtime(e.pilot_key,'BLOCKED','Saxo response lacks OrderId; manual reconciliation required',db_path=db_path)
+            activate_emergency_v1(e.account_id,'SAXO_ORDER_ID_MISSING',db_path=db_path,now=end)
+            _record_runtime(e.pilot_key,'EMERGENCY','Saxo response lacks OrderId; account frozen for recovery',db_path=db_path)
             continue
         mark_order_v3(request_key=request_key,state='SUBMITTED',
             broker_order_id=broker_order_id,db_path=db_path)

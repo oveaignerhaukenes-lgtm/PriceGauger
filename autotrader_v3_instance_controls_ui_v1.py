@@ -540,6 +540,21 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     flash_key=f'{key_prefix}:flash:{trader_id}'
     if flash_key in st.session_state:
         st.success(st.session_state.pop(flash_key))
+    from autotrader_v3_account_emergency_v1 import load_emergency_v1, ACTIVE as EMERGENCY_ACTIVE_V1
+    incident=load_emergency_v1(str(instance.account_id))
+    if incident is not None and incident.state in EMERGENCY_ACTIVE_V1:
+        st.error(
+            'NØDRESET · Saxo-konto satt på pause · '
+            +incident.state+' · '+incident.reason
+            +' · siden '+incident.started_at
+        )
+        st.caption(
+            'Ingen ordinære V3-ordre tillates på kontoen mens nødprosedyren går. '
+            'Nødavstemming fortsetter også når LIVE er slått AV. '
+            'Saxo kan fortsatt kreve separat SMS-verifisering for handel.'
+        )
+    elif incident is not None and incident.state=='RESUMED':
+        st.caption('Siste nødreset: Saxo-konto bekreftet flat og nødmodus avsluttet.')
     st.markdown('**Instans-recovery**')
     st.caption(
         'Kontroller V3-ordrelås og faktisk Saxo-posisjon uten å slette '

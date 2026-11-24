@@ -28,6 +28,7 @@ class SaxoOrderRequest:
     amount: float
     buy_sell: str
     external_reference: str | None = None
+    manual_order: bool = True  # compatibility: existing manual submissions unchanged
 
     def payload(self) -> dict[str, Any]:
         side = self.buy_sell.strip().title()
@@ -43,7 +44,7 @@ class SaxoOrderRequest:
             "Amount": amount,
             "AssetType": self.instrument.asset_type,
             "BuySell": side,
-            "ManualOrder": True,
+            "ManualOrder": bool(self.manual_order),
             "OrderDuration": {"DurationType": "DayOrder"},
             "OrderType": "Market",
             "Uic": self.instrument.uic,
