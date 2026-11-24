@@ -63,7 +63,7 @@ def support_reason(cfg):
     strategy = cfg.get("strategy") or {}
     if strategy.get("strategy_key") not in SUPPORTED:
         return "UNSUPPORTED_STRATEGY"
-    if strategy.get("control_mode") != "Manuell" or json.loads(strategy["modifiers_json"]):
+    if strategy.get("control_mode") != "Manuell" or json.loads(strategy.get("modifiers_json") or "[]"):
         return "UNSUPPORTED_MODIFIERS_OR_MODE"
     if strategy.get("timeframe") not in ("1m","2m","3m","5m","10m","15m","30m"):
         return "UNSUPPORTED_CLOCK"
@@ -266,9 +266,10 @@ def run_mirror_execution_cycle(*,db_path="pricegauger.db",now=None,scenario_term
     statuses={}
     processed=0
     for identity,row in active.items():
-        cfg=json.loads(row["config_json"])
-        reason=support_reason(cfg)
+        reason=None
         try:
+            cfg=json.loads(row["config_json"])
+            reason=support_reason(cfg)
             if reason:
                 raise ValueError(reason)
             _policy(cfg,identity)
