@@ -7,7 +7,7 @@ import pytest
 
 import autotrader_v3_account_emergency_v1 as em
 
-NOW = datetime(2026, 11, 24, 2, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc) + timedelta(minutes=10)  # deterministic simulated aged intents
 
 
 class FakeClient:
