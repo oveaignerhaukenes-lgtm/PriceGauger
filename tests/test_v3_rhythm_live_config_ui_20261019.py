@@ -56,4 +56,48 @@ def test_live_button_keeps_broker_cost_and_standard_authority_guard():
     assert "set_live_enabled_v3(trader_id,True,account_id=instance.account_id)" in source
     assert "Slå LIVE av" in source
     assert "SIM-kompatibilitet (påvirker ikke LIVE)" in source
-    assert "previously_viewed=st.session_state.get(viewed_key,initial_choice)" in source
+    assert "defaults = _rhythm_selection_defaults_v3(config.strategy_key, strategy)" in source
+
+
+def test_single_field_edits_and_presets_are_explicit():
+    from autotrader_v3_config_v1 import AutoTraderConfigV3
+    from autotrader_v3_instance_controls_ui_v1 import _config_after_edit_v3
+    config=AutoTraderConfigV3("a",strategy_key="macd-flip",timeframe="5m",modifiers=("account-loss-lock",))
+    edited=_config_after_edit_v3(config,"timeframe","2m")
+    assert edited.timeframe=="2m" and edited.modifiers==config.modifiers
+    assert config.timeframe=="5m"
+    preset=_config_after_edit_v3(config,"strategy","ai-live:macd-histogram:2m")
+    assert preset.strategy_key=="macd-histogram" and preset.timeframe=="2m"
+    assert set(preset.modifiers)=={"account-loss-lock","ai-loss-manager"}
+    removed=_config_after_edit_v3(preset,"modifier:ai-loss-manager",False)
+    assert removed.modifiers==config.modifiers
+    rhythm=_config_after_edit_v3(config,"strategy","rhythm-trend-1")
+    assert rhythm.timeframe=="1m" and rhythm.regime_timeframe=="15m"
+    assert rhythm.modifiers==config.modifiers
+
+
+def test_autosave_reloads_state_and_never_arms_or_saves_other_fields(monkeypatch):
+    from types import SimpleNamespace
+    from autotrader_v3_config_v1 import AutoTraderConfigV3
+    from autotrader_v3_execution_policy_v1 import ExecutionPolicyV3
+    import autotrader_v3_instance_controls_ui_v1 as ui
+    config=AutoTraderConfigV3("a",strategy_key="macd-flip",timeframe="5m",modifiers=("account-loss-lock",))
+    policy=ExecutionPolicyV3("a",300,80)
+    configs=[]; policies=[]
+    monkeypatch.setattr(ui,"load_autotrader_config_v3",lambda _:config)
+    monkeypatch.setattr(ui,"load_execution_policy_v3",lambda _:policy)
+    monkeypatch.setattr(ui,"authority_state_v3",lambda _:SimpleNamespace(live_armed=True,sim_armed=False))
+    monkeypatch.setattr(ui,"save_autotrader_config_v3",configs.append)
+    monkeypatch.setattr(ui,"save_execution_policy_v3",policies.append)
+    def no(*args,**kwargs): raise AssertionError("unexpected authority or audit write")
+    monkeypatch.setattr(ui,"set_live_enabled_v3",no)
+    monkeypatch.setattr(ui,"record_modifier_selection_changes_v3",no)
+    ui._save_instance_edit_v3(trader_id="a",expected_strategy="macd-flip",field="timeframe",value="2m")
+    assert len(configs)==1 and configs[0].modifiers==config.modifiers and not policies
+    ui._save_instance_edit_v3(trader_id="a",expected_strategy="macd-flip",field="budget_nok",value=400)
+    assert len(configs)==1 and policies[0].exposure_pct==80
+    with pytest.raises(ValueError):
+        ui._save_instance_edit_v3(trader_id="a",expected_strategy="macd-flip",field="timeframe",value="Adaptiv")
+    with pytest.raises(ValueError):
+        ui._save_instance_edit_v3(trader_id="a",expected_strategy="macd",field="timeframe",value="2m")
+    assert len(configs)==1 and len(policies)==1
