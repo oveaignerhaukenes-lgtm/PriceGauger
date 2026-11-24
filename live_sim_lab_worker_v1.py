@@ -284,6 +284,17 @@ def run_live_mirror_loop(*,db_path,stop_event,interval=2.0):
         stop_event.wait(max(.1,interval-(time.monotonic()-started)))
 
 
+def run_live_mirror_audit_loop(*,db_path,stop_event):
+    """Optional slow read-only audit, never on the LIVE order thread."""
+    from live_mirror_audit_v1 import collect_one_audit
+    while not stop_event.is_set():
+        try:
+            LOGGER.info("LIVE_MIRROR_AUDIT %s",collect_one_audit(db_path=db_path))
+        except Exception as exc:
+            LOGGER.warning("LIVE_MIRROR_AUDIT unavailable error_type=%s",type(exc).__name__)
+        stop_event.wait(600.0)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="pricegauger.db")
@@ -304,6 +315,10 @@ def main():
         kwargs={'db_path':args.db,'stop_event':stop_event},
         name='pricegauger-live-mirror',daemon=True)
     mirror_thread.start()
+    if os.getenv('PRICEGAUGER_MIRROR_AUDIT_ENABLED','0').strip().lower() in ('1','true','yes','on'):
+        threading.Thread(target=run_live_mirror_audit_loop,
+            kwargs={'db_path':args.db,'stop_event':stop_event},
+            name='pricegauger-mirror-audit',daemon=True).start()
     # Costly AI PAPER experiments are explicit opt-ins. This does not affect
     # historical simulator, 1s HyperChase PAPER, or any V3 LIVE AI modifier.
     if optional_paper_ai_enabled("PRICEGAUGER_LAB_AI_TECH_ENABLED"):
