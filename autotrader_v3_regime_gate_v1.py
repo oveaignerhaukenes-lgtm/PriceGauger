@@ -64,7 +64,7 @@ def load_regime_policy_v1(*, instance_id: str, strategy_key: str,
         row = db.execute("""SELECT strategy_key,mode,allow_bull,allow_bear,
             allow_sideways,trend_only,block_unknown,updated_at
             FROM pg_v3_regime_entry_policy_v1 WHERE instance_id=?""", (identity,)).fetchone()
-    if row is None or str(row["strategy_key"]) != strategy:
+    if row is None:
         return RegimePolicyV1(identity, strategy)
     mode = str(row["mode"])
     if mode not in MODES_V1:
@@ -104,6 +104,39 @@ def save_regime_policy_v1(*, instance_id: str, strategy_key: str, mode: str,
             (identity, strategy, mode, *(int(s in chosen) for s in STATES_V1),
              int(trend_only), int(block_unknown), updated_at))
     return RegimePolicyV1(identity, strategy, mode, chosen, trend_only, block_unknown, updated_at)
+
+
+
+# The operator selects one exact set of allowed market states, or OFF.
+# Legacy modes/flags are retained until the operator explicitly chooses a preset.
+REGIME_PRESETS_V1 = {
+    "OFF": STATES_V1,
+    "BULL": ("BULL",),
+    "BEAR": ("BEAR",),
+    "BULL+SIDEWAYS": ("BULL", "SIDEWAYS"),
+    "BEAR+SIDEWAYS": ("BEAR", "SIDEWAYS"),
+}
+
+
+def regime_preset_key_v1(policy: RegimePolicyV1) -> str:
+    if policy.mode == "OFF":
+        return "OFF"
+    if policy.mode == "LIVE" and not policy.trend_only and policy.block_unknown:
+        for key, states in REGIME_PRESETS_V1.items():
+            if key != "OFF" and set(states) == set(policy.allowed_states):
+                return key
+    return "LEGACY"
+
+
+def save_regime_preset_v1(*, instance_id, strategy_key, preset, db_path="pricegauger.db"):
+    """One explicit edit changes only this instance's regime filter."""
+    if preset not in REGIME_PRESETS_V1:
+        raise ValueError("unknown regime preset")
+    return save_regime_policy_v1(
+        instance_id=instance_id, strategy_key=strategy_key,
+        mode="OFF" if preset == "OFF" else "LIVE",
+        allowed_states=REGIME_PRESETS_V1[preset],
+        trend_only=False, block_unknown=preset != "OFF", db_path=db_path)
 
 
 def _utc(value: str | datetime) -> datetime:
@@ -261,4 +294,5 @@ __all__ = ["STATES_V1", "MODES_V1", "RegimePolicyV1", "RegimeDecisionV1",
            "load_regime_policy_v1", "save_regime_policy_v1", "classify_regime_v1",
            "decide_regime_entry_v1", "check_regime_entry_v1",
            "record_regime_block_v1", "load_regime_block_count_v1",
-           "strategy_entry_directions_v1", "read_regime_state_v1"]
+           "strategy_entry_directions_v1", "read_regime_state_v1",
+           "REGIME_PRESETS_V1", "regime_preset_key_v1", "save_regime_preset_v1"]
