@@ -20,7 +20,10 @@ universe=st.selectbox("Strategiunivers",("LIVE Mirror Lab","AEn Core · Adaptive
 if universe=="LIVE Mirror Lab":
     from live_mirror_registry_v1 import mirror_snapshot
     st.subheader("LIVE Mirror Lab · digitale tvillinger")
-    st.caption("Fase 1: prospektiv kartlegging av LIVE-referanser. Ingen simulerte handler ennå.")
+    from live_mirror_execution_v1 import execution_snapshot, support_reason
+    st.caption("Prospektive LIVE-referanser og uavhengige SIM-scenarioer. Ikke empirisk validert.")
+    sessions=execution_snapshot() or []
+    sim={s["mirror_id"]:s for s in sessions}
     mirrors=mirror_snapshot()
     if mirrors is None:
         st.warning("Ingen tilgjengelig Mirror-worker-snapshot.")
@@ -34,17 +37,23 @@ if universe=="LIVE Mirror Lab":
             strategy=cfg.get("strategy") or {}
             account=ref.get("account") or {}
             quote=ref.get("quote") or {}
+            session=sim.get(item["mirror_id"])
+            state=json.loads(session["state_json"]) if session else {}
             rows.append({
                 "Konto":item["account_name"],"Strategi":strategy.get("strategy_key"),
                 "S":strategy.get("timeframe"),"R":strategy.get("regime_timeframe"),
                 "E":strategy.get("exit_timeframe"),"LIVE NAV (referanse)":account.get("total_value"),
                 "Valuta":account.get("currency"),"LIVE posisjon (heartbeat)":ref.get("actual_observed"),
-                "Status":item["status"],"BBO observert":quote.get("received_at"),
+                "Referanse":item["status"],"SIM":session["last_status"] if session else (support_reason(cfg) or "VENTER PÅ MODELLPARAMETRE"),
+                "SIM posisjon":state.get("inventory"),"SIM kontant (NOK)":state.get("cash_nok"),
+                "SIM realisert brutto":state.get("realized_nok"),"SIM gebyrer":state.get("fees_nok"),
+                "BBO observert":quote.get("received_at"),
                 "Oppdatert":item["observed_at"],
             })
         st.metric("Registrerte LIVE-referanser",len(rows))
         st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
-        st.caption("WAIT_CALIBRATION betyr at referansen kan vurderes for oppstart, ikke at simulatoren er validert.")
+        st.caption("SIM-kontant er ikke NAV. Scenarioer trenger eksplisitte instrumenttermer; støtter først MACD+Stoch V2.1 og R/E V3 uten modifikatorer. Ingen automatisk LIVE-promotering.")
+        st.info("Evolusjon er ikke aktivert: både eksekvering og kontoregnskap må bestå uavhengig LIVE/SIM-validering.")
     st.stop()
 if universe=="AEn Core · Adaptive Engine":
     render_aen_core_lab_v1()
