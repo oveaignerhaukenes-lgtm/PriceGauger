@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite, log
+import logging
 
 from canonical_market_bars_v2 import CanonicalMarketBarStoreV2
 from database import connect, run_postgres_schema_once_v1
@@ -192,6 +193,64 @@ def check_regime_entry_v1(*, instance_id: str, strategy_key: str,
         return RegimeDecisionV1("UNKNOWN", "Regimekontroll utilgjengelig", False, False, "ERROR")
 
 
+
+def _ensure_regime_block_schema_v1(db_path):
+    def initialize():
+        with connect(db_path) as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS pg_v3_regime_block_event_v1(
+                instance_id TEXT NOT NULL, strategy_key TEXT NOT NULL,
+                decision_key TEXT NOT NULL, action TEXT NOT NULL, direction TEXT NOT NULL,
+                state TEXT NOT NULL, blocked_at TEXT NOT NULL,
+                PRIMARY KEY(instance_id,strategy_key,decision_key,action,direction))""")
+    run_postgres_schema_once_v1("v3_regime_block_event_v1", initialize)
+
+
+def record_regime_block_v1(*, instance_id, strategy_key, decision_key, action,
+                           direction, decision, db_path="pricegauger.db"):
+    """Count unique LIVE entry vetoes, never polls, shadow decisions or exits.
+
+    Instrumentation must not alter execution, even if its storage is unavailable.
+    """
+    if (decision.mode != "LIVE" or decision.allow_new_exposure
+            or action not in ("OPEN", "ADD") or direction not in ("LONG", "SHORT")
+            or not decision_key):
+        return
+    try:
+        _ensure_regime_block_schema_v1(db_path)
+        with connect(db_path) as db:
+            db.execute("""INSERT INTO pg_v3_regime_block_event_v1
+                (instance_id,strategy_key,decision_key,action,direction,state,blocked_at)
+                VALUES(?,?,?,?,?,?,?) ON CONFLICT(instance_id,strategy_key,decision_key,action,direction)
+                DO NOTHING""", (str(instance_id), str(strategy_key), str(decision_key),
+                action, direction, decision.state, datetime.now(timezone.utc).isoformat()))
+    except Exception:
+        logging.getLogger(__name__).warning("Regime block counter write failed", exc_info=False)
+
+
+def load_regime_block_count_v1(*, instance_id, db_path="pricegauger.db"):
+    """Lifetime unique vetoes since counter rollout; None on read failure."""
+    try:
+        _ensure_regime_block_schema_v1(db_path)
+        with connect(db_path) as db:
+            row = db.execute("""SELECT COUNT(*) AS n FROM pg_v3_regime_block_event_v1
+                WHERE instance_id=?""", (str(instance_id),)).fetchone()
+        return int(row["n"])
+    except Exception:
+        return None
+
+
+def strategy_entry_directions_v1(strategy_key):
+    """Known one-sided catalogue strategies; others retain both directions."""
+    key = str(strategy_key)
+    if "-long-flat-" in key or key.startswith("impulse-catcher-long-"):
+        return ("LONG",)
+    if "-short-flat-" in key or key.startswith("impulse-catcher-short-"):
+        return ("SHORT",)
+    return ("LONG", "SHORT")
+
+
 __all__ = ["STATES_V1", "MODES_V1", "RegimePolicyV1", "RegimeDecisionV1",
            "load_regime_policy_v1", "save_regime_policy_v1", "classify_regime_v1",
-           "decide_regime_entry_v1", "check_regime_entry_v1"]
+           "decide_regime_entry_v1", "check_regime_entry_v1",
+           "record_regime_block_v1", "load_regime_block_count_v1",
+           "strategy_entry_directions_v1"]
