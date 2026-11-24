@@ -45,7 +45,7 @@ from autotrader_v3_protective_live_v1 import (
     evaluate_impulse_live_v3, evaluate_account_loss_live_v3,
 )
 from autotrader_v3_trade_filter_v1 import allow_new_exposure_v1
-from autotrader_v3_regime_gate_v1 import check_regime_entry_v1
+from autotrader_v3_regime_gate_v1 import check_regime_entry_v1, record_regime_block_v1
 from autotrader_v3_modifier_audit_v1 import (record_modifier_evaluation_v3,record_modifier_target_change_v3)
 from autotrader_v3_position_reconcile_v1 import reconcile_position_v3
 from autotrader_v3_execution_policy_v1 import load_execution_policy_v3
@@ -981,6 +981,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 instrument_id=e.instrument_id,direction=mutation.direction,
                 db_path=db_path)
             if not regime_entry.allow_new_exposure:
+                record_regime_block_v1(
+                    instance_id=e.pilot_key,strategy_key=e.strategy_key,
+                    decision_key=decision.decision_key,action=mutation.action,
+                    direction=mutation.direction,decision=regime_entry,db_path=db_path)
                 align_closed_bar_target_v3(
                     trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
                 _record_runtime(e.pilot_key,'BLOCKED',
@@ -1281,6 +1285,10 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
                 mark_order_v3(request_key=request_key,state='REJECTED',
                     detail=f'Market regime {regime_entry.state} veto before Saxo POST; no order sent',
                     db_path=db_path)
+                record_regime_block_v1(
+                    instance_id=e.pilot_key,strategy_key=e.strategy_key,
+                    decision_key=decision.decision_key,action=mutation.action,
+                    direction=mutation.direction,decision=regime_entry,db_path=db_path)
                 align_closed_bar_target_v3(
                     trader_id=e.pilot_key,target_amount=actual.amount,db_path=db_path)
                 _record_runtime(e.pilot_key,'BLOCKED',
