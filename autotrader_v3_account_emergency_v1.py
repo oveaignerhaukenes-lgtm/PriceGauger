@@ -22,7 +22,7 @@ from saxo_provider import SaxoInstrument
 from saxo_trading import SaxoOrderRequest
 
 LOG = logging.getLogger("pricegauger.v3.emergency")
-ACTIVE = frozenset({"PAUSED", "BROKER_DOWN", "RESOLVING", "CANCELLING", "CLOSING", "VERIFYING"})
+ACTIVE = frozenset({"PAUSED", "BROKER_DOWN", "AUTH_REQUIRED", "RESOLVING", "CANCELLING", "CLOSING", "VERIFYING"})
 GRACE_SECONDS = 90  # never treat absence from one snapshot as a failed POST
 FLAT_CONFIRM_SECONDS = 5
 
@@ -85,6 +85,23 @@ def load_emergency_v1(account_id, *, db_path="pricegauger.db"):
 def emergency_active_v1(account_id, *, db_path="pricegauger.db"):
     incident = load_emergency_v1(account_id, db_path=db_path)
     return incident is not None and incident.state in ACTIVE
+
+def active_emergency_accounts_v1(*, db_path="pricegauger.db"):
+    """Emergency routes survive strategy OFF and restart (read-only)."""
+    ensure_schema_v1(db_path)
+    with connect(db_path) as db:
+        rows = db.execute(
+            "SELECT account_id FROM pg_v3_account_emergency_v1 WHERE state!='RESUMED'"
+        ).fetchall()
+    return tuple(str(r["account_id"] if isinstance(r,dict) else r[0]) for r in rows)
+
+
+def _error_state(exc):
+    code = getattr(exc, "status_code", None)
+    if code in {401,403}:
+        return "AUTH_REQUIRED"
+    return "BROKER_DOWN"
+
 
 def should_start_emergency_v1(pending, *, now=None):
     """Stale unknown broker mutation becomes an account incident, not a silent lock.
@@ -298,7 +315,7 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
         nets = _net_positions(broker, account_id, account_key, client_key)
         pending = _unresolved_on_account(account_id, db_path)
     except Exception as exc:
-        _set(account_id, "BROKER_DOWN", type(exc).__name__, db_path=db_path, now=current)
+        _set(account_id, _error_state(exc), type(exc).__name__, db_path=db_path, now=current)
         return "BROKER_DOWN"
 
     if not _auto_writes_enabled():
@@ -365,7 +382,7 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
         try:
             _delete_order_once_v1(broker.client,account_key=account_key,order_id=order_id)
         except Exception as exc:
-            _set(account_id,"BROKER_DOWN",type(exc).__name__,db_path=db_path,now=current)
+            _set(account_id,_error_state(exc),type(exc).__name__,db_path=db_path,now=current)
         return "CANCELLING"
 
     if positions or nets:
@@ -434,4 +451,4 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
 
 __all__ = ["AccountEmergencyV1","activate_emergency_v1","emergency_active_v1",
            "load_emergency_v1","run_emergency_account_once_v1","ensure_schema_v1",
-           "should_start_emergency_v1"]
+           "should_start_emergency_v1", "active_emergency_accounts_v1"]
