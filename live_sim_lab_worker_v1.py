@@ -263,6 +263,9 @@ def run_live_mirror_loop(*,db_path,stop_event,interval=2.0):
     """Separate research loop; bounded cadence, no additional broker requests."""
     from live_mirror_registry_v1 import refresh_mirror_registry
     from live_mirror_execution_v1 import run_mirror_execution_cycle
+    from live_mirror_calibration_v1 import observed_scenario_terms
+    observed={}
+    next_calibration=0.0
     next_reference=0.0
     last_log=0.0
     LOGGER.info("LIVE_MIRROR research loop started")
@@ -273,7 +276,15 @@ def run_live_mirror_loop(*,db_path,stop_event,interval=2.0):
                 mirrors=refresh_mirror_registry(db_path=db_path)
                 next_reference=started+30.0
                 LOGGER.info("LIVE_MIRROR_REFERENCE active=%d",mirrors)
-            result=run_mirror_execution_cycle(db_path=db_path)
+            if started>=next_calibration:
+                next_calibration=started+300.0
+                try:
+                    observed=observed_scenario_terms(db_path=db_path)
+                    LOGGER.info('LIVE_MIRROR observed terms eligible=%d',len(observed))
+                except Exception as exc:
+                    observed={}
+                    LOGGER.warning('LIVE_MIRROR calibration evidence unavailable type=%s',type(exc).__name__)
+            result=run_mirror_execution_cycle(db_path=db_path,observed_terms=observed)
             if started-last_log>=30.0:
                 LOGGER.info("LIVE_MIRROR_EXECUTION %s",json.dumps(result,separators=(",",":")))
                 last_log=started
