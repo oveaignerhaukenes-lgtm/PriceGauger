@@ -52,7 +52,7 @@ def test_unsupported_live_config_on_armed_live_is_still_blocked():
 
 def test_live_button_keeps_broker_cost_and_standard_authority_guard():
     source=Path("autotrader_v3_instance_controls_ui_v1.py").read_text()
-    assert "disabled=bool(live_issues or cost_blocked)" in source
+    assert "disabled=bool(live_issues or cost_blocked or policy is None)" in source
     assert "set_live_enabled_v3(trader_id,True,account_id=instance.account_id)" in source
     assert "Slå LIVE av" in source
     assert "SIM-kompatibilitet (påvirker ikke LIVE)" in source
@@ -101,3 +101,16 @@ def test_autosave_reloads_state_and_never_arms_or_saves_other_fields(monkeypatch
     with pytest.raises(ValueError):
         ui._save_instance_edit_v3(trader_id="a",expected_strategy="macd",field="timeframe",value="2m")
     assert len(configs)==1 and len(policies)==1
+
+
+def test_new_instance_explicit_initial_budget(monkeypatch):
+    from autotrader_v3_config_v1 import AutoTraderConfigV3
+    import autotrader_v3_instance_controls_ui_v1 as ui
+    policies=[]
+    monkeypatch.setattr(ui,"load_autotrader_config_v3",lambda _:AutoTraderConfigV3("a"))
+    monkeypatch.setattr(ui,"load_execution_policy_v3",lambda _:None)
+    monkeypatch.setattr(ui,"save_execution_policy_v3",policies.append)
+    with pytest.raises(ValueError):
+        ui._save_instance_edit_v3(trader_id="a",expected_strategy="macd",field="exposure_pct",value=80)
+    ui._save_instance_edit_v3(trader_id="a",expected_strategy="macd",field="budget_nok",value=300)
+    assert len(policies)==1 and policies[0].budget_nok==300 and policies[0].exposure_pct==100
