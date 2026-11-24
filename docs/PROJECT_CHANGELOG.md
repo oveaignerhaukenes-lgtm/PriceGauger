@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `be59327558e8a93f10df9ed33e7c29e3e316ac0c`
+Latest tracked main commit: `ff6bf18eb598297082975346e2c43ab876913bb8`
 
 ## Recent main commits
 
+- 2026-11-24 [`ff6bf18eb5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ff6bf18eb598297082975346e2c43ab876913bb8) — Regimefilter: direkte lagring, korrekt status og ordreteller (#886)
 - 2026-11-24 [`be59327558`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/be59327558e8a93f10df9ed33e7c29e3e316ac0c) — V3: kortere CLOSE/REDUCE-ordrebane uten valgfri Saxo-precheck (#883)
 - 2026-11-23 [`eb490c55be`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/eb490c55be2c7ce56226d8bcb9889c402880ccf9) — PAPER: compare sideways impulse specialization and rare countertrend shocks (#878)
 - 2026-11-22 [`44225e8de4`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/44225e8de4298a28e2af13b6121948b6407f7a68) — feat(v3): add opt-in bull bear sideways regime entry gate (#880)
@@ -46,6 +47,5 @@ Latest tracked main commit: `be59327558e8a93f10df9ed33e7c29e3e316ac0c`
 - 2026-11-17 [`319934ca0a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/319934ca0a34067216688b2b5f24a22180058214) — Fix AutoTrader account chart markers using verified Saxo fills (#846)
 - 2026-11-16 [`23e6a2c4c2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/23e6a2c4c228ca4272676b2c51c8acca04d34947) — V3 charts: mark confirmed flat with neutral gray square (#845)
 - 2026-11-16 [`a5e4688ca8`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/a5e4688ca8e6d072082b5a7a2cb9618398251e33) — Tech100 Regime V3: price-confirmed histogram convergence and early exit (#844)
-- 2026-11-16 [`cada668211`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/cada668211d44e8319849a21be67f5172749a978) — Research: historical HH/HL sequences and mirrored 1–3m control
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
