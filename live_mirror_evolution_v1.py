@@ -112,3 +112,84 @@ def evolve(*, folds, holdout, evaluate, validation, population=1000,
             "holdout":test,"baseline_holdout":baseline_test,
             "baseline_training_fitness":baseline.fitness,
             "status":"RESEARCH_ONLY_NO_PROMOTION"}
+
+
+@dataclass(frozen=True)
+class FeatureFrame:
+    """Frozen features available at decision time; quotes are settlement only."""
+    at: datetime
+    macd_component: float
+    stoch_component: float
+    regime: str
+    quotes: tuple
+
+    def __post_init__(self):
+        if self.at.tzinfo is None or not all(isfinite(x) and -1<=x<=1
+                for x in (self.macd_component,self.stoch_component)):
+            raise ValueError("invalid causal frame")
+
+
+@dataclass(frozen=True)
+class ReplayFold:
+    frames: tuple[FeatureFrame,...]
+    initial_cash: float
+    terms: object
+    allowed_regimes: tuple[str,...] = ("BULL","BEAR","SIDEWAYS")
+
+
+def evaluate_genome(genome, fold):
+    """V2.1-family parameter variants, shared features, identical virtual broker.
+
+    Each frame's quotes must be recorded after its decision and before the
+    next decision. No optimistic bar-open fills. Unfilled intents expire.
+    Fold starts flat and ends at the last observable liquidation mark.
+    This evaluator is research-only; funding and regime variants must be
+    added before using multi-day folds with nonzero financing.
+    """
+    from datetime import timedelta
+    from live_mirror_broker_v1 import MirrorAccount,execute_target
+    if not fold.frames or fold.initial_cash<=0:
+        raise ValueError("missing fold")
+    a=MirrorAccount(fold.initial_cash)
+    prior=None
+    peak=fold.initial_cash
+    dd=0.
+    trades=0
+    last_quote=None
+    for i,f in enumerate(fold.frames):
+        if i and f.at<=fold.frames[i-1].at:
+            raise ValueError("unordered features")
+        end=f.at+timedelta(seconds=fold.terms.max_quote_wait_seconds)
+        if i+1<len(fold.frames):
+            end=min(end,fold.frames[i+1].at-timedelta(microseconds=1))
+        quotes=tuple(q for q in f.quotes if f.at<=q.received_at<=end
+                     and q.at<=q.received_at and q.at>=f.at
+                     and (q.received_at-q.at).total_seconds()<=5)
+        score=genome.macd_weight*f.macd_component+(1-genome.macd_weight)*f.stoch_component
+        current=a.inventory
+        target=current
+        if current*score<0 or abs(score)<=genome.exit:
+            target=0.
+        elif (abs(score)>=genome.entry and prior is not None and score*prior>0
+              and abs(prior)>=genome.entry and (not current or
+                   abs(score)-abs(prior)>genome.build_delta)
+              and f.regime in fold.allowed_regimes):
+            target=(1 if score>0 else -1)*min(genome.max_tranches*fold.terms.minimum_lots,
+                        abs(current)+fold.terms.minimum_lots)
+        prior=score
+        result=execute_target(a,target,decided_at=f.at,quotes=quotes,
+                              now=end,terms=fold.terms)
+        a=result.account
+        trades+=int(result.status=="FILLED")
+        if quotes:
+            last_quote=max(quotes,key=lambda q:q.received_at)
+            value=a.equity(last_quote.bid,last_quote.ask,fold.terms)
+            peak=max(peak,value)
+            dd=max(dd,(peak-value)/fold.initial_cash)
+    if last_quote is None:
+        raise ValueError("no observable settlement quotes")
+    # Refuse stale terminal marks; report no optimistic liquidation price.
+    if last_quote.received_at<fold.frames[-1].at:
+        raise ValueError("no terminal observable quote")
+    value=a.equity(last_quote.bid,last_quote.ask,fold.terms)
+    return (100*(value/fold.initial_cash-1),100*dd,trades)
