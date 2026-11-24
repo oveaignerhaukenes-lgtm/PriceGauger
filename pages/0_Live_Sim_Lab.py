@@ -22,6 +22,8 @@ if universe=="LIVE Mirror Lab":
     st.subheader("LIVE Mirror Lab · digitale tvillinger")
     from live_mirror_execution_v1 import execution_snapshot, support_reason
     st.caption("Prospektive LIVE-referanser og uavhengige SIM-scenarioer. Ikke empirisk validert.")
+    from live_mirror_comparison_v1 import comparison_snapshot
+    comparisons=comparison_snapshot()
     sessions=execution_snapshot() or []
     sim={s["mirror_id"]:s for s in sessions}
     mirrors=mirror_snapshot()
@@ -39,6 +41,7 @@ if universe=="LIVE Mirror Lab":
             quote=ref.get("quote") or {}
             session=sim.get(item["mirror_id"])
             state=json.loads(session["state_json"]) if session else {}
+            report=comparisons.get(session['session_id'],{}) if session else {}
             rows.append({
                 "Konto":item["account_name"],"Strategi":strategy.get("strategy_key"),
                 "S":strategy.get("timeframe"),"R":strategy.get("regime_timeframe"),
@@ -47,6 +50,10 @@ if universe=="LIVE Mirror Lab":
                 "Referanse":item["status"],"SIM":session["last_status"] if session else (support_reason(cfg) or "VENTER PÅ MODELLPARAMETRE"),
                 "SIM posisjon":state.get("inventory"),"SIM kontant (NOK)":state.get("cash_nok"),
                 "SIM realisert brutto":state.get("realized_nok"),"SIM gebyrer":state.get("fees_nok"),
+                "Matchede beslutninger":report.get("paired"),"Sammenligningsgrunnlag":report.get("union"),
+                "Målposisjon samsvar %":round(100*report["target_agreement"],1) if report.get("target_agreement") is not None else None,
+                "Faktisk posisjon samsvar %":round(100*report["inventory_agreement"],1) if report.get("inventory_agreement") is not None else None,
+                "Fill MAE punkter":report.get("price_mae_points"),"Latens MAE s":report.get("latency_mae_s"),
                 "BBO observert":quote.get("received_at"),
                 "Oppdatert":item["observed_at"],
             })
