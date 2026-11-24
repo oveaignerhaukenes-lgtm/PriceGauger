@@ -264,6 +264,7 @@ def run_live_mirror_loop(*,db_path,stop_event,interval=2.0):
     from live_mirror_registry_v1 import refresh_mirror_registry
     from live_mirror_execution_v1 import run_mirror_execution_cycle
     from live_mirror_calibration_v1 import observed_scenario_terms
+    from live_mirror_comparison_v1 import refresh_comparisons
     observed={}
     next_calibration=0.0
     next_reference=0.0
@@ -281,6 +282,8 @@ def run_live_mirror_loop(*,db_path,stop_event,interval=2.0):
                 try:
                     observed=observed_scenario_terms(db_path=db_path)
                     LOGGER.info('LIVE_MIRROR observed terms eligible=%d',len(observed))
+                    count=refresh_comparisons(db_path=db_path)
+                    LOGGER.info('LIVE_MIRROR comparison sessions=%d',count)
                 except Exception as exc:
                     observed={}
                     LOGGER.warning('LIVE_MIRROR calibration evidence unavailable type=%s',type(exc).__name__)
