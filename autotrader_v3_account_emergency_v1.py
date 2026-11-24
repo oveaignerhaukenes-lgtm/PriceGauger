@@ -419,7 +419,8 @@ def run_emergency_account_once_v1(account_id, broker, *, db_path="pricegauger.db
             account_key=account_key,
             instrument=SaxoInstrument(asset="",uic=uic,asset_type=asset_type),
             amount=amount,buy_sell=buy_sell,
-            external_reference=("pgv3-"+request_key)[-50:])
+            external_reference=("pgv3-"+request_key)[-50:],
+            manual_order=False)
         _set(account_id,"CLOSING","EMERGENCY_CLOSING_CONFIRMED_EXPOSURE",db_path=db_path,now=current)
         try:
             response = broker.place_order(order,confirm_live=True)
