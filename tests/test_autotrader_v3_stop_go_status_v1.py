@@ -1,4 +1,4 @@
-"""Operator STOP must be durable, strategy-scoped and non-bypassable."""
+"""Operator STOP must be durable, instance-scoped and non-bypassable."""
 from pathlib import Path
 
 import pytest
@@ -9,14 +9,14 @@ from autotrader_v3_trade_filter_v1 import (
 )
 
 
-def test_default_go_and_durable_exact_strategy_stop(tmp_path):
+def test_default_go_and_durable_instance_stop(tmp_path):
     path=str(tmp_path/'filter.db')
     assert allow_new_exposure_v1(instance_id='a',strategy_key='s',db_path=path)
     assert load_trade_filter_v1(instance_id='a',strategy_key='s',db_path=path).mode=='GO'
     set_trade_filter_v1(instance_id='a',strategy_key='s',mode='STOP',db_path=path)
     assert not allow_new_exposure_v1(instance_id='a',strategy_key='s',db_path=path)
     assert allow_new_exposure_v1(instance_id='b',strategy_key='s',db_path=path)
-    assert allow_new_exposure_v1(instance_id='a',strategy_key='changed',db_path=path)
+    assert not allow_new_exposure_v1(instance_id='a',strategy_key='changed',db_path=path)
     assert load_v3_stop_go_lights_v1((('a','s',True),('b','s',True),
         ('c','s',False),('a2','s',True)),db_path=path)['a'].label=='STOPP'
     set_trade_filter_v1(instance_id='a',strategy_key='s',mode='GO',db_path=path)
@@ -31,7 +31,7 @@ def test_ui_lights_match_live_latch_and_arming(tmp_path):
     assert {key:light.symbol for key,light in states.items()}=={
         'a':'🔴','a-other':'🟢','b':'⚪','c':'🟢'}
     switched=load_v3_stop_go_lights_v1((('a','new-strategy',True),),db_path=path)
-    assert switched['a'].label=='KJØR'
+    assert switched['a'].label=='STOPP'
 
 
 def test_unreadable_database_never_clears_stop_for_new_exposure(monkeypatch):
