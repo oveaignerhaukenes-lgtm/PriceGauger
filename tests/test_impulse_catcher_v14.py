@@ -60,3 +60,25 @@ def test_independent_settings_and_invalid_bounds(tmp_path):
     with pytest.raises(ValueError):config_v14("LONG",{"fast_window":15,"slow_window":6})
     with pytest.raises(ValueError):config_v14("LONG",{"entry_indicators":["fake"]})
     with pytest.raises(ValueError):config_v14("LONG",{"macd_fast":30,"macd_slow":8})
+
+
+def test_close_latch_preserves_flat_until_broker_reconciliation():
+    c=config_v14("LONG",{"entry_confirmation_seconds":0,"fast_window":3,"slow_window":10})
+    quotes=[100.+(i%2)*.2 for i in range(80)]+[100.+5*i for i in range(1,12)]
+    m=ImpulseCatcherV14(config=c)
+    for i,p in enumerate(quotes):
+        assert m.on_quote(T+timedelta(seconds=i),p-.5,p+.5,allow_entry=False) is None
+    assert m.target=="FLAT" and m.trace["gate"]=="WAIT_BROKER_FLAT"
+    assert m.candidate_at is None
+
+def test_missing_ticks_do_not_count_as_exit_confirmation():
+    c=config_v14("LONG",{"minimum_hold_seconds":0,"exhaustion_seconds":0,
+                         "minimum_retrace_points":3.,"retrace_fraction":.05,"exit_confirmation_seconds":3})
+    m=ImpulseCatcherV14(config=c)
+    m.target="LONG";m.entry_mid=100.;m.extreme=120.;m.entered_at=m.last_extreme_at=T
+    assert quote(m,1,115.) is None
+    assert quote(m,5,115.) is None
+    assert m.retrace_at==T+timedelta(seconds=5)
+    assert quote(m,6,115.) is None
+    assert quote(m,7,115.) is None
+    assert quote(m,8,115.).reason=="CONFIRMED_EXIT"
