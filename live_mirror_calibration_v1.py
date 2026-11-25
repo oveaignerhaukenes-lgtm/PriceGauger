@@ -14,7 +14,7 @@ from live_mirror_validation_v1 import calibrate_fills
 from live_mirror_registry_v1 import mirror_snapshot,_stamp
 
 
-def derive_observed_terms(rows, calibration, *, uic, asset_type):
+def derive_observed_terms(rows, calibration, *, uic, asset_type, required_sides=("BUY","SELL")):
     """First automatic scope: NOK, explicit zero-commission illustration.
 
     Nonzero or unavailable commission terms require further cost modelling.
@@ -44,7 +44,7 @@ def derive_observed_terms(rows, calibration, *, uic, asset_type):
             multipliers.append(multiplier);fractions.append(fraction);lots.append(lot);sides.add(side)
         except (ValueError,TypeError,KeyError,AttributeError):
             continue
-    if len(multipliers)<3 or sides!={"BUY","SELL"} or len(set(lots))!=1:
+    if len(multipliers)<3 or not set(required_sides).issubset(sides) or len(set(lots))!=1:
         return None
     # Refuse changing contract/FX units rather than hiding a large mismatch.
     if max(multipliers)/min(multipliers)>1.05:
@@ -91,8 +91,10 @@ def observed_scenario_terms(*,db_path="pricegauger.db",now=None):
                   WHERE instance_id=? AND event_type='TERMS' AND observed_at>=?
                   ORDER BY observed_at DESC LIMIT 30""",
                   (r["instance_id"],(now-timedelta(days=1)).isoformat())).fetchall()
+            strategy=cfg["strategy"]["strategy_key"]
+            required=("BUY",) if "-long-flat-" in strategy else ("SELL",) if "-short-flat-" in strategy else ("BUY","SELL")
             terms=derive_observed_terms([json.loads(x["payload_json"]) for x in rows],
-                calibrated[key],uic=boundary["uic"],asset_type=boundary["asset_type"])
+                calibrated[key],uic=boundary["uic"],asset_type=boundary["asset_type"],required_sides=required)
             if terms:
                 result["instance:"+r["instance_id"]]=terms
         except (ValueError,TypeError,KeyError):
