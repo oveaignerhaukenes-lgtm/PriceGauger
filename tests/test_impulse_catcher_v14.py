@@ -82,3 +82,13 @@ def test_missing_ticks_do_not_count_as_exit_confirmation():
     assert quote(m,6,115.) is None
     assert quote(m,7,115.) is None
     assert quote(m,8,115.).reason=="CONFIRMED_EXIT"
+
+
+def test_overlay_uses_real_timestamp_series_and_visible_gap():
+    from autotrader_ic14_ui import make_preview_figure
+    c=config_v14("LONG")
+    quotes=[ImpulseQuote(T,99.,101.),ImpulseQuote(T+timedelta(seconds=12),100.,102.)]
+    fig=make_preview_figure(preview(quotes,c))
+    assert len(fig.data[0].x)==3
+    assert fig.data[0].x[0]==T and fig.data[0].x[-1]==quotes[-1].at
+    assert len(fig.data)>=8
