@@ -7,6 +7,7 @@ owned by the engine instance, never by either page.
 """
 import streamlit as st
 from html import escape
+from dataclasses import replace
 from autotrader_v3_config_v1 import AutoTraderConfigV3,load_autotrader_config_v3,save_autotrader_config_v3
 from autotrader_v3_ai_live_presets_v1 import (
     AI_LIVE_PRESETS_V3,PRESETS_BY_KEY_V3,initial_selector_key_v3,
@@ -27,6 +28,8 @@ from autotrader_v3_registry_v1 import (
     CONTROL_MODES_V3, MODIFIERS_V3, REGIME_STRATEGIES_V3, REGIME_TIMEFRAMES_V3, SPLIT_CLOCK_STRATEGIES_V3, STRATEGIES_V3, TIMEFRAMES_V3,
     LIVE_CONTROL_MODES_V3, LIVE_MODIFIERS_V3, LIVE_TIMEFRAMES_V3,
     live_config_issues_v3, sim_config_issues_v3, strategy_display_label_v3,
+    TICK_SHADOW_LIVE_CATALOG_KEYS_V3, HYBRID_15S_CATALOG_KEYS_V3,
+    HYPER_CHASE_10S_CATALOG_KEYS_V3, PRICETREND_RESEARCH_CATALOG_KEYS_V3, FRAKTAL1_CATALOG_KEYS_V3,
 )
 
 
@@ -69,6 +72,76 @@ def _instance_save_blocked_v3(*, live_armed: bool, sim_armed: bool,
     """
     return bool((live_armed and live_issues) or
                 (sim_armed and sim_issues and live_issues))
+
+
+
+def _config_after_edit_v3(config, field, value):
+    """Pure single-field edit; explicit presets may intentionally change a bundle."""
+    if field == "strategy":
+        strategy, timeframe, modifiers = resolve_selector_draft_v3(
+            selector_key=value, timeframe=config.timeframe, modifiers=config.modifiers)
+        defaults = _rhythm_selection_defaults_v3(config.strategy_key, strategy)
+        if strategy != config.strategy_key:
+            if strategy in (TICK_SHADOW_LIVE_CATALOG_KEYS_V3 | HYBRID_15S_CATALOG_KEYS_V3
+                            | HYPER_CHASE_10S_CATALOG_KEYS_V3 | FRAKTAL1_CATALOG_KEYS_V3):
+                defaults["timeframe"] = "1m"
+            if strategy in PRICETREND_RESEARCH_CATALOG_KEYS_V3:
+                defaults["timeframe"] = "2m"
+        defaults.setdefault("timeframe", timeframe)
+        if ai_preset_selected_v3(value):
+            defaults["timeframe"] = timeframe
+        return replace(config, strategy_key=strategy, modifiers=modifiers, **defaults)
+    if field == "fast-exit-preset":
+        return replace(config, strategy_key="aen21-sticky-fast-exit", timeframe="10m",
+                       regime_timeframe="30m",
+                       modifiers=tuple(dict.fromkeys((*config.modifiers, "volatility-pause"))))
+    if field.startswith("modifier:"):
+        modifier = field.split(":", 1)[1]
+        mods = tuple(m for m in config.modifiers if m != modifier)
+        if value:
+            mods = config.modifiers if modifier in config.modifiers else (*config.modifiers, modifier)
+        return replace(config, modifiers=mods)
+    if field in ("timeframe", "regime_timeframe", "exit_timeframe", "control_mode"):
+        return replace(config, **{field: value})
+    raise ValueError("Ukjent innstilling")
+
+
+def _save_instance_edit_v3(*, trader_id, expected_strategy, field, value):
+    """Reload durable state, apply only the requested edit, preserve authority."""
+    config = load_autotrader_config_v3(trader_id)
+    if field in ("budget_nok", "exposure_pct"):
+        policy = load_execution_policy_v3(trader_id)
+        if policy is None:
+            if field != "budget_nok" or value is None:
+                raise ValueError("Angi budsjett først.")
+            # New instances have no stored capital policy. An explicit budget
+            # edit creates it with the displayed default exposure of 100%.
+            desired_policy = ExecutionPolicyV3(trader_id, float(value), 100.0)
+        else:
+            desired_policy = replace(policy, **{field: float(value)})
+        if desired_policy != policy:
+            save_execution_policy_v3(desired_policy)
+        return
+    if config.strategy_key != expected_strategy:
+        raise ValueError("Strategien ble endret et annet sted. Prøv igjen med oppdatert visning.")
+    desired = _config_after_edit_v3(config, field, value)
+    if desired == config:
+        return
+    authority = authority_state_v3(trader_id)
+    args = dict(strategy_key=desired.strategy_key, timeframe=desired.timeframe,
+                control_mode=desired.control_mode, modifiers=desired.modifiers,
+                regime_timeframe=desired.regime_timeframe, exit_timeframe=desired.exit_timeframe)
+    live_issues, sim_issues = live_config_issues_v3(**args), sim_config_issues_v3(**args)
+    if _instance_save_blocked_v3(live_armed=authority.live_armed, sim_armed=authority.sim_armed,
+                                 live_issues=live_issues, sim_issues=sim_issues):
+        raise ValueError("Endringen ble ikke lagret: " + " · ".join(live_issues or sim_issues))
+    # Revoke stale approval before removing the modifier, never grant approval implicitly.
+    if "whipsaw" in config.modifiers and "whipsaw" not in desired.modifiers:
+        set_whipsaw_live_approval_v3(trader_id, False)
+    save_autotrader_config_v3(desired)
+    if config.modifiers != desired.modifiers:
+        record_modifier_selection_changes_v3(
+            trader_id=trader_id, before=config.modifiers, after=desired.modifiers)
 
 
 @st.cache_data(ttl=30,show_spinner=False)
@@ -163,6 +236,25 @@ def _show_modifier_log_v3(*,trader_id:str,modifier_key:str,modifier_label:str,
 
 def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     trader_id=str(instance.instance_id); config=load_autotrader_config_v3(trader_id); policy=load_execution_policy_v3(trader_id); authority=authority_state_v3(trader_id)
+    error_key=f'{key_prefix}:autosave-error:{trader_id}'
+    def save_changed(field, widget_key=None, *, fixed_value=None):
+        try:
+            value = st.session_state[widget_key] if widget_key is not None else fixed_value
+            _save_instance_edit_v3(trader_id=trader_id, expected_strategy=config.strategy_key,
+                                   field=field, value=value)
+            st.session_state.pop(error_key, None)
+        except ValueError as exc:
+            st.session_state[error_key] = str(exc)
+        except Exception as exc:
+            st.session_state[error_key] = 'Kunne ikke lagre endringen: ' + type(exc).__name__
+
+    def bind_saved(suffix, value):
+        # Callback runs before rerender. Always display durable values, including
+        # edits from the other shared surface. Never save merely by rendering.
+        key=f'{key_prefix}:{suffix}:{trader_id}'
+        st.session_state[key]=value
+        return key
+
     account_name=_account_name_cached_v3(str(instance.account_id))
     account_title=account_name or str(instance.account_id)
     active_label=strategy_display_label_v3(config.strategy_key,config.timeframe,config.regime_timeframe,config.exit_timeframe)
@@ -188,6 +280,9 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.caption(truth.reason + (f' · {truth.detail}' if truth.detail else ''))
     st.caption('Siste bekreftede handel: '+(truth.last_execution or 'ingen tilgjengelig i eventloggen'))
     st.caption('Tallene er forrige worker-heartbeat, ikke en sanntids-Saxo-posisjonsforespørsel.')
+    st.caption('Innstillinger lagres direkte ved endring. LIVE PÅ/AV er separat.')
+    if error_key in st.session_state:
+        st.error(st.session_state[error_key])
     with st.expander('Stopp/kjør-filter · manuell nødstopp',expanded=False):
         from autotrader_v3_trade_filter_v1 import (
             load_trade_filter_v1,set_trade_filter_v1,
@@ -201,12 +296,9 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                        'Nødvendige CLOSE/REDUCE og eksisterende risikovern beholdes. '
                        'Ordre som allerede er sendt til Saxo, kanselleres ikke. '
                        'Regimefilterets egne BULL/BEAR/SIDEWAYS-valg vises under Markedsfilter.')
-            confirmed=st.checkbox(
-                'Jeg bekrefter at jeg vil endre dette LIVE-filteret',
-                key=f'{key_prefix}:filter-confirm:{trader_id}')
             desired='GO' if filter_state.mode=='STOP' else 'STOP'
             if st.button('Gjenoppta KJØR' if desired=='GO' else 'Aktiver STOPP',
-                key=f'{key_prefix}:filter-set:{trader_id}',disabled=not confirmed):
+                 key=f'{key_prefix}:filter-set:{trader_id}'):
                 set_trade_filter_v1(instance_id=trader_id,
                     strategy_key=config.strategy_key,mode=desired)
                 st.rerun()
@@ -249,18 +341,13 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         "av LAB-varianten, men LIVE-motoren bruker Aen#2.1 Fast Exit og "
         "er ikke en matematisk identisk LAB-strategi."
     )
-    if st.button(
-        "Forhåndsvelg Fast Exit S10/R30 + Volatility Pause",
+    st.button(
+        "Bruk Fast Exit S10/R30 + Volatility Pause",
         key=f'{key_prefix}:preset-fast-exit-10-30:{trader_id}',
-        help="Setter bare verdier i skjemaet. Ingen LIVE-konfigurasjon "
-             "lagres, og ingen ordrer opprettes uten et separat lagreklikk.",
-    ):
-        st.session_state[f'{key_prefix}:strategy:{trader_id}']='aen21-sticky-fast-exit'
-        st.session_state[f'{key_prefix}:timeframe:{trader_id}']='10m'
-        st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']='30m'
-        st.session_state[f'{key_prefix}:mod:{trader_id}:volatility-pause']=True
-        st.rerun()
-    st.caption("MACD Flip · V3 er separat fra MACD Trailing · Legacy og følger V2s rene kryss-signaler. Valg eller lagring alene aktiverer ikke LIVE.")
+        help="Lagrer dette samlede oppsettet direkte. Endrer ikke LIVE PÅ/AV.",
+        on_click=save_changed, args=("fast-exit-preset",),
+    )
+    st.caption("MACD Flip · V3 er separat fra MACD Trailing · Legacy og følger V2s rene kryss-signaler. Strategivalg endrer ikke LIVE PÅ/AV.")
     st.caption("AEn Core: fem valgbare V3 LIVE-varianter (Hold, Histogram, Hysteresis, MACD+Stoch og Adaptive Hold). "
                "Foreløpig én ny handelsenhet og fast 5m-struktur; ingen AEn-pyramidering eller Impulse Detector. "
                "AI Manager kan legges på som LIVE-modifikator.")
@@ -272,36 +359,16 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         strategy_key=config.strategy_key,timeframe=config.timeframe,
         modifiers=config.modifiers)
     a,b=st.columns(2)
+    strategy_widget=bind_saved('strategy',initial_choice)
     selected=a.selectbox(
-        'Strategi / AI-oppsett (LIVE)',keys,index=keys.index(initial_choice),
+        'Strategi / AI-oppsett (LIVE)',keys,
         format_func=lambda k: (PRESETS_BY_KEY_V3[k].label
             if k in PRESETS_BY_KEY_V3 else next(x.label for x in STRATEGIES_V3 if x.key==k)
             + ('' if next(x for x in STRATEGIES_V3 if x.key==k).runtime_ready
                else ' · ikke LIVE')),
-        key=f'{key_prefix}:strategy:{trader_id}',
+        key=strategy_widget,on_change=save_changed,args=("strategy",strategy_widget),
     )
-    is_ai_preset=ai_preset_selected_v3(selected)
-    strategy=PRESETS_BY_KEY_V3[selected].strategy_key if is_ai_preset else selected
-    # Suggest the fixed 1m / 15m rhythm context on a *new selection*.
-    # This is UI form state only; nothing is saved or armed by a dropdown change.
-    viewed_key=f'{key_prefix}:last-viewed-strategy:{trader_id}'
-    previously_viewed=st.session_state.get(viewed_key,initial_choice)
-    suggested=_rhythm_selection_defaults_v3(previously_viewed,strategy)
-    if (strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered",
-                     "hunter-tick-v1","rabid-dog-tick-v1",
-                     "impulse-catcher-long-v1","impulse-catcher-short-v1",
-                     "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1",
-                     "impulse-catcher-long-v1-2","impulse-catcher-short-v1-2",
-                     "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3")
-        and previously_viewed!=strategy):
-        suggested["timeframe"]="1m"
-    if 'timeframe' in suggested:
-        st.session_state[f'{key_prefix}:timeframe:{trader_id}']=suggested['timeframe']
-    if 'regime_timeframe' in suggested:
-        st.session_state[f'{key_prefix}:regime-timeframe:{trader_id}']=suggested['regime_timeframe']
-    if 'exit_timeframe' in suggested:
-        st.session_state[f'{key_prefix}:exit-timeframe:{trader_id}']=suggested['exit_timeframe']
-    st.session_state[viewed_key]=selected
+    strategy=config.strategy_key
     if strategy in ("hunter-tick-v1","rabid-dog-tick-v1"):
         st.info(
             "Hunter/Rabid Dog: ekte Saxo 1s bid/ask, kun Tech100 UIC 4912. "
@@ -318,7 +385,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             "kun LONG/FLAT eller SHORT/FLAT (minste tranche). "
             "Egen strategisk tapsgrense er AV; Account Loss Lock kan velges "
             "separat. Fjern andre modifikatorer for ren PAPER/LIVE-sammenligning. "
-            "Sett signalperioden til 1m i skjemaet (selve motoren bruker 1s). "
+            "Signalperioden i UI er 1m (selve motoren bruker 1s). "
             "v1.1 tillater 8s kort datastillhet og leser opptil 120s etterslep. "
             "v1.2 venter 6s før normal exit; v1.3 krever dessuten bekreftet "
             "støyjustert retrace i 3s. Akutt motrykk er fortsatt umiddelbart. "
@@ -329,18 +396,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             "HyperVigilant 10s: ekte Saxo 1s bid/ask. Straks motsatt "
             "retningsmål ved bekreftet 10s impuls, men Saxo-beskyttet "
             "CLOSE → FLAT-bekreftelse → OPEN kan ta lengre enn 10s. "
-            "Kun Tech100 med tilstrekkelig 1s-feed; valg lagrer/aktiverer "
-            "aldri LIVE automatisk."
+            "Kun Tech100 med tilstrekkelig 1s-feed; strategivalg endrer ikke LIVE PÅ/AV."
         )
-    if is_ai_preset:
-        # Preset is a recipe, not an independent new engine. Force the visible
-        # time and AI toggle before those widgets are constructed this run.
-        chosen=PRESETS_BY_KEY_V3[selected]
-        st.session_state[f'{key_prefix}:timeframe:{trader_id}']=chosen.timeframe
-        st.session_state[f'{key_prefix}:mod:{trader_id}:ai-loss-manager']=True
-        st.info(f"{chosen.label}: bruker eksisterende {strategy} og "
-                "AI Loss Manager · LIVE. Ingen ny PreCross-strategi; "
-                "lagres først når du trykker «Bruk på denne instansen».")
     # One context-sensitive help control serves every catalog strategy.
     # Keep the actual names and summaries in the canonical registry to avoid
     # TradingDesk vs fleet discrepancies.
@@ -349,45 +406,36 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         st.markdown(f"**{help_spec.label}**")
         st.write(help_spec.description)
         st.caption(
-            "Signalperiode velges separat. Nye strategier endrer ingen "
-            "eksisterende LIVE-konto før du uttrykkelig lagrer/aktiverer dem."
+            "Strategivalg lagres direkte på valgt instans. LIVE PÅ/AV endres ikke."
         )
-    timeframe=b.selectbox(
-        'Signalperiode (S)', TIMEFRAMES_V3, index=TIMEFRAMES_V3.index(
-            PRESETS_BY_KEY_V3[selected].timeframe if is_ai_preset else config.timeframe),
+    tf_key=bind_saved('timeframe',config.timeframe)
+    b.selectbox('Signalperiode (S)', TIMEFRAMES_V3,
         format_func=lambda value: value if value in LIVE_TIMEFRAMES_V3 else f'{value} · ikke LIVE',
-        key=f'{key_prefix}:timeframe:{trader_id}',disabled=is_ai_preset,
-    )
-    exit_timeframe=config.exit_timeframe
+        key=tf_key,on_change=save_changed,args=("timeframe",tf_key))
     if strategy in SPLIT_CLOCK_STRATEGIES_V3:
-        exit_timeframe=st.selectbox(
-            'Utgangsperiode (E) · MACD', REGIME_TIMEFRAMES_V3,
-            index=REGIME_TIMEFRAMES_V3.index(config.exit_timeframe),
-            key=f'{key_prefix}:exit-timeframe:{trader_id}',
-            help='Eget ferdiglukket MACD-signal styrer FLAT; raskere inngang kan ha tregere utgang.',
-        )
-    regime_timeframe=config.regime_timeframe
+        exit_key=bind_saved('exit-timeframe',config.exit_timeframe)
+        st.selectbox('Utgangsperiode (E) · MACD', REGIME_TIMEFRAMES_V3,
+            key=exit_key,on_change=save_changed,args=("exit_timeframe",exit_key),
+            help='Eget ferdiglukket MACD-signal styrer FLAT.')
     if strategy in REGIME_STRATEGIES_V3:
-        regime_timeframe=st.selectbox(
-            'Regimeperiode (R)',
-            REGIME_TIMEFRAMES_V3,
-            index=REGIME_TIMEFRAMES_V3.index(config.regime_timeframe),
-            key=f'{key_prefix}:regime-timeframe:{trader_id}',
-            help='MACD på R-perioden bestemmer tillatt side. Histogram på S-perioden bygger/reduserer eksponeringen.',
-        )
-        selected_label=strategy_display_label_v3(strategy,timeframe,regime_timeframe,exit_timeframe)
-        if selected_label != active_label:
-            st.caption(f'Valgt, ikke lagret: {selected_label} · aktiv nå: {active_label}')
-        else:
-            st.caption(f'Aktiv nå: {active_label}')
+        regime_key=bind_saved('regime-timeframe',config.regime_timeframe)
+        st.selectbox('Regimeperiode (R)', REGIME_TIMEFRAMES_V3,
+            key=regime_key,on_change=save_changed,args=("regime_timeframe",regime_key),
+            help='MACD på R-perioden bestemmer tillatt side.')
     spec=next(x for x in STRATEGIES_V3 if x.key==strategy)
     if not spec.runtime_ready: st.warning('Denne strategien er SIM/sammenlignbar, men ikke runtime-klar for LIVE.')
-    p1,p2=st.columns(2); budget=p1.number_input('Budsjett (NOK)',min_value=100.0,value=float(policy.budget_nok if policy else 2000),step=100.0,key=f'{key_prefix}:budget:{trader_id}'); exposure=p2.slider('Eksponering (%)',1,100,int(policy.exposure_pct if policy else 100),key=f'{key_prefix}:exposure:{trader_id}')
-    st.caption(f'LIVE kapitalgrense: {float(budget)*float(exposure)/100.0:,.0f} NOK · håndheves mot Saxo precheck (margin/cash).')
+    p1,p2=st.columns(2)
+    budget_key=bind_saved('budget',float(policy.budget_nok) if policy else None)
+    exposure_key=bind_saved('exposure',int(policy.exposure_pct if policy else 100))
+    p1.number_input('Budsjett (NOK)',min_value=100.0,step=100.0,value=None,key=budget_key,
+                    placeholder='Angi budsjett',on_change=save_changed,args=("budget_nok",budget_key))
+    p2.slider('Eksponering (%)',1,100,key=exposure_key,
+              disabled=policy is None,on_change=save_changed,args=("exposure_pct",exposure_key))
+    st.caption(f'LIVE kapitalgrense: {cap_label} · håndheves mot Saxo precheck (margin/cash).')
+    if policy is None:
+        st.caption('Angi budsjett for ny instans. Eksponering starter på 100 % av valgt budsjett og kan deretter endres.')
     st.markdown('**Options / modifiers · nyeste endring øverst**')
-    enabled=[]
-    st.caption("Nyeste kodeoppdatering eller lagrede endring øverst. Logg viser vurderingstilstander, "
-               "ikke ubekreftede Saxo-fills. Brytere må lagres med «Bruk på denne instansen».")
+    st.caption("Brytere lagres direkte. Loggen viser vurderinger og bekreftede utførelser separat.")
     other_modifiers=sorted_modifiers_by_last_change_v3(
         trader_id,MODIFIERS_V3)
     for item in other_modifiers:
@@ -401,14 +449,11 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         # logbook button.  Every event/fill query runs only on log click.
         toggle_col,label_col,log_col=st.columns(
             [1.12,4.8,0.88],gap="small",vertical_alignment="center",wrap=False)
-        chosen_modifier=toggle_col.toggle(
-            item.label,value=item.key in config.modifiers,
-            label_visibility="collapsed",
-            key=f'{key_prefix}:mod:{trader_id}:{item.key}',
-            disabled=((is_ai_preset and item.key=='ai-loss-manager')
-                      or (not is_live and item.key not in config.modifiers)))
-        if chosen_modifier or (is_ai_preset and item.key=='ai-loss-manager'):
-            enabled.append(item.key)
+        mod_key=f'{key_prefix}:mod:{trader_id}:{item.key}'
+        st.session_state[mod_key]=item.key in config.modifiers
+        toggle_col.toggle(item.label,label_visibility="collapsed",key=mod_key,
+            disabled=(not is_live and item.key not in config.modifiers),
+            on_change=save_changed,args=("modifier:"+item.key,mod_key))
         # Escape both label and tooltip; the label never ellipsizes. Disabled
         # research-only controls remain identifiable without dimming the
         # ENTIRE active LIVE section.
@@ -429,32 +474,15 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                 trader_id=trader_id,modifier_key=item.key,
                 modifier_label=item.label,account_id=str(instance.account_id),
                 uic=int(instance.uic),asset_type=str(instance.asset_type))
-    mode=st.selectbox(
-        'Kontrollmodus', CONTROL_MODES_V3, index=CONTROL_MODES_V3.index(config.control_mode),
+    mode_key=bind_saved('mode',config.control_mode)
+    st.selectbox('Kontrollmodus', CONTROL_MODES_V3,
         format_func=lambda value: value if value in LIVE_CONTROL_MODES_V3 else f'{value} · ikke LIVE',
-        key=f'{key_prefix}:mode:{trader_id}',
-    )
-    selected_strategy,selected_timeframe,selected_modifiers=resolve_selector_draft_v3(
-        selector_key=selected,timeframe=timeframe,modifiers=tuple(enabled))
-    desired=AutoTraderConfigV3(
-        trader_id,selected_strategy,selected_timeframe,mode,
-        selected_modifiers,regime_timeframe,exit_timeframe
-    ); desired_policy=ExecutionPolicyV3(trader_id,float(budget),float(exposure)); changed=desired!=config or desired_policy!=policy
-    desired_label=strategy_display_label_v3(desired.strategy_key,desired.timeframe,desired.regime_timeframe,desired.exit_timeframe)
-    if desired.strategy_key not in REGIME_STRATEGIES_V3 and desired_label!=active_label:
-        st.caption(f'Valgt, ikke lagret: {desired_label} · aktiv nå: {active_label}')
-    live_issues=live_config_issues_v3(
-        strategy_key=desired.strategy_key,timeframe=desired.timeframe,
-        control_mode=desired.control_mode,modifiers=desired.modifiers,
-        regime_timeframe=desired.regime_timeframe,
-        exit_timeframe=desired.exit_timeframe,
-    )
-    sim_issues=sim_config_issues_v3(
-        strategy_key=desired.strategy_key,timeframe=desired.timeframe,
-        control_mode=desired.control_mode,modifiers=desired.modifiers,
-        regime_timeframe=desired.regime_timeframe,
-        exit_timeframe=desired.exit_timeframe,
-    )
+        key=mode_key,on_change=save_changed,args=("control_mode",mode_key))
+    args=dict(strategy_key=config.strategy_key,timeframe=config.timeframe,
+              control_mode=config.control_mode,modifiers=config.modifiers,
+              regime_timeframe=config.regime_timeframe,exit_timeframe=config.exit_timeframe)
+    live_issues=live_config_issues_v3(**args)
+    sim_issues=sim_config_issues_v3(**args)
     if live_issues:
         st.warning('LIVE sperret av config: ' + ' · '.join(live_issues))
     cost_assessment=_cost_guard_cached_v3(
@@ -468,21 +496,6 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         else:
             with st.expander('SIM-kompatibilitet (påvirker ikke LIVE)',expanded=False):
                 st.caption('SIM støtter ikke dette oppsettet: ' + ' · '.join(sim_issues))
-    save_blocked=_instance_save_blocked_v3(
-        live_armed=authority.live_armed,sim_armed=authority.sim_armed,
-        live_issues=live_issues,sim_issues=sim_issues)
-    if save_blocked:
-        st.caption('Valgt config støttes ikke av aktiv motor. Slå motoren av eller velg et kompatibelt oppsett.')
-    if st.button('Bruk på denne instansen',type='primary',disabled=(not changed or save_blocked),width='stretch',key=f'{key_prefix}:save:{trader_id}'):
-        save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
-        record_modifier_selection_changes_v3(
-            trader_id=trader_id,before=config.modifiers,after=desired.modifiers)
-        # A removed safety option cannot retain previously granted approval.
-        if 'whipsaw' in config.modifiers and 'whipsaw' not in desired.modifiers:
-            set_whipsaw_live_approval_v3(trader_id,False)
-        st.session_state[f'{key_prefix}:flash:{trader_id}']=f'Aktiv config lagret: {desired_label}'
-        st.rerun()
-
     if 'whipsaw' in config.modifiers:
         approved=is_whipsaw_live_approved_v3(trader_id)
         if approved:
@@ -603,7 +616,7 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                 st.rerun()
     else:
         st.caption(f'LIVE AV · {account_title} · aktiv config {active_label} · eksisterende posisjon endres ikke.')
-        if st.button('Slå LIVE på',type='primary',width='stretch',disabled=bool(live_issues or cost_blocked),key=f'{key_prefix}:live-on:{trader_id}'):
+        if st.button('Slå LIVE på',type='primary',width='stretch',disabled=bool(live_issues or cost_blocked or policy is None),key=f'{key_prefix}:live-on:{trader_id}'):
             try:
                 fresh_cost=assess_transaction_cost_v3(
                     broker=configured_live_pilot_client_v3(),
@@ -614,8 +627,6 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                 )
                 if fresh_cost.blocked:
                     raise RuntimeError(f'LIVE kostnadssperre: {fresh_cost.detail}')
-                if changed:
-                    save_autotrader_config_v3(desired); save_execution_policy_v3(desired_policy)
                 set_live_enabled_v3(trader_id,True,account_id=instance.account_id)
             except Exception as exc:st.error(f'Kunne ikke slå LIVE på: {exc}')
             else:

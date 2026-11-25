@@ -147,6 +147,7 @@ def test_live_runtime_is_fail_closed_and_ui_requires_manual_opt_in():
     assert "Godkjenn Whipsaw Detector for LIVE" in ui
     assert "Tilbakekall Whipsaw LIVE-godkjenning" in ui
     assert "set_whipsaw_live_approval_v3(trader_id,True)" in ui
-    assert "Forhåndsvelg Fast Exit S10/R30 + Volatility Pause" in ui
+    assert "Bruk Fast Exit S10/R30 + Volatility Pause" in ui
+    assert 'on_click=save_changed, args=("fast-exit-preset",)' in ui
     # Selecting the research-inspired preset is not order placement.
     assert "place_order(" not in ui

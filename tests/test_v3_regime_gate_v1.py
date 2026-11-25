@@ -25,7 +25,7 @@ def bars(changes, *, end=None, instrument_id=4912):
 
 
 class TestRegimeGateV1(unittest.TestCase):
-    def test_default_is_off_and_durable_settings_are_strategy_scoped(self):
+    def test_default_is_off_and_durable_settings_are_instance_scoped(self):
         with tempfile.TemporaryDirectory() as temp:
             db = str(Path(temp) / "gate.sqlite")
             default = gate.load_regime_policy_v1(instance_id="A", strategy_key="long-v3", db_path=db)
@@ -42,7 +42,7 @@ class TestRegimeGateV1(unittest.TestCase):
             self.assertEqual(gate.load_regime_policy_v1(
                 instance_id="B", strategy_key="long-v3", db_path=db).mode, "OFF")
             self.assertEqual(gate.load_regime_policy_v1(
-                instance_id="A", strategy_key="short-v3", db_path=db).mode, "OFF")
+                instance_id="A", strategy_key="short-v3", db_path=db).mode, "LIVE")
 
     def test_invalid_policy_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -194,6 +194,26 @@ class TestRegimeGateV1(unittest.TestCase):
                 self.assertEqual(result.allow_new_exposure, expected)
                 self.assertEqual(result.mode, mode)
                 self.assertEqual(result.state, "UNKNOWN")
+
+
+    def test_simple_presets_are_exact_and_survive_strategy_switch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db = str(Path(temp) / "gate.sqlite")
+            for preset, allowed in gate.REGIME_PRESETS_V1.items():
+                saved = gate.save_regime_preset_v1(
+                    instance_id="A", strategy_key="old", preset=preset, db_path=db)
+                current = gate.load_regime_policy_v1(
+                    instance_id="A", strategy_key="new", db_path=db)
+                self.assertEqual(gate.regime_preset_key_v1(current), preset)
+                self.assertEqual(current.allowed_states, allowed)
+                for direction in ("LONG", "SHORT"):
+                    for state in gate.STATES_V1 + ("UNKNOWN",):
+                        result = gate.decide_regime_entry_v1(current, state=state, direction=direction)
+                        self.assertEqual(result.allow_new_exposure, preset == "OFF" or state in allowed)
+                self.assertEqual(gate.load_regime_policy_v1(
+                    instance_id="B", strategy_key="new", db_path=db).mode, "OFF")
+            legacy = gate.RegimePolicyV1("A", "s", mode="SHADOW", allowed_states=("BULL",))
+            self.assertEqual(gate.regime_preset_key_v1(legacy), "LEGACY")
 
 
 if __name__ == "__main__":
