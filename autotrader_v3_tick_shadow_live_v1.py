@@ -16,6 +16,7 @@ from math import isfinite
 from autotrader_hunter_v1 import Hunter
 from autotrader_impulse_catcher_v1 import ImpulseCatcher, ImpulseCatcherConfig
 from autotrader_impulse_catcher_profiles_v1 import impulse_catcher_config
+from autotrader_impulse_catcher_v14 import KEYS as IC14_KEYS, ImpulseCatcherV14,config_v14,load_settings
 from autotrader_rabid_dog_v1 import RabidDog, RabidDogConfig
 from autotrader_v3_closed_bar_driver_v1 import ClosedBarDecisionV3
 from autotrader_v3_domain import TargetInventoryV3
@@ -43,12 +44,12 @@ IMPULSE_PATIENT_RUNTIME_KEYS = frozenset(
     f"impulse-catcher-{side}-tick-v{version}"
     for side in ("long", "short") for version in IMPULSE_PATIENT_VERSIONS)
 IMPULSE_V11_CATALOG_KEYS = frozenset({IMPULSE_LONG_V11_CATALOG_KEY,IMPULSE_SHORT_V11_CATALOG_KEY})
-IMPULSE_REPLAY_CATALOG_KEYS = IMPULSE_V11_CATALOG_KEYS | IMPULSE_PATIENT_CATALOG_KEYS
+IMPULSE_REPLAY_CATALOG_KEYS = IMPULSE_V11_CATALOG_KEYS | IMPULSE_PATIENT_CATALOG_KEYS | IC14_KEYS
 IMPULSE_CATALOG_KEYS = frozenset({IMPULSE_LONG_CATALOG_KEY,IMPULSE_SHORT_CATALOG_KEY} | IMPULSE_REPLAY_CATALOG_KEYS)
 TICK_CATALOG_KEYS = frozenset({HUNTER_CATALOG_KEY, DOG_CATALOG_KEY} | IMPULSE_CATALOG_KEYS)
 TICK_RUNTIME_KEYS = frozenset({HUNTER_RUNTIME_KEY,DOG_RUNTIME_KEY,
                                IMPULSE_LONG_RUNTIME_KEY,IMPULSE_SHORT_RUNTIME_KEY,
-                               IMPULSE_LONG_V11_RUNTIME_KEY,IMPULSE_SHORT_V11_RUNTIME_KEY} | IMPULSE_PATIENT_RUNTIME_KEYS)
+                               IMPULSE_LONG_V11_RUNTIME_KEY,IMPULSE_SHORT_V11_RUNTIME_KEY} | IMPULSE_PATIENT_RUNTIME_KEYS | {k.replace('-v1-4','-tick-v1-4') for k in IC14_KEYS})
 TICK_LIVE_UIC = 4912
 MAX_QUOTE_AGE_S = 5
 MAX_TRANSIT_S = 5
@@ -66,6 +67,7 @@ _DT_FIELDS = {
     IMPULSE_LONG_V11_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
     IMPULSE_SHORT_V11_CATALOG_KEY: {"last_extreme_at","last_exit_at"},
     **{key: {"last_extreme_at","last_exit_at"} for key in IMPULSE_PATIENT_CATALOG_KEYS},
+    **{key: {"last_extreme_at","last_exit_at","entered_at","candidate_at","retrace_at"} for key in IC14_KEYS},
 }
 _DEQUE_FIELDS = {
     HUNTER_CATALOG_KEY: {"samples"},
@@ -74,7 +76,7 @@ _DEQUE_FIELDS = {
     IMPULSE_SHORT_CATALOG_KEY: {"samples"},
     IMPULSE_LONG_V11_CATALOG_KEY: {"samples"},
     IMPULSE_SHORT_V11_CATALOG_KEY: {"samples"},
-    **{key: {"samples"} for key in IMPULSE_PATIENT_CATALOG_KEYS},
+    **{key: {"samples"} for key in IMPULSE_PATIENT_CATALOG_KEYS|IC14_KEYS},
 }
 
 
@@ -112,8 +114,8 @@ def _encode_model(key, model):
     return json.dumps(payload, separators=(",",":"), allow_nan=False)
 
 
-def _decode_model(key, raw):
-    model = _new_model(key)
+def _decode_model(key, raw, settings=None):
+    model = _new_model(key,settings)
     data = json.loads(raw)
     if not isinstance(data,dict):
         raise ValueError("invalid tick state")
@@ -143,7 +145,9 @@ def _decode_model(key, raw):
     return model
 
 
-def _new_model(key):
+def _new_model(key,settings=None):
+    if key in IC14_KEYS:
+        return ImpulseCatcherV14(config=config_v14('LONG' if '-long-' in key else 'SHORT',settings))
     if key==HUNTER_CATALOG_KEY:
         return Hunter()
     if key==DOG_CATALOG_KEY:
@@ -246,6 +250,7 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
     try:
         with connect(db_path) as db:
             _ensure_schema(db)
+            settings=load_settings(db,trader_id,strategy_key) if strategy_key in IC14_KEYS else None
             row=db.execute("""SELECT strategy_key,provider_uic,last_quote_at,last_signal_at,state_json
                 FROM pg_v3_tick_live_state WHERE trader_id=?""",(str(trader_id),)).fetchone()
             reset=(row is None or context_changed or
@@ -282,15 +287,25 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                     return hold("WAIT_BAD_BBO","Untrusted BBO sample")
                 clean.append((at,bid,ask))
             if reset or engine_backlog:
-                model=_new_model(strategy_key)
+                model=_new_model(strategy_key,settings)
                 # A >120s engine stall is a separate protective recovery, not
                 # evidence of a Saxo quote gap. Do not replay a clipped history.
                 _bootstrap(model,0. if engine_backlog else current,
                            latest,clean[-1][1],clean[-1][2])
                 signal_at=None
             else:
-                model=_decode_model(strategy_key,row["state_json"])
+                model=_decode_model(strategy_key,row["state_json"],settings)
                 signal_at=_utc(row["last_signal_at"]) if row["last_signal_at"] else None
+            if isinstance(model,ImpulseCatcherV14):
+                settings_key=json.dumps(settings,sort_keys=True)
+                if model.settings_key!=settings_key:
+                    model.settings_key=settings_key
+                    model.candidate_at=model.retrace_at=None
+                # A rejected/expired entry must not leave a fictitious HOLD.
+                if current==0 and model.target!='FLAT' and (signal_at is None or (clock-signal_at).total_seconds()>10):
+                    model.target='FLAT'
+                    model.entry_mid=model.extreme=model.entered_at=model.last_extreme_at=None
+                    model.candidate_at=model.retrace_at=None
             newest_decision=None
             gap_exit=False
             if not (reset or engine_backlog):
@@ -300,7 +315,7 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                     if elapsed>(V11_MAX_QUOTE_GAP_SECONDS if v11 else 5):
                         # Reset to broker-confirmed inventory, never replay an
                         # old desired direction across a network/feed outage.
-                        model=_new_model(strategy_key)
+                        model=_new_model(strategy_key,settings)
                         # Rabid and Impulse exit on quote gaps; Hunter retains
                         # its existing HOLD policy. No opening on reconnect.
                         gap_sensitive=(strategy_key==DOG_CATALOG_KEY or strategy_key in IMPULSE_CATALOG_KEYS)
