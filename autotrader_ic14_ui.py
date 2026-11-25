@@ -47,21 +47,22 @@ def make_preview_figure(data):
     df=pd.DataFrame(display)
     fig=make_subplots(rows=3,cols=1,shared_xaxes=True,vertical_spacing=.05,
         row_heights=[.55,.22,.23],subplot_titles=("Tech100 · signaltilstand","Entry-gate · impuls / terskel","Exit-gate · retrace og terskler"))
-    fig.add_trace(go.Scatter(x=df['at'],y=df.mid,name="Tech100 mid",line=dict(color="#969ca5",width=1),connectgaps=False),row=1,col=1)
+    fig.add_trace(go.Scatter(x=[t.isoformat() for t in df['at']],y=df.mid,name="Tech100 mid",line=dict(color="#969ca5",width=1),connectgaps=False),row=1,col=1)
     for side,color in (("LONG","#16a34a"),("SHORT","#dc2626")):
-        fig.add_trace(go.Scatter(x=df['at'],y=df.mid.where(df.target==side),name=side+" HOLD",
+        fig.add_trace(go.Scatter(x=[t.isoformat() for t in df['at']],y=df.mid.where(df.target==side),name=side+" HOLD",
             line=dict(color=color,width=3),connectgaps=False),row=1,col=1)
     for k,label,color in (("normal_price","Normal trail","#eab308"),("urgent_price","Akutt trail","#dc2626")):
-        fig.add_trace(go.Scatter(x=df['at'],y=df[k],name=label,line=dict(color=color,dash="dot",width=1),connectgaps=False),row=1,col=1)
+        fig.add_trace(go.Scatter(x=[t.isoformat() for t in df['at']],y=df[k],name=label,line=dict(color=color,dash="dot",width=1),connectgaps=False),row=1,col=1)
     entry=df[df.decision=="QUALIFIED_IMPULSE_V14"]
     exits=df[df.decision.notna() & (df.decision!="QUALIFIED_IMPULSE_V14")]
     for subset,name,symbol,color in ((entry,"Entry","triangle-up","#16a34a"),(exits,"Exit","x","#dc2626")):
-        fig.add_trace(go.Scatter(x=subset['at'],y=subset.mid,mode="markers",name=name,
+        fig.add_trace(go.Scatter(x=[t.isoformat() for t in subset['at']],y=subset.mid,mode="markers",name=name,
             marker=dict(symbol=symbol,size=10,color=color),text=subset.decision,hovertemplate="%{text}<br>%{y}<extra></extra>"),row=1,col=1)
-    fig.add_trace(go.Scatter(x=df['at'],y=df.entry_ratio,name="Impuls / terskel",line=dict(color="#38bdf8"),text=df["gate"],hovertemplate="%{y:.2f} · %{text}<extra></extra>"),row=2,col=1)
+    fig.add_trace(go.Scatter(x=[t.isoformat() for t in df['at']],y=df.entry_ratio,name="Impuls / terskel",line=dict(color="#38bdf8"),text=df["gate"],hovertemplate="%{y:.2f} · %{text}<extra></extra>"),row=2,col=1)
     fig.add_hline(y=1,line_dash="dash",row=2,col=1)
     for k,label,color in (("retrace","Retrace","#38bdf8"),("exit_threshold","Normal terskel","#eab308"),("urgent","Akutt terskel","#dc2626")):
-        fig.add_trace(go.Scatter(x=df['at'],y=df[k],name=label,line=dict(color=color,width=1)),row=3,col=1)
+        fig.add_trace(go.Scatter(x=[t.isoformat() for t in df['at']],y=df[k],name=label,line=dict(color=color,width=1)),row=3,col=1)
+    fig.update_xaxes(type="date")
     fig.update_layout(height=660,hovermode="x unified",margin=dict(l=12,r=8,t=40,b=15),legend=dict(orientation="h"))
     return fig
 
