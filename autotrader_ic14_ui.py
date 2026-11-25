@@ -18,7 +18,7 @@ LABELS={
  "exit_noise_multiple":"Retrace / tickstøy","exit_confirmation_seconds":"Bekreft utgang (s)",
  "urgent_retrace_points":"Akutt motrykk (punkter)","cooldown_seconds":"Cooldown (s)",
  "atr_period":"ATR-perioder (5s-barer)","atr_entry_multiple":"ATR-multippel entry (0 = av)",
- "atr_exit_multiple":"ATR-multippel exit (0 = av)","indicator_period":"Indikatorperiode (antall ticks)"}
+ "atr_exit_multiple":"ATR-multippel exit (0 = av)"}
 NAMES=dict(velocity="Prishastighet",acceleration="Prisakselerasjon",efficiency="Retningseffektivitet",
            macd="MACD-histogram",stochastic="Stochastic",rsi="RSI",structure="HH/HL · LH/LL")
 
@@ -45,6 +45,8 @@ def make_preview_figure(data):
     for side,color in (("LONG","#16a34a"),("SHORT","#dc2626")):
         fig.add_trace(go.Scatter(x=df.at,y=df.mid.where(df.target==side),name=side+" HOLD",
             line=dict(color=color,width=3),connectgaps=False),row=1,col=1)
+    for k,label,color in (("normal_price","Normal trail","#eab308"),("urgent_price","Akutt trail","#dc2626")):
+        fig.add_trace(go.Scatter(x=df.at,y=df[k],name=label,line=dict(color=color,dash="dot",width=1),connectgaps=False),row=1,col=1)
     entry=df[df.decision=="QUALIFIED_IMPULSE_V14"]
     exits=df[df.decision.notna() & (df.decision!="QUALIFIED_IMPULSE_V14")]
     for subset,name,symbol,color in ((entry,"Entry","triangle-up","#16a34a"),(exits,"Exit","x","#dc2626")):
@@ -62,7 +64,7 @@ def render_ic14(trader_id,key,*,prefix):
     st.caption("Endringer er forhåndsvisning frem til «Lagre IC v1.4». Ingen ordre eller automatisk arming. Akutt reversering og datagap overstyrer hold.")
     with connect("pricegauger.db") as db:
         saved=load_settings(db,trader_id,key)
-    values={}
+    values=dict(saved)
     root=f"{prefix}:ic14:{trader_id}:{key}"
     groups=(("ENTRY",("fast_window","slow_window","min_impulse_points","relative_impulse_multiple","minimum_directional_efficiency","maximum_spread_points","spread_impulse_multiple","entry_confirmation_seconds","atr_entry_multiple")),
         ("HOLD",("minimum_hold_seconds","exhaustion_seconds")),
@@ -75,11 +77,21 @@ def render_ic14(trader_id,key,*,prefix):
             phase=title.lower()+"_indicators"
             values[phase]=st.multiselect("Indikatorer · "+title,INDICATORS,default=saved[phase],
                 format_func=lambda x:NAMES[x],key=f"{root}:{phase}")
-    with st.expander("Indikatorperioder",expanded=False):
-        for name in ("atr_period","indicator_period"):
+    with st.expander("Indikatorperioder og terskler",expanded=False):
+        for name in ("atr_period","velocity_period","acceleration_period","efficiency_period","stochastic_period",
+                     "rsi_period","structure_period","macd_fast","macd_slow","macd_signal",
+                     "velocity_threshold","acceleration_threshold","efficiency_threshold","macd_threshold",
+                     "stochastic_threshold","rsi_threshold"):
             lo,hi,step,_=SLIDERS[name]
-            values[name]=st.slider(LABELS[name],lo,hi,saved[name],step=step,key=f"{root}:{name}")
-        st.caption("Entry krever alle valgte indikatorer i medgang. Hold: én i medgang utsetter normal exit. Exit krever alle valgte i motgang. MACD 12/26/9 på ticks; ATR er gjennomsnittlig true range på ferdige 5s-bøtter. Akutt exit overstyrer alt.")
+            if name=="atr_period":
+                label=LABELS[name]
+            elif name.startswith("macd_"):
+                label="MACD · "+name.split("_",1)[1]+" (ticks)" if name!="macd_threshold" else "MACD-histogram · terskel (punkter)"
+            else:
+                ind,kind=name.split("_")
+                label=NAMES[ind]+(" · periode (ticks)" if kind=="period" else " · terskel")
+            values[name]=st.slider(label,lo,hi,saved[name],step=step,key=f"{root}:{name}")
+        st.caption("Entry krever alle valgte indikatorer i medgang. Hold: én i medgang utsetter normal exit. Exit krever alle tilgjengelige valgte indikatorer i motgang; manglende data blokkerer ikke exit. RSI og Stochastic normaliseres til −1…+1; ATR er gjennomsnittlig true range på ferdige 5s-bøtter. Akutt exit overstyrer alt.")
     try:
         cfg=config_v14("LONG" if "-long-" in key else "SHORT",values)
     except ValueError as exc:
