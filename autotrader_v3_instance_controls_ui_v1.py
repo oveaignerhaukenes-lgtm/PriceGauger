@@ -292,7 +292,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
                      "impulse-catcher-long-v1","impulse-catcher-short-v1",
                      "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1",
                      "impulse-catcher-long-v1-2","impulse-catcher-short-v1-2",
-                     "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3")
+                     "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3",
+                     "impulse-catcher-long-v1-4","impulse-catcher-short-v1-4")
         and previously_viewed!=strategy):
         suggested["timeframe"]="1m"
     if 'timeframe' in suggested:
@@ -312,7 +313,8 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
     if strategy in ("impulse-catcher-long-v1","impulse-catcher-short-v1",
                     "impulse-catcher-long-v1-1","impulse-catcher-short-v1-1",
                     "impulse-catcher-long-v1-2","impulse-catcher-short-v1-2",
-                    "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3"):
+                    "impulse-catcher-long-v1-3","impulse-catcher-short-v1-3",
+                     "impulse-catcher-long-v1-4","impulse-catcher-short-v1-4"):
         st.info(
             "Impulse Catcher: 3/10 sekunders prisimpulser fra ekte Saxo BBO; "
             "kun LONG/FLAT eller SHORT/FLAT (minste tranche). "
@@ -324,6 +326,9 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
             "støyjustert retrace i 3s. Akutt motrykk er fortsatt umiddelbart. "
             "Lagring aktiverer ikke LIVE; eksisterende konto må først sjekkes."
         )
+    if strategy in ("impulse-catcher-long-v1-4","impulse-catcher-short-v1-4"):
+        from autotrader_ic14_ui import render_ic14
+        render_ic14(trader_id,strategy,prefix=key_prefix)
     if strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered"):
         st.info(
             "HyperVigilant 10s: ekte Saxo 1s bid/ask. Straks motsatt "
