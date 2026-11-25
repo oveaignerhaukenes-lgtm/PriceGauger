@@ -140,7 +140,7 @@ def indicator_values(samples,at,cfg):
         if k<boundary:
             buckets.setdefault(k,[]).append(v)
     keys=range(boundary-atr_period-1,boundary)
-    if all(k in buckets for k in keys):
+    if all(k in buckets and len(buckets[k])>=3 for k in keys):
         tr=[]
         prev=buckets[boundary-atr_period-1][-1]
         for k in range(boundary-atr_period,boundary):
@@ -158,7 +158,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
     settings_key:str=""
     trace:dict=field(default_factory=dict)
 
-    def on_quote(self,at,bid,ask):
+    def on_quote(self,at,bid,ask,*,allow_entry=True):
         cfg=self.config
         bid,ask=float(bid),float(ask)
         if at.tzinfo is None or not(isfinite(bid) and isfinite(ask) and 0<bid<=ask):
@@ -166,7 +166,11 @@ class ImpulseCatcherV14(ImpulseCatcher):
         if self.samples and at<=self.samples[-1][0]:
             return None
         mid=(bid+ask)/2;spread=ask-bid;sign=1 if cfg.side=="LONG" else -1
-        gap=bool(self.samples and (at-self.samples[-1][0]).total_seconds()>cfg.quote_gap_seconds)
+        elapsed=(at-self.samples[-1][0]).total_seconds() if self.samples else 0.
+        gap=elapsed>cfg.quote_gap_seconds
+        if elapsed>2.:
+            # Confirmation requires observed persistence, not elapsed silence.
+            self.candidate_at=self.retrace_at=None
         self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"gate":"WARMUP"}
         if gap:
             self.samples.clear()
@@ -212,6 +216,8 @@ class ImpulseCatcherV14(ImpulseCatcher):
             if normal and not any(favorable(k) for k in cfg.hold_indicators) and all(adverse(k) for k in cfg.exit_indicators):
                 return flat("CONFIRMED_EXIT")
             return None
+        if not allow_entry:
+            self.candidate_at=None;self.trace['gate']='WAIT_BROKER_FLAT';return None
         if spread>cfg.maximum_spread_points or (self.last_exit_at and (at-self.last_exit_at).total_seconds()<cfg.cooldown_seconds):
             self.candidate_at=None;self.trace["gate"]="SPREAD_OR_COOLDOWN";return None
         best=None;best_ratio=0.
