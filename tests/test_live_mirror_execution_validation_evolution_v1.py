@@ -32,6 +32,8 @@ def test_independent_strategy_calls_canonical_and_respects_stop(monkeypatch):
     assert (raw,target,action)==(.02,.01,"STOP_VETO")
     assert support_reason(cfg) is None
     cfg["strategy"]["modifiers_json"]='["impulse-exit"]'
+    assert support_reason(cfg) is None
+    cfg["strategy"]["modifiers_json"]='["impulse-exit","account-loss-lock"]'
     assert support_reason(cfg)=="UNSUPPORTED_MODIFIERS_OR_MODE"
 
 
@@ -108,3 +110,34 @@ def test_replay_uses_bid_ask_fees_and_shared_features():
     fold=ReplayFold(tuple(frames),300,TERMS)
     ret,dd,trades=evaluate_genome(BASE,fold)
     assert trades==2 and ret<0 and dd>0
+
+
+def test_impulse_exit_uses_only_simulated_position_and_preserves_bar_cursor(tmp_path,monkeypatch):
+    import live_mirror_execution_v1 as m
+    from autotrader_v3_protective_live_v1 import ProtectiveEvidenceV3
+    path=str(tmp_path/"m.db")
+    ensure_execution_schema(path)
+    cursor=NOW.isoformat()
+    with connect(path) as db:
+        db.execute("""INSERT INTO pg_live_mirror_session_v1 VALUES
+            ('s','m','a','{}',?,300,TRUE,?, ?,NULL,'WARMUP',0)""",
+            (cursor,cursor,json.dumps(dict(cash_nok=300,inventory=.01,entry_price=100,
+                fees_nok=0.,realized_nok=0.))))
+    cfg=config()
+    cfg["strategy"]["modifiers_json"]='["impulse-exit"]'
+    def pause(cfg,account,previous,now,db_path,cache):
+        assert account.inventory==.01
+        return ProtectiveEvidenceV3("impulse-exit","IMPULSE_PAUSE","test"),{"status":"IMPULSE_PAUSE","quiet_since":None}
+    monkeypatch.setattr(m,"_impulse",pause)
+    clock=NOW+timedelta(seconds=12)
+    session=m._read_sessions(path)[0]
+    assert m._advance(session,{},cfg,TERMS,clock,path,{})
+    session=m._read_sessions(path)[0]
+    assert session["last_bar"]==cursor
+    assert json.loads(session["pending_json"])["kind"]=="PROTECTIVE_TICK"
+    monkeypatch.setattr(m,"_quotes",lambda *args:(MirrorQuote(clock+timedelta(seconds=2),clock+timedelta(seconds=2),99,100),))
+    assert m._advance(session,{},cfg,TERMS,clock+timedelta(seconds=2),path,{})
+    session=m._read_sessions(path)[0]
+    assert session["last_bar"]==cursor
+    state=json.loads(session["state_json"])
+    assert state["inventory"]==0 and state["impulse"]["status"]=="IMPULSE_PAUSE"
