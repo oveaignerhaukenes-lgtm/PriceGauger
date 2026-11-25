@@ -369,6 +369,12 @@ class SaxoRealtimeService:
                 "Hyper Stochastic PAPER capture unavailable error_type=%s",
                 type(exc).__name__,
             )
+        self._macro_research_recorder = None
+        try:
+            from macro_research_quotes_v1 import MacroResearchRecorder
+            self._macro_research_recorder = MacroResearchRecorder(db_path)
+        except Exception as exc:
+            LOGGER.warning("Macro research archive unavailable error_type=%s", type(exc).__name__)
         self.aggregators = {market: MinuteBarAggregator() for market in self.instruments}
         # Diagnostic shadow only: Hunter has no broker order authority.
         self._hunter = {market: Hunter() for market, instrument in self.instruments.items()
@@ -483,6 +489,26 @@ class SaxoRealtimeService:
                     detail=f"{type(exc).__name__}: {exc}",
                 )
                 LOGGER.exception("Saxo subscription failed market=%s", market)
+
+    def _archive_macro_quote(self, quote, snapshot, provider_at, received_at=None):
+        recorder = getattr(self, "_macro_research_recorder", None)
+        if recorder is None:
+            return
+        fields = snapshot.get("Quote")
+        if not isinstance(fields, dict):
+            return
+        try:
+            recorder.observe(
+                quote, provider_at=provider_at,
+                received_at=received_at or datetime.now(timezone.utc),
+                delay=delay_minutes(snapshot),
+                price_type_bid=fields.get("PriceTypeBid"),
+                price_type_ask=fields.get("PriceTypeAsk"),
+            )
+        except Exception as exc:
+            if not getattr(self, "_macro_archive_error_logged", False):
+                LOGGER.warning("Macro research archive failed error_type=%s", type(exc).__name__)
+                self._macro_archive_error_logged = True
 
     def _consume_quote(self, quote: RealtimeQuote) -> None:
         completed = self.aggregators[quote.market].add(quote)
@@ -659,6 +685,7 @@ class SaxoRealtimeService:
             self._quote_message_counts[ref] = quote_count
             self._hunter_tradable[market] = _hunter_quote_tradable(merged)
             self._consume_quote(quote)
+            self._archive_macro_quote(quote, merged, provider_observed_at, received_at)
         if _should_log_count(count):
             LOGGER.info(
                 "Saxo price message diagnostic market=%s reference=%s count=%d quote_count=%d "

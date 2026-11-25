@@ -29,14 +29,35 @@ st.warning(
     "Manglende data, store spreader og faktisk ordreforsinkelse kan "
     "gjøre et tilsynelatende etterslep utnyttbart eller helt verdiløst."
 )
-st.caption(
-    "BLS: NFP 6. november, CPI 10. november, PPI 13. november 2026; "
-    "alle kl. 14.30 norsk vintertid (13.30 UTC). "
-    "Det registreres 3 minutter før og 15 minutter etter slippet."
-)
-choices = releases()
+from macro_research_quotes_v1 import research_rows, source_time_rows
+
+st.caption("Kontinuerlig forskning: kildetidsstemplede gull/sølv/US500-kurser, "
+           "samt eksisterende Tech100-opptak. Rapportvindu: 3 minutter før og 15 etter.")
+# Use the already persisted official macro calendar; retain legacy reports.
+choices = set(releases())
+try:
+    with connect() as db:
+        events = db.execute("""
+            SELECT event_type, scheduled_at FROM lsim_ctx_macro_events
+            ORDER BY scheduled_at DESC LIMIT 500
+        """).fetchall()
+    choices.update((str(row["event_type"]).removeprefix("US_"), utc(row["scheduled_at"]))
+                   for row in events)
+except Exception as exc:
+    st.warning("Dynamisk makrokalender utilgjengelig: " + type(exc).__name__)
+choices = sorted(choices, key=lambda p: (p[1], p[0]), reverse=True)
+# Select the closest calendar release by default (including future events).
+current_time = datetime.now(timezone.utc)
+default_index = min(range(len(choices)), key=lambda i: abs((choices[i][1]-current_time).total_seconds()))
+manual = st.checkbox("Analyser et annet publiseringstidspunkt (historisk)")
+if manual:
+    manual_date = st.date_input("Dato (Oslo)", current_time.astimezone(ZoneInfo("Europe/Oslo")).date())
+    manual_time = st.time_input("Klokkeslett (Oslo)", value=datetime.strptime("14:30","%H:%M").time())
+    manual_event = datetime.combine(manual_date, manual_time, tzinfo=ZoneInfo("Europe/Oslo")).astimezone(timezone.utc)
+    choices.insert(0, ("Manuelt", manual_event))
+    default_index = 0
 selected = st.selectbox(
-    "Rapport", choices, index=0,
+    "Rapport", choices, index=default_index,
     format_func=lambda p: f"{p[0]} · {p[1].astimezone(ZoneInfo("Europe/Oslo")).strftime('%d.%m.%Y %H:%M %Z')} "
                            f"({p[1].strftime('%H:%M')} UTC)"
 )
@@ -45,11 +66,11 @@ threshold = st.slider("Minste registrerte reaksjon (basispunkter)", 2, 30, 5, 1)
 latency = st.select_slider("PAPER: antatt beslutnings-/ordrelatens", (1, 3, 5, 10), value=3)
 hold = st.select_slider("PAPER: holdetid (sekunder)", (10, 30, 60, 120, 300), value=60)
 now = datetime.now(timezone.utc)
-active = release_in_capture_window(now) and (
-    event_at - timedelta(seconds=PRE_SECONDS) <= now <= event_at + timedelta(seconds=POST_SECONDS)
+active = (
+    event_at - timedelta(seconds=PRE_SECONDS) <= now <= event_at + timedelta(seconds=POST_SECONDS+3600)
 )
 if active:
-    st.info("Aktivt opptaksvindu. Viser nye data automatisk hvert 3. sekund.")
+    st.info("Rapportvindu, inkludert mulig forsinket mottak. Oppdaterer hvert 3. sekund.")
     st_autorefresh(interval=3000, key=f"macro_lag_{kind}")
 elif now < event_at - timedelta(seconds=PRE_SECONDS):
     st.info("Rapporten ligger frem i tid; lagret prisreaksjon er ennå ikke tilgjengelig.")
@@ -86,8 +107,8 @@ try:
         st.warning(
             "Saxo rapporterer forsinkelse på disse chart-feedene: "
             + ", ".join(sorted(set(delayed)))
-            + ". Forsinkede priser blir IKKE brukt som ledende sanntidssignaler. "
-            "Ekte gull/sølv-etterslep krever en udelt, tradable BBO-feed."
+            + ". Forsinkede priser brukes bare i separat kildetidsanalyse, aldri som sanntidssignaler. "
+            "Handelbar mottakstidsanalyse krever en uavkortet, tradable BBO-feed."
         )
 except Exception:
     st.caption("Kunne ikke lese Saxos lagrede chart-delay-status. "
@@ -112,6 +133,39 @@ except Exception as exc:
     st.error(f"Kunne ikke lese opptaksdata ({type(exc).__name__}).")
     st.stop()
 
+st.subheader("Retrospektiv analyse · kildetid, ikke handelbar latens")
+try:
+    archived = research_rows(start, end)
+    # Prefer continuous archive where present, otherwise existing live BBO.
+    combined = {(int(r["provider_uic"]), r["quote_at"]): r for r in rows}
+    combined.update({(int(r["provider_uic"]), r["quote_at"]): r for r in archived})
+    if len(combined) > 30000:
+        raise ValueError("For mange observasjoner")
+    retrospective = study_release(source_time_rows(list(combined.values())),
+                                  event=event_at, threshold_bps=threshold)
+    st.metric("Kildetidsobservasjoner", len(combined))
+    st.caption("Kildetid brukes direkte, ikke nominell forsinkelse trukket fra en allerede "
+               "forsinket kildetid. Rapporten viser prisreaksjon, ikke hva PG visste da.")
+    st.dataframe([{
+        "Marked": x["market"], "UIC": x["uic"], "Observasjoner": x["quotes"],
+        "Kvalitet": x["quality"],
+        "Første terskel (s fra slipp)": x["first_move"]["seconds"] if x["first_move"] else None,
+        "Retning": x["first_move"]["direction"] if x["first_move"] else None,
+        "30s (bp)": x["returns_bps"].get(30), "60s (bp)": x["returns_bps"].get(60),
+        "300s (bp)": x["returns_bps"].get(300),
+    } for x in retrospective["markets"]], hide_index=True, use_container_width=True)
+    relative = retrospective["tech_minus_gold_first_threshold_seconds"]
+    if relative is not None:
+        st.metric("Tech100 minus gull · kildetidsforskjell", f"{relative:+.1f} sek")
+    st.download_button("Eksporter rådata og retrospektiv rapport",
+        json.dumps({"basis": "source_time_only", "report": retrospective,
+                    "raw_rows": list(combined.values())}, ensure_ascii=False, allow_nan=False),
+        file_name=f"macro_source_time_{event_at:%Y%m%d_%H%M}.json",
+        mime="application/json")
+except Exception as exc:
+    st.warning("Kildetidsrapport utilgjengelig: " + type(exc).__name__)
+
+st.subheader("Sanntidsanalyse · faktisk mottakstid")
 st.metric("Lagrede Saxo BBO-observasjoner i rapportvinduet", len(rows))
 if not rows:
     st.info(
