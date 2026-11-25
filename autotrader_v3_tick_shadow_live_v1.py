@@ -285,6 +285,8 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                 if not (0<bid<=ask and isfinite(bid) and isfinite(ask) and
                     -2<=(received-at).total_seconds()<=MAX_TRANSIT_S):
                     return hold("WAIT_BAD_BBO","Untrusted BBO sample")
+                if strategy_key in IC14_KEYS and received>clock:
+                    return hold('WAIT_BAD_BBO','Quote not yet received at decision clock')
                 clean.append((at,bid,ask))
             if reset or engine_backlog:
                 model=_new_model(strategy_key,settings)
@@ -333,12 +335,19 @@ def evaluate_tick_live_v3(*,trader_id, strategy_key, account_uic,
                         # impulse made of discontinuous observations.
                         model.samples=deque(((at,(bid+ask)/2),))
                         model.last_exit_at=at
+                        if isinstance(model,ImpulseCatcherV14):
+                            model.candidate_at=model.retrace_at=None
                     if gap_exit:
                         # Never replace the pending gap-triggered CLOSE with a
                         # fresh OPEN from later rows in the same quote batch.
                         last_at=at
                         continue
-                    new=model.on_quote(at,bid,ask)
+                    if isinstance(model,ImpulseCatcherV14):
+                        # A later tick cannot replace a requested CLOSE with
+                        # an OPEN until the broker has actually reached FLAT.
+                        new=model.on_quote(at,bid,ask,allow_entry=not (abs(current)>1e-12 and model.target=='FLAT'))
+                    else:
+                        new=model.on_quote(at,bid,ask)
                     last_at=at
                     if new is not None:
                         newest_decision=new
