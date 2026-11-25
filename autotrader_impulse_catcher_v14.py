@@ -24,7 +24,13 @@ SLIDERS={
  "exit_confirmation_seconds":(0,20,1,5),"urgent_retrace_points":(5.,40.,.5,12.),
  "cooldown_seconds":(0,60,1,5),"atr_period":(3,24,1,14),
  "atr_entry_multiple":(0.,5.,.25,0.),"atr_exit_multiple":(0.,5.,.25,0.),
- "indicator_period":(5,60,1,14),
+ "velocity_period":(3,60,1,10),"acceleration_period":(3,60,1,10),
+ "efficiency_period":(3,60,1,14),"stochastic_period":(3,60,1,14),
+ "rsi_period":(3,60,1,14),"structure_period":(3,60,1,14),
+ "macd_fast":(3,30,1,12),"macd_slow":(8,60,1,26),"macd_signal":(2,30,1,9),
+ "velocity_threshold":(0.,5.,.05,0.),"acceleration_threshold":(0.,20.,.5,0.),
+ "efficiency_threshold":(0.,1.,.05,0.),"macd_threshold":(0.,10.,.1,0.),
+ "stochastic_threshold":(0.,.9,.05,0.),"rsi_threshold":(0.,.9,.05,0.),
 }
 DEFAULTS={k:v[3] for k,v in SLIDERS.items()}
 DEFAULTS.update(entry_indicators=[],hold_indicators=[],exit_indicators=[])
@@ -46,6 +52,8 @@ def normalize_settings(raw):
         out[k]=[x for x in INDICATORS if x in v]
     if out["fast_window"]>=out["slow_window"]:
         raise ValueError("fast window must be smaller than slow")
+    if out["macd_fast"]>=out["macd_slow"]:
+        raise ValueError("MACD fast must be smaller than slow")
     if out["urgent_retrace_points"]<out["minimum_retrace_points"]:
         raise ValueError("urgent threshold must not be below normal")
     return out
@@ -62,7 +70,21 @@ class ConfigV14(ImpulseCatcherConfig):
     atr_period:int=14
     atr_entry_multiple:float=0.
     atr_exit_multiple:float=0.
-    indicator_period:int=14
+    velocity_period:int=10
+    acceleration_period:int=10
+    efficiency_period:int=14
+    stochastic_period:int=14
+    rsi_period:int=14
+    structure_period:int=14
+    macd_fast:int=12
+    macd_slow:int=26
+    macd_signal:int=9
+    velocity_threshold:float=0.
+    acceleration_threshold:float=0.
+    efficiency_threshold:float=0.
+    macd_threshold:float=0.
+    stochastic_threshold:float=0.
+    rsi_threshold:float=0.
     entry_indicators:tuple=()
     hold_indicators:tuple=()
     exit_indicators:tuple=()
@@ -74,30 +96,41 @@ def _ema(values,n):
         v+=a*(x-v)
     return v
 
-def indicator_values(samples,at,period,atr_period):
-    # The shared oscillator period is in observed ticks, not minute bars.
+def indicator_values(samples,at,cfg):
+    # Periods are observed ticks. ATR alone uses completed 5s buckets.
     p=[v for _,v in samples]
-    n=period
     out={k:None for k in INDICATORS}
     out["atr"]=None
-    if len(p)>=n+1:
+    for k in ("velocity","efficiency","stochastic"):
+        n=getattr(cfg,k+"_period")
+        if len(p)<n+1:continue
         recent=p[-n-1:]
         delta=recent[-1]-recent[0]
         path=sum(abs(b-a) for a,b in zip(recent,recent[1:]))
-        out["velocity"]=delta/n
-        out["efficiency"]=delta/path if path else 0.
-        out["stochastic"]=2*(recent[-1]-min(recent))/(max(recent)-min(recent))-1 if max(recent)>min(recent) else 0.
-        out["rsi"]=sum(b-a for a,b in zip(recent,recent[1:]))/path if path else 0.
+        if k=="velocity":out[k]=delta/n
+        elif k=="efficiency":out[k]=delta/path if path else 0.
+        else:out[k]=2*(recent[-1]-min(recent))/(max(recent)-min(recent))-1 if max(recent)>min(recent) else 0.
+    n=cfg.rsi_period
+    if len(p)>=n+1:
+        moves=[b-a for a,b in zip(p,p[1:])]
+        gain=sum(max(0.,v) for v in moves[:n])/n
+        loss=sum(max(0.,-v) for v in moves[:n])/n
+        for v in moves[n:]:
+            gain=(gain*(n-1)+max(0.,v))/n;loss=(loss*(n-1)+max(0.,-v))/n
+        out["rsi"]=(gain-loss)/(gain+loss) if gain+loss else 0.
+    n=cfg.acceleration_period
     if len(p)>=2*n+1:
         out["acceleration"]=(p[-1]-p[-n-1])-(p[-n-1]-p[-2*n-1])
+    n=cfg.structure_period
+    if len(p)>=2*n:
         old=p[-2*n:-n];new=p[-n:]
         out["structure"]=1. if max(new)>max(old) and min(new)>min(old) else -1. if max(new)<max(old) and min(new)<min(old) else 0.
-    if len(p)>=26:
-        # MACD(12,26,9), on the observed tick sequence; not minute MACD.
+    if len(p)>=cfg.macd_slow+cfg.macd_signal:
         fast=slow=p[0];hist=[]
         for v in p:
-            fast+=(2/13)*(v-fast);slow+=(2/27)*(v-slow);hist.append(fast-slow)
-        out["macd"]=hist[-1]-_ema(hist,9)
+            fast+=(2/(cfg.macd_fast+1))*(v-fast);slow+=(2/(cfg.macd_slow+1))*(v-slow);hist.append(fast-slow)
+        out["macd"]=hist[-1]-_ema(hist,cfg.macd_signal)
+    atr_period=cfg.atr_period
     # True range on genuine completed 5-second midpoint OHLC buckets.
     # Reject missing buckets; never bridge a feed outage or interpolate.
     buckets={}
@@ -134,7 +167,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
             return None
         mid=(bid+ask)/2;spread=ask-bid;sign=1 if cfg.side=="LONG" else -1
         gap=bool(self.samples and (at-self.samples[-1][0]).total_seconds()>cfg.quote_gap_seconds)
-        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"gate":"WARMUP"}
+        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"gate":"WARMUP"}
         if gap:
             self.samples.clear()
             self.candidate_at=self.retrace_at=None
@@ -149,10 +182,10 @@ class ImpulseCatcherV14(ImpulseCatcher):
         if gap:
             if self.target!="FLAT":return flat("QUOTE_GAP_FLAT")
             self.last_exit_at=at;return None
-        vals=indicator_values(self.samples,at,cfg.indicator_period,cfg.atr_period)
+        vals=indicator_values(self.samples,at,cfg)
         self.trace.update(vals)
-        def favorable(k):return vals[k] is not None and sign*vals[k]>0
-        def adverse(k):return vals[k] is not None and sign*vals[k]<0
+        def favorable(k):return vals[k] is not None and sign*vals[k]>getattr(cfg,k+'_threshold',0.)
+        def adverse(k):return vals[k] is None or sign*vals[k]<-getattr(cfg,k+'_threshold',0.)
         atr=vals["atr"]
         if self.target!="FLAT":
             if self.entered_at is None:self.entered_at=at
@@ -167,7 +200,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
                           cfg.exit_noise_multiple*median(steps) if steps else 0.,
                           cfg.atr_exit_multiple*atr if atr is not None else 0.)
             urgent=max(cfg.urgent_retrace_points,.35*travelled,3*spread)
-            self.trace.update(retrace=retrace,exit_threshold=threshold,urgent=urgent,extreme=self.extreme,gate="HOLD")
+            self.trace.update(retrace=retrace,exit_threshold=threshold,urgent=urgent,extreme=self.extreme,normal_price=self.extreme-sign*threshold,urgent_price=self.extreme-sign*urgent,gate="HOLD")
             if retrace>=urgent:return flat("URGENT_REVERSAL")
             if retrace>=threshold:
                 self.retrace_at=self.retrace_at or at
