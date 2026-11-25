@@ -23,3 +23,8 @@ def test_terms_need_explicit_fx_margin_and_both_sides():
     assert derive_observed_terms([dict(r,long_commission=1.) for r in rows],
                                 CAL,uic=4912,asset_type="CfdOnIndex") is None
     assert derive_observed_terms(rows,CAL,uic=42,asset_type="CfdOnIndex") is None
+
+
+def test_one_sided_prechecks_do_not_require_impossible_opposite_open():
+    assert derive_observed_terms([BASE]*3,CAL,uic=4912,asset_type="CfdOnIndex",required_sides=("BUY",)) is not None
+    assert derive_observed_terms([BASE]*3,CAL,uic=4912,asset_type="CfdOnIndex",required_sides=("SELL",)) is None
