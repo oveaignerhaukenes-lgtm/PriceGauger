@@ -59,7 +59,7 @@ if universe=="LIVE Mirror Lab":
             })
         st.metric("Registrerte LIVE-referanser",len(rows))
         st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
-        st.caption("SIM-kontant er ikke NAV. Scenarioer trenger eksplisitte instrumenttermer; støtter først MACD+Stoch V2.1 og R/E V3 uten modifikatorer. Ingen automatisk LIVE-promotering.")
+        st.caption("SIM-kontant er ikke NAV. Scenarioer trenger eksplisitte instrumenttermer; støtter først MACD+Stoch V2.1 og R/E V3 med valgfri Impulse Exit. Andre modifikatorer er ikke støttet. Ingen automatisk LIVE-promotering.")
         st.info("Evolusjon er ikke aktivert: både eksekvering og kontoregnskap må bestå uavhengig LIVE/SIM-validering.")
     st.stop()
 if universe=="AEn Core · Adaptive Engine":
