@@ -48,7 +48,7 @@ def persist_verified_fills(prices, *, account_id,uic,asset_type,db_path="pricega
     return saved
 
 
-def collect_one_audit(*,db_path="pricegauger.db",now=None,fetch=None):
+def collect_one_audit(*,db_path="pricegauger.db",now=None,fetch=None,active_only=False):
     """Explicit opt-in worker action, only an exact read-only Saxo audit.
 
     Claim the durable ten-minute slot before any network call. Failed calls
@@ -57,6 +57,7 @@ def collect_one_audit(*,db_path="pricegauger.db",now=None,fetch=None):
     now=now or datetime.now(timezone.utc)
     ensure_audit_schema(db_path)
     with connect(db_path) as db:
+        scope = """ AND EXISTS (SELECT 1 FROM pg_live_mirror_registry_v1 m WHERE m.instance_id=e.instance_id AND m.active=TRUE)""" if active_only else ""
         candidates=db.execute("""SELECT e.account_id,e.uic,e.asset_type,
             e.broker_order_id,e.side,e.amount,e.executed_at
             FROM autotrader_v3_execution_events e
@@ -65,10 +66,12 @@ def collect_one_audit(*,db_path="pricegauger.db",now=None,fetch=None):
               ON f.account_id=e.account_id AND f.uic=e.uic AND f.asset_type=e.asset_type
               AND f.broker_order_id=e.broker_order_id
             WHERE f.broker_order_id IS NULL AND e.executed_at>=?
-            ORDER BY e.executed_at DESC LIMIT 120""",(now-timedelta(hours=24),)).fetchall()
+            """+scope+""" ORDER BY e.executed_at ASC LIMIT 120""",(now-timedelta(hours=24),)).fetchall()
         if not candidates:
             return "NO_MISSING_FILLS"
-        first=candidates[0]
+        boundaries=list(dict.fromkeys((str(r["account_id"]),int(r["uic"]),str(r["asset_type"])) for r in candidates))
+        chosen=boundaries[int(now.timestamp()//600)%len(boundaries)]
+        first=next(r for r in candidates if (str(r["account_id"]),int(r["uic"]),str(r["asset_type"]))==chosen)
         boundary=(str(first["account_id"]),int(first["uic"]),str(first["asset_type"]))
         events=[dict(r) for r in candidates if (str(r["account_id"]),int(r["uic"]),str(r["asset_type"]))==boundary][:30]
         # Global time slot, independent of service restart.
