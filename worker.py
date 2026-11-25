@@ -483,6 +483,18 @@ def run_v3_live_fast_loop_v1(
             stop_event.wait(remaining)
 
 
+def _run_mirror_readonly_audit(*,db_path,stop_event):
+    """Read-only, rate-bounded fill audit outside the LIVE order thread."""
+    from live_mirror_audit_v1 import collect_one_audit
+    while not stop_event.is_set():
+        try:
+            result=collect_one_audit(db_path=str(db_path),active_only=True)
+            LOGGER.info("LIVE_MIRROR_AUDIT %s",result)
+        except Exception as exc:
+            LOGGER.warning("LIVE_MIRROR_AUDIT unavailable error_type=%s",type(exc).__name__)
+        stop_event.wait(600.0)
+
+
 def run_forever(
     *,
     interval_seconds: int = DEFAULT_INTERVAL_SECONDS,
@@ -512,6 +524,12 @@ def run_forever(
     except Exception:
         LOGGER.warning("Mirror telemetry unavailable; LIVE unaffected")
     v3_thread.start()
+    # No credentials are copied to the research service.
+    import os
+    if os.getenv("PRICEGAUGER_MIRROR_AUDIT_ENABLED","0").strip().lower() in ("1","true","yes","on"):
+        threading.Thread(target=_run_mirror_readonly_audit,
+            kwargs={"db_path":db_path,"stop_event":stop_event},
+            name="pricegauger-mirror-readonly-audit",daemon=True).start()
     while True:
         started = time.monotonic()
         try:
