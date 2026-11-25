@@ -16,7 +16,52 @@ from autotrader_v3_avoid_loss_lab_ui_v1 import render_avoid_loss_lab_v1
 from autotrader_v2_strategy_lab_ui_v1 import render_v2_strategy_lab_v1
 
 st.title("Live-Sim Lab")
-universe=st.selectbox("Strategiunivers",("AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","Unngå tap V1 · NAV-SIM","V2 strategies","Legacy strategies"),key="lsim:universe")
+universe=st.selectbox("Strategiunivers",("LIVE Mirror Lab","AEn Core · Adaptive Engine","Nye strategier · MACD","Inversjonstest · MACD","Unngå tap V1 · NAV-SIM","V2 strategies","Legacy strategies"),key="lsim:universe")
+if universe=="LIVE Mirror Lab":
+    from live_mirror_registry_v1 import mirror_snapshot
+    st.subheader("LIVE Mirror Lab · digitale tvillinger")
+    from live_mirror_execution_v1 import execution_snapshot, support_reason
+    st.caption("Prospektive LIVE-referanser og uavhengige SIM-scenarioer. Ikke empirisk validert.")
+    from live_mirror_comparison_v1 import comparison_snapshot
+    comparisons=comparison_snapshot()
+    sessions=execution_snapshot() or []
+    sim={s["mirror_id"]:s for s in sessions}
+    mirrors=mirror_snapshot()
+    if mirrors is None:
+        st.warning("Ingen tilgjengelig Mirror-worker-snapshot.")
+    elif not mirrors:
+        st.info("Ingen aktive LIVE-referanser i siste fullførte kartlegging.")
+    else:
+        rows=[]
+        for item in mirrors:
+            cfg=json.loads(item["config_json"])
+            ref=json.loads(item["reference_json"])
+            strategy=cfg.get("strategy") or {}
+            account=ref.get("account") or {}
+            quote=ref.get("quote") or {}
+            session=sim.get(item["mirror_id"])
+            state=json.loads(session["state_json"]) if session else {}
+            report=comparisons.get(session['session_id'],{}) if session else {}
+            rows.append({
+                "Konto":item["account_name"],"Strategi":strategy.get("strategy_key"),
+                "S":strategy.get("timeframe"),"R":strategy.get("regime_timeframe"),
+                "E":strategy.get("exit_timeframe"),"LIVE NAV (referanse)":account.get("total_value"),
+                "Valuta":account.get("currency"),"LIVE posisjon (heartbeat)":ref.get("actual_observed"),
+                "Referanse":item["status"],"SIM":session["last_status"] if session else (support_reason(cfg) or "VENTER PÅ MODELLPARAMETRE"),
+                "SIM posisjon":state.get("inventory"),"SIM kontant (NOK)":state.get("cash_nok"),
+                "SIM realisert brutto":state.get("realized_nok"),"SIM gebyrer":state.get("fees_nok"),
+                "Matchede beslutninger":report.get("paired"),"Sammenligningsgrunnlag":report.get("union"),
+                "Målposisjon samsvar %":round(100*report["target_agreement"],1) if report.get("target_agreement") is not None else None,
+                "Faktisk posisjon samsvar %":round(100*report["inventory_agreement"],1) if report.get("inventory_agreement") is not None else None,
+                "Fill MAE punkter":report.get("price_mae_points"),"Latens MAE s":report.get("latency_mae_s"),
+                "BBO observert":quote.get("received_at"),
+                "Oppdatert":item["observed_at"],
+            })
+        st.metric("Registrerte LIVE-referanser",len(rows))
+        st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
+        st.caption("SIM-kontant er ikke NAV. Scenarioer trenger eksplisitte instrumenttermer; støtter først MACD+Stoch V2.1 og R/E V3 uten modifikatorer. Ingen automatisk LIVE-promotering.")
+        st.info("Evolusjon er ikke aktivert: både eksekvering og kontoregnskap må bestå uavhengig LIVE/SIM-validering.")
+    st.stop()
 if universe=="AEn Core · Adaptive Engine":
     render_aen_core_lab_v1()
     st.stop()

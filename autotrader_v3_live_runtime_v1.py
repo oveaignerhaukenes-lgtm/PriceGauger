@@ -68,6 +68,7 @@ from autotrader_v3_hyper_chase_live_v1 import (
 )
 from autotrader_v3_tick_shadow_live_v1 import TICK_RUNTIME_KEYS,evaluate_tick_live_v3
 from autotrader_v3_signal_trace_v1 import v3_transition_trace
+from live_mirror_telemetry_v1 import observe_decision, observe_submission, observe_broker_terms
 from autotrader_v3_hyper_gate_audit_v1 import count_hyper_decision
 from autotrader_v3_aen_core_bridge_v1 import AEN_CORE_KEYS_V3
 from autotrader_v3_rhythm_trend_v1 import STRATEGY_KEY_V3 as RHYTHM_TREND_KEY
@@ -877,6 +878,11 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             decision=decision,approved_amount=snapshot.risk_approved_target.amount)
         if trace:
             LOGGER.info("%s",trace)
+        if decision.is_new:
+            observe_decision(instance_id=e.pilot_key,decision_key=decision.decision_key,
+                strategy_key=e.strategy_key,timeframe=config.timeframe,
+                raw=decision.decision.target.amount,approved=snapshot.risk_approved_target.amount,
+                actual=actual.amount,action=decision.decision.action)
         ai_live_modified=bool(
             ai_live_advice is not None
             and any(
@@ -1132,6 +1138,12 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
             _precheck_started=time.perf_counter()
             pre=broker.precheck(order)
             record_v3_phase_v1('precheck',time.perf_counter()-_precheck_started)
+            if mutation.action in {'OPEN','ADD'}:
+                observe_broker_terms(instance_id=e.pilot_key,decision_key=decision.decision_key,
+                    request_key=request_key,side=side,amount=mutation.amount,
+                    price=capped.unit_notional_nok,rules=instrument_rules,
+                    account_currency=account_currencies.get(e.account_id,''),
+                    precheck=pre,cost=cost_assessment,tranche=strategy_amount_config.tranche)
             if str(pre.get("PreCheckResult") or pre.get("Result") or "").lower() not in {"ok","passed","success"}:
                 raise RuntimeError(f"v3 LIVE precheck rejected: {pre}")
         if mutation.action in {'OPEN','ADD'}:
@@ -1298,6 +1310,9 @@ def run_v3_live_cycle_v1(*,db_path="pricegauger.db",now=None,
         # Timestamp at the POST boundary; excludes Saxo acknowledgement/fill.
         record_v3_phase_v1('decision_to_submit',time.perf_counter()-_decision_finished)
         record_v3_quote_submit_age_v1(decision.decision_key)
+        observe_submission(instance_id=e.pilot_key,decision_key=decision.decision_key,
+            request_key=request_key,side=side,amount=mutation.amount,
+            action=mutation.action,actual=actual.amount,expected=actual.amount+signed_delta)
         _submit_started=time.perf_counter()
         try:
             result=broker.place_order(order,confirm_live=True)

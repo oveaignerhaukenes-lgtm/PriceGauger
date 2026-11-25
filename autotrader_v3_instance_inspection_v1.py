@@ -99,8 +99,14 @@ def _verified_instance_fill_prices_cached_v1(
     events=tuple(dict(broker_order_id=order_id,side=side,amount=amount,
                       executed_at=executed_at)
                  for order_id,side,amount,executed_at in event_specs)
-    return fetch_exact_final_fills_v1(
+    prices=fetch_exact_final_fills_v1(
         events,account_id=account_id,uic=int(uic),asset_type=asset_type)
+    try:
+        from live_mirror_audit_v1 import persist_verified_fills
+        persist_verified_fills(prices,account_id=account_id,uic=int(uic),asset_type=asset_type)
+    except Exception:
+        LOGGER.warning("Mirror fill evidence could not be persisted")
+    return prices
 
 
 def _nearest_bar_anchor(bars: tuple[ChartBar,...], timestamp: datetime):
