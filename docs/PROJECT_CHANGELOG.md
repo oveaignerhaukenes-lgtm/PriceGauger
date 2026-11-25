@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `5e517681185e7b0c005ea0334ba66081da7e75e1`
+Latest tracked main commit: `5af1a7a7ab2565799d446731304b1d41e92e0d8d`
 
 ## Recent main commits
 
+- 2026-11-25 [`5af1a7a7ab`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5af1a7a7ab2565799d446731304b1d41e92e0d8d) — Mirror A/B: credentialed fill audit, one-sided calibration, independent Impulse Exit (#890)
 - 2026-11-25 [`5e51768118`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5e517681185e7b0c005ea0334ba66081da7e75e1) — LIVE Mirror Lab: independent scenarios, calibration evidence, validation and evolution prototype (#888)
 - 2026-11-24 [`ff6bf18eb5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ff6bf18eb598297082975346e2c43ab876913bb8) — Regimefilter: direkte lagring, korrekt status og ordreteller (#886)
 - 2026-11-24 [`be59327558`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/be59327558e8a93f10df9ed33e7c29e3e316ac0c) — V3: kortere CLOSE/REDUCE-ordrebane uten valgfri Saxo-precheck (#883)
@@ -46,6 +47,5 @@ Latest tracked main commit: `5e517681185e7b0c005ea0334ba66081da7e75e1`
 - 2026-11-17 [`67c733c951`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/67c733c951d43cca4990a284b03aa4463513de06) — Impulse Catcher v1.1: eliminate false BBO gaps from slow V3 cycles (#848)
 - 2026-11-17 [`0adc54287d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0adc54287d2a5b979c6c571790a34ea93126c7b7) — Make unverified AutoTrader chart markers readable on mobile (#847)
 - 2026-11-17 [`319934ca0a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/319934ca0a34067216688b2b5f24a22180058214) — Fix AutoTrader account chart markers using verified Saxo fills (#846)
-- 2026-11-16 [`23e6a2c4c2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/23e6a2c4c228ca4272676b2c51c8acca04d34947) — V3 charts: mark confirmed flat with neutral gray square (#845)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
