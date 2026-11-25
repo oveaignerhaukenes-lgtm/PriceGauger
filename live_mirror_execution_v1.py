@@ -24,6 +24,7 @@ from autotrader_v3_macd_stoch_v21_split_v3 import (
 from autotrader_v3_macd_trailing_v1 import MacdTrailingConfigV3
 from autotrader_v3_domain import TargetInventoryV3
 from autotrader_v3_regime_gate_v1 import RegimePolicyV1, decide_regime_entry_v1, classify_regime_v1
+from autotrader_v3_protective_live_v1 import impulse_evidence_v3, ProtectiveEvidenceV3, ProtectiveModifierV3, IMPULSE_LOOKBACK_S
 
 SUPPORTED = {
     "macd-stoch-v2-1": macd_stoch_v21_target_v3,
@@ -62,7 +63,7 @@ def support_reason(cfg):
     strategy = cfg.get("strategy") or {}
     if strategy.get("strategy_key") not in SUPPORTED:
         return "UNSUPPORTED_STRATEGY"
-    if strategy.get("control_mode") != "Manuell" or json.loads(strategy.get("modifiers_json") or "[]"):
+    if strategy.get("control_mode") != "Manuell" or set(json.loads(strategy.get("modifiers_json") or "[]"))-{"impulse-exit"}:
         return "UNSUPPORTED_MODIFIERS_OR_MODE"
     if strategy.get("timeframe") not in ("1m","2m","3m","5m","10m","15m","30m"):
         return "UNSUPPORTED_CLOCK"
@@ -185,13 +186,16 @@ def _quotes(cfg,decision_at,now,db_path):
                              float(r["bid"]),float(r["ask"])) for r in rows)
 
 
-def _update(session, *, db_path, last_bar, pending, account, status, event=None):
+def _update(session, *, db_path, last_bar, pending, account, status, event=None, impulse=None):
     """Optimistic CAS and event insertion in one transaction. No duplicate fills."""
+    state=asdict(account)
+    if impulse is not None:
+        state["impulse"]=impulse
     with connect(db_path) as db:
         changed=db.execute("""UPDATE pg_live_mirror_session_v1 SET last_bar=?,
             pending_json=?,state_json=?,last_status=?,revision=revision+1
             WHERE session_id=? AND revision=? AND active=TRUE""",
-            (last_bar,None if pending is None else _json(pending),_json(asdict(account)),
+            (last_bar,None if pending is None else _json(pending),_json(state),
              status,session["session_id"],session["revision"]))
         if changed.rowcount!=1:
             return False
@@ -202,9 +206,35 @@ def _update(session, *, db_path, last_bar, pending, account, status, event=None)
     return True
 
 
+def _impulse(cfg, account, previous, now, db_path, cache):
+    """Same pure protective detector as LIVE; session-local pause memory."""
+    b=cfg["boundary"]
+    key=("impulse",b["uic"],b["asset_type"])
+    if key not in cache:
+        with connect(db_path) as db:
+            cache[key]=db.execute("""SELECT quote_at,received_at,bid,ask FROM lsim_hyper_quotes_1s
+                WHERE provider_uic=? AND asset_type=? AND quote_at>=? AND quote_at<=?
+                AND received_at<=? ORDER BY quote_at LIMIT 120""",
+                (b["uic"],b["asset_type"],(now-timedelta(seconds=IMPULSE_LOOKBACK_S)).isoformat(),
+                 now.isoformat(),now.isoformat())).fetchall()
+    paused=previous.get("status")=="IMPULSE_PAUSE"
+    evidence,quiet=impulse_evidence_v3(rows=cache[key],now=now,
+        actual_amount=account.inventory,was_paused=paused,
+        quiet_since=_stamp(previous.get("quiet_since")))
+    if paused and evidence.status=="DATA_MISSING":
+        evidence=ProtectiveEvidenceV3("impulse-exit","IMPULSE_PAUSE",
+                                    "BBO stale during protective pause; remain FLAT")
+    memory={"status":evidence.status,"quiet_since":quiet.isoformat() if quiet else None}
+    return evidence,memory
+
+
 def _advance(session,row,cfg,terms,now,db_path,cache):
-    account=MirrorAccount(**json.loads(session["state_json"]))
+    state=json.loads(session["state_json"])
+    previous=state.pop("impulse",{})
+    account=MirrorAccount(**state)
     pending=json.loads(session["pending_json"]) if session["pending_json"] else None
+    enabled="impulse-exit" in json.loads(cfg["strategy"].get("modifiers_json") or "[]")
+    memory=previous if enabled else None
     if pending is not None:
         decided=_stamp(pending["decided_at"])
         fill=execute_target(account,pending["approved"],decided_at=decided,
@@ -214,29 +244,53 @@ def _advance(session,row,cfg,terms,now,db_path,cache):
         event={**pending,"price":fill.price,"fill_received_at":fill.received_at,
                "inventory_after":fill.account.inventory,"cash_after":fill.account.cash_nok,
                "fees_total":fill.account.fees_nok,"realized_gross":fill.account.realized_nok}
-        return _update(session,db_path=db_path,last_bar=pending["bar"],pending=None,
-                       account=fill.account,status=fill.status,event=event)
+        return _update(session,db_path=db_path,last_bar=pending.get("cursor_bar",pending["bar"]),pending=None,
+                       account=fill.account,status=fill.status,event=event,impulse=memory)
+    # Evaluate protection on each research cycle, not merely on closed bars.
+    # Protective exits have their own timestamps and do not consume a bar.
+    evidence=None
+    if enabled:
+        evidence,memory=_impulse(cfg,account,previous,now,db_path,cache)
+        if evidence.status=="IMPULSE_PAUSE" and abs(account.inventory)>1e-9:
+            event=dict(bar=now.isoformat(),cursor_bar=session["last_bar"],
+                       decided_at=now.isoformat(),raw=account.inventory,approved=0.,
+                       inventory_before=account.inventory,action="IMPULSE_PAUSE",
+                       reason=evidence.reason,kind="PROTECTIVE_TICK")
+            return _update(session,db_path=db_path,last_bar=session["last_bar"],pending=event,
+                           account=account,status="PENDING_QUOTE",impulse=memory)
+    def preserve_memory():
+        if enabled and memory!=previous:
+            return _update(session,db_path=db_path,last_bar=session["last_bar"],
+                           pending=None,account=account,status=session["last_status"],impulse=memory)
+        return False
     tf=int(cfg["strategy"]["timeframe"][:-1])
     latest_boundary=now.replace(second=0,microsecond=0)-timedelta(minutes=now.minute%tf)
-    if tf==60:
-        latest_boundary=now.replace(minute=0,second=0,microsecond=0)
     if latest_boundary<=_stamp(session["last_bar"]) or now-latest_boundary>timedelta(seconds=25):
-        return False
+        return preserve_memory()
     source,closed,obs=_features(cfg,row["market_name"],now,db_path,cache)
     if len(obs)<2 or obs[-1].closed_at!=latest_boundary:
-        return False
+        return preserve_memory()
     bar=obs[-1].closed_at.isoformat()
     raw,approved,action,reason=decide_target(cfg,account,source,closed,obs,
                                            now=now,terms=terms,market=row["market_name"])
+    if evidence is not None:
+        adjusted,detail=ProtectiveModifierV3("impulse-exit",evidence,account.inventory).apply(
+            None,TargetInventoryV3(approved))
+        if abs(adjusted.amount-approved)>1e-9:
+            action=evidence.status
+            reason=detail
+        approved=adjusted.amount
     event=dict(bar=bar,decided_at=now.isoformat(),raw=raw,approved=approved,
                inventory_before=account.inventory,action=action,reason=reason)
+    if evidence is not None:
+        event["impulse_status"]=evidence.status
     if abs(approved-account.inventory)<1e-9:
         event.update(inventory_after=account.inventory,cash_after=account.cash_nok,
                      fees_total=account.fees_nok,realized_gross=account.realized_nok)
         return _update(session,db_path=db_path,last_bar=bar,pending=None,account=account,
-                       status="NO_CHANGE",event=event)
+                       status="NO_CHANGE",event=event,impulse=memory)
     return _update(session,db_path=db_path,last_bar=bar,pending=event,
-                   account=account,status="PENDING_QUOTE")
+                   account=account,status="PENDING_QUOTE",impulse=memory)
 
 
 def run_mirror_execution_cycle(*,db_path="pricegauger.db",now=None,scenario_terms=None,
