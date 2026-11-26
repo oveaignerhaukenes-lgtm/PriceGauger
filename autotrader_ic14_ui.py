@@ -108,8 +108,8 @@ def render_ic14(trader_id,key,*,prefix):
             save_settings(db,trader_id,key,values)
         st.success("Innstillinger lagret for denne instansen. Neste LIVE-syklus leser dem.")
     st.caption("Forhåndsvisning · ekte registrert 1s Saxo bid/ask · signaler, ikke fills/P&L")
-    minutes=st.selectbox("Visningsperiode (minutter)",[5,15,30,60],index=1,key=root+":minutes")
-    back=st.slider("Sluttid: minutter tilbake",0,1440,0,step=15,key=root+":back")
+    minutes=st.selectbox("Visningsperiode (minutter)",[1,2,3,5,15,30,60],index=4,key=root+":minutes")
+    back=st.slider("Sluttid: minutter tilbake",0,1440,0,step=1,key=root+":back")
     end=datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=back)
     quotes,start=load_preview_quotes(minutes,end)
     if not quotes:
