@@ -93,3 +93,34 @@ def test_overlay_uses_real_timestamp_series_and_visible_gap():
     assert datetime.fromisoformat(fig.data[0].x[0])==T
     assert datetime.fromisoformat(fig.data[0].x[-1])==quotes[-1].at
     assert len(fig.data)>=8
+
+
+@pytest.mark.parametrize("side",["LONG","SHORT"])
+def test_entry_overlay_uses_actual_observed_price_threshold(side):
+    sign=1 if side=="LONG" else -1
+    cfg=config_v14(side,{"fast_window":3,"slow_window":10,"min_impulse_points":9.,
+                          "entry_confirmation_seconds":0})
+    quotes=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5)
+            for i,p in enumerate([100.+(i%2)*.2 for i in range(80)]+[100.+sign*5*i for i in range(1,12)])]
+    data=preview(quotes,cfg)
+    entry=next(r for r in data if r["decision"]=="QUALIFIED_IMPULSE_V14")
+    assert sign*(entry["mid"]-entry["entry_price"])>=-1e-9
+    assert entry["entry_threshold"]>=9.
+    i=data.index(entry)
+    assert preview(quotes[:i+1],cfg)==data[:i+1]
+    from autotrader_ic14_ui import make_preview_figure,MAIN_CONTROLS
+    fig=make_preview_figure(data,side=side,arms=True)
+    assert len(MAIN_CONTROLS)==5
+    assert fig.data[3].name=="ENTRY · prisgrense"
+    assert float(fig.data[3].y[i])==pytest.approx(entry["entry_price"])
+    assert fig.data[4].name=="EXIT · normal"
+    assert len(fig.layout.annotations)==0
+
+def test_exit_overlay_is_exact_normal_retrace_price():
+    m=ImpulseCatcherV14(config=config_v14("LONG"))
+    m.target="LONG";m.entry_mid=100.;m.extreme=120.;m.entered_at=m.last_extreme_at=T
+    assert quote(m,1,115.) is None
+    assert m.trace["normal_price"]==pytest.approx(120-m.trace["exit_threshold"])
+    assert m.trace["urgent_price"]==pytest.approx(120-m.trace["urgent"])
+    assert m.trace["hold_remaining"]==14
+    assert "Minimum hold" in m.trace["gate_detail"]
