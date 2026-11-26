@@ -328,6 +328,10 @@ def render_v3_instance_controls_v1(instance,*,key_prefix:str='v3-instance'):
         )
     if strategy in ("impulse-catcher-long-v1-4","impulse-catcher-short-v1-4"):
         from autotrader_ic14_ui import render_ic14
+        if st.button("Åpne Signal Studio · full bredde",key=f'{key_prefix}:ic14-studio:{trader_id}'):
+            st.session_state["ic14:studio:requested_instance"]=trader_id
+            st.session_state["ic14:studio:requested_strategy"]=strategy
+            st.switch_page("pages/0_IC14_Control.py")
         render_ic14(trader_id,strategy,prefix=key_prefix)
     if strategy in ("hyper-chase-10s-fast","hyper-chase-10s-filtered"):
         st.info(

@@ -120,6 +120,39 @@ def render_ic14(trader_id,key,*,prefix):
     # Independent draft survives optional panel visibility. No saved settings
     # change when a panel is closed or a display option is toggled.
     values=dict(st.session_state.get(draft_key,saved))
+    # Auto is a local draft operation. Never save or alter account authority.
+    from autotrader_ic14_auto_v1 import propose_ic14
+    auto_key=root+":auto"
+    a,b=st.columns([1,3])
+    if a.button("Auto · siste time",key=root+":auto-analyze",help="Mål siste times impuls, spread og retracement. Ingen LIVE-endring før separat lagring."):
+        try:
+            clock=datetime.now(timezone.utc)
+            quotes,_=load_preview_quotes(60,clock)
+            proposal=propose_ic14(quotes,now=clock,side="LONG" if "-long-" in key else "SHORT",current=values)
+            st.session_state[auto_key]=proposal
+        except Exception as exc:
+            st.session_state.pop(auto_key,None)
+            st.warning("Auto: "+(str(exc) if isinstance(exc,ValueError) else "Data utilgjengelig: "+type(exc).__name__))
+    proposal=st.session_state.get(auto_key)
+    if proposal is not None:
+        ev=proposal.evidence
+        b.caption(f"{ev['quotes']} quotes · median spread {ev['spread']:.2f} p · median {ev['window_s']}s-bevegelse {ev['median_move']:.2f} p · retningsimpuls P85 {ev['directional_p85']:.2f} p")
+        st.caption(f"Måleperiode: {ev['start']} – {ev['end']} · {ev['runs']} avsluttede løp · {ev['recovered_pullbacks']} gjeninnhentede retraces. Hold/Depth/Release beholdes ved for få relevante observasjoner.")
+        st.dataframe([{"Kontroll":label.split(" · ")[0],
+            "Nå":round(values[name]*100) if unit=="%" else values[name],
+            "Forslag":round(proposal.settings[name]*100) if unit=="%" else proposal.settings[name],
+            "Enhet":unit} for name,label,unit,_ in MAIN_CONTROLS],
+            hide_index=True,use_container_width=True)
+        if st.button("Bruk forslag i forhåndsvisning",key=root+":auto-apply"):
+            for name,_,unit,_ in MAIN_CONTROLS:
+                values[name]=proposal.settings[name]
+                if unit=="%":
+                    st.session_state[f"{root}:{name}:pct"]=int(round(values[name]*100))
+                else:
+                    st.session_state[f"{root}:{name}"]=values[name]
+            st.session_state[draft_key]=dict(values)
+            st.session_state.pop(auto_key,None)
+        st.caption("Statistisk signaltilpasning, ikke profittoptimalisering. Attack er en heuristikk fra valgt impulsvindu; øvrige prisfiltre kan fortsatt dominere terskelen. Ingen automatisk lagring.")
     def control(name,host=st,label=None,help=None,percent=False):
         lo,hi,step,_=SLIDERS[name]
         if percent:
