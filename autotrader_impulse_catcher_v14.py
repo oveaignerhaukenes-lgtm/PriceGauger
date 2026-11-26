@@ -15,7 +15,7 @@ INDICATORS=("velocity","acceleration","efficiency","macd","stochastic","rsi","st
 # Bounds and steps also define the UI. Units are seconds, points or ratios.
 SLIDERS={
  "fast_window":(3,15,1,5),"slow_window":(6,30,1,12),
- "min_impulse_points":(1.,40.,.5,9.),"relative_impulse_multiple":(1.,8.,.25,3.),
+ "min_impulse_points":(1.,40.,.5,9.),"entry_gain_points":(-20.,20.,.5,0.),"relative_impulse_multiple":(1.,8.,.25,3.),
  "minimum_directional_efficiency":(.1,1.,.05,.78),
  "maximum_spread_points":(.5,15.,.5,5.),"spread_impulse_multiple":(1.,10.,.5,4.),
  "entry_confirmation_seconds":(0,15,1,3),"minimum_hold_seconds":(0,90,1,15),
@@ -65,6 +65,7 @@ def config_v14(side,raw=None):
 
 @dataclass(frozen=True,slots=True)
 class ConfigV14(ImpulseCatcherConfig):
+    entry_gain_points:float=0.
     entry_confirmation_seconds:int=3
     minimum_hold_seconds:int=15
     atr_period:int=14
@@ -173,7 +174,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
         if elapsed>2.:
             # Confirmation requires observed persistence, not elapsed silence.
             self.candidate_at=self.retrace_at=None
-        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"entry_price":None,"entry_fast_price":None,"entry_slow_price":None,"entry_threshold":None,"entry_window":None,"entry_confirm_elapsed":None,"hold_remaining":None,"exit_confirm_elapsed":None,"gate_detail":"","gate":"WARMUP","entry_confirm_required":cfg.entry_confirmation_seconds,"entry_rejected":False,"entry_reject_elapsed":None,"entry_reject_reason":None,"threshold_source":None,"entry_efficiency":None,"entry_efficiency_required":cfg.minimum_directional_efficiency}
+        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"entry_price":None,"entry_base_price":None,"entry_base_threshold":None,"entry_base_source":None,"entry_gain_applied":None,"entry_fast_price":None,"entry_slow_price":None,"entry_threshold":None,"entry_window":None,"entry_confirm_elapsed":None,"hold_remaining":None,"exit_confirm_elapsed":None,"gate_detail":"","gate":"WARMUP","entry_confirm_required":cfg.entry_confirmation_seconds,"entry_rejected":False,"entry_reject_elapsed":None,"entry_reject_reason":None,"threshold_source":None,"entry_efficiency":None,"entry_efficiency_required":cfg.minimum_directional_efficiency}
         def rejected(reason):
             if previous_candidate is not None:
                 self.trace.update(entry_rejected=True,entry_reject_elapsed=max(0.,previous_confirm),entry_reject_reason=reason)
@@ -260,20 +261,28 @@ class ImpulseCatcherV14(ImpulseCatcher):
             baseline=median(hist)
             components=(("Threshold",cfg.min_impulse_points),("Spread",cfg.spread_impulse_multiple*spread),
                         ("Normalstøy",cfg.relative_impulse_multiple*baseline),("ATR",cfg.atr_entry_multiple*atr if atr is not None else 0.))
-            source,threshold=max(components,key=lambda v:v[1])
+            source,base_threshold=max(components,key=lambda v:v[1])
+            # Positive trim lowers the completed adaptive distance on BOTH sides.
+            # Preserve one-spread/one-point floor, maximum-spread gate and all
+            # directional, data-quality, timing and broker guards. Zero is identity.
+            floor=max(1.,spread)
+            threshold=max(floor,base_threshold-cfg.entry_gain_points)
+            effective_source="Minimumsgulv" if base_threshold-cfg.entry_gain_points<floor else source
             # Exact observed price-distance threshold for this arm. Efficiency,
             # ATR availability, indicators and confirmation remain separate gates.
             boundary=recent[0][1]+sign*threshold
             self.trace["entry_fast_price" if w==cfg.windows_seconds[0] else "entry_slow_price"]=boundary
-            boundaries.append((sign*(boundary-mid),boundary,threshold,w,eff,source))
+            boundaries.append((sign*(boundary-mid),boundary,threshold,w,eff,effective_source,base_threshold,source))
             ratio=max(0.,delta/threshold)
             best_ratio=max(best_ratio,ratio)
             if delta>=threshold and eff>=cfg.minimum_directional_efficiency:
                 best=(delta,baseline,w)
         self.trace["entry_ratio"]=best_ratio
         if boundaries:
-            _,boundary,threshold,w,eff,source=min(boundaries,key=lambda x:x[0])
-            self.trace.update(entry_price=boundary,entry_threshold=threshold,entry_window=w,entry_efficiency=eff,threshold_source=source)
+            _,boundary,threshold,w,eff,source,base_threshold,base_source=min(boundaries,key=lambda x:x[0])
+            self.trace.update(entry_price=boundary,entry_threshold=threshold,entry_window=w,entry_efficiency=eff,threshold_source=source,
+                              entry_base_price=boundary+sign*(base_threshold-threshold),entry_base_threshold=base_threshold,entry_base_source=base_source,
+                              entry_gain_applied=base_threshold-threshold)
         blocked_indicators=[k for k in cfg.entry_indicators if not favorable(k)]
         if cfg.atr_entry_multiple and atr is None:
             detail="Manglende ATR"
