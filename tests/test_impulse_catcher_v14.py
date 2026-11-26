@@ -191,3 +191,27 @@ def test_entry_gain_keeps_spread_gate():
     assert m.trace["gate"]=="SPREAD_OR_COOLDOWN"
     with pytest.raises(ValueError):
         config_v14("LONG",{"entry_gain_points":21.})
+
+
+@pytest.mark.parametrize("side,sign",[("LONG",1),("SHORT",-1)])
+def test_free_research_gain_crosses_price_but_cannot_be_saved(side,sign,tmp_path):
+    from dataclasses import replace
+    from autotrader_ic14_ui import make_preview_figure,make_indicator_figure
+    cfg=config_v14(side,{"entry_confirmation_seconds":15})
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5)
+        for i,p in enumerate([100.+(i%2)*.2 for i in range(80)])]
+    normal=preview(q,cfg)
+    free=preview(q,replace(cfg,entry_gain_points=100.,research_unclamped_entry=True))
+    assert any(r["entry_price"] is not None and sign*(r["entry_price"]-r["mid"])<0 for r in free)
+    assert all(r["entry_threshold"] is None or r["entry_threshold"]>=1 for r in normal)
+    assert all(r["entry_ratio"] is None or r["entry_ratio"]==0 for r in free)
+    assert preview(q[:65],replace(cfg,entry_gain_points=100.,research_unclamped_entry=True))==free[:65]
+    fig=make_preview_figure(free,side=side,research=True)
+    assert fig.data[3].line.color!=fig.data[4].line.color
+    assert "EKSPERIMENT" in fig.layout.annotations[0].text
+    assert len(make_indicator_figure(free,"rsi",cfg).data[0].x)==len(q)
+    with pytest.raises(ValueError):
+        config_v14(side,{"research_unclamped_entry":True})
+    with connect(str(tmp_path/"research.db")) as db:
+        with pytest.raises(ValueError):
+            save_settings(db,"a",f"impulse-catcher-{side.lower()}-v1-4",{"entry_gain_points":100.})
