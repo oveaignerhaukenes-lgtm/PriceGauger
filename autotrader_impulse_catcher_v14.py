@@ -66,6 +66,8 @@ def config_v14(side,raw=None):
 @dataclass(frozen=True,slots=True)
 class ConfigV14(ImpulseCatcherConfig):
     entry_gain_points:float=0.
+    # Never accepted by normalize_settings or durable LIVE settings.
+    research_unclamped_entry:bool=False
     entry_confirmation_seconds:int=3
     minimum_hold_seconds:int=15
     atr_period:int=14
@@ -266,15 +268,20 @@ class ImpulseCatcherV14(ImpulseCatcher):
             # Preserve one-spread/one-point floor, maximum-spread gate and all
             # directional, data-quality, timing and broker guards. Zero is identity.
             floor=max(1.,spread)
-            threshold=max(floor,base_threshold-cfg.entry_gain_points)
-            effective_source="Minimumsgulv" if base_threshold-cfg.entry_gain_points<floor else source
+            adjusted=base_threshold-cfg.entry_gain_points
+            threshold=adjusted if cfg.research_unclamped_entry else max(floor,adjusted)
+            effective_source="Fri research" if cfg.research_unclamped_entry else "Minimumsgulv" if adjusted<floor else source
             # Exact observed price-distance threshold for this arm. Efficiency,
             # ATR availability, indicators and confirmation remain separate gates.
             boundary=recent[0][1]+sign*threshold
             self.trace["entry_fast_price" if w==cfg.windows_seconds[0] else "entry_slow_price"]=boundary
             boundaries.append((sign*(boundary-mid),boundary,threshold,w,eff,effective_source,base_threshold,source))
-            ratio=max(0.,delta/threshold)
-            best_ratio=max(best_ratio,ratio)
+            if threshold>0:
+                ratio=max(0.,delta/threshold)
+                if best_ratio is not None:best_ratio=max(best_ratio,ratio)
+            elif cfg.research_unclamped_entry:
+                # A ratio against a nonpositive threshold has no meaning.
+                best_ratio=None
             if delta>=threshold and eff>=cfg.minimum_directional_efficiency:
                 best=(delta,baseline,w)
         self.trace["entry_ratio"]=best_ratio
