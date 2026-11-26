@@ -124,3 +124,94 @@ def test_exit_overlay_is_exact_normal_retrace_price():
     assert m.trace["urgent_price"]==pytest.approx(120-m.trace["urgent"])
     assert m.trace["hold_remaining"]==14
     assert "Minimum hold" in m.trace["gate_detail"]
+
+
+def test_mobile_chart_and_rejected_attack_diagnostics():
+    from autotrader_ic14_ui import make_preview_figure
+    cfg=config_v14("LONG",{"fast_window":3,"slow_window":10,
+                          "entry_confirmation_seconds":15})
+    prices=[100.+(i%2)*.2 for i in range(80)]+[100.+5*i for i in range(1,5)]+[100.]*30
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5) for i,p in enumerate(prices)]
+    rows=preview(q,cfg)
+    candidates=[r for r in rows if r["gate"]=="ENTRY_CONFIRM"]
+    rejected=[r for r in rows if r["entry_rejected"]]
+    assert candidates and rejected
+    assert all(r["entry_confirm_required"]==15 for r in candidates)
+    assert rejected[0]["entry_reject_reason"] in ("Impuls under prisgrense","Retningseffektivitet under krav")
+    assert rejected[0]["entry_reject_elapsed"]<15
+    assert any(r["threshold_source"]=="Threshold" for r in rows)
+    fig=make_preview_figure(rows)
+    assert fig.layout.showlegend is False
+    assert make_preview_figure(rows,details=True).layout.showlegend is True
+    assert any(t.name=="Avbrutt attack" and len(t.x)>0 for t in fig.data)
+    assert preview(q[:95],cfg)==rows[:95]
+
+
+@pytest.mark.parametrize("side,sign",[("LONG",1),("SHORT",-1)])
+def test_entry_gain_moves_both_arms_toward_price_without_changing_baseline(side,sign):
+    raw={"fast_window":3,"slow_window":10,"entry_confirmation_seconds":15}
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5)
+        for i,p in enumerate([100.+(i%2)*.2 for i in range(80)])]
+    base=preview(q,config_v14(side,raw))
+    zero=preview(q,config_v14(side,{**raw,"entry_gain_points":0.}))
+    plus=preview(q,config_v14(side,{**raw,"entry_gain_points":4.}))
+    minus=preview(q,config_v14(side,{**raw,"entry_gain_points":-4.}))
+    floor=preview(q,config_v14(side,{**raw,"entry_gain_points":20.}))
+    assert base==zero
+    for b,p,m,f in zip(base,plus,minus,floor):
+        if b["entry_price"] is None:
+            continue
+        assert p["entry_price"]==pytest.approx(b["entry_price"]-sign*4)
+        assert m["entry_price"]==pytest.approx(b["entry_price"]+sign*4)
+        assert p["entry_base_price"]==pytest.approx(b["entry_price"])
+        assert p["entry_gain_applied"]==pytest.approx(4.)
+        assert f["entry_threshold"]>=1.
+        assert f["entry_threshold"]<=p["entry_threshold"]
+        assert f["threshold_source"]=="Minimumsgulv"
+        assert b["entry_fast_price"]-p["entry_fast_price"]==pytest.approx(sign*4)
+    from autotrader_ic14_ui import make_preview_figure
+    fig=make_preview_figure(plus,side=side,original=True)
+    assert any(t.name=="Entry · uten Gain" for t in fig.data)
+
+@pytest.mark.parametrize("side,sign",[("LONG",1),("SHORT",-1)])
+def test_entry_gain_changes_actual_signal_not_only_plot(side,sign):
+    raw={"fast_window":3,"slow_window":10,"entry_confirmation_seconds":0,
+         "min_impulse_points":9.,"minimum_directional_efficiency":.5}
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5)
+        for i,p in enumerate([100.]*80+[100.+sign*1.1*i for i in range(1,6)])]
+    b=preview(q,config_v14(side,raw))
+    p=preview(q,config_v14(side,{**raw,"entry_gain_points":5.}))
+    assert not any(r["decision"]=="QUALIFIED_IMPULSE_V14" for r in b)
+    assert any(r["decision"]=="QUALIFIED_IMPULSE_V14" for r in p)
+    assert preview(q[:83],config_v14(side,{**raw,"entry_gain_points":5.}))==p[:83]
+
+def test_entry_gain_keeps_spread_gate():
+    m=ImpulseCatcherV14(config=config_v14("LONG",{"entry_gain_points":20.,"maximum_spread_points":2.}))
+    assert m.on_quote(T,100.,104.) is None
+    assert m.trace["gate"]=="SPREAD_OR_COOLDOWN"
+    with pytest.raises(ValueError):
+        config_v14("LONG",{"entry_gain_points":21.})
+
+
+@pytest.mark.parametrize("side,sign",[("LONG",1),("SHORT",-1)])
+def test_free_research_gain_crosses_price_but_cannot_be_saved(side,sign,tmp_path):
+    from dataclasses import replace
+    from autotrader_ic14_ui import make_preview_figure,make_indicator_figure
+    cfg=config_v14(side,{"entry_confirmation_seconds":15})
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5)
+        for i,p in enumerate([100.+(i%2)*.2 for i in range(80)])]
+    normal=preview(q,cfg)
+    free=preview(q,replace(cfg,entry_gain_points=100.,research_unclamped_entry=True))
+    assert any(r["entry_price"] is not None and sign*(r["entry_price"]-r["mid"])<0 for r in free)
+    assert all(r["entry_threshold"] is None or r["entry_threshold"]>=1 for r in normal)
+    assert all(r["entry_ratio"] is None or r["entry_ratio"]==0 for r in free)
+    assert preview(q[:65],replace(cfg,entry_gain_points=100.,research_unclamped_entry=True))==free[:65]
+    fig=make_preview_figure(free,side=side,research=True)
+    assert fig.data[3].line.color!=fig.data[4].line.color
+    assert "EKSPERIMENT" in fig.layout.annotations[0].text
+    assert len(make_indicator_figure(free,"rsi",cfg).data[0].x)==len(q)
+    with pytest.raises(ValueError):
+        config_v14(side,{"research_unclamped_entry":True})
+    with connect(str(tmp_path/"research.db")) as db:
+        with pytest.raises(ValueError):
+            save_settings(db,"a",f"impulse-catcher-{side.lower()}-v1-4",{"entry_gain_points":100.})
