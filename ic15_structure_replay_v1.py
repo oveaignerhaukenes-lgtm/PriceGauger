@@ -44,6 +44,8 @@ def run(quotes,cfg,sc,mode,start,delay_s):
             continue
         if s["focus"]=="WARMUP":warmup+=1
         if gap and pending is not None:
+            if pending[0]=="EXIT" and opened is not None:
+                missed+=1;pending=None;break
             missed+=1;pending=None
             if opened is None:
                 model=ImpulseCatcherV14(config=cfg)
@@ -58,16 +60,20 @@ def run(quotes,cfg,sc,mode,start,delay_s):
                     model=ImpulseCatcherV14(config=cfg)
                 elif kind=="ENTRY":
                     opened=q.ask if sign==1 else q.bid
-                    if mode!="IC14":
+                    if mode!="IC14" or model.target=="FLAT":
                         model.target=cfg.side;model.entry_mid=model.extreme=q.mid
                         model.entered_at=model.last_extreme_at=q.at
                 elif opened is not None:
                     points+=sign*((q.bid if sign==1 else q.ask)-opened)
                     peak=max(peak,points);drawdown=max(drawdown,peak-points)
                     trades+=1;opened=None
+                    model.target="FLAT";model.entry_mid=model.extreme=model.entered_at=model.last_extreme_at=None
+                    model.candidate_at=model.retrace_at=None;model.last_exit_at=q.at
         if opened is not None:
             equity=points+sign*((q.bid if sign==1 else q.ask)-opened)
             peak=max(peak,equity);drawdown=max(drawdown,peak-equity)
+        if gap and opened is not None and pending is None:
+            pending=("EXIT",q.at)
         if mode=="IC14":
             d=model.on_quote(q.at,q.bid,q.ask,allow_entry=opened is None and pending is None)
             if pending is None:
