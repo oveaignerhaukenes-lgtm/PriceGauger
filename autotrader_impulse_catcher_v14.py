@@ -171,7 +171,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
         if elapsed>2.:
             # Confirmation requires observed persistence, not elapsed silence.
             self.candidate_at=self.retrace_at=None
-        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"gate":"WARMUP"}
+        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"entry_price":None,"entry_fast_price":None,"entry_slow_price":None,"entry_threshold":None,"entry_window":None,"entry_confirm_elapsed":None,"hold_remaining":None,"exit_confirm_elapsed":None,"gate_detail":"","gate":"WARMUP"}
         if gap:
             self.samples.clear()
             self.candidate_at=self.retrace_at=None
@@ -213,6 +213,17 @@ class ImpulseCatcherV14(ImpulseCatcher):
                     (at-self.retrace_at).total_seconds()>=cfg.exit_confirmation_seconds and
                     (at-self.entered_at).total_seconds()>=cfg.minimum_hold_seconds and
                     (at-self.last_extreme_at).total_seconds()>=cfg.exhaustion_seconds)
+            # Diagnostic only: expose the exact normal-exit gates without changing the decision.
+            self.trace["hold_remaining"]=max(0.,cfg.minimum_hold_seconds-(at-self.entered_at).total_seconds())
+            self.trace["exit_confirm_elapsed"]=(at-self.retrace_at).total_seconds() if self.retrace_at is not None else 0.
+            reasons=[]
+            if retrace<threshold:reasons.append("Retrace under terskel")
+            if self.trace["hold_remaining"]>0:reasons.append("Minimum hold")
+            if (at-self.last_extreme_at).total_seconds()<cfg.exhaustion_seconds:reasons.append("Nytt ekstrempunkt nylig")
+            if self.trace["exit_confirm_elapsed"]<cfg.exit_confirmation_seconds:reasons.append("Exit-bekreftelse")
+            if any(favorable(k) for k in cfg.hold_indicators):reasons.append("Hold-indikator i medgang")
+            if not all(adverse(k) for k in cfg.exit_indicators):reasons.append("Exit-indikator ikke bekreftet")
+            self.trace["gate_detail"]=" · ".join(reasons)
             if normal and not any(favorable(k) for k in cfg.hold_indicators) and all(adverse(k) for k in cfg.exit_indicators):
                 return flat("CONFIRMED_EXIT")
             return None
@@ -221,6 +232,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
         if spread>cfg.maximum_spread_points or (self.last_exit_at and (at-self.last_exit_at).total_seconds()<cfg.cooldown_seconds):
             self.candidate_at=None;self.trace["gate"]="SPREAD_OR_COOLDOWN";return None
         best=None;best_ratio=0.
+        boundaries=[]
         for w in cfg.windows_seconds:
             start=at-timedelta(seconds=w)
             recent=[(t,p) for t,p in self.samples if t>=start]
@@ -237,15 +249,27 @@ class ImpulseCatcherV14(ImpulseCatcher):
             baseline=median(hist)
             threshold=max(cfg.min_impulse_points,cfg.spread_impulse_multiple*spread,cfg.relative_impulse_multiple*baseline,
                           cfg.atr_entry_multiple*atr if atr is not None else 0.)
+            # Exact observed price-distance threshold for this arm. Efficiency,
+            # ATR availability, indicators and confirmation remain separate gates.
+            boundary=recent[0][1]+sign*threshold
+            self.trace["entry_fast_price" if w==cfg.windows_seconds[0] else "entry_slow_price"]=boundary
+            boundaries.append((sign*(boundary-mid),boundary,threshold,w,eff))
             ratio=max(0.,delta/threshold)
             best_ratio=max(best_ratio,ratio)
             if delta>=threshold and eff>=cfg.minimum_directional_efficiency:
                 best=(delta,baseline,w)
         self.trace["entry_ratio"]=best_ratio
+        if boundaries:
+            _,boundary,threshold,w,eff=min(boundaries,key=lambda x:x[0])
+            self.trace.update(entry_price=boundary,entry_threshold=threshold,entry_window=w,entry_efficiency=eff)
+        self.trace["gate_detail"]=("Manglende ATR" if cfg.atr_entry_multiple and atr is None else
+            "Entry-indikator ikke bekreftet" if not all(favorable(k) for k in cfg.entry_indicators) else
+            "Impuls eller retningseffektivitet under krav" if best is None else "Bekreftelse pågår")
         if best is None or (cfg.atr_entry_multiple and atr is None) or not all(favorable(k) for k in cfg.entry_indicators):
             self.candidate_at=None;self.trace["gate"]="ENTRY_BLOCKED";return None
         self.candidate_at=self.candidate_at or at
         self.trace["gate"]="ENTRY_CONFIRM"
+        self.trace["entry_confirm_elapsed"]=(at-self.candidate_at).total_seconds()
         if (at-self.candidate_at).total_seconds()<cfg.entry_confirmation_seconds:return None
         delta,baseline,w=best
         self.target=cfg.side;self.entry_mid=self.extreme=mid;self.entered_at=self.last_extreme_at=at
