@@ -45,6 +45,8 @@ selected=st.selectbox("Instans",ids,index=ids.index(active),
 current=configs[selected].strategy_key
 keys=tuple(sorted(KEYS))
 requested=st.session_state.pop("ic14:studio:requested_strategy",None)
+if requested in keys:
+    st.session_state["ic14:studio:variant:"+selected]=requested
 variant=st.selectbox("IC v1.4 variant",keys,index=keys.index(current) if current in keys else 0,
     format_func=lambda k:"LONG / FLAT" if "-long-" in k else "SHORT / FLAT",
     key="ic14:studio:variant:"+selected)
