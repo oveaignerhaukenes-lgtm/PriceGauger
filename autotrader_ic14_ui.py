@@ -1,6 +1,7 @@
 """Instance-local IC14 controls and read-only causal signal inspection."""
 from datetime import datetime,timedelta,timezone
 from collections import Counter
+from dataclasses import replace
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -57,7 +58,7 @@ def _display_rows(data):
         display.append(row)
     return pd.DataFrame(display)
 
-def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=False):
+def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=False,research=False):
     """Price-domain overlay of the model's own observed thresholds.
     Crossing a price boundary is necessary, not sufficient, for normal signals.
     """
@@ -73,9 +74,9 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=Fal
     for name,color in (("LONG","#16a34a"),("SHORT","#f59e0b")):
         fig.add_trace(go.Scatter(x=x,y=df.mid.where(df.target==name),name=name+" · HOLD",
             line=dict(color=color,width=3),connectgaps=False))
-    # Both entry and exit are red, distinguished by dashes and state.
+    # Distinct hues for entry and exit, including optional entry arms.
     for k,label,color,dash,width in (
-        ("entry_price","ENTRY · prisgrense","#ef4444","dash",2),
+        ("entry_price","ENTRY · prisgrense","#38bdf8","solid",2),
         ("normal_price","EXIT · normal","#ef4444","solid",2),
         ("urgent_price","EXIT · akutt","#a81e38","dot",1.5)):
         fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color=color,dash=dash,width=1.3 if not details else width),
@@ -84,7 +85,7 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=Fal
         fig.add_trace(go.Scatter(x=x,y=series("entry_base_price"),name="Entry · uten Gain",line=dict(color="#9ca3af",dash="dot",width=1),connectgaps=False,hovertemplate="%{y:.2f}<extra>Uten Gain · samme arm</extra>"))
     if arms:
         for k,label in (("entry_fast_price","Entry · rask arm"),("entry_slow_price","Entry · treg arm")):
-            fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color="#fb7185",dash="dot",width=1),connectgaps=False))
+            fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color="#7dd3fc",dash="dot",width=1),connectgaps=False))
     entry=df[df.decision=="QUALIFIED_IMPULSE_V14"]
     exits=df[df.decision.notna() & (df.decision!="QUALIFIED_IMPULSE_V14")]
     for subset,name,symbol,color in ((entry,"ENTRY","triangle-up" if side=="LONG" else "triangle-down","#16a34a"),
@@ -105,6 +106,8 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=Fal
     fig.update_xaxes(tickformat="%H:%M:%S",nticks=5,automargin=True)
     fig.update_layout(height=440,hovermode="closest",margin=dict(l=4,r=4,t=12,b=4),
         showlegend=details,legend=dict(orientation="h",yanchor="bottom",y=1.02,x=0),dragmode="zoom")
+    if research:
+        fig.add_annotation(xref="paper",yref="paper",x=0,y=1,text="EKSPERIMENT · ingen LIVE-ruting",showarrow=False,font=dict(color="#eab308",size=12),xanchor="left",yanchor="top")
     return fig
 
 def make_diagnostics_figure(data):
@@ -121,9 +124,22 @@ def make_diagnostics_figure(data):
     fig.update_layout(height=330,hovermode="x unified",margin=dict(l=10,r=8,t=40,b=15),legend=dict(orientation="h"))
     return fig
 
+def make_indicator_figure(data,indicator,cfg):
+    df=_display_rows(data)
+    y=df[indicator] if indicator in df else [None]*len(df)
+    fig=go.Figure(go.Scatter(x=[t.isoformat() for t in df["at"]],y=y,
+        name=NAMES.get(indicator,"ATR"),line=dict(color="#38bdf8"),connectgaps=False))
+    if indicator!="atr":
+        threshold=getattr(cfg,indicator+"_threshold",0.)
+        for v in set((threshold,-threshold)):
+            fig.add_hline(y=v,line_dash="dot",line_color="#eab308")
+    fig.update_layout(height=180,margin=dict(l=6,r=6,t=8,b=6),showlegend=False)
+    fig.update_xaxes(type="date",tickformat="%H:%M:%S")
+    return fig
+
 def render_ic14(trader_id,key,*,prefix):
     st.markdown("**Impulse Catcher v1.4 · signalmixer**")
-    st.caption("Juster fem hovedkontroller og se prisgrafen under. Kun eksplisitt lagring endrer LIVE-innstillinger.")
+    st.caption("Juster parameterfanene under grafen. Kun eksplisitt lagring endrer LIVE-innstillinger.")
     with connect("pricegauger.db") as db:
         saved=load_settings(db,trader_id,key)
     root=f"{prefix}:ic14:{trader_id}:{key}"
@@ -131,10 +147,23 @@ def render_ic14(trader_id,key,*,prefix):
     # Independent draft survives optional panel visibility. No saved settings
     # change when a panel is closed or a display option is toggled.
     values={**saved,**st.session_state.get(draft_key,{})}
+    chart_col,view_col=st.columns([5,1.3])
+    chart_slot=chart_col.container()
+    with view_col:
+        st.markdown("**Visning**")
+        minutes=st.selectbox("Periode (min)",[1,2,3,5,15,30,60],index=4,key=root+":minutes")
+        back=st.number_input("Minutter tilbake",min_value=0,max_value=1440,value=0,step=1,key=root+":back-min")
+        arms=st.checkbox("Begge entry-armer",key=root+":arms")
+        details=st.checkbox("Full tegnforklaring",key=root+":legend")
+        original=st.checkbox("Original entry-grense",key=root+":original")
+        research=st.checkbox("Fri kurve · research",key=root+":research",help="Fjern minimumsgulvet kun i forhåndsvisningen. Kan ikke lagres til LIVE.")
+        free_gain=st.slider("Fri Gain (punkter)",-200.,200.,0.,step=.5,key=root+":free-gain") if research else None
+        if research:st.warning("Kun eksperiment. Lagring er sperret.")
+    main_tab,entry_tab,exit_tab,atr_tab,ind_tab,auto_tab=st.tabs(["Mixer","Entry","Hold / Exit","ATR","Indikatorer","Auto"])
     # Auto is a local draft operation. Never save or alter account authority.
     from autotrader_ic14_auto_v1 import propose_ic14
     auto_key=root+":auto"
-    a,b=st.columns([1,3])
+    a,b=auto_tab.columns([1,3])
     if a.button("Auto · siste time",key=root+":auto-analyze",help="Mål siste times impuls, spread og retracement. Ingen LIVE-endring før separat lagring."):
         try:
             clock=datetime.now(timezone.utc)
@@ -143,18 +172,18 @@ def render_ic14(trader_id,key,*,prefix):
             st.session_state[auto_key]=proposal
         except Exception as exc:
             st.session_state.pop(auto_key,None)
-            st.warning("Auto: "+(str(exc) if isinstance(exc,ValueError) else "Data utilgjengelig: "+type(exc).__name__))
+            auto_tab.warning("Auto: "+(str(exc) if isinstance(exc,ValueError) else "Data utilgjengelig: "+type(exc).__name__))
     proposal=st.session_state.get(auto_key)
     if proposal is not None:
         ev=proposal.evidence
         b.caption(f"{ev['quotes']} quotes · median spread {ev['spread']:.2f} p · median {ev['window_s']}s-bevegelse {ev['median_move']:.2f} p · retningsimpuls P85 {ev['directional_p85']:.2f} p")
-        st.caption(f"Måleperiode: {ev['start']} – {ev['end']} · {ev['runs']} avsluttede løp · {ev['recovered_pullbacks']} gjeninnhentede retraces. Hold/Depth/Release beholdes ved for få relevante observasjoner.")
-        st.dataframe([{"Kontroll":label.split(" · ")[0],
+        auto_tab.caption(f"Måleperiode: {ev['start']} – {ev['end']} · {ev['runs']} avsluttede løp · {ev['recovered_pullbacks']} gjeninnhentede retraces. Hold/Depth/Release beholdes ved for få relevante observasjoner.")
+        auto_tab.dataframe([{"Kontroll":label.split(" · ")[0],
             "Nå":round(values[name]*100) if unit=="%" else values[name],
             "Forslag":round(proposal.settings[name]*100) if unit=="%" else proposal.settings[name],
             "Enhet":unit} for name,label,unit,_ in AUTO_CONTROLS],
             hide_index=True,use_container_width=True)
-        if st.button("Bruk forslag i forhåndsvisning",key=root+":auto-apply"):
+        if auto_tab.button("Bruk forslag i forhåndsvisning",key=root+":auto-apply"):
             for name,_,unit,_ in AUTO_CONTROLS:
                 values[name]=proposal.settings[name]
                 if unit=="%":
@@ -163,7 +192,7 @@ def render_ic14(trader_id,key,*,prefix):
                     st.session_state[f"{root}:{name}"]=values[name]
             st.session_state[draft_key]=dict(values)
             st.session_state.pop(auto_key,None)
-        st.caption("Statistisk signaltilpasning, ikke profittoptimalisering. Attack er en heuristikk fra valgt impulsvindu; øvrige prisfiltre kan fortsatt dominere terskelen. Ingen automatisk lagring.")
+        auto_tab.caption("Statistisk signaltilpasning, ikke profittoptimalisering. Attack er en heuristikk fra valgt impulsvindu; øvrige prisfiltre kan fortsatt dominere terskelen. Ingen automatisk lagring.")
     def control(name,host=st,label=None,help=None,percent=False):
         lo,hi,step,_=SLIDERS[name]
         if percent:
@@ -172,64 +201,65 @@ def render_ic14(trader_id,key,*,prefix):
             values[name]=v/100
         else:
             values[name]=host.slider(label or LABELS[name],lo,hi,values[name],step=step,key=f"{root}:{name}",help=help)
-    cols=st.columns(5)
+    cols=main_tab.columns(5)
     for col,(name,label,unit,help) in zip(cols,MAIN_CONTROLS):
         control(name,col,label+(" ("+unit+")" if unit!="%" else ""),help,percent=unit=="%")
-    st.caption("Entry Gain ↑ = mer følsom · Attack ↑ = tregere entry · Hold ↑ = mindre tidlig exit · Depth ↑ = mer retrace · Release ↑ = tregere normal exit. Auto justerer grunnterskelen; Gain er din manuelle trim.")
-    panels=st.multiselect("Legg til paneler",["Avansert ENTRY","Avansert HOLD/EXIT","ATR","Prishastighet","Prisakselerasjon","Retningseffektivitet","MACD-histogram","Stochastic","RSI","HH/HL · LH/LL"],
-        key=root+":panels",placeholder="Velg bare det du vil finjustere")
-    if "Avansert ENTRY" in panels:
-        with st.expander("Avansert ENTRY",expanded=True):
-            for name in ("min_impulse_points","fast_window","slow_window","relative_impulse_multiple","minimum_directional_efficiency","maximum_spread_points","spread_impulse_multiple"):
-                control(name)
-    if "Avansert HOLD/EXIT" in panels:
-        with st.expander("Avansert HOLD/EXIT",expanded=True):
-            for name in ("exhaustion_seconds","minimum_retrace_points","exit_noise_multiple","urgent_retrace_points","cooldown_seconds"):
-                control(name)
-    if "ATR" in panels:
-        with st.expander("ATR · volatilitet",expanded=True):
-            for name in ("atr_period","atr_entry_multiple","atr_exit_multiple"):control(name)
-            st.caption("0 = av. ATR utvider prisgrensene ved høyere volatilitet. Ferdige 5s-bøtter.")
-    for ind,label in NAMES.items():
-        if label not in panels:continue
-        with st.expander(label,expanded=True):
-            selected=[p for p in ("entry","hold","exit") if ind in values[p+"_indicators"]]
-            phases=st.multiselect("Bruk ved",["entry","hold","exit"],default=selected,
-                format_func=str.upper,key=f"{root}:{ind}:phases")
-            for phase in ("entry","hold","exit"):
-                old=[v for v in values[phase+"_indicators"] if v!=ind]
-                values[phase+"_indicators"]=[v for v in INDICATORS if v in old or (v==ind and phase in phases)]
-            if ind=="macd":
-                for name,label2 in (("macd_fast","MACD · rask (ticks)"),("macd_slow","MACD · treg (ticks)"),("macd_signal","MACD · signal (ticks)"),("macd_threshold","Histogram · terskel")):
-                    control(name,label=label2)
-            else:
-                control(ind+"_period",label="Periode (ticks)")
-                if ind!="structure":control(ind+"_threshold",label="Retningsterskel")
-            st.caption("ENTRY: alle valgte må støtte retningen. HOLD: én i medgang kan utsette normal exit. EXIT: valgte tilgjengelige indikatorer må være i motgang.")
+    main_tab.caption("Entry Gain ↑ = mer følsom · Attack ↑ = tregere entry · Hold ↑ = mindre tidlig exit · Depth ↑ = mer retrace · Release ↑ = tregere normal exit. Auto justerer grunnterskelen; Gain er din manuelle trim.")
+    with entry_tab:
+        names=("min_impulse_points","fast_window","slow_window","relative_impulse_multiple","minimum_directional_efficiency","maximum_spread_points","spread_impulse_multiple")
+        cols=st.columns(3)
+        for i,name in enumerate(names):
+            control(name,cols[i%3])
+    with exit_tab:
+        cols=st.columns(3)
+        for i,name in enumerate(("exhaustion_seconds","minimum_retrace_points","exit_noise_multiple","urgent_retrace_points","cooldown_seconds")):
+            control(name,cols[i%3])
+    with atr_tab:
+        cols=st.columns(3)
+        for i,name in enumerate(("atr_period","atr_entry_multiple","atr_exit_multiple")):
+            control(name,cols[i])
+        st.caption("0 = av. ATR utvider prisgrensene ved høyere volatilitet. Ferdige 5s-bøtter.")
+        atr_plot=st.container()
+    with ind_tab:
+        selected_ind=st.selectbox("Indikator",tuple(NAMES),format_func=lambda k:NAMES[k],key=root+":indicator-edit")
+        ind=selected_ind
+        selected=[p for p in ("entry","hold","exit") if ind in values[p+"_indicators"]]
+        phases=st.multiselect("Bruk ved",["entry","hold","exit"],default=selected,
+            format_func=str.upper,key=f"{root}:{ind}:phases")
+        for phase in ("entry","hold","exit"):
+            old=[v for v in values[phase+"_indicators"] if v!=ind]
+            values[phase+"_indicators"]=[v for v in INDICATORS if v in old or (v==ind and phase in phases)]
+        cols=st.columns(4 if ind=="macd" else 2)
+        if ind=="macd":
+            for i,(name,label2) in enumerate((("macd_fast","MACD · rask (ticks)"),("macd_slow","MACD · treg (ticks)"),("macd_signal","MACD · signal (ticks)"),("macd_threshold","Histogram · terskel"))):
+                control(name,cols[i],label=label2)
+        else:
+            control(ind+"_period",cols[0],label="Periode (ticks)")
+            if ind!="structure":control(ind+"_threshold",cols[1],label="Retningsterskel")
+        st.caption("ENTRY: alle valgte må støtte retningen. HOLD: én i medgang kan utsette normal exit. EXIT: valgte tilgjengelige indikatorer må være i motgang.")
+        indicator_plot=st.container()
     st.session_state[draft_key]=dict(values)
     active=[NAMES[i]+" ("+"/".join(p.upper() for p in ("entry","hold","exit") if i in values[p+"_indicators"])+")"
             for i in INDICATORS if any(i in values[p+"_indicators"] for p in ("entry","hold","exit"))]
     if values["atr_entry_multiple"] or values["atr_exit_multiple"]:
         active.append("ATR")
-    st.caption("Aktive indikatorfiltre: "+(", ".join(active) if active else "ingen ekstra")+" · skjulte paneler beholder innstillingene.")
+    main_tab.caption("Aktive indikatorfiltre: "+(", ".join(active) if active else "ingen ekstra")+" · alle innstillinger beholdes ved bytte av fane.")
     try:
         cfg=config_v14("LONG" if "-long-" in key else "SHORT",values)
     except ValueError as exc:
         st.warning(str(exc));return
-    st.markdown("**Tech100 · signalrespons**")
-    a,b,c=st.columns([2,2,1])
-    minutes=a.selectbox("Periode (min)",[1,2,3,5,15,30,60],index=4,key=root+":minutes")
-    back=b.number_input("Minutter tilbake",min_value=0,max_value=1440,value=0,step=1,key=root+":back-min")
-    arms=c.checkbox("Begge entry-armer",key=root+":arms",help="Vis rask og treg prisgrense i tillegg til nærmeste.")
-    details=st.checkbox("Vis full tegnforklaring",value=False,key=root+":legend")
-    original=st.checkbox("Vis opprinnelig entry-grense (uten Gain)",value=False,key=root+":original")
+    if research:
+        cfg=replace(cfg,entry_gain_points=free_gain,research_unclamped_entry=True)
     end=datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=back)
     quotes,start=load_preview_quotes(minutes,end)
     trace=[r for r in preview(quotes,cfg) if r["at"]>=start] if quotes else []
     if trace:
-        st.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details,original=original),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
+        chart_slot.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details,original=original,research=research),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
+        chart_slot.caption("Grå: pris · blå: entry-grense · rød: exit · grønn/oransje: HOLD · gul: Attack / avbrutt Attack.")
+        indicator_plot.plotly_chart(make_indicator_figure(trace,selected_ind,cfg),use_container_width=True,key=root+":indicator-meter")
+        atr_plot.plotly_chart(make_indicator_figure(trace,"atr",cfg),use_container_width=True,key=root+":atr-meter")
         latest=trace[-1]
-        st.caption("Grå = pris · grønn/oransje = HOLD · rød stiplet = ENTRY · rød heltrukket/prikket = normal/akutt EXIT · gul sirkel/kryss = Attack/avbrutt Attack. Trykk på et punkt for detaljer.")
+        st.caption("Signalstatistikk for valgt periode. Trykk på et punkt for detaljer.")
         attempts=[r for r in trace if r.get("entry_rejected")]
         entries=sum(r.get("decision")=="QUALIFIED_IMPULSE_V14" for r in trace)
         reasons=Counter(r["entry_reject_reason"] for r in attempts)
@@ -253,7 +283,7 @@ def render_ic14(trader_id,key,*,prefix):
         st.caption(f"{len(trace)} ekte 1s BBO-observasjoner. FLAT ved oppvarming; signalrespons, ikke Saxo-fills, regime-/modifier-simulering eller P/L.")
     else:
         st.info("Ingen registrerte quotes i valgt periode.")
-    if st.button("Lagre IC v1.4",key=root+":save",disabled=values==saved):
+    if st.button("Lagre IC v1.4",key=root+":save",disabled=research or values==saved):
         with connect("pricegauger.db") as db:
             save_settings(db,trader_id,key,values)
         st.success("Innstillinger lagret for denne instansen. Neste LIVE-syklus leser dem.")
