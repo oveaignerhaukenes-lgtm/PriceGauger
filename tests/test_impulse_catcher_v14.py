@@ -124,3 +124,24 @@ def test_exit_overlay_is_exact_normal_retrace_price():
     assert m.trace["urgent_price"]==pytest.approx(120-m.trace["urgent"])
     assert m.trace["hold_remaining"]==14
     assert "Minimum hold" in m.trace["gate_detail"]
+
+
+def test_mobile_chart_and_rejected_attack_diagnostics():
+    from autotrader_ic14_ui import make_preview_figure
+    cfg=config_v14("LONG",{"fast_window":3,"slow_window":10,
+                          "entry_confirmation_seconds":15})
+    prices=[100.+(i%2)*.2 for i in range(80)]+[100.+5*i for i in range(1,5)]+[100.]*30
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5) for i,p in enumerate(prices)]
+    rows=preview(q,cfg)
+    candidates=[r for r in rows if r["gate"]=="ENTRY_CONFIRM"]
+    rejected=[r for r in rows if r["entry_rejected"]]
+    assert candidates and rejected
+    assert all(r["entry_confirm_required"]==15 for r in candidates)
+    assert rejected[0]["entry_reject_reason"] in ("Impuls under prisgrense","Retningseffektivitet under krav")
+    assert rejected[0]["entry_reject_elapsed"]<15
+    assert any(r["threshold_source"]=="Threshold" for r in rows)
+    fig=make_preview_figure(rows)
+    assert fig.layout.showlegend is False
+    assert make_preview_figure(rows,details=True).layout.showlegend is True
+    assert any(t.name=="Avbrutt attack" and len(t.x)>0 for t in fig.data)
+    assert preview(q[:95],cfg)==rows[:95]
