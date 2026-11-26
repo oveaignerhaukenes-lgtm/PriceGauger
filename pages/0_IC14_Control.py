@@ -52,10 +52,14 @@ variant=st.selectbox("IC v1.4 variant",keys,index=keys.index(current) if current
     key="ic14:studio:variant:"+selected)
 if variant!=current:
     st.info("Du redigerer en ikke-valgt variant. Lagring her endrer kun dens egne parametere, ikke hvilken strategi som er aktiv.")
-mode=st.radio("Arbeidsflate",["IC v1.4 · kontroll","IC v1.5 · signal-lab (eksperiment)"],horizontal=True)
+mode=st.radio("Arbeidsflate",["IC v1.4 · kontroll","IC v1.5 · signal-lab (eksperiment)","IC v1.5 · strukturfokus"],horizontal=True)
 if mode=="IC v1.4 · kontroll":
     render_ic14(selected,variant,prefix="ic14-studio")
-else:
+elif mode=="IC v1.5 · signal-lab (eksperiment)":
     from signal_dsp_lab_ui_v1 import render_signal_dsp_lab
     st.caption("Forskningsflate for fremtidig IC v1.5. Sidechain fra andre markeder og LIVE-ruting er ikke implementert.")
     render_signal_dsp_lab()
+
+else:
+    from ic15_structure_ui_v1 import render_structure_lab
+    render_structure_lab(selected,variant)
