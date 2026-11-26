@@ -29,8 +29,11 @@ def test_tradingdesk_and_autodesk_are_prominent_top_level_operational_pages() ->
     markedsrytme = PAGE_GROUPS[""][3]
     markedsmodeller = PAGE_GROUPS[""][4]
     autotrader_v3 = PAGE_GROUPS[""][5]
-    markedsfilter = PAGE_GROUPS[""][6]
-    autodesk = PAGE_GROUPS[""][7]
+    studio = PAGE_GROUPS[""][6]
+    markedsfilter = PAGE_GROUPS[""][7]
+    autodesk = PAGE_GROUPS[""][8]
+    assert studio["page"] == "pages/0_IC14_Control.py"
+    assert studio["url_path"] == "Signal_Studio"
     assert trading_desk["page"] == "pages/0_TradingDesk.py"
     assert trading_desk["url_path"] == "TradingDesk"
     assert live_chart["page"] == "pages/0_Live_Chart.py"
