@@ -1,5 +1,6 @@
 """Instance-local IC14 controls and read-only causal signal inspection."""
 from datetime import datetime,timedelta,timezone
+from collections import Counter
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -64,7 +65,7 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False):
     def series(k):
         return df[k] if k in df else pd.Series([None]*len(df),dtype=object)
     detail=series("gate_detail").fillna("")
-    fig.add_trace(go.Scatter(x=x,y=df.mid,name="Tech100 · mid",line=dict(color="#a0a6b1",width=1.5),
+    fig.add_trace(go.Scatter(x=x,y=df.mid,name="Tech100 · mid",line=dict(color="#c5cbd3",width=2.2),
         connectgaps=False,customdata=list(zip(df["gate"].fillna("Datagap"),detail)),
         hovertemplate="%{y:.2f}<br>%{customdata[0]}<br>%{customdata[1]}<extra>Tech100</extra>"))
     for name,color in (("LONG","#16a34a"),("SHORT","#f59e0b")):
@@ -75,7 +76,7 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False):
         ("entry_price","ENTRY · prisgrense","#ef4444","dash",2),
         ("normal_price","EXIT · normal","#ef4444","solid",2),
         ("urgent_price","EXIT · akutt","#a81e38","dot",1.5)):
-        fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color=color,dash=dash,width=width),
+        fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color=color,dash=dash,width=1.3 if not details else width),
             connectgaps=False,hovertemplate="%{y:.2f}<extra>"+label+"</extra>"))
     if arms:
         for k,label in (("entry_fast_price","Entry · rask arm"),("entry_slow_price","Entry · treg arm")):
@@ -89,11 +90,17 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False):
     # Amber marks price ticks where entry confirmation is running.
     cand=df[df.gate=="ENTRY_CONFIRM"]
     fig.add_trace(go.Scatter(x=[t.isoformat() for t in cand["at"]],y=cand.mid,mode="markers",name="Attack · venter",
-        marker=dict(symbol="circle-open",color="#eab308",size=5),hovertemplate="Entry-bekreftelse pågår<extra></extra>"))
+        customdata=list(zip(cand["entry_confirm_elapsed"],cand["entry_confirm_required"])),
+        marker=dict(symbol="circle-open",color="#eab308",size=6),hovertemplate="Attack: %{customdata[0]:.1f}/%{customdata[1]} s<extra></extra>"))
+    rejected=df[series("entry_rejected").eq(True)]
+    fig.add_trace(go.Scatter(x=[t.isoformat() for t in rejected["at"]],y=rejected.mid,mode="markers",name="Avbrutt attack",
+        customdata=list(zip(rejected["entry_reject_elapsed"],rejected["entry_reject_reason"])),
+        marker=dict(symbol="x",color="#eab308",size=7),hovertemplate="Avbrutt etter %{customdata[0]:.1f} s<br>%{customdata[1]}<extra></extra>"))
     fig.update_xaxes(type="date",showgrid=False)
-    fig.update_yaxes(title="Indekspoeng",fixedrange=False)
-    fig.update_layout(height=460,hovermode="x unified",margin=dict(l=12,r=8,t=10,b=10),
-        legend=dict(orientation="h",yanchor="bottom",y=1.02,x=0),dragmode="zoom")
+    fig.update_yaxes(title=None,fixedrange=False,tickformat=".0f",nticks=6,automargin=True)
+    fig.update_xaxes(tickformat="%H:%M:%S",nticks=5,automargin=True)
+    fig.update_layout(height=440,hovermode="closest",margin=dict(l=4,r=4,t=12,b=4),
+        showlegend=details,legend=dict(orientation="h",yanchor="bottom",y=1.02,x=0),dragmode="zoom")
     return fig
 
 def make_diagnostics_figure(data):
@@ -210,19 +217,32 @@ def render_ic14(trader_id,key,*,prefix):
     minutes=a.selectbox("Periode (min)",[1,2,3,5,15,30,60],index=4,key=root+":minutes")
     back=b.number_input("Minutter tilbake",min_value=0,max_value=1440,value=0,step=1,key=root+":back-min")
     arms=c.checkbox("Begge entry-armer",key=root+":arms",help="Vis rask og treg prisgrense i tillegg til nærmeste.")
+    details=st.checkbox("Vis full tegnforklaring",value=False,key=root+":legend")
     end=datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=back)
     quotes,start=load_preview_quotes(minutes,end)
     trace=[r for r in preview(quotes,cfg) if r["at"]>=start] if quotes else []
     if trace:
-        st.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms),use_container_width=True,key=root+":preview")
+        st.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
         latest=trace[-1]
-        st.caption("Rød stiplet: nødvendig entry-pris · rød heltrukket: normal exit · rød prikket: akutt exit. Prisgrense alene er ikke nok; Attack, Hold, Release, retning og indikatorer kan fortsatt sperre.")
+        st.caption("Grå = pris · grønn/oransje = HOLD · rød stiplet = ENTRY · rød heltrukket/prikket = normal/akutt EXIT · gul sirkel/kryss = Attack/avbrutt Attack. Trykk på et punkt for detaljer.")
+        attempts=[r for r in trace if r.get("entry_rejected")]
+        entries=sum(r.get("decision")=="QUALIFIED_IMPULSE_V14" for r in trace)
+        reasons=Counter(r["entry_reject_reason"] for r in attempts)
+        counts=Counter(r.get("threshold_source") for r in trace if r.get("threshold_source"))
+        st.caption(f"Perioden: {entries} entry-signaler · {len(attempts)} avbrutte Attack. "+("Hyppigste sperrer: "+", ".join(f"{k} ({v})" for k,v in reasons.most_common(3)) if reasons else ""))
+        if counts:
+            st.caption("Dominerende entry-terskel: "+", ".join(f"{k} ({100*v/sum(counts.values()):.0f} %)" for k,v in counts.most_common()))
         e,x,h=st.columns(3)
         def pts(v):return "—" if v is None else f"{v:.2f}"
         e.metric("Entry-grense",pts(latest.get("entry_price")))
         x.metric("Normal exit-grense",pts(latest.get("normal_price")))
         h.metric("Hold igjen (s)",pts(latest.get("hold_remaining")))
         st.caption("Siste signalstatus: "+latest["gate"]+" · "+(latest.get("gate_detail") or "Se graf"))
+        if latest.get("entry_confirm_elapsed") is not None and latest["gate"]=="ENTRY_CONFIRM":
+            required=latest["entry_confirm_required"]
+            st.progress(min(1.,latest["entry_confirm_elapsed"]/max(1,required)),text=f"Attack {latest[\'entry_confirm_elapsed\']:.1f}/{required} s")
+        if latest.get("threshold_source"):
+            st.caption(f"Aktiv prisgrense: {latest[\'entry_threshold\']:.2f} p · {latest[\'threshold_source\']} · {latest[\'entry_window\']}s arm")
         with st.expander("Detaljert signalmeter",expanded=False):
             st.plotly_chart(make_diagnostics_figure(trace),use_container_width=True,key=root+":meters")
         st.caption(f"{len(trace)} ekte 1s BBO-observasjoner. FLAT ved oppvarming; signalrespons, ikke Saxo-fills, regime-/modifier-simulering eller P/L.")
