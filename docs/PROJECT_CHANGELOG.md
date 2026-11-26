@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `f65682d0dd6ee20524ba2c7cf5c065296b4b9d3f`
+Latest tracked main commit: `74d14d6aca5cb60d692bc489d11aa18e5d927c42`
 
 ## Recent main commits
 
+- 2026-11-26 [`74d14d6aca`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74d14d6aca5cb60d692bc489d11aa18e5d927c42) — IC v1.4 signalmixer: five controls and actual price-domain overlay (#892)
 - 2026-11-26 [`f65682d0dd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f65682d0dd6ee20524ba2c7cf5c065296b4b9d3f) — Impulse Catcher v1.4 LIVE · adjustable signal processor and Tech100 overlay (#891)
 - 2026-11-25 [`5af1a7a7ab`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5af1a7a7ab2565799d446731304b1d41e92e0d8d) — Mirror A/B: credentialed fill audit, one-sided calibration, independent Impulse Exit (#890)
 - 2026-11-25 [`5e51768118`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/5e517681185e7b0c005ea0334ba66081da7e75e1) — LIVE Mirror Lab: independent scenarios, calibration evidence, validation and evolution prototype (#888)
@@ -46,6 +47,5 @@ Latest tracked main commit: `f65682d0dd6ee20524ba2c7cf5c065296b4b9d3f`
 - 2026-11-18 [`6a6c4ad90d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6a6c4ad90d86757f5b68885c5ca2228b454cb180) — Add Market Models hub and causal 3x3 market state foundation (#851)
 - 2026-11-17 [`e16f1db0d2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e16f1db0d21ad9d74a224c7cb5520defc96a0186) — Research: market as coupled strings — cross-market coherence, common factor, held-out leads (#849)
 - 2026-11-17 [`67c733c951`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/67c733c951d43cca4990a284b03aa4463513de06) — Impulse Catcher v1.1: eliminate false BBO gaps from slow V3 cycles (#848)
-- 2026-11-17 [`0adc54287d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0adc54287d2a5b979c6c571790a34ea93126c7b7) — Make unverified AutoTrader chart markers readable on mobile (#847)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
