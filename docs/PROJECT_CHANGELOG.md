@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `6d4b15dd3f871939a700921f34eb259002ad2ff6`
+Latest tracked main commit: `32774abf4aa83cf6ef81b841eb75c53b01722175`
 
 ## Recent main commits
 
+- 2026-11-26 [`32774abf4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/32774abf4aa83cf6ef81b841eb75c53b01722175) — IC14 · mobile price overlay and exact entry rejection diagnostics (#894)
 - 2026-11-26 [`6d4b15dd3f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6d4b15dd3f871939a700921f34eb259002ad2ff6) — Signal Studio · dedicated IC14 controls and isolated DSP plugin lab (#893)
 - 2026-11-26 [`74d14d6aca`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/74d14d6aca5cb60d692bc489d11aa18e5d927c42) — IC v1.4 signalmixer: five controls and actual price-domain overlay (#892)
 - 2026-11-26 [`f65682d0dd`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/f65682d0dd6ee20524ba2c7cf5c065296b4b9d3f) — Impulse Catcher v1.4 LIVE · adjustable signal processor and Tech100 overlay (#891)
@@ -46,6 +47,5 @@ Latest tracked main commit: `6d4b15dd3f871939a700921f34eb259002ad2ff6`
 - 2026-11-18 [`9a8bf4d798`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9a8bf4d7989dc1139a9490a53c39989238ec74e0) — Run V3 LIVE independently per account and veto stale quote entries (#853)
 - 2026-11-18 [`1d9c3673fe`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d9c3673fe7f699f3f31bf20838e4fa2bac83446) — Impulse Catcher v1.2/v1.3: patient exits and regime PAPER comparison (#852)
 - 2026-11-18 [`6a6c4ad90d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6a6c4ad90d86757f5b68885c5ca2228b454cb180) — Add Market Models hub and causal 3x3 market state foundation (#851)
-- 2026-11-17 [`e16f1db0d2`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/e16f1db0d21ad9d74a224c7cb5520defc96a0186) — Research: market as coupled strings — cross-market coherence, common factor, held-out leads (#849)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
