@@ -168,10 +168,17 @@ class ImpulseCatcherV14(ImpulseCatcher):
         mid=(bid+ask)/2;spread=ask-bid;sign=1 if cfg.side=="LONG" else -1
         elapsed=(at-self.samples[-1][0]).total_seconds() if self.samples else 0.
         gap=elapsed>cfg.quote_gap_seconds
+        previous_candidate=self.candidate_at
+        previous_confirm=(at-previous_candidate).total_seconds()-elapsed if previous_candidate is not None else None
         if elapsed>2.:
             # Confirmation requires observed persistence, not elapsed silence.
             self.candidate_at=self.retrace_at=None
-        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"entry_price":None,"entry_fast_price":None,"entry_slow_price":None,"entry_threshold":None,"entry_window":None,"entry_confirm_elapsed":None,"hold_remaining":None,"exit_confirm_elapsed":None,"gate_detail":"","gate":"WARMUP"}
+        self.trace={"mid":mid,"target":self.target,"entry_ratio":None,"retrace":None,"exit_threshold":None,"urgent":None,"normal_price":None,"urgent_price":None,"entry_price":None,"entry_fast_price":None,"entry_slow_price":None,"entry_threshold":None,"entry_window":None,"entry_confirm_elapsed":None,"hold_remaining":None,"exit_confirm_elapsed":None,"gate_detail":"","gate":"WARMUP","entry_confirm_required":cfg.entry_confirmation_seconds,"entry_rejected":False,"entry_reject_elapsed":None,"entry_reject_reason":None,"threshold_source":None,"entry_efficiency":None,"entry_efficiency_required":cfg.minimum_directional_efficiency}
+        def rejected(reason):
+            if previous_candidate is not None:
+                self.trace.update(entry_rejected=True,entry_reject_elapsed=max(0.,previous_confirm),entry_reject_reason=reason)
+        if elapsed>2.:
+            rejected("Datagap: bekreftelsen avbrutt")
         if gap:
             self.samples.clear()
             self.candidate_at=self.retrace_at=None
@@ -228,8 +235,12 @@ class ImpulseCatcherV14(ImpulseCatcher):
                 return flat("CONFIRMED_EXIT")
             return None
         if not allow_entry:
+            rejected("Venter på bekreftet FLAT")
             self.candidate_at=None;self.trace['gate']='WAIT_BROKER_FLAT';return None
         if spread>cfg.maximum_spread_points or (self.last_exit_at and (at-self.last_exit_at).total_seconds()<cfg.cooldown_seconds):
+            reason="Spread over maks" if spread>cfg.maximum_spread_points else "Cooldown etter exit"
+            rejected(reason)
+            self.trace["gate_detail"]=reason
             self.candidate_at=None;self.trace["gate"]="SPREAD_OR_COOLDOWN";return None
         best=None;best_ratio=0.
         boundaries=[]
@@ -247,25 +258,37 @@ class ImpulseCatcherV14(ImpulseCatcher):
                 if anchor is not None:hist.append(abs(p-anchor))
             if len(hist)<5:continue
             baseline=median(hist)
-            threshold=max(cfg.min_impulse_points,cfg.spread_impulse_multiple*spread,cfg.relative_impulse_multiple*baseline,
-                          cfg.atr_entry_multiple*atr if atr is not None else 0.)
+            components=(("Threshold",cfg.min_impulse_points),("Spread",cfg.spread_impulse_multiple*spread),
+                        ("Normalstøy",cfg.relative_impulse_multiple*baseline),("ATR",cfg.atr_entry_multiple*atr if atr is not None else 0.))
+            source,threshold=max(components,key=lambda v:v[1])
             # Exact observed price-distance threshold for this arm. Efficiency,
             # ATR availability, indicators and confirmation remain separate gates.
             boundary=recent[0][1]+sign*threshold
             self.trace["entry_fast_price" if w==cfg.windows_seconds[0] else "entry_slow_price"]=boundary
-            boundaries.append((sign*(boundary-mid),boundary,threshold,w,eff))
+            boundaries.append((sign*(boundary-mid),boundary,threshold,w,eff,source))
             ratio=max(0.,delta/threshold)
             best_ratio=max(best_ratio,ratio)
             if delta>=threshold and eff>=cfg.minimum_directional_efficiency:
                 best=(delta,baseline,w)
         self.trace["entry_ratio"]=best_ratio
         if boundaries:
-            _,boundary,threshold,w,eff=min(boundaries,key=lambda x:x[0])
-            self.trace.update(entry_price=boundary,entry_threshold=threshold,entry_window=w,entry_efficiency=eff)
-        self.trace["gate_detail"]=("Manglende ATR" if cfg.atr_entry_multiple and atr is None else
-            "Entry-indikator ikke bekreftet" if not all(favorable(k) for k in cfg.entry_indicators) else
-            "Impuls eller retningseffektivitet under krav" if best is None else "Bekreftelse pågår")
+            _,boundary,threshold,w,eff,source=min(boundaries,key=lambda x:x[0])
+            self.trace.update(entry_price=boundary,entry_threshold=threshold,entry_window=w,entry_efficiency=eff,threshold_source=source)
+        blocked_indicators=[k for k in cfg.entry_indicators if not favorable(k)]
+        if cfg.atr_entry_multiple and atr is None:
+            detail="Manglende ATR"
+        elif blocked_indicators:
+            detail="Entry-filter: "+", ".join(blocked_indicators)
+        elif not boundaries:
+            detail="Oppvarming / manglende impulsvindu"
+        elif best is None:
+            detail="Retningseffektivitet under krav" if any(b[0]<=0 for b in boundaries) else "Impuls under prisgrense"
+        else:
+            detail="Bekreftelse pågår"
+        self.trace["gate_detail"]=detail
         if best is None or (cfg.atr_entry_multiple and atr is None) or not all(favorable(k) for k in cfg.entry_indicators):
+            if not self.trace["entry_rejected"]:
+                rejected(detail)
             self.candidate_at=None;self.trace["gate"]="ENTRY_BLOCKED";return None
         self.candidate_at=self.candidate_at or at
         self.trace["gate"]="ENTRY_CONFIRM"
@@ -274,7 +297,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
         delta,baseline,w=best
         self.target=cfg.side;self.entry_mid=self.extreme=mid;self.entered_at=self.last_extreme_at=at
         self.candidate_at=self.retrace_at=None
-        self.trace.update(target=self.target,gate="ENTRY")
+        self.trace.update(target=self.target,gate="ENTRY",gate_detail="Attack fullført")
         return ImpulseCatcherDecision(cfg.side,"QUALIFIED_IMPULSE_V14",mid,at,delta,baseline,w)
 
 def load_settings(db,trader_id,key):
