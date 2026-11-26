@@ -145,3 +145,49 @@ def test_mobile_chart_and_rejected_attack_diagnostics():
     assert make_preview_figure(rows,details=True).layout.showlegend is True
     assert any(t.name=="Avbrutt attack" and len(t.x)>0 for t in fig.data)
     assert preview(q[:95],cfg)==rows[:95]
+
+
+@pytest.mark.parametrize("side,sign",[("LONG",1),("SHORT",-1)])
+def test_entry_gain_moves_both_arms_toward_price_without_changing_baseline(side,sign):
+    raw={"fast_window":3,"slow_window":10,"entry_confirmation_seconds":15}
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5)
+        for i,p in enumerate([100.+(i%2)*.2 for i in range(80)])]
+    base=preview(q,config_v14(side,raw))
+    zero=preview(q,config_v14(side,{**raw,"entry_gain_points":0.}))
+    plus=preview(q,config_v14(side,{**raw,"entry_gain_points":4.}))
+    minus=preview(q,config_v14(side,{**raw,"entry_gain_points":-4.}))
+    floor=preview(q,config_v14(side,{**raw,"entry_gain_points":20.}))
+    assert base==zero
+    for b,p,m,f in zip(base,plus,minus,floor):
+        if b["entry_price"] is None:
+            continue
+        assert p["entry_price"]==pytest.approx(b["entry_price"]-sign*4)
+        assert m["entry_price"]==pytest.approx(b["entry_price"]+sign*4)
+        assert p["entry_base_price"]==pytest.approx(b["entry_price"])
+        assert p["entry_gain_applied"]==pytest.approx(4.)
+        assert f["entry_threshold"]>=1.
+        assert f["entry_threshold"]<=p["entry_threshold"]
+        assert f["threshold_source"]=="Minimumsgulv"
+        assert b["entry_fast_price"]-p["entry_fast_price"]==pytest.approx(sign*4)
+    from autotrader_ic14_ui import make_preview_figure
+    fig=make_preview_figure(plus,side=side,original=True)
+    assert any(t.name=="Entry · uten Gain" for t in fig.data)
+
+@pytest.mark.parametrize("side,sign",[("LONG",1),("SHORT",-1)])
+def test_entry_gain_changes_actual_signal_not_only_plot(side,sign):
+    raw={"fast_window":3,"slow_window":10,"entry_confirmation_seconds":0,
+         "min_impulse_points":9.,"minimum_directional_efficiency":.5}
+    q=[ImpulseQuote(T+timedelta(seconds=i),p-.5,p+.5)
+        for i,p in enumerate([100.]*80+[100.+sign*1.1*i for i in range(1,6)])]
+    b=preview(q,config_v14(side,raw))
+    p=preview(q,config_v14(side,{**raw,"entry_gain_points":5.}))
+    assert not any(r["decision"]=="QUALIFIED_IMPULSE_V14" for r in b)
+    assert any(r["decision"]=="QUALIFIED_IMPULSE_V14" for r in p)
+    assert preview(q[:83],config_v14(side,{**raw,"entry_gain_points":5.}))==p[:83]
+
+def test_entry_gain_keeps_spread_gate():
+    m=ImpulseCatcherV14(config=config_v14("LONG",{"entry_gain_points":20.,"maximum_spread_points":2.}))
+    assert m.on_quote(T,100.,104.) is None
+    assert m.trace["gate"]=="SPREAD_OR_COOLDOWN"
+    with pytest.raises(ValueError):
+        config_v14("LONG",{"entry_gain_points":21.})
