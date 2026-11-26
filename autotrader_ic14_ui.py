@@ -40,12 +40,14 @@ def load_preview_quotes(minutes,end_bucket):
 
 # Five direct controls, not new derived settings. Existing values are preserved.
 MAIN_CONTROLS=(
-    ("min_impulse_points","Threshold · inngang","punkter","Høyere = større prisimpuls før entry. Spread og normalstøy kan allerede kreve mer."),
+    ("entry_gain_points","Entry Gain","punkter","Pluss flytter LONG-grensen ned og SHORT-grensen opp. Minus gjør inngang vanskeligere. Gulv: minst ett punkt og én spread."),
     ("entry_confirmation_seconds","Attack · inngang","s","Hvor lenge hele inngangssignalet må være bekreftet."),
     ("minimum_hold_seconds","Hold · minimum","s","Beskytter mot normal exit. Akutt motrykk/databrudd overstyrer."),
     ("retrace_fraction","Depth · motbevegelse","%","Hvor mye av opparbeidet løp som får trekkes tilbake. Andre aktive gulv kan være større."),
     ("exit_confirmation_seconds","Release · utgang","s","Hvor lenge normal retrace må være bekreftet før exit."),
 )
+
+AUTO_CONTROLS=(("min_impulse_points","Grunnterskel","punkter",""),)+MAIN_CONTROLS[1:]
 
 def _display_rows(data):
     display=[]
@@ -55,7 +57,7 @@ def _display_rows(data):
         display.append(row)
     return pd.DataFrame(display)
 
-def make_preview_figure(data,*,side="LONG",details=False,arms=False):
+def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=False):
     """Price-domain overlay of the model's own observed thresholds.
     Crossing a price boundary is necessary, not sufficient, for normal signals.
     """
@@ -78,6 +80,8 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False):
         ("urgent_price","EXIT · akutt","#a81e38","dot",1.5)):
         fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color=color,dash=dash,width=1.3 if not details else width),
             connectgaps=False,hovertemplate="%{y:.2f}<extra>"+label+"</extra>"))
+    if original:
+        fig.add_trace(go.Scatter(x=x,y=series("entry_base_price"),name="Entry · uten Gain",line=dict(color="#9ca3af",dash="dot",width=1),connectgaps=False,hovertemplate="%{y:.2f}<extra>Uten Gain · samme arm</extra>"))
     if arms:
         for k,label in (("entry_fast_price","Entry · rask arm"),("entry_slow_price","Entry · treg arm")):
             fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color="#fb7185",dash="dot",width=1),connectgaps=False))
@@ -126,7 +130,7 @@ def render_ic14(trader_id,key,*,prefix):
     draft_key=root+":draft"
     # Independent draft survives optional panel visibility. No saved settings
     # change when a panel is closed or a display option is toggled.
-    values=dict(st.session_state.get(draft_key,saved))
+    values={**saved,**st.session_state.get(draft_key,{})}
     # Auto is a local draft operation. Never save or alter account authority.
     from autotrader_ic14_auto_v1 import propose_ic14
     auto_key=root+":auto"
@@ -148,10 +152,10 @@ def render_ic14(trader_id,key,*,prefix):
         st.dataframe([{"Kontroll":label.split(" · ")[0],
             "Nå":round(values[name]*100) if unit=="%" else values[name],
             "Forslag":round(proposal.settings[name]*100) if unit=="%" else proposal.settings[name],
-            "Enhet":unit} for name,label,unit,_ in MAIN_CONTROLS],
+            "Enhet":unit} for name,label,unit,_ in AUTO_CONTROLS],
             hide_index=True,use_container_width=True)
         if st.button("Bruk forslag i forhåndsvisning",key=root+":auto-apply"):
-            for name,_,unit,_ in MAIN_CONTROLS:
+            for name,_,unit,_ in AUTO_CONTROLS:
                 values[name]=proposal.settings[name]
                 if unit=="%":
                     st.session_state[f"{root}:{name}:pct"]=int(round(values[name]*100))
@@ -171,12 +175,12 @@ def render_ic14(trader_id,key,*,prefix):
     cols=st.columns(5)
     for col,(name,label,unit,help) in zip(cols,MAIN_CONTROLS):
         control(name,col,label+(" ("+unit+")" if unit!="%" else ""),help,percent=unit=="%")
-    st.caption("Threshold ↑ = større impuls · Attack ↑ = tregere entry · Hold ↑ = mindre tidlig exit · Depth ↑ = mer retrace · Release ↑ = tregere normal exit.")
+    st.caption("Entry Gain ↑ = mer følsom · Attack ↑ = tregere entry · Hold ↑ = mindre tidlig exit · Depth ↑ = mer retrace · Release ↑ = tregere normal exit. Auto justerer grunnterskelen; Gain er din manuelle trim.")
     panels=st.multiselect("Legg til paneler",["Avansert ENTRY","Avansert HOLD/EXIT","ATR","Prishastighet","Prisakselerasjon","Retningseffektivitet","MACD-histogram","Stochastic","RSI","HH/HL · LH/LL"],
         key=root+":panels",placeholder="Velg bare det du vil finjustere")
     if "Avansert ENTRY" in panels:
         with st.expander("Avansert ENTRY",expanded=True):
-            for name in ("fast_window","slow_window","relative_impulse_multiple","minimum_directional_efficiency","maximum_spread_points","spread_impulse_multiple"):
+            for name in ("min_impulse_points","fast_window","slow_window","relative_impulse_multiple","minimum_directional_efficiency","maximum_spread_points","spread_impulse_multiple"):
                 control(name)
     if "Avansert HOLD/EXIT" in panels:
         with st.expander("Avansert HOLD/EXIT",expanded=True):
@@ -218,11 +222,12 @@ def render_ic14(trader_id,key,*,prefix):
     back=b.number_input("Minutter tilbake",min_value=0,max_value=1440,value=0,step=1,key=root+":back-min")
     arms=c.checkbox("Begge entry-armer",key=root+":arms",help="Vis rask og treg prisgrense i tillegg til nærmeste.")
     details=st.checkbox("Vis full tegnforklaring",value=False,key=root+":legend")
+    original=st.checkbox("Vis opprinnelig entry-grense (uten Gain)",value=False,key=root+":original")
     end=datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=back)
     quotes,start=load_preview_quotes(minutes,end)
     trace=[r for r in preview(quotes,cfg) if r["at"]>=start] if quotes else []
     if trace:
-        st.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
+        st.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details,original=original),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
         latest=trace[-1]
         st.caption("Grå = pris · grønn/oransje = HOLD · rød stiplet = ENTRY · rød heltrukket/prikket = normal/akutt EXIT · gul sirkel/kryss = Attack/avbrutt Attack. Trykk på et punkt for detaljer.")
         attempts=[r for r in trace if r.get("entry_rejected")]
@@ -240,9 +245,9 @@ def render_ic14(trader_id,key,*,prefix):
         st.caption("Siste signalstatus: "+latest["gate"]+" · "+(latest.get("gate_detail") or "Se graf"))
         if latest.get("entry_confirm_elapsed") is not None and latest["gate"]=="ENTRY_CONFIRM":
             required=latest["entry_confirm_required"]
-            st.progress(min(1.,latest["entry_confirm_elapsed"]/max(1,required)),text=f"Attack {latest[\'entry_confirm_elapsed\']:.1f}/{required} s")
+            st.progress(min(1.,latest["entry_confirm_elapsed"]/max(1,required)),text=f"Attack {latest['entry_confirm_elapsed']:.1f}/{required} s")
         if latest.get("threshold_source"):
-            st.caption(f"Aktiv prisgrense: {latest[\'entry_threshold\']:.2f} p · {latest[\'threshold_source\']} · {latest[\'entry_window\']}s arm")
+            st.caption(f"Aktiv impulsterskel: {latest['entry_threshold']:.2f} p · grunnterskel {latest['entry_base_threshold']:.2f} p · Gain faktisk {latest['entry_gain_applied']:+.2f} p · {latest['threshold_source']} · {latest['entry_window']}s arm")
         with st.expander("Detaljert signalmeter",expanded=False):
             st.plotly_chart(make_diagnostics_figure(trace),use_container_width=True,key=root+":meters")
         st.caption(f"{len(trace)} ekte 1s BBO-observasjoner. FLAT ved oppvarming; signalrespons, ikke Saxo-fills, regime-/modifier-simulering eller P/L.")
