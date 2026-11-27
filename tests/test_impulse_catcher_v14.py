@@ -215,3 +215,45 @@ def test_free_research_gain_crosses_price_but_cannot_be_saved(side,sign,tmp_path
     with connect(str(tmp_path/"research.db")) as db:
         with pytest.raises(ValueError):
             save_settings(db,"a",f"impulse-catcher-{side.lower()}-v1-4",{"entry_gain_points":100.})
+
+
+@pytest.mark.parametrize("side,sign",[("LONG",1),("SHORT",-1)])
+def test_dynamic_hold_earns_tolerance_only_on_favorable_extension(side,sign):
+    settings={"minimum_hold_seconds":0,"exhaustion_seconds":0,
+              "exit_confirmation_seconds":0,"minimum_retrace_points":3.,
+              "retrace_fraction":.05,"exit_noise_multiple":0.,
+              "urgent_retrace_points":20.,"dynamic_hold_seconds":120}
+    def held(pct):
+        m=ImpulseCatcherV14(config=config_v14(side,{**settings,"dynamic_hold_pct":pct}))
+        m.target=side;m.entered_at=m.last_extreme_at=T;m.entry_mid=m.extreme=100.
+        return m
+    early=held(100)
+    quote(early,1,100+sign*4)
+    assert quote(early,2,100+sign*.5).reason=="CONFIRMED_EXIT" or early.trace["dynamic_hold_strength"]<.02
+    normal,adaptive=held(0),held(100)
+    for i in range(1,121):
+        for m in (normal,adaptive):
+            assert quote(m,i,100+sign*i/10) is None
+    assert adaptive.trace["dynamic_hold_strength"]==pytest.approx(1.)
+    assert adaptive.trace["exit_threshold"]==pytest.approx(6.)
+    assert adaptive.trace["dynamic_hold_release"]==pytest.approx(20.)
+    assert quote(normal,121,100+sign*8).reason=="CONFIRMED_EXIT"
+    assert quote(adaptive,121,100+sign*8) is None
+    assert quote(adaptive,122,100-sign*9).reason=="URGENT_REVERSAL"
+    stalled=held(100)
+    for i in range(1,181):
+        assert quote(stalled,i,100.) is None
+    assert stalled.trace["dynamic_hold_strength"]==0.
+    assert quote(stalled,181,100-sign*4).reason=="CONFIRMED_EXIT"
+
+def test_dynamic_hold_defaults_and_settings_roundtrip():
+    assert config_v14("LONG").dynamic_hold_pct==0
+    key="impulse-catcher-long-v1-4"
+    settings={"dynamic_hold_pct":75,"dynamic_hold_seconds":180,"cooldown_seconds":120}
+    model=_new_model(key,settings)
+    restored=_decode_model(key,_encode_model(key,model),settings)
+    assert restored.config.dynamic_hold_pct==75
+    assert restored.config.dynamic_hold_seconds==180
+    assert restored.config.cooldown_seconds==120
+    with pytest.raises(ValueError):config_v14("LONG",{"dynamic_hold_pct":101})
+    with pytest.raises(ValueError):config_v14("LONG",{"dynamic_hold_seconds":0})
