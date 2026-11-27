@@ -1,8 +1,8 @@
 """Read-only DSP sandbox; uses the same bounded BBO archive as IC14 preview."""
 from datetime import datetime,timezone,timedelta
 import streamlit as st
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from signal_lab_native_charts_v1 import dsp_payload
+from tradingdesk_ui.charts.lightweight.renderer import render_lightweight_live_chart_v1
 from autotrader_ic14_ui import load_preview_quotes
 from signal_dsp_lab_v1 import Stage,process_quotes
 
@@ -37,19 +37,6 @@ def render_signal_dsp_lab():
     if not rows:
         st.info("Ingen ekte BBO-observasjoner i perioden.")
         return
-    x=[r["at"].isoformat() for r in rows]
-    fig=make_subplots(rows=3,cols=1,shared_xaxes=True,row_heights=[.45,.35,.2],
-        subplot_titles=("Tech100 · rå midquote","Rå / prosessert prisendring","Gain per plugin"),vertical_spacing=.06)
-    fig.add_trace(go.Scatter(x=x,y=[None if r["gap"] else r["mid"] for r in rows],name="Rå pris",
-        line=dict(color="#a0a6b1"),connectgaps=False),row=1,col=1)
-    fig.add_trace(go.Scatter(x=x,y=[r["raw"] for r in rows],name="Rå bevegelse",line=dict(color="#a0a6b1",width=1)),row=2,col=1)
-    fig.add_trace(go.Scatter(x=x,y=[r["processed"] for r in rows],name="Prosessert",line=dict(color="#38bdf8",width=2)),row=2,col=1)
-    for i,stage in enumerate(stages):
-        fig.add_trace(go.Scatter(x=x,y=[r["gains"][i] if r["gains"] else None for r in rows],
-            name=f"{i+1} · {LABELS[stage.kind]}"),row=3,col=1)
-    fig.update_yaxes(title="Poeng/s",row=2,col=1)
-    fig.update_yaxes(title="Gain",range=[0,1.1],row=3,col=1)
-    fig.update_xaxes(type="date")
-    fig.update_layout(height=670,hovermode="x unified",legend=dict(orientation="h"),margin=dict(l=10,r=10,t=35,b=10))
-    st.plotly_chart(fig,use_container_width=True,key="dsp:plot")
+    render_lightweight_live_chart_v1(dsp_payload(rows,key="dsp:native",stages=stages,labels=LABELS),key="dsp:native")
+    st.caption("Rå pris · rå/prosessert bevegelse (p/s) · gain per plugin. Dra langs prisaksen for zoom; scroll siden utenfor grafen.")
     st.caption("Gate stenger små bevegelser, kompressor demper store nivåer, downward expander reduserer små nivåer gradvis. Attack/release virker på amplitudens envelope. Datagap nullstiller tilstand. Ingen syntetiske kurs eller avkastning.")

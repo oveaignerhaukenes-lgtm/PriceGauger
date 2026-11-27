@@ -83,6 +83,7 @@ export default function(component) {{
     }};
 
     function roleStyle(item, index) {{
+        if (item.color) return {{ color: String(item.color), lineWidth: Number(item.line_width || 1) }};
         if (ROLE_STYLE[item.role]) return ROLE_STYLE[item.role];
         if (String(item.role || '').startsWith('overlay:')) {{
             const colors = ['#2563eb', '#7c3aed', '#0891b2', '#ea580c', '#16a34a'];
@@ -128,8 +129,9 @@ export default function(component) {{
             color: style.color,
             lineWidth: style.lineWidth,
             priceLineVisible: false,
-            lastValueVisible: item.pane !== 'price' || !String(item.role || '').startsWith('bollinger_'),
+            lastValueVisible: item.last_value_visible !== false && (item.pane !== 'price' || !String(item.role || '').startsWith('bollinger_')),
             crosshairMarkerVisible: true,
+            lineStyle: item.dashed ? 2 : 0,
             title: String(item.label || ''),
         }};
         if (item.price_scale) options.priceScaleId = String(item.price_scale);
@@ -170,7 +172,7 @@ export default function(component) {{
             timeScale: {{
                 borderColor: colors.border,
                 timeVisible: true,
-                secondsVisible: false,
+                secondsVisible: Boolean(payload.seconds_visible),
                 rightOffset: 2,
                 barSpacing: 8,
                 minBarSpacing: 0.7,
@@ -182,7 +184,7 @@ export default function(component) {{
                 mouseWheel: true,
                 pressedMouseMove: true,
                 horzTouchDrag: true,
-                vertTouchDrag: false,
+                vertTouchDrag: Boolean(payload.vertical_touch_drag),
             }},
             handleScale: {{
                 mouseWheel: true,
@@ -194,7 +196,11 @@ export default function(component) {{
             hoveredSeriesOnTop: true,
         }});
 
-        const candles = chart.addSeries(LWC.CandlestickSeries, {{
+        const lineMode = Array.isArray(payload.primary_line);
+        const candles = lineMode ? chart.addSeries(LWC.LineSeries, {{
+            title: '', color: '#94a3b8', lineWidth: 2, priceLineVisible: false,
+            lastValueVisible: true, crosshairMarkerVisible: true,
+        }}, 0) : chart.addSeries(LWC.CandlestickSeries, {{
             title: String(payload.market || ''),
             upColor: '#16a34a',
             downColor: '#dc2626',
@@ -205,7 +211,7 @@ export default function(component) {{
             priceLineVisible: true,
             lastValueVisible: true,
         }}, 0);
-        candles.setData(Array.from(payload.candles || []));
+        candles.setData(Array.from(lineMode ? payload.primary_line : payload.candles || []));
 
         const series = new Map();
         const labels = new Map();
@@ -315,7 +321,9 @@ export default function(component) {{
             }}
             const parts = [];
             const candle = param.seriesData.get(candles);
-            if (candle && Number.isFinite(Number(candle.close))) {{
+            if (lineMode && candle && Number.isFinite(Number(candle.value))) {{
+                parts.push(`Pris ${{formatValue(candle.value)}}`);
+            }} else if (candle && Number.isFinite(Number(candle.close))) {{
                 parts.push(`O ${{formatValue(candle.open)}} H ${{formatValue(candle.high)}} L ${{formatValue(candle.low)}} C ${{formatValue(candle.close)}}`);
             }}
             for (const [api, value] of param.seriesData.entries()) {{
@@ -350,7 +358,7 @@ export default function(component) {{
 
     function updateEntry(entry) {{
         entry.parent.style.height = `${{Math.max(320, Number(payload.height || 780))}}px`;
-        entry.candles.setData(Array.from(payload.candles || []));
+        entry.candles.setData(Array.from(Array.isArray(payload.primary_line) ? payload.primary_line : payload.candles || []));
         for (const item of Array.from(payload.lines || [])) {{
             entry.series.get(String(item.role))?.setData?.(Array.from(item.data || []));
         }}
@@ -374,7 +382,7 @@ export default function(component) {{
         entry.triangleLayer?.setMarkers(payload.markers);
     }}
 
-    parentElement.innerHTML = '<div style="padding:.75rem;color:#64748b;font:500 12px system-ui">Laster Lightweight Charts…</div>';
+    if (!registry.get(chartId) || registry.get(chartId).parent !== parentElement || !parentElement.contains(registry.get(chartId).root)) parentElement.innerHTML = '<div style="padding:.75rem;color:#64748b;font:500 12px system-ui">Laster Lightweight Charts…</div>';
 
     loadLibrary().then((LWC) => {{
         let entry = registry.get(chartId) || null;
