@@ -56,14 +56,14 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
             // 2px dashed paths fragment into stray pixels on narrow phones.
             const estimated = marker.price_verified === false;
             const sizeValue = Number(marker.size);
-            const radius = Math.max(3, Math.min(7.5,
-                3.5 + (Number.isFinite(sizeValue) ? sizeValue : .45) * 3
+            const radius = Math.max(4.5, Math.min(9,
+                4.5 + (Number.isFinite(sizeValue) ? sizeValue : .45) * 3
                     + (estimated ? .8 : 0)));
             // Only confirmed full closes are neutral. Partial reductions keep
             // the broker BUY/SELL triangle, regardless of the action label.
             const shape = document.createElementNS(ns, isFlatClose ? 'rect' : 'polygon');
             const color = isFlatClose ? '#94a3b8'
-                : String(marker.color || (up ? '#16a34a' : '#dc2626'));
+                : String(marker.color || (up ? '#38bdf8' : '#c084fc'));
             // Only the account inspector marks estimates explicitly false.
             // Preserve existing visual appearance for other V3 chart paths.
             if (isFlatClose) {
@@ -82,8 +82,8 @@ function createPgV3TradeTriangleLayer(chart, priceSeries, root) {
                     points.reduce((a,v,i)=>a+(i%2?',':' ')+v.toFixed(2),'').trim());
             }
             shape.setAttribute('fill',estimated ? 'none' : color);
-            shape.setAttribute('stroke',color);
-            shape.setAttribute('stroke-width',estimated ? '2.2' : '0.5');
+            shape.setAttribute('stroke',estimated ? color : '#111827');
+            shape.setAttribute('stroke-width',estimated ? '2.6' : '1.2');
             const title = document.createElementNS(ns,'title');
             title.textContent = (isFlatClose ? 'V3 flat · posisjon lukket'
                 : (up ? 'V3 kjøp' : 'V3 salg'))

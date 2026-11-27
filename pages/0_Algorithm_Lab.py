@@ -394,7 +394,7 @@ if saved is not None:
         x=[x.at for x in result.points], y=[x.close for x in result.points],
         mode="lines", name=("Saxo lagret BBO mid" if meta.get("mode", "").startswith("1s")
                               else "Saxo lagret 1m CLOSE")))
-    for kind, symbol, color in (("OPEN", "triangle-up", "#1ca176"),
+    for kind, symbol, color in (("OPEN", "triangle-up", "#38bdf8"),
                                 ("FLAT", "triangle-down", "#e09b32"),
                                 ("GAP_FLAT", "x", "#cc4455"),
                                 ("END_FLAT", "x", "#888888")):

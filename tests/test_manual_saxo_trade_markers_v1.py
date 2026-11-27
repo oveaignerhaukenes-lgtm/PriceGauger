@@ -145,10 +145,10 @@ def test_lightweight_payload_uses_distinct_manual_saxo_colors_and_labels() -> No
         trade_markers=(buy, sell),
     )
     markers = payload["markers"]
-    assert markers[0]["color"] == "#16a34a"
+    assert markers[0]["color"] == "#38bdf8"
     assert markers[0]["text"] == "M"
     assert markers[0]["source"] == "SAXO_MANUAL_FILL"
-    assert markers[1]["color"] == "#dc2626"
+    assert markers[1]["color"] == "#c084fc"
     assert markers[1]["text"] == "M"
 
 
@@ -176,7 +176,7 @@ def test_one_second_live_marker_update_preserves_manual_source_style() -> None:
     assert "text: manualSaxo ? 'M' : ''" in source
     assert "SAXO BUY" not in source
     assert "SAXO SELL" not in source
-    assert "'#16a34a' : '#dc2626'" in source
+    assert "'#38bdf8' : '#c084fc'" in source
 
 
 def test_stream_worker_starts_manual_saxo_marker_collector() -> None:

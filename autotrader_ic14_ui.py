@@ -9,6 +9,7 @@ import streamlit as st
 from database import connect
 from autotrader_impulse_catcher_v14 import SLIDERS,INDICATORS,load_settings,save_settings,config_v14,preview
 from autotrader_impulse_catcher_replay_v1 import prepare_impulse_quotes
+from autotrader_ic14_cost_preview_v1 import estimate_costs
 
 LABELS={
  "fast_window":"Rask impulsvindu (s)","slow_window":"Langt impulsvindu (s)",
@@ -18,7 +19,7 @@ LABELS={
  "minimum_hold_seconds":"Minimum holdetid (s)","exhaustion_seconds":"Tid uten nytt ekstrempunkt (s)",
  "minimum_retrace_points":"Minste retrace (punkter)","retrace_fraction":"Retraceandel av løpet",
  "exit_noise_multiple":"Retrace / tickstøy","exit_confirmation_seconds":"Bekreft utgang (s)",
- "urgent_retrace_points":"Akutt motrykk (punkter)","cooldown_seconds":"Cooldown (s)",
+ "urgent_retrace_points":"Akutt motrykk (punkter)","cooldown_seconds":"Cooldown (s)","dynamic_hold_pct":"Dynamic Hold (%)","dynamic_hold_seconds":"Oppbygging av hold-toleranse (s)",
  "atr_period":"ATR-perioder (5s-barer)","atr_entry_multiple":"ATR-multippel entry (0 = av)",
  "atr_exit_multiple":"ATR-multippel exit (0 = av)"}
 NAMES=dict(velocity="Prishastighet",acceleration="Prisakselerasjon",efficiency="Retningseffektivitet",
@@ -88,10 +89,10 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=Fal
             fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color="#7dd3fc",dash="dot",width=1),connectgaps=False))
     entry=df[df.decision=="QUALIFIED_IMPULSE_V14"]
     exits=df[df.decision.notna() & (df.decision!="QUALIFIED_IMPULSE_V14")]
-    for subset,name,symbol,color in ((entry,"ENTRY","triangle-up" if side=="LONG" else "triangle-down","#16a34a"),
+    for subset,name,symbol,color in ((entry,"ENTRY","triangle-up" if side=="LONG" else "triangle-down","#38bdf8"),
                                      (exits,"EXIT","x","#ef4444")):
         fig.add_trace(go.Scatter(x=[t.isoformat() for t in subset["at"]],y=subset.mid,mode="markers",name=name,
-            marker=dict(symbol=symbol,size=11,color=color),text=subset.decision,hovertemplate="%{text}<br>%{y:.2f}<extra></extra>"))
+            marker=dict(symbol=symbol,size=13,color=color,line=dict(color="#111827",width=1)),text=subset.decision,hovertemplate="%{text}<br>%{y:.2f}<extra></extra>"))
     # Amber marks price ticks where entry confirmation is running.
     cand=df[df.gate=="ENTRY_CONFIRM"]
     fig.add_trace(go.Scatter(x=[t.isoformat() for t in cand["at"]],y=cand.mid,mode="markers",name="Attack · venter",
@@ -159,7 +160,11 @@ def render_ic14(trader_id,key,*,prefix):
         research=st.checkbox("Fri kurve · research",key=root+":research",help="Fjern minimumsgulvet kun i forhåndsvisningen. Kan ikke lagres til LIVE.")
         free_gain=st.slider("Fri Gain (punkter)",-200.,200.,0.,step=.5,key=root+":free-gain") if research else None
         if research:st.warning("Kun eksperiment. Lagring er sperret.")
-    main_tab,entry_tab,exit_tab,atr_tab,ind_tab,auto_tab=st.tabs(["Mixer","Entry","Hold / Exit","ATR","Indikatorer","Auto"])
+    cost_slot=st.container()
+    main_tab,entry_tab,exit_tab,atr_tab,ind_tab,auto_tab,cost_tab=st.tabs(["Mixer","Entry","Hold / Exit","ATR","Indikatorer","Auto","Kostnader"])
+    delay=cost_tab.slider("Antatt utførelsesforsinkelse per side (s)",0.,10.,3.,step=1.,key=root+":cost-delay")
+    extra=cost_tab.number_input("Ekstra rundturkostnad (indekspoeng)",min_value=0.,max_value=100.,value=0.,step=.5,key=root+":cost-extra")
+    cost_tab.caption("Spread måles ved hypotetiske utførelser, ikke fra en fast sats. Ekstra kostnad kan inkludere slippage/gebyrer som ikke er innebygd i bid/ask.")
     # Auto is a local draft operation. Never save or alter account authority.
     from autotrader_ic14_auto_v1 import propose_ic14
     auto_key=root+":auto"
@@ -204,6 +209,10 @@ def render_ic14(trader_id,key,*,prefix):
     cols=main_tab.columns(5)
     for col,(name,label,unit,help) in zip(cols,MAIN_CONTROLS):
         control(name,col,label+(" ("+unit+")" if unit!="%" else ""),help,percent=unit=="%")
+    dh,cd=main_tab.columns(2)
+    control("dynamic_hold_pct",dh,help="0 = eksisterende respons. 100 = opptil dobbelt normal retrace-toleranse og 20 s ekstra Release etter et etablert løp. Akutt exit overstyrer alltid.")
+    control("cooldown_seconds",cd,help="Ventetid etter exit før ny entry. Lengre pause reduserer reentries, men kan også miste nye løp.")
+    main_tab.caption("Dynamic Hold bygges opp når prisen setter nye ekstremer i riktig retning. Alder alene gir ikke mer toleranse. Akutt exit og datagap er uendret.")
     main_tab.caption("Entry Gain ↑ = mer følsom · Attack ↑ = tregere entry · Hold ↑ = mindre tidlig exit · Depth ↑ = mer retrace · Release ↑ = tregere normal exit. Auto justerer grunnterskelen; Gain er din manuelle trim.")
     with entry_tab:
         names=("min_impulse_points","fast_window","slow_window","relative_impulse_multiple","minimum_directional_efficiency","maximum_spread_points","spread_impulse_multiple")
@@ -212,7 +221,7 @@ def render_ic14(trader_id,key,*,prefix):
             control(name,cols[i%3])
     with exit_tab:
         cols=st.columns(3)
-        for i,name in enumerate(("exhaustion_seconds","minimum_retrace_points","exit_noise_multiple","urgent_retrace_points","cooldown_seconds")):
+        for i,name in enumerate(("exhaustion_seconds","minimum_retrace_points","exit_noise_multiple","urgent_retrace_points","dynamic_hold_seconds")):
             control(name,cols[i%3])
     with atr_tab:
         cols=st.columns(3)
@@ -252,10 +261,29 @@ def render_ic14(trader_id,key,*,prefix):
         cfg=replace(cfg,entry_gain_points=free_gain,research_unclamped_entry=True)
     end=datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=back)
     quotes,start=load_preview_quotes(minutes,end)
-    trace=[r for r in preview(quotes,cfg) if r["at"]>=start] if quotes else []
+    full_trace=preview(quotes,cfg) if quotes else []
+    trace=[r for r in full_trace if r["at"]>=start]
     if trace:
         chart_slot.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details,original=original,research=research),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
-        chart_slot.caption("Grå: pris · blå: entry-grense · rød: exit · grønn/oransje: HOLD · gul: Attack / avbrutt Attack.")
+        chart_slot.caption("▲/▼ blå: ENTRY-signal · × rød: EXIT-signal · grå: pris · blå linje: entry-grense · rød linje: exit · grønn/oransje: HOLD · gul: Attack.")
+        report=estimate_costs(quotes,full_trace,side=cfg.side,start=start,end=start+timedelta(minutes=minutes),delay_s=delay,extra_points=extra)
+        with cost_slot:
+            st.markdown("**Historisk kostnadsestimat · samme signaler som grafen**")
+            a,b,c,d,e=st.columns(5)
+            a.metric("Fullførte PAPER-handler",f"{len(report.trades)} / {report.signals}")
+            b.metric("Brutto signal (p)",f"{report.gross:+.1f}")
+            c.metric("Spread (p)",f"{report.spread:.1f}")
+            d.metric("Forsinkelsesdrag (p)",f"{report.delay_drag:+.1f}")
+            e.metric("Netto PAPER (p)",f"{report.net:+.1f}" if report.trades else "—")
+            st.caption(f"Median observert spread: {report.median_spread:.2f} p · {report.wins}/{len(report.trades)} netto positive · {delay:g}s antatt forsinkelse per side · {report.coverage:.0%} sekunddekning." if report.median_spread is not None else "Ingen spreadobservasjoner.")
+            if report.skipped or report.incomplete or report.carry_in or report.coverage<.8:
+                st.warning(f"Ufullstendig scenario: {report.skipped} signalpar uten gjennomførbare priser, {report.incomplete} uferdige signaler, posisjon fra før perioden: {report.carry_in}. Ikke en full portefølje-replay.")
+            st.caption("PAPER på historiske signaler, ingen garanti for fremtidig handelsfrekvens eller gevinst. Faktiske fills, kontoregler og ordrekvote er ikke simulert. Ekstra kostnad trekkes kun fra fullførte scenariohandler.")
+        with cost_tab:
+            st.caption(f"Ekstra kostnader totalt: {extra*len(report.trades):.2f} p. Positivt forsinkelsesdrag betyr tapt gevinst, negativt betyr bedre kurs.")
+            st.dataframe([{"Forsinkelse (s)":lag,"Fullførte":len(test.trades),"Brutto (p)":round(test.gross,2),"Spread (p)":round(test.spread,2),"Netto (p)":round(test.net,2) if test.trades else None,"Utelatt":test.skipped+test.incomplete} for lag in sorted({0.,3.,6.,delay}) for test in (estimate_costs(quotes,full_trace,side=cfg.side,start=start,end=start+timedelta(minutes=minutes),delay_s=lag,extra_points=extra),)],hide_index=True,use_container_width=True)
+            if report.trades:
+                st.dataframe([dict(entry=t.entry_signal,exit=t.exit_signal,brutto_p=t.signal_gross,spread_p=t.spread,forsinkelse_p=t.delay_drag,netto_p=t.net) for t in report.trades],hide_index=True,use_container_width=True)
         indicator_plot.plotly_chart(make_indicator_figure(trace,selected_ind,cfg),use_container_width=True,key=root+":indicator-meter")
         atr_plot.plotly_chart(make_indicator_figure(trace,"atr",cfg),use_container_width=True,key=root+":atr-meter")
         latest=trace[-1]
@@ -273,6 +301,8 @@ def render_ic14(trader_id,key,*,prefix):
         x.metric("Normal exit-grense",pts(latest.get("normal_price")))
         h.metric("Hold igjen (s)",pts(latest.get("hold_remaining")))
         st.caption("Siste signalstatus: "+latest["gate"]+" · "+(latest.get("gate_detail") or "Se graf"))
+        if latest.get("dynamic_hold_strength") is not None:
+            main_tab.caption(f"Aktiv Dynamic Hold: {latest['dynamic_hold_strength']:.0%} · normal retrace {latest['dynamic_hold_base_threshold']:.2f} → {latest['exit_threshold']:.2f} p · effektiv Release {latest['dynamic_hold_release']:.1f} s · akutt grense {latest['urgent']:.2f} p")
         if latest.get("entry_confirm_elapsed") is not None and latest["gate"]=="ENTRY_CONFIRM":
             required=latest["entry_confirm_required"]
             st.progress(min(1.,latest["entry_confirm_elapsed"]/max(1,required)),text=f"Attack {latest['entry_confirm_elapsed']:.1f}/{required} s")

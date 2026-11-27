@@ -199,7 +199,7 @@ def test_trade_markers_keep_account_aware_v3_and_manual_saxo_styles_distinct() -
     assert "source === 'SAXO_MANUAL_FILL'" in source
     assert "source === 'AUTOTRADER_V3'" in source
     assert "marker.account_light" in source and "marker.account_dark" in source
-    assert "direction === 'LONG' ? '#16a34a' : '#dc2626'" in source
+    assert "direction === 'LONG' ? '#38bdf8' : '#c084fc'" in source
     assert "text: manualSaxo ? 'M' : ''" in source
     assert "SAXO BUY" not in source
     assert "SAXO SELL" not in source
