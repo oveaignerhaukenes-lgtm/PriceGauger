@@ -188,7 +188,7 @@ def build_instance_inspection_payload_v1(
                         "position":"belowBar" if up else "aboveBar",
                         # Native fallback only; shared renderer draws SVG markers.
                         "shape":"square" if is_flat else ("arrowUp" if up else "arrowDown"),
-                        "color":"#94a3b8" if is_flat else ("#16986D" if up else "#D45858"),
+                        "color":"#94a3b8" if is_flat else ("#38bdf8" if up else "#c084fc"),
                         "text":"","side":side,"action":str(item.get("action") or ""),
                         "size":0.45,"source":"AUTOTRADER_V3",
                         "position_direction":"FLAT" if is_flat else ("LONG" if up else "SHORT"),
