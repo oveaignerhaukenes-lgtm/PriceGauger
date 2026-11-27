@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `2881f0721ae86711fd7b08924de22e844190a266`
+Latest tracked main commit: `498ba86ef76bdaf6133fb6fbefd7bcdfc0b6f5de`
 
 ## Recent main commits
 
+- 2026-11-27 [`498ba86ef7`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/498ba86ef76bdaf6133fb6fbefd7bcdfc0b6f5de) — IC14: compare saved settings with historical worker signals in identical time window (#898)
 - 2026-11-27 [`2881f0721a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2881f0721ae86711fd7b08924de22e844190a266) — Native TradingView navigation for Signal Studio and compact V3 inspection (#897)
 - 2026-11-27 [`0356531b5d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0356531b5d57b8f81452f0dc759afa80bc20f1fb) — IC1.4 · spread-aware preview and visible execution markers (#896)
 - 2026-11-26 [`32774abf4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/32774abf4aa83cf6ef81b841eb75c53b01722175) — IC14 · mobile price overlay and exact entry rejection diagnostics (#894)
@@ -46,6 +47,5 @@ Latest tracked main commit: `2881f0721ae86711fd7b08924de22e844190a266`
 - 2026-11-18 [`ba8ef958b5`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/ba8ef958b5b70f1d4605d863ec48517b30f8c06f) — V3: reject expired impulse entries before Saxo cost/precheck calls (#856)
 - 2026-11-18 [`7e08d7539a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7e08d7539a7ba1c0d90ae4a84bea5f57443e915d) — Measure V3 LIVE time spent per phase without extra broker calls (#855)
 - 2026-11-18 [`b707bd4501`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b707bd450105d5ffbfe31845d673a56a87838dc6) — Reduce Saxo LIVE REST load by sharing validated reference reads (#854)
-- 2026-11-18 [`9a8bf4d798`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9a8bf4d7989dc1139a9490a53c39989238ec74e0) — Run V3 LIVE independently per account and veto stale quote entries (#853)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
