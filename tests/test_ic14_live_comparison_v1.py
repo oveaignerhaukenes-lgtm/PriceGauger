@@ -15,3 +15,15 @@ def test_same_timestamp_and_reason_required_for_exact_match():
     assert by["URGENT_REVERSAL"]["preview"]==0
     assert len(events)==3
     assert compare_signals([],[])==([],[])
+
+
+def test_archived_fill_requires_exact_account_and_order():
+    from autotrader_ic14_live_comparison_v1 import attach_archived_fills
+    orders=[dict(account_id="A",broker_order_id="1"),dict(account_id="B",broker_order_id="1")]
+    result=attach_archived_fills(orders,{("A","1"):dict(price=100.,filled_at="2026-11-27T09:00:00Z")})
+    assert result[0]["fill_evidence"]=="SAXO_FINAL_FILL"
+    assert result[0]["fill_price"]==100.
+    assert result[1]["fill_price"] is None
+    assert result[1]["fill_evidence"]=="NOT_VERIFIED"
+    assert attach_archived_fills(orders,None)[0]["fill_evidence"]=="ARCHIVE_UNAVAILABLE"
+    assert "account_id" not in result[0]
