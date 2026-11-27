@@ -22,7 +22,7 @@ SLIDERS={
  "exhaustion_seconds":(0,45,1,8),"minimum_retrace_points":(1.,30.,.5,5.),
  "retrace_fraction":(.05,.8,.05,.3),"exit_noise_multiple":(0.,10.,.5,4.),
  "exit_confirmation_seconds":(0,20,1,5),"urgent_retrace_points":(5.,40.,.5,12.),
- "cooldown_seconds":(0,60,1,5),"atr_period":(3,24,1,14),
+ "cooldown_seconds":(0,180,1,5),"dynamic_hold_pct":(0,100,5,0),"dynamic_hold_seconds":(30,600,15,120),"atr_period":(3,24,1,14),
  "atr_entry_multiple":(0.,5.,.25,0.),"atr_exit_multiple":(0.,5.,.25,0.),
  "velocity_period":(3,60,1,10),"acceleration_period":(3,60,1,10),
  "efficiency_period":(3,60,1,14),"stochastic_period":(3,60,1,14),
@@ -70,6 +70,8 @@ class ConfigV14(ImpulseCatcherConfig):
     research_unclamped_entry:bool=False
     entry_confirmation_seconds:int=3
     minimum_hold_seconds:int=15
+    dynamic_hold_pct:int=0
+    dynamic_hold_seconds:int=120
     atr_period:int=14
     atr_entry_multiple:float=0.
     atr_exit_multiple:float=0.
@@ -214,13 +216,23 @@ class ImpulseCatcherV14(ImpulseCatcher):
                           cfg.exit_noise_multiple*median(steps) if steps else 0.,
                           cfg.atr_exit_multiple*atr if atr is not None else 0.)
             urgent=max(cfg.urgent_retrace_points,.35*travelled,3*spread)
-            self.trace.update(retrace=retrace,exit_threshold=threshold,urgent=urgent,extreme=self.extreme,normal_price=self.extreme-sign*threshold,urgent_price=self.extreme-sign*urgent,gate="HOLD")
+            # Earn tolerance through favorable extension, not mere time in position.
+            # A stalled or losing entry cannot accumulate maturity by waiting.
+            extension_age=max(0.,(self.last_extreme_at-self.entered_at).total_seconds())
+            maturity=min(1.,extension_age/cfg.dynamic_hold_seconds)*min(1.,travelled/max(1.,4*spread,2*cfg.minimum_retrace_points))
+            dynamic=cfg.dynamic_hold_pct/100.*maturity
+            base_threshold=threshold
+            release=cfg.exit_confirmation_seconds
+            if dynamic>0:
+                threshold=max(base_threshold,min(urgent,base_threshold*(1.+dynamic)))
+                release+=20.*dynamic
+            self.trace.update(retrace=retrace,exit_threshold=threshold,urgent=urgent,extreme=self.extreme,normal_price=self.extreme-sign*threshold,urgent_price=self.extreme-sign*urgent,gate="HOLD",dynamic_hold_strength=dynamic,dynamic_hold_maturity=maturity,dynamic_hold_base_threshold=base_threshold,dynamic_hold_release=release)
             if retrace>=urgent:return flat("URGENT_REVERSAL")
             if retrace>=threshold:
                 self.retrace_at=self.retrace_at or at
             else:self.retrace_at=None
             normal=(self.retrace_at is not None and
-                    (at-self.retrace_at).total_seconds()>=cfg.exit_confirmation_seconds and
+                    (at-self.retrace_at).total_seconds()>=release and
                     (at-self.entered_at).total_seconds()>=cfg.minimum_hold_seconds and
                     (at-self.last_extreme_at).total_seconds()>=cfg.exhaustion_seconds)
             # Diagnostic only: expose the exact normal-exit gates without changing the decision.
@@ -230,7 +242,7 @@ class ImpulseCatcherV14(ImpulseCatcher):
             if retrace<threshold:reasons.append("Retrace under terskel")
             if self.trace["hold_remaining"]>0:reasons.append("Minimum hold")
             if (at-self.last_extreme_at).total_seconds()<cfg.exhaustion_seconds:reasons.append("Nytt ekstrempunkt nylig")
-            if self.trace["exit_confirm_elapsed"]<cfg.exit_confirmation_seconds:reasons.append("Exit-bekreftelse")
+            if self.trace["exit_confirm_elapsed"]<release:reasons.append("Exit-bekreftelse")
             if any(favorable(k) for k in cfg.hold_indicators):reasons.append("Hold-indikator i medgang")
             if not all(adverse(k) for k in cfg.exit_indicators):reasons.append("Exit-indikator ikke bekreftet")
             self.trace["gate_detail"]=" · ".join(reasons)
