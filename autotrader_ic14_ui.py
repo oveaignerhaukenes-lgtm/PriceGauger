@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 from database import connect
-from autotrader_impulse_catcher_v14 import SLIDERS,INDICATORS,load_settings,save_settings,config_v14,preview
+from autotrader_impulse_catcher_v14 import SLIDERS,INDICATORS,load_settings,save_settings,config_v14,preview,normalize_settings
 from autotrader_impulse_catcher_replay_v1 import prepare_impulse_quotes
 from autotrader_ic14_cost_preview_v1 import estimate_costs
 from signal_lab_native_charts_v1 import ic14_payload,indicator_payload,diagnostics_payload
@@ -144,7 +144,7 @@ def render_ic14(trader_id,key,*,prefix):
     st.markdown("**Impulse Catcher v1.4 · signalmixer**")
     st.caption("Juster parameterfanene under grafen. Kun eksplisitt lagring endrer LIVE-innstillinger.")
     with connect("pricegauger.db") as db:
-        saved=load_settings(db,trader_id,key)
+        saved=normalize_settings(load_settings(db,trader_id,key))
     root=f"{prefix}:ic14:{trader_id}:{key}"
     draft_key=root+":draft"
     # Independent draft survives optional panel visibility. No saved settings
@@ -343,7 +343,9 @@ def render_ic14(trader_id,key,*,prefix):
                     st.dataframe(executions,hide_index=True,use_container_width=True)
                 else:
                     st.info("Ingen registrerte utførelser i vinduet.")
-                st.caption("Utførelsestid er brokeravstemming, ikke eksakt fill-tid. Ingen fill-pris eller netto P/L antas.")
+                st.caption("Utførelsestid er brokeravstemming. Fill-pris og fill-tid vises kun når Saxo FinalFill allerede er arkivert. Ingen nye Saxo-kall eller antatt netto P/L.")
+                if executions:
+                    st.caption(f"Verifiserte fill-priser: {sum(r['fill_evidence']=='SAXO_FINAL_FILL' for r in executions)} / {len(executions)}.")
                 if state:
                     st.caption(f"Worker sist lagret: {state['last_quote_at']} · aktiv modell i lagret tilstand: {state['strategy_key']}")
             except Exception as exc:
