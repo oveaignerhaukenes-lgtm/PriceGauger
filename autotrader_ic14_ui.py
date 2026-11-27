@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 from database import connect
-from autotrader_impulse_catcher_v14 import SLIDERS,INDICATORS,load_settings,save_settings,config_v14,preview
+from autotrader_impulse_catcher_v14 import SLIDERS,INDICATORS,load_settings,save_settings,config_v14,preview,normalize_settings
 from autotrader_impulse_catcher_replay_v1 import prepare_impulse_quotes
 from autotrader_ic14_cost_preview_v1 import estimate_costs
 from signal_lab_native_charts_v1 import ic14_payload,indicator_payload,diagnostics_payload
@@ -144,7 +144,7 @@ def render_ic14(trader_id,key,*,prefix):
     st.markdown("**Impulse Catcher v1.4 · signalmixer**")
     st.caption("Juster parameterfanene under grafen. Kun eksplisitt lagring endrer LIVE-innstillinger.")
     with connect("pricegauger.db") as db:
-        saved=load_settings(db,trader_id,key)
+        saved=normalize_settings(load_settings(db,trader_id,key))
     root=f"{prefix}:ic14:{trader_id}:{key}"
     draft_key=root+":draft"
     # Independent draft survives optional panel visibility. No saved settings
@@ -316,6 +316,40 @@ def render_ic14(trader_id,key,*,prefix):
         with st.expander("Detaljert signalmeter",expanded=False):
             render_lightweight_live_chart_v1(diagnostics_payload(trace,key=root+":meters-native"),key=root+":meters-native")
         st.caption(f"{len(trace)} ekte 1s BBO-observasjoner. FLAT ved oppvarming; signalrespons, ikke Saxo-fills, regime-/modifier-simulering eller P/L.")
+        from zoneinfo import ZoneInfo
+        oslo=ZoneInfo("Europe/Oslo")
+        end_window=start+timedelta(minutes=minutes)
+        st.caption(f"Eksakt vindu (Oslo): {start.astimezone(oslo):%d.%m %H:%M:%S} – {end_window.astimezone(oslo):%d.%m %H:%M:%S}. Siste quote: {trace[-1]['at'].astimezone(oslo):%d.%m %H:%M:%S}.")
+        if research or values!=saved:
+            st.warning("Grafen viser et utkast/research, ikke de lagrede LIVE-parametrene.")
+        else:
+            st.caption("Grafen bruker nå lagrede parametre. Historiske LIVE-parametre er ikke dokumentert av dette.")
+        if st.toggle("Sammenlign med LIVE · samme tidsvindu",key=root+":live-audit"):
+            try:
+                from autotrader_ic14_live_comparison_v1 import load_evidence,compare_signals
+                events,executions,state=load_evidence(trader_id=trader_id,key=key,start=start,end=end_window)
+                saved_trace=trace if not research and values==saved else [r for r in preview(quotes,config_v14(cfg.side,saved)) if r["at"]>=start]
+                comparison,details_rows=compare_signals(saved_trace,events)
+                st.markdown("**Lagret konfigurasjon i dag mot historiske worker-signaler**")
+                st.caption("Samme instans, variant og tidsvindu. Treff krever identisk quote-tid og årsak. Historisk konfigurasjon, tidligere modelltilstand, ordreavvisning og manglende loggføring kan gi avvik. Worker-signaler er ikke fills.")
+                if comparison:
+                    st.dataframe(comparison,hide_index=True,use_container_width=True)
+                    with st.expander("Signal-for-signal"):
+                        st.dataframe(details_rows,hide_index=True,use_container_width=True)
+                else:
+                    st.info("Ingen signalhendelser i dette vinduet.")
+                st.markdown("**Avstemte broker-utførelser · alle strategier på instansen**")
+                if executions:
+                    st.dataframe(executions,hide_index=True,use_container_width=True)
+                else:
+                    st.info("Ingen registrerte utførelser i vinduet.")
+                st.caption("Utførelsestid er brokeravstemming. Fill-pris og fill-tid vises kun når Saxo FinalFill allerede er arkivert. Ingen nye Saxo-kall eller antatt netto P/L.")
+                if executions:
+                    st.caption(f"Verifiserte fill-priser: {sum(r['fill_evidence']=='SAXO_FINAL_FILL' for r in executions)} / {len(executions)}.")
+                if state:
+                    st.caption(f"Worker sist lagret: {state['last_quote_at']} · aktiv modell i lagret tilstand: {state['strategy_key']}")
+            except Exception as exc:
+                st.warning("LIVE-evidens utilgjengelig: "+type(exc).__name__)
     else:
         st.info("Ingen registrerte quotes i valgt periode.")
     if st.button("Lagre IC v1.4",key=root+":save",disabled=research or values==saved):
