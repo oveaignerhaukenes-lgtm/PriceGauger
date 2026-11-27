@@ -103,14 +103,14 @@ _V3_ACCOUNT_PALETTES = (
     ("#d8b4fe", "#7e22ce"),
     ("#67e8f9", "#0e7490"),
     ("#fcd34d", "#b45309"),
-    ("#86efac", "#15803d"),
+    ("#f0abfc", "#a21caf"),
     ("#fda4af", "#be123c"),
     ("#93c5fd", "#1d4ed8"),
     ("#fdba74", "#c2410c"),
     ("#a5b4fc", "#4338ca"),
     ("#5eead4", "#0f766e"),
     ("#f9a8d4", "#be185d"),
-    ("#bef264", "#4d7c0f"),
+    ("#fde68a", "#a16207"),
     ("#c4b5fd", "#6d28d9"),
 )
 
@@ -242,7 +242,7 @@ def _marker_payload(
             size = 1.2
         elif manual_saxo:
             # Manual broker activity stays explicit on the chart.
-            color = "#16a34a" if direction == "LONG" else "#dc2626"
+            color = "#38bdf8" if direction == "LONG" else "#c084fc"
             label = "M"
             size = 0.82
         else:
