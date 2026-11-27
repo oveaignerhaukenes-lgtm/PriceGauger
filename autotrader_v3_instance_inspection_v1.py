@@ -210,8 +210,8 @@ def build_instance_inspection_payload_v1(
         "chart_id":chart_id,
         "signature":f"v3-inspection:{timeframe_minutes}:3-panes",
         "market":kept[-1].market,"timeframe":f"{timeframe_minutes}m",
-        "height":650,"pane_order":["price","macd","stochastic"],
-        "price_panel_share":.56,
+        "height":420,"vertical_touch_drag":True,"pane_order":["price","macd","stochastic"],
+        "price_panel_share":.43,
         "candles":candle_data,
         "lines":[
             {"role":"macd","label":"MACD 12/26","pane":"macd","data":series(indicators.macd)},
@@ -331,7 +331,8 @@ def render_v3_instance_inspection_v1(instance, *, key_prefix="fleet") -> None:
         f"Saxo-verifisert pris: {sum(bool(x.get('execution_price')) for x in executions)} "
         f"av {len(executions)} handler. "
         "Hule markører er ANSLAG fra forrige ferdige bar, ikke utførelsespris. "
-        "Historikken kan omfatte tidligere strategier på samme instans."
+        "Historikken kan omfatte tidligere strategier på samme instans. "
+        "Dra langs prisaksen for vertikal zoom; scroll siden utenfor grafen."
     )
     if executions:
         with st.expander(f"Ordrehistorikk · {len(executions)} registrerte utførelser"):
