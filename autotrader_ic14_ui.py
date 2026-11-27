@@ -19,7 +19,7 @@ LABELS={
  "minimum_hold_seconds":"Minimum holdetid (s)","exhaustion_seconds":"Tid uten nytt ekstrempunkt (s)",
  "minimum_retrace_points":"Minste retrace (punkter)","retrace_fraction":"Retraceandel av løpet",
  "exit_noise_multiple":"Retrace / tickstøy","exit_confirmation_seconds":"Bekreft utgang (s)",
- "urgent_retrace_points":"Akutt motrykk (punkter)","cooldown_seconds":"Cooldown (s)",
+ "urgent_retrace_points":"Akutt motrykk (punkter)","cooldown_seconds":"Cooldown (s)","dynamic_hold_pct":"Dynamic Hold (%)","dynamic_hold_seconds":"Oppbygging av hold-toleranse (s)",
  "atr_period":"ATR-perioder (5s-barer)","atr_entry_multiple":"ATR-multippel entry (0 = av)",
  "atr_exit_multiple":"ATR-multippel exit (0 = av)"}
 NAMES=dict(velocity="Prishastighet",acceleration="Prisakselerasjon",efficiency="Retningseffektivitet",
@@ -209,6 +209,10 @@ def render_ic14(trader_id,key,*,prefix):
     cols=main_tab.columns(5)
     for col,(name,label,unit,help) in zip(cols,MAIN_CONTROLS):
         control(name,col,label+(" ("+unit+")" if unit!="%" else ""),help,percent=unit=="%")
+    dh,cd=main_tab.columns(2)
+    control("dynamic_hold_pct",dh,help="0 = eksisterende respons. 100 = opptil dobbelt normal retrace-toleranse og 20 s ekstra Release etter et etablert løp. Akutt exit overstyrer alltid.")
+    control("cooldown_seconds",cd,help="Ventetid etter exit før ny entry. Lengre pause reduserer reentries, men kan også miste nye løp.")
+    main_tab.caption("Dynamic Hold bygges opp når prisen setter nye ekstremer i riktig retning. Alder alene gir ikke mer toleranse. Akutt exit og datagap er uendret.")
     main_tab.caption("Entry Gain ↑ = mer følsom · Attack ↑ = tregere entry · Hold ↑ = mindre tidlig exit · Depth ↑ = mer retrace · Release ↑ = tregere normal exit. Auto justerer grunnterskelen; Gain er din manuelle trim.")
     with entry_tab:
         names=("min_impulse_points","fast_window","slow_window","relative_impulse_multiple","minimum_directional_efficiency","maximum_spread_points","spread_impulse_multiple")
@@ -217,7 +221,7 @@ def render_ic14(trader_id,key,*,prefix):
             control(name,cols[i%3])
     with exit_tab:
         cols=st.columns(3)
-        for i,name in enumerate(("exhaustion_seconds","minimum_retrace_points","exit_noise_multiple","urgent_retrace_points","cooldown_seconds")):
+        for i,name in enumerate(("exhaustion_seconds","minimum_retrace_points","exit_noise_multiple","urgent_retrace_points","dynamic_hold_seconds")):
             control(name,cols[i%3])
     with atr_tab:
         cols=st.columns(3)
@@ -297,6 +301,8 @@ def render_ic14(trader_id,key,*,prefix):
         x.metric("Normal exit-grense",pts(latest.get("normal_price")))
         h.metric("Hold igjen (s)",pts(latest.get("hold_remaining")))
         st.caption("Siste signalstatus: "+latest["gate"]+" · "+(latest.get("gate_detail") or "Se graf"))
+        if latest.get("dynamic_hold_strength") is not None:
+            main_tab.caption(f"Aktiv Dynamic Hold: {latest['dynamic_hold_strength']:.0%} · normal retrace {latest['dynamic_hold_base_threshold']:.2f} → {latest['exit_threshold']:.2f} p · effektiv Release {latest['dynamic_hold_release']:.1f} s · akutt grense {latest['urgent']:.2f} p")
         if latest.get("entry_confirm_elapsed") is not None and latest["gate"]=="ENTRY_CONFIRM":
             required=latest["entry_confirm_required"]
             st.progress(min(1.,latest["entry_confirm_elapsed"]/max(1,required)),text=f"Attack {latest['entry_confirm_elapsed']:.1f}/{required} s")
