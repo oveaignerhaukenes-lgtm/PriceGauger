@@ -3,10 +3,11 @@
 Generated from recent non-bot main commits. This is Git history only;
 it does not verify Railway deployments, Saxo fills or trading outcomes.
 
-Latest tracked main commit: `0356531b5d57b8f81452f0dc759afa80bc20f1fb`
+Latest tracked main commit: `2881f0721ae86711fd7b08924de22e844190a266`
 
 ## Recent main commits
 
+- 2026-11-27 [`2881f0721a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/2881f0721ae86711fd7b08924de22e844190a266) — Native TradingView navigation for Signal Studio and compact V3 inspection (#897)
 - 2026-11-27 [`0356531b5d`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/0356531b5d57b8f81452f0dc759afa80bc20f1fb) — IC1.4 · spread-aware preview and visible execution markers (#896)
 - 2026-11-26 [`32774abf4a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/32774abf4aa83cf6ef81b841eb75c53b01722175) — IC14 · mobile price overlay and exact entry rejection diagnostics (#894)
 - 2026-11-26 [`6d4b15dd3f`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/6d4b15dd3f871939a700921f34eb259002ad2ff6) — Signal Studio · dedicated IC14 controls and isolated DSP plugin lab (#893)
@@ -46,6 +47,5 @@ Latest tracked main commit: `0356531b5d57b8f81452f0dc759afa80bc20f1fb`
 - 2026-11-18 [`7e08d7539a`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/7e08d7539a7ba1c0d90ae4a84bea5f57443e915d) — Measure V3 LIVE time spent per phase without extra broker calls (#855)
 - 2026-11-18 [`b707bd4501`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/b707bd450105d5ffbfe31845d673a56a87838dc6) — Reduce Saxo LIVE REST load by sharing validated reference reads (#854)
 - 2026-11-18 [`9a8bf4d798`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/9a8bf4d7989dc1139a9490a53c39989238ec74e0) — Run V3 LIVE independently per account and veto stale quote entries (#853)
-- 2026-11-18 [`1d9c3673fe`](https://github.com/oveaignerhaukenes-lgtm/PriceGauger/commit/1d9c3673fe7f699f3f31bf20838e4fa2bac83446) — Impulse Catcher v1.2/v1.3: patient exits and regime PAPER comparison (#852)
 
 For priorities and decisions, read [PROJECT_STATE.md](../PROJECT_STATE.md).
