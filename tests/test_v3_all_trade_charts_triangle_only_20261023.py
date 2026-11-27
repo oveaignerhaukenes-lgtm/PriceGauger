@@ -31,7 +31,7 @@ def test_triangle_layer_is_time_price_anchored_and_only_for_v3_executions():
     assert "shape.setAttribute('fill',estimated ? 'none' : color)" in js
     assert "marker.price_verified === false" in js
     assert "stroke-dasharray" not in js
-    assert "shape.setAttribute('stroke-width',estimated ? '2.2' : '0.5')" in js
+    assert "shape.setAttribute('stroke-width',estimated ? '2.6' : '1.2')" in js
     assert "pointerEvents: 'none'" in js
     assert "subscribeVisibleLogicalRangeChange(schedule)" in js
     assert "unsubscribeVisibleLogicalRangeChange(schedule)" in js
@@ -75,6 +75,7 @@ def test_exact_inspection_closes_flat_as_square_and_new_opens_as_triangle():
     assert fills[0]["side"]=="SELL" and fills[0]["shape"]=="square"
     assert fills[0]["color"]=="#94a3b8" and fills[0]["position_direction"]=="FLAT"
     assert fills[1]["side"]=="BUY" and fills[1]["shape"]=="arrowUp"
+    assert fills[1]["color"]=="#38bdf8"
     assert all(x["text"]=="" and x["price"]>0 for x in fills)
     assert all(x["time"] in [b["time"] for b in payload["candles"]] for x in fills)
 
