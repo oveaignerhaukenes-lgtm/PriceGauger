@@ -229,7 +229,9 @@ def test_dynamic_hold_earns_tolerance_only_on_favorable_extension(side,sign):
         return m
     early=held(100)
     quote(early,1,100+sign*4)
-    assert quote(early,2,100+sign*.5).reason=="CONFIRMED_EXIT" or early.trace["dynamic_hold_strength"]<.02
+    assert quote(early,2,100+sign*.5) is None
+    assert early.trace["dynamic_hold_strength"]<.02
+    assert quote(early,3,100+sign*.5).reason=="CONFIRMED_EXIT"
     normal,adaptive=held(0),held(100)
     for i in range(1,121):
         for m in (normal,adaptive):
