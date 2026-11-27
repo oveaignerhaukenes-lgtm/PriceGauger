@@ -9,6 +9,7 @@ import streamlit as st
 from database import connect
 from autotrader_impulse_catcher_v14 import SLIDERS,INDICATORS,load_settings,save_settings,config_v14,preview
 from autotrader_impulse_catcher_replay_v1 import prepare_impulse_quotes
+from autotrader_ic14_cost_preview_v1 import estimate_costs
 
 LABELS={
  "fast_window":"Rask impulsvindu (s)","slow_window":"Langt impulsvindu (s)",
@@ -88,10 +89,10 @@ def make_preview_figure(data,*,side="LONG",details=False,arms=False,original=Fal
             fig.add_trace(go.Scatter(x=x,y=series(k),name=label,line=dict(color="#7dd3fc",dash="dot",width=1),connectgaps=False))
     entry=df[df.decision=="QUALIFIED_IMPULSE_V14"]
     exits=df[df.decision.notna() & (df.decision!="QUALIFIED_IMPULSE_V14")]
-    for subset,name,symbol,color in ((entry,"ENTRY","triangle-up" if side=="LONG" else "triangle-down","#16a34a"),
+    for subset,name,symbol,color in ((entry,"ENTRY","triangle-up" if side=="LONG" else "triangle-down","#38bdf8"),
                                      (exits,"EXIT","x","#ef4444")):
         fig.add_trace(go.Scatter(x=[t.isoformat() for t in subset["at"]],y=subset.mid,mode="markers",name=name,
-            marker=dict(symbol=symbol,size=11,color=color),text=subset.decision,hovertemplate="%{text}<br>%{y:.2f}<extra></extra>"))
+            marker=dict(symbol=symbol,size=13,color=color,line=dict(color="#111827",width=1)),text=subset.decision,hovertemplate="%{text}<br>%{y:.2f}<extra></extra>"))
     # Amber marks price ticks where entry confirmation is running.
     cand=df[df.gate=="ENTRY_CONFIRM"]
     fig.add_trace(go.Scatter(x=[t.isoformat() for t in cand["at"]],y=cand.mid,mode="markers",name="Attack · venter",
@@ -159,7 +160,11 @@ def render_ic14(trader_id,key,*,prefix):
         research=st.checkbox("Fri kurve · research",key=root+":research",help="Fjern minimumsgulvet kun i forhåndsvisningen. Kan ikke lagres til LIVE.")
         free_gain=st.slider("Fri Gain (punkter)",-200.,200.,0.,step=.5,key=root+":free-gain") if research else None
         if research:st.warning("Kun eksperiment. Lagring er sperret.")
-    main_tab,entry_tab,exit_tab,atr_tab,ind_tab,auto_tab=st.tabs(["Mixer","Entry","Hold / Exit","ATR","Indikatorer","Auto"])
+    cost_slot=st.container()
+    main_tab,entry_tab,exit_tab,atr_tab,ind_tab,auto_tab,cost_tab=st.tabs(["Mixer","Entry","Hold / Exit","ATR","Indikatorer","Auto","Kostnader"])
+    delay=cost_tab.slider("Antatt utførelsesforsinkelse per side (s)",0.,10.,3.,step=1.,key=root+":cost-delay")
+    extra=cost_tab.number_input("Ekstra rundturkostnad (indekspoeng)",min_value=0.,max_value=100.,value=0.,step=.5,key=root+":cost-extra")
+    cost_tab.caption("Spread måles ved hypotetiske utførelser, ikke fra en fast sats. Ekstra kostnad kan inkludere slippage/gebyrer som ikke er innebygd i bid/ask.")
     # Auto is a local draft operation. Never save or alter account authority.
     from autotrader_ic14_auto_v1 import propose_ic14
     auto_key=root+":auto"
@@ -252,10 +257,28 @@ def render_ic14(trader_id,key,*,prefix):
         cfg=replace(cfg,entry_gain_points=free_gain,research_unclamped_entry=True)
     end=datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=back)
     quotes,start=load_preview_quotes(minutes,end)
-    trace=[r for r in preview(quotes,cfg) if r["at"]>=start] if quotes else []
+    full_trace=preview(quotes,cfg) if quotes else []
+    trace=[r for r in full_trace if r["at"]>=start]
     if trace:
         chart_slot.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details,original=original,research=research),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
-        chart_slot.caption("Grå: pris · blå: entry-grense · rød: exit · grønn/oransje: HOLD · gul: Attack / avbrutt Attack.")
+        chart_slot.caption("▲/▼ blå: ENTRY-signal · × rød: EXIT-signal · grå: pris · blå linje: entry-grense · rød linje: exit · grønn/oransje: HOLD · gul: Attack.")
+        report=estimate_costs(quotes,full_trace,side=cfg.side,start=start,end=start+timedelta(minutes=minutes),delay_s=delay,extra_points=extra)
+        with cost_slot:
+            st.markdown("**Historisk kostnadsestimat · samme signaler som grafen**")
+            a,b,c,d,e=st.columns(5)
+            a.metric("Fullførte PAPER-handler",f"{len(report.trades)} / {report.signals}")
+            b.metric("Brutto signal (p)",f"{report.gross:+.1f}")
+            c.metric("Spread (p)",f"{report.spread:.1f}")
+            d.metric("Forsinkelsesdrag (p)",f"{report.delay_drag:+.1f}")
+            e.metric("Netto PAPER (p)",f"{report.net:+.1f}" if report.trades else "—")
+            st.caption(f"Median observert spread: {report.median_spread:.2f} p · {report.wins}/{len(report.trades)} netto positive · {delay:g}s antatt forsinkelse per side · {report.coverage:.0%} sekunddekning." if report.median_spread is not None else "Ingen spreadobservasjoner.")
+            if report.skipped or report.incomplete or report.carry_in or report.coverage<.8:
+                st.warning(f"Ufullstendig scenario: {report.skipped} signalpar uten gjennomførbare priser, {report.incomplete} uferdige signaler, posisjon fra før perioden: {report.carry_in}. Ikke en full portefølje-replay.")
+            st.caption("PAPER på historiske signaler, ingen garanti for fremtidig handelsfrekvens eller gevinst. Faktiske fills, kontoregler og ordrekvote er ikke simulert. Ekstra kostnad trekkes kun fra fullførte scenariohandler.")
+        with cost_tab:
+            st.caption(f"Ekstra kostnader totalt: {extra*len(report.trades):.2f} p. Positivt forsinkelsesdrag betyr tapt gevinst, negativt betyr bedre kurs.")
+            if report.trades:
+                st.dataframe([dict(entry=t.entry_signal,exit=t.exit_signal,brutto_p=t.signal_gross,spread_p=t.spread,forsinkelse_p=t.delay_drag,netto_p=t.net) for t in report.trades],hide_index=True,use_container_width=True)
         indicator_plot.plotly_chart(make_indicator_figure(trace,selected_ind,cfg),use_container_width=True,key=root+":indicator-meter")
         atr_plot.plotly_chart(make_indicator_figure(trace,"atr",cfg),use_container_width=True,key=root+":atr-meter")
         latest=trace[-1]
