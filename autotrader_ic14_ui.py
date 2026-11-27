@@ -10,6 +10,8 @@ from database import connect
 from autotrader_impulse_catcher_v14 import SLIDERS,INDICATORS,load_settings,save_settings,config_v14,preview
 from autotrader_impulse_catcher_replay_v1 import prepare_impulse_quotes
 from autotrader_ic14_cost_preview_v1 import estimate_costs
+from signal_lab_native_charts_v1 import ic14_payload,indicator_payload,diagnostics_payload
+from tradingdesk_ui.charts.lightweight.renderer import render_lightweight_live_chart_v1
 
 LABELS={
  "fast_window":"Rask impulsvindu (s)","slow_window":"Langt impulsvindu (s)",
@@ -264,8 +266,9 @@ def render_ic14(trader_id,key,*,prefix):
     full_trace=preview(quotes,cfg) if quotes else []
     trace=[r for r in full_trace if r["at"]>=start]
     if trace:
-        chart_slot.plotly_chart(make_preview_figure(trace,side=cfg.side,arms=arms,details=details,original=original,research=research),use_container_width=True,key=root+":preview",config={"displayModeBar":False,"scrollZoom":False})
-        chart_slot.caption("▲/▼ blå: ENTRY-signal · × rød: EXIT-signal · grå: pris · blå linje: entry-grense · rød linje: exit · grønn/oransje: HOLD · gul: Attack.")
+        with chart_slot:
+            render_lightweight_live_chart_v1(ic14_payload(trace,key=root+":preview-native",side=cfg.side,arms=arms,details=details,original=original,research=research),key=root+":preview-native")
+        chart_slot.caption("▲/▼ blå: ENTRY-signal · ■ rød: EXIT-signal · grå: pris · blå linje: entry-grense · rød linje: exit · grønn/oransje: HOLD · gul: Attack.")
         report=estimate_costs(quotes,full_trace,side=cfg.side,start=start,end=start+timedelta(minutes=minutes),delay_s=delay,extra_points=extra)
         with cost_slot:
             st.markdown("**Historisk kostnadsestimat · samme signaler som grafen**")
@@ -284,10 +287,12 @@ def render_ic14(trader_id,key,*,prefix):
             st.dataframe([{"Forsinkelse (s)":lag,"Fullførte":len(test.trades),"Brutto (p)":round(test.gross,2),"Spread (p)":round(test.spread,2),"Netto (p)":round(test.net,2) if test.trades else None,"Utelatt":test.skipped+test.incomplete} for lag in sorted({0.,3.,6.,delay}) for test in (estimate_costs(quotes,full_trace,side=cfg.side,start=start,end=start+timedelta(minutes=minutes),delay_s=lag,extra_points=extra),)],hide_index=True,use_container_width=True)
             if report.trades:
                 st.dataframe([dict(entry=t.entry_signal,exit=t.exit_signal,brutto_p=t.signal_gross,spread_p=t.spread,forsinkelse_p=t.delay_drag,netto_p=t.net) for t in report.trades],hide_index=True,use_container_width=True)
-        indicator_plot.plotly_chart(make_indicator_figure(trace,selected_ind,cfg),use_container_width=True,key=root+":indicator-meter")
-        atr_plot.plotly_chart(make_indicator_figure(trace,"atr",cfg),use_container_width=True,key=root+":atr-meter")
+        with indicator_plot:
+            render_lightweight_live_chart_v1(indicator_payload(trace,key=root+":indicator-native",indicator=selected_ind,label=NAMES[selected_ind],threshold=getattr(cfg,selected_ind+"_threshold",0.)),key=root+":indicator-native")
+        with atr_plot:
+            render_lightweight_live_chart_v1(indicator_payload(trace,key=root+":atr-native",indicator="atr",label="ATR"),key=root+":atr-native")
         latest=trace[-1]
-        st.caption("Signalstatistikk for valgt periode. Trykk på et punkt for detaljer.")
+        st.caption("Signalstatistikk for valgt periode. Dra langs prisaksen for vertikal zoom; dra langs tid for navigasjon. Scroll siden utenfor grafen.")
         attempts=[r for r in trace if r.get("entry_rejected")]
         entries=sum(r.get("decision")=="QUALIFIED_IMPULSE_V14" for r in trace)
         reasons=Counter(r["entry_reject_reason"] for r in attempts)
@@ -309,7 +314,7 @@ def render_ic14(trader_id,key,*,prefix):
         if latest.get("threshold_source"):
             st.caption(f"Aktiv impulsterskel: {latest['entry_threshold']:.2f} p · grunnterskel {latest['entry_base_threshold']:.2f} p · Gain faktisk {latest['entry_gain_applied']:+.2f} p · {latest['threshold_source']} · {latest['entry_window']}s arm")
         with st.expander("Detaljert signalmeter",expanded=False):
-            st.plotly_chart(make_diagnostics_figure(trace),use_container_width=True,key=root+":meters")
+            render_lightweight_live_chart_v1(diagnostics_payload(trace,key=root+":meters-native"),key=root+":meters-native")
         st.caption(f"{len(trace)} ekte 1s BBO-observasjoner. FLAT ved oppvarming; signalrespons, ikke Saxo-fills, regime-/modifier-simulering eller P/L.")
     else:
         st.info("Ingen registrerte quotes i valgt periode.")
