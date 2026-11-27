@@ -277,6 +277,7 @@ def render_ic14(trader_id,key,*,prefix):
             st.caption("PAPER på historiske signaler, ingen garanti for fremtidig handelsfrekvens eller gevinst. Faktiske fills, kontoregler og ordrekvote er ikke simulert. Ekstra kostnad trekkes kun fra fullførte scenariohandler.")
         with cost_tab:
             st.caption(f"Ekstra kostnader totalt: {extra*len(report.trades):.2f} p. Positivt forsinkelsesdrag betyr tapt gevinst, negativt betyr bedre kurs.")
+            st.dataframe([{"Forsinkelse (s)":lag,"Fullførte":len(test.trades),"Brutto (p)":round(test.gross,2),"Spread (p)":round(test.spread,2),"Netto (p)":round(test.net,2) if test.trades else None,"Utelatt":test.skipped+test.incomplete} for lag in sorted({0.,3.,6.,delay}) for test in (estimate_costs(quotes,full_trace,side=cfg.side,start=start,end=start+timedelta(minutes=minutes),delay_s=lag,extra_points=extra),)],hide_index=True,use_container_width=True)
             if report.trades:
                 st.dataframe([dict(entry=t.entry_signal,exit=t.exit_signal,brutto_p=t.signal_gross,spread_p=t.spread,forsinkelse_p=t.delay_drag,netto_p=t.net) for t in report.trades],hide_index=True,use_container_width=True)
         indicator_plot.plotly_chart(make_indicator_figure(trace,selected_ind,cfg),use_container_width=True,key=root+":indicator-meter")
