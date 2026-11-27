@@ -89,7 +89,7 @@ export default function(component) {
                 position: direction === 'LONG' ? 'belowBar' : 'aboveBar',
                 shape: direction === 'LONG' ? 'arrowUp' : 'arrowDown',
                 color: manualSaxo
-                    ? (direction === 'LONG' ? '#16a34a' : '#dc2626')
+                    ? (direction === 'LONG' ? '#38bdf8' : '#c084fc')
                     : '#0ea5e9',
                 text: manualSaxo ? 'M' : '',
                 size: manualSaxo ? 0.82 : (marker.active ? 1.0 : 0.72),
